@@ -67,7 +67,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                     Build a new insight and add it to this dashboard
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 sm:ml-auto flex-wrap">
+                            <div className="flex items-center gap-2 sm:ml-auto flex-wrap pr-0.5">
                                 {QUICK_CREATE_TYPES.map(({ type, icon: Icon, label }) => (
                                     <LemonButton
                                         key={type}

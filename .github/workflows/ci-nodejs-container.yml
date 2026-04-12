@@ -73,44 +73,15 @@ jobs:
             - name: Set up Depot CLI
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
-
-            - name: Login to ghcr.io
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
-
-            - name: Login to DockerHub
-              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-              with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-              with:
-                  images: |
-                      ghcr.io/posthog/posthog-node
-                      posthog/posthog-node
-                      ${{ steps.aws-ecr.outputs.registry }}/posthog-node
-                  tags: |
-                      type=ref,event=pr
-                      type=ref,event=branch
-                      type=sha
-                      type=raw,value=${{ github.sha }}
-                      type=raw,value=latest,enable={{is_default_branch}}
+                  image-name: posthog-node
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image
               id: build
@@ -121,8 +92,8 @@ jobs:
                   project: '00mrvlsdvh'
                   push: true
                   file: Dockerfile.node
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
@@ -130,7 +101,7 @@ jobs:
             - name: Container image digest
               env:
                   IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-                  IMAGE_REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
+                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
               run: |
                   echo "Image digest: $IMAGE_DIGEST"
                   echo "Full image reference: $IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST"

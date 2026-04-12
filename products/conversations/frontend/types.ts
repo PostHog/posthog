@@ -68,6 +68,7 @@ export interface Ticket {
     slack_team_id?: string | null
     email_subject?: string | null
     email_from?: string | null
+    email_to?: string | null
     person?: TicketPerson | null
     tags?: string[]
 }

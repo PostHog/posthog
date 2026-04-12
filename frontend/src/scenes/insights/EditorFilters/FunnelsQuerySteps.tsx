@@ -5,9 +5,8 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -32,10 +31,7 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
-    const isFunnelDwhStepPopoverVariant =
-        supportsDwhFunnels && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_STEP_UI] === 'popover'
+    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -63,21 +59,23 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            <div className="flex justify-between items-center">
-                <LemonLabel>Query Steps</LemonLabel>
+            {!editorPanelsEnabled && (
+                <div className="flex justify-between items-center">
+                    <LemonLabel>Query Steps</LemonLabel>
 
-                {(querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow && (
-                    <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                        <div className="flex items-center gap-2">
-                            <span className="text-secondary">Graph type</span>
-                            <FunnelVizType insightProps={insightProps} />
-                        </div>
-                    </Tooltip>
-                )}
-            </div>
+                    {(querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow && (
+                        <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
+                            <div className="flex items-center gap-2">
+                                <span className="text-secondary">Graph type</span>
+                                <FunnelVizType insightProps={insightProps} />
+                            </div>
+                        </Tooltip>
+                    )}
+                </div>
+            )}
             <div className="FunnelsQuerySteps">
                 <ActionFilter
-                    bordered
+                    bordered={!editorPanelsEnabled}
                     filters={actionFilters}
                     setFilters={setActionFilters}
                     typeKey={keyForInsightLogicProps('new')(insightProps)}
@@ -101,11 +99,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                         ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                         ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                         TaxonomicFilterGroupType.AutocaptureEvents,
-                        ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                        TaxonomicFilterGroupType.DataWarehouse,
                     ]}
-                    definitionPopoverRenderer={
-                        isFunnelDwhStepPopoverVariant ? FunnelDataWarehouseStepDefinitionPopover : undefined
-                    }
+                    definitionPopoverRenderer={FunnelDataWarehouseStepDefinitionPopover}
                     dataWarehousePopoverFields={[
                         {
                             key: 'id_field',
@@ -123,16 +119,18 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ]}
                 />
             </div>
-            <div className="mt-4 deprecated-space-y-4">
-                {showGroupsOptions && (
-                    <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
-                        <span>Aggregating by</span>
-                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
-                    </div>
-                )}
+            {!editorPanelsEnabled && (
+                <div className="mt-4 deprecated-space-y-4">
+                    {showGroupsOptions && (
+                        <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
+                            <span>Aggregating by</span>
+                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
+                        </div>
+                    )}
 
-                <FunnelConversionWindowFilter insightProps={insightProps} />
-            </div>
+                    <FunnelConversionWindowFilter insightProps={insightProps} />
+                </div>
+            )}
         </>
     )
 }

@@ -15,6 +15,7 @@ export interface RepoApi {
     repo_external_id: number
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
+    enable_pr_comments: boolean
     created_at: string
 }
 
@@ -41,6 +42,8 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
+    /** @nullable */
+    enable_pr_comments?: boolean | null
 }
 
 export interface RunSummaryApi {
@@ -154,14 +157,6 @@ export interface ApproveRunRequestInputApi {
 export interface AutoApproveResultApi {
     run: RunApi
     baseline_content: string
-}
-
-export type CompleteRunInputApiBaselineHashes = { [key: string]: string }
-
-export interface CompleteRunInputApi {
-    removed_identifiers?: string[]
-    unchanged_count?: number
-    baseline_hashes?: CompleteRunInputApiBaselineHashes
 }
 
 export interface SnapshotHistoryEntryApi {

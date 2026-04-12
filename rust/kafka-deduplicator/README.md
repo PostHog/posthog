@@ -101,23 +101,24 @@ Setting `CHECKPOINT_EXPORT_ENABLED=true` or `CHECKPOINT_IMPORT_ENABLED=true` is 
 
 Important checkpoint-related env vars:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `CHECKPOINT_INTERVAL_SECS` | Time between checkpoint submission cycles | `1800` |
-| `MAX_CONCURRENT_CHECKPOINTS` | Max in-flight checkpoint attempts per pod | `8` |
-| `LOCAL_CHECKPOINT_DIR` | Local checkpoint staging directory | `/tmp/local_checkpoints` |
-| `CHECKPOINT_FULL_UPLOAD_INTERVAL` | Full-upload cadence; `0` means always full | `0` |
-| `CHECKPOINT_IMPORT_ENABLED` | Enable checkpoint import | `false` |
-| `CHECKPOINT_EXPORT_ENABLED` | Enable checkpoint export | `false` |
-| `CHECKPOINT_IMPORT_ATTEMPT_DEPTH` | Number of recent checkpoints to try on import | `10` |
-| `CHECKPOINT_IMPORT_WINDOW_HOURS` | Recovery search window | `24` |
-| `MAX_CONCURRENT_CHECKPOINT_FILE_DOWNLOADS` | Max concurrent S3 file downloads during import | `200` |
-| `MAX_CONCURRENT_CHECKPOINT_FILE_UPLOADS` | Max concurrent S3 file uploads during export | `200` |
-| `CHECKPOINT_PARTITION_IMPORT_TIMEOUT_SECS` | End-to-end import timeout per partition | `240` |
-| `S3_OPERATION_TIMEOUT_SECS` | Total S3 op timeout including retries | `120` |
-| `S3_ATTEMPT_TIMEOUT_SECS` | Per-attempt S3 timeout | `20` |
-| `S3_MAX_RETRIES` | S3 retry count | `3` |
-| `S3_KEY_PREFIX` | Remote checkpoint prefix | `deduplication-checkpoints` |
+| Variable                                   | Description                                                                        | Default                     |
+| ------------------------------------------ | ---------------------------------------------------------------------------------- | --------------------------- |
+| `CHECKPOINT_INTERVAL_SECS`                 | Time between checkpoint submission cycles                                          | `1800`                      |
+| `MAX_CONCURRENT_CHECKPOINTS`               | Max in-flight checkpoint attempts per pod                                          | `8`                         |
+| `LOCAL_CHECKPOINT_DIR`                     | Local checkpoint staging directory                                                 | `/tmp/local_checkpoints`    |
+| `CHECKPOINT_FULL_UPLOAD_INTERVAL`          | Full-upload cadence; `0` means always full                                         | `0`                         |
+| `CHECKPOINT_IMPORT_ENABLED`                | Enable checkpoint import                                                           | `false`                     |
+| `CHECKPOINT_EXPORT_ENABLED`                | Enable checkpoint export                                                           | `false`                     |
+| `CHECKPOINT_IMPORT_ATTEMPT_DEPTH`          | Number of recent checkpoints to try on import                                      | `10`                        |
+| `CHECKPOINT_IMPORT_WINDOW_HOURS`           | Recovery search window                                                             | `24`                        |
+| `MAX_CONCURRENT_CHECKPOINT_FILE_DOWNLOADS` | Max concurrent S3 file downloads during import                                     | `40`                        |
+| `MAX_CONCURRENT_CHECKPOINT_FILE_UPLOADS`   | Max concurrent S3 file uploads during export                                       | `40`                        |
+| `MAX_UPLOAD_BUFFERS_PER_PARTITION`         | Max upload futures actively polled per partition; bounds memory (~18MB per buffer) | `40`                        |
+| `CHECKPOINT_PARTITION_IMPORT_TIMEOUT_SECS` | End-to-end import timeout per partition                                            | `240`                       |
+| `S3_OPERATION_TIMEOUT_SECS`                | Total S3 op timeout including retries                                              | `120`                       |
+| `S3_ATTEMPT_TIMEOUT_SECS`                  | Per-attempt S3 timeout                                                             | `20`                        |
+| `S3_MAX_RETRIES`                           | S3 retry count                                                                     | `3`                         |
+| `S3_KEY_PREFIX`                            | Remote checkpoint prefix                                                           | `deduplication-checkpoints` |
 
 ## Fail-open mode
 
@@ -136,31 +137,31 @@ This is intended as an operational kill switch when the deduplication subsystem 
 
 ### Kafka
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KAFKA_HOSTS` | Kafka bootstrap servers | `localhost:9092` |
-| `KAFKA_CONSUMER_GROUP` | Consumer group ID | `kafka-deduplicator` |
-| `KAFKA_CONSUMER_TOPIC` | Source topic | `events` |
-| `KAFKA_TLS` | Enable TLS for Kafka | `false` |
-| `KAFKA_MAX_POLL_INTERVAL_MS` | Max time between poll calls | `300000` |
+| Variable                     | Description                 | Default              |
+| ---------------------------- | --------------------------- | -------------------- |
+| `KAFKA_HOSTS`                | Kafka bootstrap servers     | `localhost:9092`     |
+| `KAFKA_CONSUMER_GROUP`       | Consumer group ID           | `kafka-deduplicator` |
+| `KAFKA_CONSUMER_TOPIC`       | Source topic                | `events`             |
+| `KAFKA_TLS`                  | Enable TLS for Kafka        | `false`              |
+| `KAFKA_MAX_POLL_INTERVAL_MS` | Max time between poll calls | `300000`             |
 
 ### Pipeline / outputs
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PIPELINE_TYPE` | `ingestion_events` or `clickhouse_events` | `ingestion_events` |
-| `OUTPUT_TOPIC` | Topic for forwarded unique events | unset |
-| `DUPLICATE_EVENTS_TOPIC` | Topic for duplicate-event publishing in ingestion-events pipeline | unset |
+| Variable                 | Description                                                       | Default            |
+| ------------------------ | ----------------------------------------------------------------- | ------------------ |
+| `PIPELINE_TYPE`          | `ingestion_events` or `clickhouse_events`                         | `ingestion_events` |
+| `OUTPUT_TOPIC`           | Topic for forwarded unique events                                 | unset              |
+| `DUPLICATE_EVENTS_TOPIC` | Topic for duplicate-event publishing in ingestion-events pipeline | unset              |
 
 ### Storage
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `STORE_PATH` | Base path for RocksDB stores | `/tmp/deduplication-store` |
-| `MAX_STORE_CAPACITY` | Capacity limit per store manager config; accepts raw bytes or units like `Gi` | `1073741824` |
-| `CLEANUP_INTERVAL_SECS` | Capacity cleanup interval | `120` |
-| `ORPHAN_CLEANUP_MIN_STALENESS_SECS` | Minimum staleness before orphan cleanup | `900` |
-| `REBALANCE_CLEANUP_PARALLELISM` | Max parallel directory deletions during rebalance cleanup | `16` |
+| Variable                            | Description                                                                   | Default                    |
+| ----------------------------------- | ----------------------------------------------------------------------------- | -------------------------- |
+| `STORE_PATH`                        | Base path for RocksDB stores                                                  | `/tmp/deduplication-store` |
+| `MAX_STORE_CAPACITY`                | Capacity limit per store manager config; accepts raw bytes or units like `Gi` | `1073741824`               |
+| `CLEANUP_INTERVAL_SECS`             | Capacity cleanup interval                                                     | `120`                      |
+| `ORPHAN_CLEANUP_MIN_STALENESS_SECS` | Minimum staleness before orphan cleanup                                       | `900`                      |
+| `REBALANCE_CLEANUP_PARALLELISM`     | Max parallel directory deletions during rebalance cleanup                     | `16`                       |
 
 ### RocksDB tuning
 

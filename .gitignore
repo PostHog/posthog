@@ -1,6 +1,7 @@
 # Misc stuff, should be categorized/explained in the future
 # This is sorted in ascending order, keep it that way if you wanna please
 # people's OCDs ^_^
+.cache
 .planning
 .pr-review-diff.patch
 __emails__
@@ -106,6 +107,7 @@ playwright/.auth/
 playwright/playwright-report/
 playwright/test-results/
 test-results/
+.playwright-mcp/
 
 # Dagster
 .dagster_home/*
@@ -144,6 +146,7 @@ posthog/management/commands/clear_demo_data.py
 # Ignore Claude Code settings
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml
@@ -166,6 +169,7 @@ bin/phrocs
 # Claude Code review outputs
 CODE_DEBUGGING_SESSION.md
 CODE_REVIEW.md
+QAREPORT.md
 
 # SeaweedFS data + migration checkpoint
 .migration-checkpoint.json
@@ -193,3 +197,4 @@ junit.xml
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
+.pnpm-store

@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -198,3 +199,81 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         listed_insights = self.dashboard_api.list_insights()
         assert listed_insights["count"] == 2
+
+    @parameterized.expand(
+        [
+            (
+                "already_wrapped_insight_viz_node",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                        "dateRange": {"date_from": "-7d"},
+                        "interval": "day",
+                    },
+                },
+                "InsightVizNode",
+                None,
+            ),
+            (
+                "raw_trends_query",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "interval": "day",
+                },
+                "InsightVizNode",
+                "TrendsQuery",
+            ),
+            (
+                "raw_hogql_query",
+                {"kind": "HogQLQuery", "query": "select event from events limit 1"},
+                "DataVisualizationNode",
+                "HogQLQuery",
+            ),
+            (
+                "already_wrapped_data_visualization_node",
+                {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select event from events limit 1"},
+                },
+                "DataVisualizationNode",
+                "HogQLQuery",
+            ),
+        ]
+    )
+    def test_mcp_create_normalizes_query(self, _name, query, expected_kind, expected_source_kind) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"name": "Test insight", "favorited": False, "saved": True, "query": query},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["query"]["kind"] == expected_kind
+        if expected_source_kind is not None:
+            assert response.json()["query"]["source"]["kind"] == expected_source_kind
+
+    def test_mcp_create_rejects_disallowed_query_kind(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={
+                "name": "Unsupported insight",
+                "favorited": False,
+                "saved": True,
+                "query": {
+                    "kind": "ErrorTrackingQuery",
+                    "dateRange": {"date_from": "-7d"},
+                    "orderBy": "last_seen",
+                    "volumeResolution": 60,
+                },
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        error_body = str(response.json())
+        assert "This query can't be saved" in error_body
+        assert "Traceback" not in error_body

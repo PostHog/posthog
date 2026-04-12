@@ -1,12 +1,15 @@
 import json
+import pickle
 
 from unittest.mock import patch
 
 from django.test import TestCase
 
 import redis as redis_lib
+import zstandard as zstd
+from parameterized import parameterized
 
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
@@ -783,3 +786,109 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert not self.redis.exists(key)
         assert result.parse_errors >= 1
         assert result.stale_found >= 1
+
+    # --- Non-integer team_id in secret entries ---
+
+    def test_secret_token_with_non_integer_team_id_is_removed(self):
+        key = self._set_cache(
+            "sha256$secret_non_int_team_id",
+            {"type": "secret", "team_id": "not_a_number"},
+        )
+
+        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert not self.redis.exists(key)
+        assert result.parse_errors > 0
+        assert result.stale_by_type["secret"] > 0
+
+    def test_project_secret_token_with_non_integer_team_id_is_removed(self):
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="test-psak-non-int-tid",
+            secure_value=hash_key_value("phx_psak_non_int_tid", mode="sha256"),
+            scopes=["feature_flag:read"],
+            mask_value="phx_...ntid",
+        )
+
+        key = self._set_cache(
+            psak.secure_value,
+            {
+                "type": "project_secret",
+                "team_id": "not_a_number",
+                "key_id": str(psak.id),
+                "scopes": ["feature_flag:read"],
+            },
+        )
+
+        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert not self.redis.exists(key)
+        assert result.parse_errors > 0
+
+    # --- OrganizationMembership DB error ---
+
+    def test_personal_entry_org_membership_db_error_is_counted(self):
+        pak = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test-pak-membership-error",
+            secure_value=hash_key_value("phx_pak_membership_error", mode="sha256"),
+            scopes=["feature_flag:read"],
+        )
+        key = self._set_cache(
+            pak.secure_value,
+            {
+                "type": "personal",
+                "user_id": self.user.id,
+                "key_id": str(pak.id),
+                "org_ids": [str(self.org.id)],
+                "scoped_teams": None,
+                "scoped_orgs": None,
+                "scopes": ["feature_flag:read"],
+            },
+        )
+
+        with patch.object(OrganizationMembership.objects, "filter", side_effect=Exception("DB down")):
+            result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert result.db_errors >= 1
+        # Must NOT delete the entry when staleness can't be determined
+        assert self.redis.exists(key)
+
+    # --- Soft time limit early exit ---
+
+    def test_soft_time_limit_stops_early(self):
+        for i in range(20):
+            self._set_cache(
+                f"sha256$time_limit_{i:02d}",
+                {"type": "secret", "team_id": 9999900 + i},
+            )
+
+        result = verify_and_fix_auth_token_cache(
+            self.redis,
+            batch_size=5,
+            soft_limit_seconds=0,
+        )
+
+        assert result.total_scanned < 20
+
+    # --- Pickle-wrapped entries (production format) ---
+
+    @parameterized.expand(
+        [
+            ("pickle_json", lambda data: pickle.dumps(json.dumps(data))),
+            ("pickle_dict", lambda data: pickle.dumps(data)),
+            ("zstd_pickle_json", lambda data: zstd.ZstdCompressor().compress(pickle.dumps(json.dumps(data)))),
+        ]
+    )
+    def test_serialized_cache_entry_is_deserialized(self, _name, serialize):
+        token_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
+        key = f"{TOKEN_CACHE_PREFIX}{token_hash}"
+        data = {"type": "secret", "team_id": self.team.id}
+        self.redis.setex(key, 3600, serialize(data))
+        self._cleanup_keys.append(key)
+
+        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert self.redis.exists(key)
+        assert result.valid >= 1
+        assert result.parse_errors == 0

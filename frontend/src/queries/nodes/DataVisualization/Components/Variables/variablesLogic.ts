@@ -45,7 +45,7 @@ export const variablesLogic = kea<variablesLogicType>([
     props({ key: '' } as VariablesLogicProps),
     key((props) => props.key),
     connect(() => ({
-        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['getVariables']],
+        actions: [dataVisualizationLogic, ['setQuery', 'loadData'], variableDataLogic, ['loadVariables']],
         values: [dataVisualizationLogic, ['query'], variableDataLogic, ['variables', 'variablesLoading']],
     })),
     actions(({ values }) => ({

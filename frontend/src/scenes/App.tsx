@@ -149,6 +149,9 @@ function AppScene(): JSX.Element | null {
             <Command />
             <PostOnboardingModal />
             <ImpersonationNotice />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
+                <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
+            )}
         </div>
     )
 }

@@ -3,10 +3,13 @@ import './DefinitionPopover.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonButton, LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -43,11 +46,15 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, type, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
+    const { state, type, definition, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
         useValues(definitionPopoverLogic)
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
+    const { taxonomicGroups } = useValues(taxonomicFilterLogic)
+    const { isPinned } = useValues(taxonomicFilterPinnedPropertiesLogic)
+    const { togglePin } = useActions(taxonomicFilterPinnedPropertiesLogic)
+
     const onEdit = (): void => {
         setPopoverState(DefinitionPopoverState.Edit)
         _onEdit?.()
@@ -59,14 +66,28 @@ function Header({
         reportDataManagementDefinitionClickView(type)
     }
 
+    const pinValue = definition?.name ?? null
+    const groupType = type as TaxonomicFilterGroupType
+    const groupName = taxonomicGroups.find((g) => g.type === groupType)?.name ?? type
+    const pinned = isPinned(groupType, pinValue)
+
     return (
         <div className="definition-popover-header">
-            <div className="definition-popover-header-row">
-                <div className="definition-popover-header-row-title">
-                    {state === DefinitionPopoverState.Edit ? editHeaderTitle : headerTitle}
-                </div>
+            <div className="definition-popover-header-actions flex items-center justify-between mb-1">
+                {pinValue !== null && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        onClick={() => togglePin(groupType, groupName, pinValue, definition)}
+                        tooltip="Pin items to keep them available for quick access"
+                        data-attr="definition-popover-pin"
+                    >
+                        {pinned ? 'Unpin' : 'Pin'}
+                    </LemonButton>
+                )}
                 {state === DefinitionPopoverState.View && (
-                    <div className="definition-popover-header-row-buttons click-outside-block">
+                    <div className="definition-popover-header-row-buttons flex gap-4 text-[0.8125rem] click-outside-block">
                         {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (
                             <Link
@@ -79,6 +100,11 @@ function Header({
                         )}
                     </div>
                 )}
+            </div>
+            <div className="definition-popover-header-row">
+                <div className="definition-popover-header-row-title">
+                    {state === DefinitionPopoverState.Edit ? editHeaderTitle : headerTitle}
+                </div>
             </div>
             <div className="definition-popover-title">
                 {icon}

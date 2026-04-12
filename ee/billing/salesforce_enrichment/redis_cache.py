@@ -13,8 +13,11 @@ def _compress_redis_data(input_data: str) -> bytes:
     return gzip.compress(input_data.encode("utf-8"))
 
 
-def _decompress_redis_data(raw_redis_data: bytes) -> str:
-    return gzip.decompress(raw_redis_data).decode("utf-8")
+def _decompress_and_parse_redis_data(raw_redis_data: bytes) -> list[dict[str, Any]]:
+    parsed = json.loads(gzip.decompress(raw_redis_data).decode("utf-8"))
+    if not isinstance(parsed, list):
+        raise TypeError(f"Expected list from Redis cache, got {type(parsed).__name__}")
+    return parsed
 
 
 async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[str, Any]] | None:
@@ -30,8 +33,7 @@ async def _get_cached_list(cache_key: str, timeout: float = 30.0) -> list[dict[s
         if not raw_redis_data:
             return None
 
-        data_json = _decompress_redis_data(raw_redis_data)
-        return json.loads(data_json)
+        return _decompress_and_parse_redis_data(raw_redis_data)
 
     except TimeoutError:
         capture_exception(TimeoutError(f"Redis operation timed out after {timeout}s for key {cache_key}"))
@@ -87,17 +89,60 @@ async def get_cached_accounts_count() -> int | None:
     return len(all_accounts) if all_accounts is not None else None
 
 
+_ORG_MAPPINGS_PIPELINE_BATCH = 5000  # Entries per RPUSH call during list population
+
+
 async def store_org_mappings_in_redis(
     mappings_data: list[dict[str, Any]],
     ttl: int = REDIS_TTL_SECONDS,
 ) -> None:
-    """Store Salesforce org mappings in Redis with gzip compression."""
+    """Store Salesforce org mappings as a Redis List for efficient pagination.
+
+    Each mapping is stored as a separate JSON entry so LRANGE can return
+    arbitrary pages without decompressing the entire dataset.
+    """
     redis_client = get_async_client()
+    pipe = await redis_client.pipeline()
+    pipe.delete(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
 
-    mappings_json = json.dumps(mappings_data, default=str)
-    compressed_data = _compress_redis_data(mappings_json)
+    for i in range(0, len(mappings_data), _ORG_MAPPINGS_PIPELINE_BATCH):
+        batch = mappings_data[i : i + _ORG_MAPPINGS_PIPELINE_BATCH]
+        pipe.rpush(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, *[json.dumps(m, default=str) for m in batch])
 
-    await redis_client.setex(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, ttl, compressed_data)
+    pipe.expire(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, ttl)
+    await pipe.execute()
+
+
+async def _lrange_json_or_none(key: str, start: int, end: int) -> list[dict[str, Any]] | None:
+    """Fetch a range from a Redis List, returning None on cache miss or error."""
+    try:
+        redis_client = get_async_client()
+        raw_items = await redis_client.lrange(key, start, end)
+
+        if not raw_items:
+            return None
+
+        return [json.loads(item) for item in raw_items]
+
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
+async def get_org_mappings_page_from_redis(
+    offset: int = 0,
+    limit: int = 10000,
+) -> list[dict[str, Any]] | None:
+    """Retrieve a page of org mappings via LRANGE — no decompression needed.
+
+    Args:
+        offset: Starting index for pagination
+        limit: Number of mappings to retrieve
+
+    Returns:
+        List of mapping dictionaries, empty list if past end, or None if key missing
+    """
+    return await _lrange_json_or_none(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, offset + limit - 1)
 
 
 async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:
@@ -106,14 +151,19 @@ async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:
     Returns:
         List of mapping dictionaries, or None if cache miss/error
     """
-    return await _get_cached_list(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
+    return await _lrange_json_or_none(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, 0, -1)
 
 
 async def get_cached_org_mappings_count() -> int | None:
-    """Get the total count of cached org mappings.
+    """Get the total count of cached org mappings via LLEN (O(1)).
 
     Returns:
-        Total number of cached mappings, or None if cache miss/error
+        Total number of cached mappings, or None if key missing
     """
-    all_mappings = await _get_cached_list(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
-    return len(all_mappings) if all_mappings is not None else None
+    try:
+        redis_client = get_async_client()
+        count = await redis_client.llen(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
+        return count if count > 0 else None
+    except Exception as e:
+        capture_exception(e)
+        return None

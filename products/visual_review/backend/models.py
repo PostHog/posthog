@@ -30,6 +30,11 @@ class Repo(models.Model):
     # e.g., {"storybook": ".storybook/snapshots.yml", "playwright": "playwright/snapshots.yml"}
     baseline_file_paths = models.JSONField(default=dict, blank=True)
 
+    # Whether to post a PR comment prompting reviewers when visual changes are detected.
+    # Default off — teams opt in when they want commenting, and it stays off during
+    # auto-approve rollout phases where comments would be noise.
+    enable_pr_comments = models.BooleanField(default=False)
+
     # HMAC signing keys for baseline hash verification: {kid: secret_hex}
     # Supports key rotation — new signatures use the latest key, verification
     # accepts any valid kid. Auto-generated on first use.

@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, DataModelingSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -24,7 +24,7 @@ export interface EndpointSceneLogicProps {
 }
 
 // Query types that support user-configurable breakdown filtering
-const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.FunnelsQuery, NodeKind.RetentionQuery])
+const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
 
 function getSingleBreakdownProperty(breakdownFilter: any): string | null {
     if (breakdownFilter?.breakdown) {
@@ -136,12 +136,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setPayloadJson: (value: string) => ({ value }),
         setPayloadJsonError: (error: string | null) => ({ error }),
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setSyncFrequency: (syncFrequency: DataModelingSyncInterval | null) => ({ syncFrequency }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
         setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
         resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
+        setDebugMode: (debugMode: boolean) => ({ debugMode }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
@@ -184,7 +185,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             },
         ],
         syncFrequency: [
-            '24hour' as DataWarehouseSyncInterval | null,
+            '24hour' as DataModelingSyncInterval | null,
             {
                 setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
                 loadEndpoint: () => null,
@@ -210,6 +211,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 setViewingVersion: (_, { version }) => version,
                 // Reset when switching endpoints; loadEndpointSuccess listener restores from URL if needed
                 loadEndpoint: () => null,
+            },
+        ],
+        debugMode: [
+            false,
+            {
+                setDebugMode: (_, { debugMode }: { debugMode: boolean }) => debugMode,
+                loadEndpoint: () => false,
             },
         ],
         bucketOverrides: [

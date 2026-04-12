@@ -20,13 +20,15 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 
-from products.experiments.backend.models.experiment import ExperimentSavedMetric
+from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
+    ExperimentSavedMetric,
+    saved_metric_has_legacy_query,
+)
 
 
 class ExperimentSavedMetricService:
     """Single source of truth for experiment saved metric business logic."""
-
-    LEGACY_QUERY_KINDS = {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
 
     def __init__(self, team: Team, user: Any):
         self.team = team
@@ -39,7 +41,7 @@ class ExperimentSavedMetricService:
             raise ValidationError("Query is required to create a saved metric")
 
         kind = query.get("kind")
-        if kind in cls.LEGACY_QUERY_KINDS:
+        if kind in LEGACY_METRIC_KINDS:
             raise ValidationError(
                 f"Legacy metric kind '{kind}' is no longer supported for new saved metrics. "
                 "Use 'ExperimentMetric' instead."
@@ -94,7 +96,7 @@ class ExperimentSavedMetricService:
     def update_saved_metric(self, saved_metric: ExperimentSavedMetric, update_data: dict) -> ExperimentSavedMetric:
         """Update a saved metric with full business-logic validation."""
         self._assert_team_ownership(saved_metric)
-        self._validate_update_payload(update_data)
+        self._validate_update_payload(update_data, saved_metric)
 
         if "query" in update_data:
             existing_uuid = saved_metric.query.get("uuid") if saved_metric.query else None
@@ -136,7 +138,14 @@ class ExperimentSavedMetricService:
         return normalized_query
 
     @staticmethod
-    def _validate_update_payload(update_data: dict) -> None:
+    def _validate_update_payload(update_data: dict, saved_metric: ExperimentSavedMetric) -> None:
+        # Block all updates to legacy saved metrics
+        if saved_metric_has_legacy_query(saved_metric):
+            raise ValidationError(
+                "This saved metric uses a legacy query format and cannot be updated. "
+                "Please create a new saved metric with the ExperimentMetric format instead."
+            )
+
         expected_keys = {
             "name",
             "description",

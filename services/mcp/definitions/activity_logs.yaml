@@ -6,7 +6,8 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Activity logs
 feature: activity_logs
-url_prefix: /activity
+url_prefix: /activity-logs
+ui_apps: {}
 tools:
     activity-logs-list:
         operation: activity_log_list
@@ -20,14 +21,11 @@ tools:
         list: true
         title: List activity logs
         description: >
-            List recent activity logs for the project. Shows who changed what and when —
-            includes feature flag updates, insight creations, dashboard modifications,
-            experiment launches, and other project changes. Use scope parameter to filter
-            by resource type (e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment",
-            "Survey", "Cohort"). Use item_id to filter changes for a specific resource.
-            Returns results ordered by most recent first. Each result includes: user (who
-            performed the action with first_name and email), activity (e.g. "created",
-            "updated", "deleted"), scope (entity type like "FeatureFlag"), item_id (ID of
-            the affected resource), detail (structured JSON with name, short_id, and a
-            changes array where each change has type, action, field, before, and after
-            values), and created_at timestamp.
+            List recent activity logs for the project. Shows who changed what and when — includes feature flag updates,
+            insight creations, dashboard modifications, experiment launches, and other project changes. Use scope
+            parameter to filter by resource type (e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment", "Survey",
+            "Cohort"). Use item_id to filter changes for a specific resource. Returns results ordered by most recent
+            first. Each result includes: user (who performed the action with first_name and email), activity (e.g.
+            "created", "updated", "deleted"), scope (entity type like "FeatureFlag"), item_id (ID of the affected
+            resource), detail (structured JSON with name, short_id, and a changes array where each change has type,
+            action, field, before, and after values), and created_at timestamp.

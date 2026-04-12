@@ -12,7 +12,7 @@ import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const testUniqueKey = 'testUniqueKey'
 
-const initialQuery: DataVisualizationNode = {
+const makeInitialQuery = (): DataVisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -51,12 +51,12 @@ const initialQuery: DataVisualizationNode = {
         conditionalFormatting: [],
     },
     chartSettings: { goalLines: undefined },
-}
+})
 
 // globalQuery represents the query object that is passed into the data
 // visualization logic and series breakdown logic it is modified by calls to
 // setQuery so we want to ensure this is updated correctly
-let globalQuery: DataVisualizationNode = { ...initialQuery }
+let globalQuery: DataVisualizationNode = makeInitialQuery()
 
 const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     key: testUniqueKey,
@@ -105,7 +105,7 @@ describe('seriesBreakdownLogic', () => {
         featureFlagLogic.mount()
 
         // ensure we reset the globalQuery state before each test
-        globalQuery = { ...initialQuery }
+        globalQuery = makeInitialQuery()
         dummyDataVisualizationLogicProps.query = globalQuery
 
         builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
@@ -127,7 +127,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: undefined,
@@ -151,7 +151,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: undefined,
@@ -171,7 +171,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'test_column',
@@ -180,10 +180,14 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('adds a series breakdown after mount if one already selected in query', async () => {
+        builtDataVizLogic.unmount()
         remountWithQuery({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: { goalLines: undefined, seriesBreakdownColumn: 'test_column' },
         })
+        dummyDataVisualizationLogicProps.query = globalQuery
+        builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
+        builtDataVizLogic.mount()
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
@@ -194,7 +198,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'test_column',
@@ -215,7 +219,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: undefined,
@@ -236,7 +240,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             tableSettings: {
                 columns: [],
                 conditionalFormatting: [],
@@ -261,7 +265,7 @@ describe('seriesBreakdownLogic', () => {
 
     it('loads stored breakdown colors from existing query on mount', async () => {
         remountWithQuery({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'browser',
@@ -291,7 +295,7 @@ describe('seriesBreakdownLogic', () => {
         })
 
         expect(globalQuery).toEqual({
-            ...initialQuery,
+            ...makeInitialQuery(),
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: undefined,
@@ -371,6 +375,12 @@ describe('seriesBreakdownLogic', () => {
             ],
         })
 
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+
+        logic.actions.addSeriesBreakdown('browser')
+
         await expectLogic(logic).toMatchValues({
             breakdownColumnValues: ['Safari', 'Firefox', 'Chrome'],
             seriesBreakdownData: {
@@ -403,6 +413,133 @@ describe('seriesBreakdownLogic', () => {
                     {
                         name: 'Chrome',
                         data: [59, 173, 2218],
+                        settings: {
+                            formatting: { prefix: '', suffix: '' },
+                            display: { displayType: undefined, yAxisPosition: undefined },
+                        },
+                    },
+                ],
+                isUnaggregated: false,
+            },
+        })
+    })
+
+    it('preserves missing breakdown buckets as null when showNullsAsZero is disabled', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        const builtDataNodeLogic = dataNodeLogic({
+            key: testUniqueKey,
+            query: globalQuery.source,
+        })
+        builtDataNodeLogic.mount()
+        builtDataNodeLogic.actions.setResponse({
+            results: [
+                ['signed_up', 'Safari', 11],
+                ['logged_out', 'Safari', 32],
+                ['downloaded_file', 'Firefox', 820],
+            ],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'Nullable(UInt64)'],
+            ],
+        })
+
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+
+        logic.actions.addSeriesBreakdown('browser')
+
+        await expectLogic(logic).toMatchValues({
+            seriesBreakdownData: {
+                xData: {
+                    column: {
+                        name: 'event',
+                        type: { name: 'STRING', isNumerical: false },
+                        label: 'event - String',
+                        dataIndex: 0,
+                    },
+                    data: ['signed_up', 'logged_out', 'downloaded_file'],
+                },
+                seriesData: [
+                    {
+                        name: 'Safari',
+                        data: [11, 32, null],
+                        settings: {
+                            formatting: { prefix: '', suffix: '' },
+                            display: { displayType: undefined, yAxisPosition: undefined },
+                        },
+                    },
+                    {
+                        name: 'Firefox',
+                        data: [null, null, 820],
+                        settings: {
+                            formatting: { prefix: '', suffix: '' },
+                            display: { displayType: undefined, yAxisPosition: undefined },
+                        },
+                    },
+                ],
+                isUnaggregated: false,
+            },
+        })
+    })
+
+    it('renders breakdown nulls as zero when showNullsAsZero is enabled', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        const builtDataNodeLogic = dataNodeLogic({
+            key: testUniqueKey,
+            query: globalQuery.source,
+        })
+        builtDataNodeLogic.mount()
+        builtDataNodeLogic.actions.setResponse({
+            results: [
+                ['signed_up', 'Safari', null],
+                ['logged_out', 'Safari', 32],
+                ['downloaded_file', 'Firefox', 820],
+            ],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'Nullable(UInt64)'],
+            ],
+        })
+
+        builtDataVizLogic.actions.updateChartSettings({ showNullsAsZero: true })
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+
+        logic.actions.addSeriesBreakdown('browser')
+
+        await expectLogic(logic).toMatchValues({
+            seriesBreakdownData: {
+                xData: {
+                    column: {
+                        name: 'event',
+                        type: { name: 'STRING', isNumerical: false },
+                        label: 'event - String',
+                        dataIndex: 0,
+                    },
+                    data: ['signed_up', 'logged_out', 'downloaded_file'],
+                },
+                seriesData: [
+                    {
+                        name: 'Safari',
+                        data: [0, 32, 0],
+                        settings: {
+                            formatting: { prefix: '', suffix: '' },
+                            display: { displayType: undefined, yAxisPosition: undefined },
+                        },
+                    },
+                    {
+                        name: 'Firefox',
+                        data: [0, 0, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
                             display: { color: undefined, displayType: undefined, yAxisPosition: undefined },

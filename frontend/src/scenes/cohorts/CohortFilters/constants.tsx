@@ -3,6 +3,7 @@ import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import {
     CohortEventFiltersField,
+    CohortMathOperatorField,
     CohortNumberField,
     CohortPersonPropertiesValuesField,
     CohortRelativeAndExactTimeField,
@@ -932,15 +933,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.DateOperators]} />
     },
     [FilterType.MathOperator]: function _renderField(p) {
-        return (
-            <CohortSelectorField
-                {...p}
-                fieldOptionGroupTypes={[
-                    FieldOptionsType.CohortMathOperators,
-                    FieldOptionsType.SingleFieldDateOperators,
-                ]}
-            />
-        )
+        return <CohortMathOperatorField {...p} />
     },
     [FilterType.EventsAndActionsMathOperator]: function _renderField(p) {
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.EventsAndActionsMathOperators]} />

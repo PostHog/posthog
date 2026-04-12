@@ -1,7 +1,7 @@
 from typing import Any, Literal, Self, Union
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, ValidationError, create_model
 
 from posthog.models import Team, User
 
@@ -30,6 +30,17 @@ Each event, action, and entity has its own data schema. You must verify that spe
 Events or properties starting from "$" are system properties automatically captured by SDKs.
 Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.
 When reading events, you can paginate using `limit` (1-500, default 500) and `offset` (default 0) on the ReadEvents query. If the response indicates more events are available, increment the offset to fetch subsequent pages.
+
+# Query types
+
+Use exact `kind` values and field names as shown below:
+- kind: "events" — list available events. Optional: `limit` (1-500), `offset`.
+- kind: "event_properties" — properties for an event. Required: `event_name`.
+- kind: "event_property_values" — sample values for an event property. Required: `event_name`, `property_name`.
+- kind: "entity_properties" — properties for an entity. Required: `entity` (one of "person", "session", or a group name).
+- kind: "entity_property_values" — sample values for an entity property. Required: `entity`, `property_name`.
+- kind: "action_properties" — properties for an action. Required: `action_id`.
+- kind: "action_property_values" — sample values for an action property. Required: `action_id`, `property_name`.
 
 # Examples of when to use the read_taxonomy tool
 
@@ -73,7 +84,11 @@ class ReadTaxonomyTool(MaxTool):
 
     def _run_impl(self, query: dict[str, Any]) -> tuple[str, Any]:
         # Langchain can't parse a dynamically created Pydantic model, so we need to additionally validate the query here.
-        validated_query = ReadTaxonomyToolArgs(query=query).query
+        try:
+            validated_query = ReadTaxonomyToolArgs(query=query).query
+        except ValidationError as e:
+            raise MaxToolRetryableError(str(e))
+
         toolkit = TaxonomyAgentToolkit(self._team)
 
         try:

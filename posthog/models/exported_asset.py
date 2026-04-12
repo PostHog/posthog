@@ -150,6 +150,19 @@ class ExportedAsset(models.Model):
     def file_ext(self):
         return self.export_format.split("/")[1]
 
+    @property
+    def export_type(self) -> str:
+        if self.insight_id is not None:
+            return "insight"
+        if self.dashboard_id is not None:
+            return "dashboard"
+        ctx = self.export_context or {}
+        if ctx.get("session_recording_id"):
+            return "recording"
+        if ctx.get("heatmap_url"):
+            return "heatmap"
+        return "unknown"
+
     def get_analytics_metadata(self):
         return {
             "asset_id": self.id,

@@ -829,6 +829,7 @@ export const ScheduledChangesCreateParams = /* @__PURE__ */ zod.object({
 export const scheduledChangesCreateBodyRecordIdMax = 200
 
 export const scheduledChangesCreateBodyIsRecurringDefault = false
+export const scheduledChangesCreateBodyCronExpressionMax = 100
 
 export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
     record_id: zod
@@ -864,6 +865,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
+    cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
         .datetime({})
         .nullish()
@@ -897,6 +899,7 @@ export const ScheduledChangesPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const scheduledChangesPartialUpdateBodyRecordIdMax = 200
 
 export const scheduledChangesPartialUpdateBodyIsRecurringDefault = false
+export const scheduledChangesPartialUpdateBodyCronExpressionMax = 100
 
 export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
     record_id: zod
@@ -936,6 +939,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
+    cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
         .datetime({})
         .nullish()

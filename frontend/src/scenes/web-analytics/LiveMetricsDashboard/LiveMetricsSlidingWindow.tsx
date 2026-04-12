@@ -1,4 +1,9 @@
-import { BrowserBreakdownItem, CountryBreakdownItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import {
+    BrowserBreakdownItem,
+    CountryBreakdownItem,
+    ReferrerItem,
+    SlidingWindowBucket,
+} from './LiveWebAnalyticsMetricsTypes'
 
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
@@ -13,6 +18,7 @@ export class LiveMetricsSlidingWindow {
     // Incrementally-maintained aggregates
     private _totalPageviews = 0
     private _globalPathCounts = new Map<string, number>()
+    private _globalReferrerCounts = new Map<string, number>()
 
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
@@ -24,6 +30,7 @@ export class LiveMetricsSlidingWindow {
         data: {
             pageviews?: number
             pathname?: string
+            referringDomain?: string
             device?: { deviceId: string; deviceType: string }
             browser?: { deviceId: string; browserType: string }
         }
@@ -40,6 +47,14 @@ export class LiveMetricsSlidingWindow {
         if (data.pathname) {
             bucket.paths.set(data.pathname, (bucket.paths.get(data.pathname) || 0) + 1)
             this._globalPathCounts.set(data.pathname, (this._globalPathCounts.get(data.pathname) || 0) + 1)
+        }
+
+        if (data.referringDomain) {
+            bucket.referrers.set(data.referringDomain, (bucket.referrers.get(data.referringDomain) || 0) + 1)
+            this._globalReferrerCounts.set(
+                data.referringDomain,
+                (this._globalReferrerCounts.get(data.referringDomain) || 0) + 1
+            )
         }
 
         if (data.device) {
@@ -93,6 +108,13 @@ export class LiveMetricsSlidingWindow {
             for (const [path, count] of data.paths) {
                 bucket.paths.set(path, (bucket.paths.get(path) || 0) + count)
                 this._globalPathCounts.set(path, (this._globalPathCounts.get(path) || 0) + count)
+            }
+        }
+
+        if (data.referrers) {
+            for (const [referrer, count] of data.referrers) {
+                bucket.referrers.set(referrer, (bucket.referrers.get(referrer) || 0) + count)
+                this._globalReferrerCounts.set(referrer, (this._globalReferrerCounts.get(referrer) || 0) + count)
             }
         }
 
@@ -220,13 +242,13 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
-    private removePathsFromTracking(bucket: SlidingWindowBucket): void {
-        for (const [path, count] of bucket.paths) {
-            const globalCount = this._globalPathCounts.get(path) || 0
+    private decrementGlobalCounts(bucketMap: Map<string, number>, globalMap: Map<string, number>): void {
+        for (const [key, count] of bucketMap) {
+            const globalCount = globalMap.get(key) || 0
             if (globalCount <= count) {
-                this._globalPathCounts.delete(path)
+                globalMap.delete(key)
             } else {
-                this._globalPathCounts.set(path, globalCount - count)
+                globalMap.set(key, globalCount - count)
             }
         }
     }
@@ -240,7 +262,8 @@ export class LiveMetricsSlidingWindow {
                 this.removeItemsFromTracking(bucket.devices, this.deviceBucketCounts)
                 this.removeItemsFromTracking(bucket.browsers, this.browserBucketCounts)
                 this.removeCountriesFromTracking(bucket)
-                this.removePathsFromTracking(bucket)
+                this.decrementGlobalCounts(bucket.paths, this._globalPathCounts)
+                this.decrementGlobalCounts(bucket.referrers, this._globalReferrerCounts)
                 this._totalPageviews -= bucket.pageviews
                 this.buckets.delete(ts)
             }
@@ -327,10 +350,15 @@ export class LiveMetricsSlidingWindow {
     }
 
     getTopPaths(limit: number): { path: string; views: number }[] {
-        return [...this._globalPathCounts.entries()]
-            .map(([path, views]) => ({ path, views }))
-            .sort((a, b) => b.views - a.views)
-            .slice(0, limit)
+        return this.getTopEntries(this._globalPathCounts, limit).map(([path, views]) => ({ path, views }))
+    }
+
+    getTopReferrers(limit: number): ReferrerItem[] {
+        return this.getTopEntries(this._globalReferrerCounts, limit).map(([referrer, views]) => ({ referrer, views }))
+    }
+
+    private getTopEntries(map: Map<string, number>, limit: number): [string, number][] {
+        return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
     }
 
     getCountryBreakdown(): CountryBreakdownItem[] {
@@ -373,6 +401,7 @@ export class LiveMetricsSlidingWindow {
                 devices: new Map<string, Set<string>>(),
                 browsers: new Map<string, Set<string>>(),
                 paths: new Map<string, number>(),
+                referrers: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
                 countries: new Map<string, Set<string>>(),
             }

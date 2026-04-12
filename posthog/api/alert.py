@@ -21,6 +21,7 @@ from posthog.schema import (
     TrendsAlertConfig,
 )
 
+from posthog.api.alert_schedule_restriction import AlertScheduleRestriction
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -32,7 +33,9 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.tasks.alerts.utils import validate_alert_config
+from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
+from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
 from posthog.utils import relative_date_parse
 
 
@@ -53,6 +56,11 @@ class TrendsAlertConfigField(serializers.JSONField):
 
 @extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
 class DetectorConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
+class ScheduleRestrictionField(serializers.JSONField):
     pass
 
 
@@ -100,6 +108,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "triggered_points",
             "triggered_dates",
             "interval",
+            "triggered_metadata",
         ]
         read_only_fields = fields
 
@@ -193,7 +202,13 @@ class AlertSerializer(serializers.ModelSerializer):
     skip_weekend = serializers.BooleanField(
         required=False,
         allow_null=True,
-        help_text="Skip alert evaluation on weekends (Saturday and Sunday).",
+        help_text="Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).",
+    )
+    schedule_restriction = ScheduleRestrictionField(
+        required=False,
+        allow_null=True,
+        help_text="Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): "
+        "start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.",
     )
     state = serializers.CharField(
         read_only=True,
@@ -227,6 +242,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
+            "schedule_restriction",
             "last_value",
         ]
         read_only_fields = [
@@ -337,7 +353,17 @@ class AlertSerializer(serializers.ModelSerializer):
         if conditions_or_threshold_changed or calculation_interval_changed:
             instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
+        schedule_restriction_changed = False
+        if "schedule_restriction" in validated_data:
+            new_sr = validated_data["schedule_restriction"]
+            if new_sr != instance.schedule_restriction:
+                schedule_restriction_changed = True
+
         instance = super().update(instance, validated_data)
+        if schedule_restriction_changed:
+            instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
+            instance.save(update_fields=["next_check_at"])
+
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
@@ -413,6 +439,12 @@ class AlertSerializer(serializers.ModelSerializer):
             if not user.teams.filter(pk=self.context["team_id"]).exists():
                 raise ValidationError("User does not belong to the same organization as the alert's team.")
         return value
+
+    def validate_schedule_restriction(self, value):
+        try:
+            return validate_and_normalize_schedule_restriction(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid schedule restriction.")
 
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
@@ -498,6 +530,29 @@ class AlertSimulateSerializer(serializers.Serializer):
         return validated.model_dump() if hasattr(validated, "model_dump") else value
 
 
+class BreakdownSimulationResultSerializer(serializers.Serializer):
+    label = serializers.CharField(help_text="Breakdown value label.")  # type: ignore[assignment]
+    data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
+    scores = serializers.ListField(
+        child=serializers.FloatField(allow_null=True),
+        help_text="Anomaly score for each point.",
+    )
+    triggered_indices = serializers.ListField(
+        child=serializers.IntegerField(), help_text="Indices of points flagged as anomalies."
+    )
+    triggered_dates = serializers.ListField(
+        child=serializers.CharField(), help_text="Dates of points flagged as anomalies."
+    )
+    total_points = serializers.IntegerField(help_text="Total number of data points analyzed.")
+    anomaly_count = serializers.IntegerField(help_text="Number of anomalies detected.")
+    sub_detector_scores = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Per-sub-detector scores for ensemble detectors.",
+    )
+
+
 class AlertSimulateResponseSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
@@ -521,11 +576,16 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
     )
+    breakdown_results = BreakdownSimulationResultSerializer(
+        many=True,
+        required=False,
+        help_text=f"Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to {MAX_DETECTOR_BREAKDOWN_VALUES} values).",
+    )
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
-    queryset = AlertConfiguration.objects.all().order_by("-created_at")
+    queryset = AlertConfiguration.objects.select_related("team", "insight").order_by("-created_at")
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -634,7 +694,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
     def simulate(self, request, *args, **kwargs):
-        from posthog.tasks.alerts.trends import simulate_detector_on_insight
+        from posthog.tasks.alerts.detector import simulate_detector_on_insight
 
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)

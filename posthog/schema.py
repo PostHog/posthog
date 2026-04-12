@@ -74,6 +74,14 @@ class AlertConditionType(StrEnum):
     RELATIVE_DECREASE = "relative_decrease"
 
 
+class AlertScheduleRestrictionWindow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: str
+    start: str
+
+
 class AlertState(StrEnum):
     FIRING = "Firing"
     NOT_FIRING = "Not firing"
@@ -221,6 +229,11 @@ class AssistantElementPropertyFilter4(BaseModel):
         ),
     )
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class OrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
@@ -473,6 +486,12 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class AssistantStickinessDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+
+
 class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -529,6 +548,7 @@ class AssistantTool(StrEnum):
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
+    RUN_HOG_EVAL_TEST = "run_hog_eval_test"
 
 
 class AssistantToolCall(BaseModel):
@@ -601,6 +621,9 @@ class AssistantUpdateEvent(BaseModel):
 class AttributionMode(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
+    LINEAR = "linear"
+    TIME_DECAY = "time_decay"
+    POSITION_BASED = "position_based"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -1101,6 +1124,7 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
 
 
 class DataWarehouseSyncInterval(StrEnum):
+    FIELD_1MIN = "1min"
     FIELD_5MIN = "5min"
     FIELD_15MIN = "15min"
     FIELD_30MIN = "30min"
@@ -1179,8 +1203,19 @@ class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: str | None = None
-    date_to: str | None = None
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Start of the date range. Accepts ISO 8601 timestamps (e.g.,"
+            " 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks"
+            " ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last"
+            " month), -1yStart (start of last year)."
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=('End of the date range. Same format as date_from. Omit or null for "now".'),
+    )
     explicitDate: bool | None = Field(
         default=False,
         description=(
@@ -1246,7 +1281,7 @@ class OrderBy(StrEnum):
     TIMESTAMP = "timestamp"
 
 
-class OrderDirection(StrEnum):
+class OrderDirection1(StrEnum):
     ASC = "asc"
     DESC = "desc"
 
@@ -1456,15 +1491,7 @@ class ErrorTrackingIssueCohort(BaseModel):
     name: str
 
 
-class OrderBy1(StrEnum):
-    LAST_SEEN = "last_seen"
-    FIRST_SEEN = "first_seen"
-    OCCURRENCES = "occurrences"
-    USERS = "users"
-    SESSIONS = "sessions"
-
-
-class OrderDirection1(StrEnum):
+class OrderDirection2(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
 
@@ -1482,6 +1509,14 @@ class ErrorTrackingIssueStatus(StrEnum):
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
     SUPPRESSED = "suppressed"
+
+
+class ErrorTrackingOrderBy(StrEnum):
+    LAST_SEEN = "last_seen"
+    FIRST_SEEN = "first_seen"
+    OCCURRENCES = "occurrences"
+    USERS = "users"
+    SESSIONS = "sessions"
 
 
 class ErrorTrackingSignalExtra(BaseModel):
@@ -1547,6 +1582,27 @@ class EventType(BaseModel):
     properties: dict[str, Any]
     timestamp: str
     uuid: str | None = None
+
+
+class HrefMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
+class TextMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
+
+
+class UrlMatching(Enum):
+    CONTAINS = "contains"
+    EXACT = "exact"
+    REGEX = "regex"
+    NONE_TYPE_NONE = None
 
 
 class Properties(BaseModel):
@@ -1639,6 +1695,11 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+
+
+class PrecomputationMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    DIRECT = "direct"
 
 
 class StartHandling(StrEnum):
@@ -1987,6 +2048,13 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
+class FormDismissPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["dismiss_form"] = "dismiss_form"
+
+
 class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
@@ -2142,20 +2210,9 @@ class GradientScaleMode(StrEnum):
     RELATIVE = "relative"
 
 
-class HeatmapSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    gradient: list[HeatmapGradientStop] | None = None
-    gradientPreset: str | None = None
-    gradientScaleMode: GradientScaleMode | None = None
-    nullLabel: str | None = None
-    nullValue: str | None = None
-    valueColumn: str | None = None
-    xAxisColumn: str | None = None
-    xAxisLabel: str | None = None
-    yAxisColumn: str | None = None
-    yAxisLabel: str | None = None
+class HeatmapSortOrder(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
 
 
 class HedgehogActorAccessoryOption(StrEnum):
@@ -2527,7 +2584,7 @@ class LogValueResult(BaseModel):
     name: str
 
 
-class OrderBy3(StrEnum):
+class LogsOrderBy(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
 
@@ -3153,6 +3210,7 @@ class NodeKind(StrEnum):
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_TRENDS_QUERY = "WebTrendsQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
+    WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
     REVENUE_ANALYTICS_METRICS_QUERY = "RevenueAnalyticsMetricsQuery"
     REVENUE_ANALYTICS_MRR_QUERY = "RevenueAnalyticsMRRQuery"
@@ -3165,6 +3223,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
@@ -3418,6 +3477,7 @@ class ProductKey(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
+    SUBSCRIPTIONS = "subscriptions"
     SURVEYS = "surveys"
     TASKS = "tasks"
     TEAMS = "teams"
@@ -3452,6 +3512,9 @@ class PropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+    SPAN = "span"
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
     WORKFLOW_VARIABLE = "workflow_variable"
     EMPTY = "empty"
 
@@ -3569,7 +3632,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3667,6 +3730,15 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class RelevantCommit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    reason: str
+    sha: str
+    url: str
 
 
 class ReplayInactivityPeriod(BaseModel):
@@ -3903,6 +3975,14 @@ class SnapshotSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SummaryOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    success: bool | None = None
+
+
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3972,6 +4052,17 @@ class SharingConfigurationSettings(BaseModel):
     showInspector: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
+
+
+class SignalReviewerUserInfo(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: str
+    first_name: str
+    id: float
+    last_name: str
+    uuid: str
 
 
 class SignalSourceProduct(StrEnum):
@@ -4103,6 +4194,12 @@ class SourceMap(BaseModel):
     reported_conversion: str | None = None
     reported_conversion_value: str | None = None
     source: str | None = None
+
+
+class SpanPropertyFilterType(StrEnum):
+    SPAN = "span"
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 
 
 class StepOrderValue(StrEnum):
@@ -4313,6 +4410,9 @@ class TaxonomicFilterGroupType(StrEnum):
     LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
+    SPANS = "spans"
+    SPAN_ATTRIBUTES = "span_attributes"
+    SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
     REPLAY = "replay"
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
@@ -4323,6 +4423,7 @@ class TaxonomicFilterGroupType(StrEnum):
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
     RECENT_FILTERS = "recent_filters"
+    PINNED_FILTERS = "pinned_filters"
     EMPTY = "empty"
 
 
@@ -4520,6 +4621,19 @@ class WebAnalyticsSampling(BaseModel):
     forceSamplingRate: SamplingRate | None = None
 
 
+class WebNotableChangeItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current_value: float
+    dimension_type: str
+    dimension_value: str
+    impact_score: float
+    metric: str
+    percent_change: float
+    previous_value: float
+
+
 class WebOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4633,6 +4747,17 @@ class WebsiteBrowsingHistoryProdInterest(StrEnum):
     ENDPOINTS = "endpoints"
 
 
+class WorkflowVariablePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["workflow_variable"] = "workflow_variable"
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
@@ -4696,6 +4821,13 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class AlertScheduleRestriction(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocked_windows: list[AlertScheduleRestrictionWindow]
 
 
 class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
@@ -5172,6 +5304,28 @@ class AssistantGroupPropertyFilter5(BaseModel):
     type: Literal["group"] = "group"
 
 
+class AssistantLifecycleFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stacked: bool | None = Field(default=True, description="Whether the lifecycle bars should be stacked.")
+    toggledLifecycles: list[LifecycleToggle] | None = Field(
+        default=None,
+        description=(
+            "Lifecycles that have been removed from display are not included in this"
+            " array. Available values: `new`, `returning`, `resurrecting`,"
+            " `dormant`.\n- `new` - users who performed the event for the first time"
+            " during the period.\n- `returning` - users who were active in the previous"
+            " period and are active in the current period.\n- `resurrecting` - users"
+            " who were inactive for one or more periods and became active again.\n-"
+            " `dormant` - users who were active in the previous period but are inactive"
+            " in the current period."
+        ),
+    )
+
+
 class AssistantMessageMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5387,6 +5541,101 @@ class AssistantStringOrBooleanValuePropertyFilter(BaseModel):
             " against. Otherwise, the value must be a substring that will be matched"
             " against the property value. Use the string values `true` or `false` for"
             " boolean properties."
+        ),
+    )
+
+
+class AssistantTraceQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query."
+    )
+    kind: Literal["TraceQuery"] = "TraceQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters to narrow events within the trace.")
+    traceId: str = Field(
+        ...,
+        description=("The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results)."),
+    )
+
+
+class AssistantTracesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query."
+    )
+    filterSupportTraces: bool | None = Field(default=False, description="Exclude support impersonation traces.")
+    filterTestAccounts: bool | None = Field(
+        default=True,
+        description=("Exclude internal and test users by applying the respective filters."),
+    )
+    groupKey: str | None = Field(
+        default=None,
+        description="Filter traces by group key. Requires `groupTypeIndex` to be set.",
+    )
+    groupTypeIndex: int | None = Field(default=None, description="Group type index when filtering by group.")
+    kind: Literal["TracesQuery"] = "TracesQuery"
+    limit: int | None = Field(default=100, description="Maximum number of traces to return.")
+    offset: int | None = Field(default=0, description="Number of traces to skip for pagination.")
+    personId: str | None = Field(default=None, description="Filter traces by a specific person UUID.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(
+        default=[],
+        description=(
+            "Property filters to narrow results. Use event properties like `$ai_model`,"
+            " `$ai_provider`, `$ai_trace_id`, etc. to filter traces."
+        ),
+    )
+    randomOrder: bool | None = Field(
+        default=False,
+        description=(
+            "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias."
         ),
     )
 
@@ -5617,31 +5866,6 @@ class ChartAxis(BaseModel):
     settings: Settings | None = None
 
 
-class ChartSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    goalLines: list[GoalLine] | None = None
-    heatmap: HeatmapSettings | None = None
-    leftYAxisSettings: YAxisSettings | None = None
-    rightYAxisSettings: YAxisSettings | None = None
-    seriesBreakdownColors: dict[str, str] | None = None
-    seriesBreakdownColumn: str | None = None
-    showLegend: bool | None = None
-    showNullsAsZero: bool | None = None
-    showTotalRow: bool | None = None
-    showXAxisBorder: bool | None = None
-    showXAxisTicks: bool | None = None
-    showYAxisBorder: bool | None = None
-    stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
-    xAxis: ChartAxis | None = None
-    yAxis: list[ChartAxis] | None = None
-    yAxisAtZero: bool | None = Field(
-        default=None,
-        description=("Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"),
-    )
-
-
 class ClickhouseQueryProgress(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5810,6 +6034,51 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: str | None = Field(
+        default=None,
+        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
+    )
+    debug: bool | None = Field(
+        default=False,
+        description=("Whether to include debug information (such as the executed HogQL) in the response."),
+    )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
+    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
+    )
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5818,6 +6087,16 @@ class EndpointsUsageOverviewItem(BaseModel):
     key: EndpointsUsageOverviewItemKey
     previous: float | None = None
     value: float | None = None
+
+
+class EnrichedReviewer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    github_login: str
+    github_name: str | None = None
+    relevant_commits: list[RelevantCommit]
+    user: SignalReviewerUserInfo | None = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -6162,6 +6441,24 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["group"] = "group"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class HeatmapSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gradient: list[HeatmapGradientStop] | None = None
+    gradientPreset: str | None = None
+    gradientScaleMode: GradientScaleMode | None = None
+    nullLabel: str | None = None
+    nullValue: str | None = None
+    sortColumn: str | None = None
+    sortOrder: HeatmapSortOrder | None = None
+    valueColumn: str | None = None
+    xAxisColumn: str | None = None
+    xAxisLabel: str | None = None
+    yAxisColumn: str | None = None
+    yAxisLabel: str | None = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -6672,7 +6969,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6742,8 +7039,8 @@ class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomiza
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
-    root: ApprovalResumePayload | FormResumePayload
+class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 
 class RetentionResult(BaseModel):
@@ -7256,6 +7553,7 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
+    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -7359,6 +7657,17 @@ class SourceFieldInputConfig(BaseModel):
     placeholder: str
     required: bool
     type: SourceFieldInputConfigType
+
+
+class SpanPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: SpanPropertyFilterType
+    value: list[str | float | bool] | str | float | bool | None = None
 
 
 class StickinessCriteria(BaseModel):
@@ -7744,6 +8053,7 @@ class TrendsFilter(BaseModel):
         default=None, description="detailed results table"
     )
     display: ChartDisplayType | None = ChartDisplayType.ACTIONS_LINE_GRAPH
+    excludeBoxPlotOutliers: bool | None = True
     formula: str | None = None
     formulaNodes: list[TrendsFormulaNode] | None = Field(
         default=None,
@@ -7958,6 +8268,34 @@ class WebGoalsQueryResponse(BaseModel):
     types: list | None = None
 
 
+class WebNotableChangesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[WebNotableChangeItem]
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    usedPreAggregatedTables: bool | None = None
+
+
 class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8165,6 +8503,57 @@ class AnalyticsQueryResponseBase(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class AssistantErrorTrackingQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: ErrorTrackingIssueAssignee | None = Field(default=None, description="Filter by assignee.")
+    dateRange: DateRange | None = Field(default=None, description="Date range to filter results.")
+    filterGroup: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for the query")
+    filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
+    issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
+    kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
+    limit: int | None = None
+    offset: int | None = None
+    orderBy: ErrorTrackingOrderBy | None = Field(default=None, description="Field to sort results by.")
+    orderDirection: OrderDirection | None = Field(default=None, description="Sort direction.")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
+    volumeResolution: int | None = Field(
+        default=None,
+        description=("Controls volume chart granularity. Use 1 for sparklines, 0 for counts only."),
     )
 
 
@@ -8415,6 +8804,84 @@ class AssistantInsightsQueryBase(BaseModel):
     )
 
 
+class AssistantLifecycleActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = Field(
+        default="ActionsNode",
+        description=(
+            "Defines the action series for the lifecycle insight. Lifecycle does not"
+            " support math aggregations. You must provide the action ID in the `id`"
+            " field and the name in the `name` field."
+        ),
+    )
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantLifecycleEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = Field(
+        default="EventsNode",
+        description=(
+            "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations."
+        ),
+    )
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8591,6 +9058,236 @@ class AssistantRetentionQuery(BaseModel):
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantStickinessActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: int
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str = Field(..., description="Action name from the plan.")
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessEventsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    event: str | None = Field(default=None, description="The event or `null` for all events.")
+    kind: Literal["EventsNode"] = "EventsNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL expression for aggregation. Use when the predefined `math`"
+            " types are not sufficient. When set, `math` must be set to"
+            " `hogql`.\n\nExamples:\n- Sum a numeric property:"
+            " `sum(toFloat(properties.$revenue))`\n- Average of a property:"
+            " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
+            " `count(distinct properties.$session_id)`\n- Conditional count:"
+            " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
+            " `quantile(0.95)(toFloat(properties.response_time))`"
+        ),
+    )
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+
+
+class AssistantStickinessFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computedAs: StickinessComputationMode | None = Field(
+        default=StickinessComputationMode.NON_CUMULATIVE,
+        description=(
+            "Computation mode. `non_cumulative` (default) shows users active on exactly"
+            " N intervals. `cumulative` shows users active on N or more intervals."
+        ),
+    )
+    display: AssistantStickinessDisplayType | None = Field(
+        default=AssistantStickinessDisplayType.ACTIONS_LINE_GRAPH,
+        description=(
+            "Visualization type for the stickiness chart. `ActionsLineGraph` - line"
+            " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
+            " chart."
+        ),
+    )
+    showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
+    showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
+    stickinessCriteria: StickinessCriteria | None = Field(
+        default=None,
+        description=(
+            "Filter which intervals count based on event frequency within each"
+            " interval. For example, only count intervals where the user performed the"
+            " event >= 3 times."
+        ),
+    )
+
+
+class AssistantStickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Compare to date range. When enabled, shows the current and previous period side by side."),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=(
+            "Granularity of the response. Can be one of `hour`, `day`, `week` or"
+            ' `month`. This determines what counts as one "interval" for stickiness'
+            " measurement. For example, with `day` interval over a 30-day range, the"
+            " X-axis shows 1 through 30 days, and each bar/point shows how many users"
+            " performed the event on exactly that many days."
+        ),
+    )
+    intervalCount: int | None = Field(
+        default=None,
+        description=(
+            "How many base intervals comprise one stickiness period. Defaults to 1. For"
+            ' example, `interval: "day"` with `intervalCount: 7` groups by 7-day'
+            " periods."
+        ),
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantStickinessEventsNode | AssistantStickinessActionsNode] = Field(
+        ...,
+        description=(
+            "Events or actions to include. Each series measures how many intervals"
+            " (e.g. days) within the date range a user performed the event."
+            " Prioritize the more popular and fresh events and actions. When the"
+            " `math` field is omitted on a series, it defaults to counting unique"
+            " persons."
+        ),
+    )
+    stickinessFilter: AssistantStickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
     )
 
 
@@ -9193,11 +9890,14 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -10622,6 +11322,45 @@ class CachedWebGoalsQueryResponse(BaseModel):
     types: list | None = None
 
 
+class CachedWebNotableChangesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[WebNotableChangeItem]
+    samplingRate: SamplingRate | None = None
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    usedPreAggregatedTables: bool | None = None
+
+
 class CachedWebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10810,6 +11549,30 @@ class CalendarHeatmapResponse(BaseModel):
     )
 
 
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: list[GoalLine] | None = None
+    heatmap: HeatmapSettings | None = None
+    leftYAxisSettings: YAxisSettings | None = None
+    rightYAxisSettings: YAxisSettings | None = None
+    seriesBreakdownColumn: str | None = None
+    showLegend: bool | None = None
+    showNullsAsZero: bool | None = None
+    showTotalRow: bool | None = None
+    showXAxisBorder: bool | None = None
+    showXAxisTicks: bool | None = None
+    showYAxisBorder: bool | None = None
+    stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
+    xAxis: ChartAxis | None = None
+    yAxis: list[ChartAxis] | None = None
+    yAxisAtZero: bool | None = Field(
+        default=None,
+        description=("Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero"),
+    )
+
+
 class ContextMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10848,7 +11611,9 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -10896,7 +11661,9 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -10931,7 +11698,9 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -10978,7 +11747,9 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11015,7 +11786,9 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11063,7 +11836,9 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11101,7 +11876,9 @@ class DashboardFilter(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -11729,7 +12506,9 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11777,7 +12556,9 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11856,52 +12637,6 @@ class ECODDetectorConfig(BaseModel):
         description=(
             "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
         ),
-    )
-
-
-class EndpointRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: str | None = Field(
-        default=None,
-        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
-    )
-    debug: bool | None = Field(
-        default=False,
-        description=("Whether to include debug information (such as the executed HogQL) in the response."),
-    )
-    filters_override: DashboardFilter | None = None
-    limit: int | None = Field(
-        default=None,
-        description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
-        ),
-    )
-    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
-    variables: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Variables to parameterize the endpoint query. The key is the variable name"
-            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
-            " match a variable `code_name` defined in the query (referenced as"
-            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
-            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
-            " and `date_to` are built-in variables that filter the date range.    "
-            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
-            " materialized insight endpoints:   - Use the breakdown property name as"
-            ' the key to filter by breakdown value.     Example: `{"$browser":'
-            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
-            " insight endpoints.\n\nUnknown variable names will return a 400 error."
-        ),
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
     )
 
 
@@ -12012,7 +12747,9 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12058,7 +12795,9 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12147,15 +12886,24 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
-    orderBy: OrderBy1
-    orderDirection: OrderDirection1 | None = None
+    orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     removedFilterIndexes: list[int] | None = None
-    searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -12241,8 +12989,11 @@ class EventTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12282,7 +13033,9 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12330,12 +13083,54 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class EventsQueryActionStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = None
+    href: str | None = None
+    href_matching: HrefMatching | None = None
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | SpanPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
+        ]
+        | None
+    ) = None
+    selector: str | None = None
+    tag_name: str | None = None
+    text: str | None = None
+    text_matching: TextMatching | None = None
+    url: str | None = None
+    url_matching: UrlMatching | None = None
 
 
 class EventsQueryResponse(BaseModel):
@@ -12418,7 +13213,9 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12464,7 +13261,9 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12498,7 +13297,9 @@ class ExperimentEventExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
     ]
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -12529,7 +13330,9 @@ class FeatureFlagGroupType(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -12594,7 +13397,9 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12643,7 +13448,9 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12676,7 +13483,9 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12726,7 +13535,9 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12760,7 +13571,9 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12808,7 +13621,9 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12941,7 +13756,9 @@ class HogQLFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13110,7 +13927,9 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13157,7 +13976,9 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13541,7 +14362,9 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13571,7 +14394,9 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13615,7 +14440,9 @@ class PropertyGroupFilterValue(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
     ]
 
 
@@ -14145,7 +14972,6 @@ class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list[str] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -14161,11 +14987,13 @@ class QueryResponseAlternative30(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[WebNotableChangeItem]
+    samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedPreAggregatedTables: bool | None = None
 
 
 class QueryResponseAlternative31(BaseModel):
@@ -14188,7 +15016,7 @@ class QueryResponseAlternative31(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14215,7 +15043,7 @@ class QueryResponseAlternative32(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[RevenueAnalyticsMRRQueryResultItem]
+    results: Any
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -14223,6 +15051,33 @@ class QueryResponseAlternative32(BaseModel):
 
 
 class QueryResponseAlternative33(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[RevenueAnalyticsMRRQueryResultItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14248,7 +15103,7 @@ class QueryResponseAlternative33(BaseModel):
     )
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14275,7 +15130,7 @@ class QueryResponseAlternative34(BaseModel):
     )
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14307,7 +15162,7 @@ class QueryResponseAlternative35(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14334,7 +15189,7 @@ class QueryResponseAlternative36(BaseModel):
     )
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14366,7 +15221,7 @@ class QueryResponseAlternative37(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14398,7 +15253,7 @@ class QueryResponseAlternative38(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14430,7 +15285,7 @@ class QueryResponseAlternative39(BaseModel):
     types: list[str] | None = None
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14462,7 +15317,7 @@ class QueryResponseAlternative40(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14497,7 +15352,7 @@ class QueryResponseAlternative41(BaseModel):
     types: list | None = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14524,39 +15379,6 @@ class QueryResponseAlternative42(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
-
-
-class QueryResponseAlternative43(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list | None = None
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list
-    samplingRate: SamplingRate | None = None
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -14590,9 +15412,42 @@ class QueryResponseAlternative44(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+    usedPreAggregatedTables: bool | None = None
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative45(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list
+    samplingRate: SamplingRate | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    types: list | None = None
+
+
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14618,7 +15473,7 @@ class QueryResponseAlternative46(BaseModel):
     )
 
 
-class QueryResponseAlternative47(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14649,7 +15504,7 @@ class QueryResponseAlternative47(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative48(BaseModel):
+class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14680,7 +15535,7 @@ class QueryResponseAlternative48(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14707,7 +15562,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14734,7 +15589,7 @@ class QueryResponseAlternative50(BaseModel):
     )
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14761,7 +15616,7 @@ class QueryResponseAlternative51(BaseModel):
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14787,7 +15642,7 @@ class QueryResponseAlternative52(BaseModel):
     )
 
 
-class QueryResponseAlternative53(BaseModel):
+class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14814,7 +15669,7 @@ class QueryResponseAlternative53(BaseModel):
     )
 
 
-class QueryResponseAlternative54(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14845,7 +15700,7 @@ class QueryResponseAlternative54(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative56(BaseModel):
+class QueryResponseAlternative57(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14877,7 +15732,7 @@ class QueryResponseAlternative56(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative57(BaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14904,7 +15759,7 @@ class QueryResponseAlternative57(BaseModel):
     )
 
 
-class QueryResponseAlternative58(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14936,7 +15791,7 @@ class QueryResponseAlternative58(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative59(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14966,7 +15821,7 @@ class QueryResponseAlternative59(BaseModel):
     )
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14996,7 +15851,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15027,7 +15882,7 @@ class QueryResponseAlternative64(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15057,7 +15912,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15083,7 +15938,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15109,7 +15964,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15135,7 +15990,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15161,7 +16016,7 @@ class QueryResponseAlternative69(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15192,7 +16047,7 @@ class QueryResponseAlternative71(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15223,7 +16078,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15250,7 +16105,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15276,7 +16131,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15306,7 +16161,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15335,7 +16190,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15345,8 +16200,11 @@ class QueryResponseAlternative79(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15361,7 +16219,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15387,7 +16245,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15417,7 +16275,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15443,7 +16301,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15469,7 +16327,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15495,7 +16353,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15526,7 +16384,7 @@ class QueryResponseAlternative87(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15552,7 +16410,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -15618,7 +16476,9 @@ class RetentionEntity(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="filters on the event")
@@ -16000,7 +16860,9 @@ class TileFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -16034,7 +16896,9 @@ class TraceNeighborsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16071,34 +16935,15 @@ class TraceQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
     response: TraceQueryResponse | None = None
     tags: QueryLogTags | None = None
     traceId: str
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class TraceSpansQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
-    kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: OrderBy3 | None = None
-    response: TraceSpansQueryResponse | None = None
-    rootSpans: bool | None = None
-    searchTerm: str | None = None
-    serviceNames: list[str] | None = None
-    statusCodes: list[int] | None = None
-    tags: QueryLogTags | None = None
-    traceId: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -16135,7 +16980,9 @@ class TracesQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16290,6 +17137,43 @@ class WebGoalsQuery(BaseModel):
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebNotableChangesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebNotableChangesQuery"] = "WebNotableChangesQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebNotableChangesQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
@@ -16537,7 +17421,9 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -16584,7 +17470,9 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16671,6 +17559,60 @@ class AssistantBasePropertyFilter(
         | AssistantStringOrBooleanValuePropertyFilter
         | AssistantNumericValuePropertyFilter
         | AssistantArrayPropertyFilter
+    )
+
+
+class AssistantLifecycleQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None, description="Date range for the query"
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
+    )
+    kind: Literal["LifecycleQuery"] = "LifecycleQuery"
+    lifecycleFilter: AssistantLifecycleFilter | None = Field(
+        default=None, description="Properties specific to the lifecycle insight"
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    samplingFactor: float | None = Field(
+        default=None,
+        description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+    series: list[AssistantLifecycleEventsNode | AssistantLifecycleActionsNode] = Field(
+        ...,
+        description=("Event or action to analyze. Lifecycle insights only support a single series."),
+        max_length=1,
     )
 
 
@@ -17012,7 +17954,7 @@ class DocumentSimilarityQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     order_by: OrderBy
-    order_direction: OrderDirection
+    order_direction: OrderDirection1
     origin: EmbeddedDocument
     products: list[str]
     renderings: list[str]
@@ -17187,8 +18129,10 @@ class EventTaxonomyQuery(BaseModel):
     actionId: int | None = None
     event: str | None = None
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
+    limit: int | None = Field(default=None, description="Number of rows to return")
     maxPropertyValues: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     properties: list[str] | None = None
     response: EventTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -17727,7 +18671,9 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -17768,7 +18714,9 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -17819,7 +18767,9 @@ class RetentionQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -17871,7 +18821,9 @@ class StickinessQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -17896,6 +18848,31 @@ class TeamTaxonomyQuery(BaseModel):
     offset: int | None = Field(default=None, description="Number of rows to skip before returning rows")
     response: TeamTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class TraceSpansQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: LogsOrderBy | None = None
+    prefetchSpans: int | None = Field(
+        default=None,
+        description=("Prefetch up to this many spans per trace and include them in results"),
+    )
+    response: TraceSpansQueryResponse | None = None
+    rootSpans: bool | None = None
+    serviceNames: list[str] | None = None
+    statusCodes: list[int] | None = None
+    tags: QueryLogTags | None = None
+    traceId: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -18074,7 +19051,9 @@ class CalendarHeatmapQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18232,26 +19211,37 @@ class ErrorTrackingQuery(BaseModel):
         extra="forbid",
     )
     assignee: ErrorTrackingIssueAssignee | None = None
-    dateRange: DateRange
+    dateRange: DateRange = Field(..., description="Date range to filter results.")
     filterGroup: PropertyGroupFilter | None = None
-    filterTestAccounts: bool | None = None
+    filterTestAccounts: bool | None = Field(default=None, description="Whether to filter out test accounts.")
     groupKey: str | None = None
     groupTypeIndex: int | None = None
-    issueId: str | None = None
+    issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: OrderBy1
-    orderDirection: OrderDirection1 | None = None
+    orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
-    searchQuery: str | None = None
-    status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
+    searchQuery: str | None = Field(
+        default=None,
+        description=("Free-text search across exception type, message, and stack frames."),
+    )
+    status: ErrorTrackingIssueStatus | str | None = Field(
+        default=None,
+        description="Filter by issue status.",
+        title="ErrorTrackingQueryStatus",
+    )
     tags: QueryLogTags | None = None
     useQueryV2: bool | None = Field(
         default=None,
         description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
+    )
+    useQueryV3: bool | None = Field(
+        default=None,
+        description=("Use V3 query path (denormalized ClickHouse table, no Postgres joins)"),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
@@ -18411,7 +19401,9 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -18463,7 +19455,9 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -18503,7 +19497,9 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18546,7 +19542,9 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18589,7 +19587,9 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18632,7 +19632,9 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18675,7 +19677,9 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18718,7 +19722,9 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18791,7 +19797,9 @@ class LifecycleQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18856,7 +19864,7 @@ class LogsQuery(BaseModel):
     liveLogsCheckpoint: str | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: OrderBy3 | None = None
+    orderBy: LogsOrderBy | None = None
     resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
@@ -18941,7 +19949,9 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -18970,7 +19980,9 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -19002,7 +20014,9 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -19072,7 +20086,9 @@ class TrendsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19237,6 +20253,40 @@ class Response24(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
+class EndpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
+    )
+    cache_age_seconds: float | None = None
+    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
+    derived_from_insight: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    is_materialized: bool | None = Field(
+        default=None,
+        description="Whether this endpoint's query results are materialized to S3",
+    )
+    name: str | None = None
+    query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
+        None
+    )
+    sync_frequency: DataWarehouseSyncInterval | None = Field(
+        default=None,
+        description="How frequently should the underlying materialized view be updated",
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
+    )
+
+
 class ExperimentMetricTimeseries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19262,6 +20312,7 @@ class ExperimentQuery(BaseModel):
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
+    precomputation_mode: PrecomputationMode | None = None
     response: ExperimentQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -19322,7 +20373,9 @@ class FunnelsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19369,7 +20422,7 @@ class QueryResponseAlternative19(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19385,7 +20438,7 @@ class QueryResponseAlternative61(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19402,7 +20455,7 @@ class QueryResponseAlternative62(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19457,15 +20510,15 @@ class QueryResponseAlternative(
         | QueryResponseAlternative35
         | QueryResponseAlternative36
         | QueryResponseAlternative37
-        | Any
         | QueryResponseAlternative38
+        | Any
         | QueryResponseAlternative39
         | QueryResponseAlternative40
         | QueryResponseAlternative41
         | QueryResponseAlternative42
         | QueryResponseAlternative43
         | QueryResponseAlternative44
-        | QueryResponseAlternative46
+        | QueryResponseAlternative45
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -19474,11 +20527,11 @@ class QueryResponseAlternative(
         | QueryResponseAlternative52
         | QueryResponseAlternative53
         | QueryResponseAlternative54
-        | QueryResponseAlternative56
+        | QueryResponseAlternative55
         | QueryResponseAlternative57
         | QueryResponseAlternative58
         | QueryResponseAlternative59
-        | QueryResponseAlternative61
+        | QueryResponseAlternative60
         | QueryResponseAlternative62
         | QueryResponseAlternative63
         | QueryResponseAlternative64
@@ -19487,7 +20540,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative67
         | QueryResponseAlternative68
         | QueryResponseAlternative69
-        | QueryResponseAlternative71
+        | QueryResponseAlternative70
         | QueryResponseAlternative72
         | QueryResponseAlternative73
         | QueryResponseAlternative74
@@ -19498,13 +20551,14 @@ class QueryResponseAlternative(
         | QueryResponseAlternative79
         | QueryResponseAlternative80
         | QueryResponseAlternative81
-        | QueryResponseAlternative83
+        | QueryResponseAlternative82
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
+        | QueryResponseAlternative90
     ]
 ):
     root: (
@@ -19543,15 +20597,15 @@ class QueryResponseAlternative(
         | QueryResponseAlternative35
         | QueryResponseAlternative36
         | QueryResponseAlternative37
-        | Any
         | QueryResponseAlternative38
+        | Any
         | QueryResponseAlternative39
         | QueryResponseAlternative40
         | QueryResponseAlternative41
         | QueryResponseAlternative42
         | QueryResponseAlternative43
         | QueryResponseAlternative44
-        | QueryResponseAlternative46
+        | QueryResponseAlternative45
         | QueryResponseAlternative47
         | QueryResponseAlternative48
         | QueryResponseAlternative49
@@ -19560,11 +20614,11 @@ class QueryResponseAlternative(
         | QueryResponseAlternative52
         | QueryResponseAlternative53
         | QueryResponseAlternative54
-        | QueryResponseAlternative56
+        | QueryResponseAlternative55
         | QueryResponseAlternative57
         | QueryResponseAlternative58
         | QueryResponseAlternative59
-        | QueryResponseAlternative61
+        | QueryResponseAlternative60
         | QueryResponseAlternative62
         | QueryResponseAlternative63
         | QueryResponseAlternative64
@@ -19573,7 +20627,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative67
         | QueryResponseAlternative68
         | QueryResponseAlternative69
-        | QueryResponseAlternative71
+        | QueryResponseAlternative70
         | QueryResponseAlternative72
         | QueryResponseAlternative73
         | QueryResponseAlternative74
@@ -19584,13 +20638,14 @@ class QueryResponseAlternative(
         | QueryResponseAlternative79
         | QueryResponseAlternative80
         | QueryResponseAlternative81
-        | QueryResponseAlternative83
+        | QueryResponseAlternative82
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
+        | QueryResponseAlternative90
     )
 
 
@@ -19610,7 +20665,9 @@ class VisualizationBlock(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     ) = Field(
         ...,
@@ -19683,6 +20740,34 @@ class DatabaseSchemaQueryResponse(BaseModel):
         | DatabaseSchemaMaterializedViewTable
         | DatabaseSchemaEndpointTable,
     ]
+
+
+class ExperimentActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelStep: int | None = Field(
+        default=None,
+        description=(
+            "Index of the step for which we want to get actors for, per experiment"
+            " variant. Positive for converted persons, negative for dropped off"
+            " persons."
+        ),
+    )
+    funnelStepBreakdown: int | str | float | list[int | str | float] | None = Field(
+        default=None,
+        description=(
+            "The variant key for filtering actors. For experiments, this filters by"
+            " feature flag variant (e.g., 'control', 'test')."
+        ),
+    )
+    includeRecordings: bool | None = None
+    kind: Literal["ExperimentActorsQuery"] = "ExperimentActorsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    source: ExperimentQuery
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExperimentFunnelsQueryResponse(BaseModel):
@@ -19814,7 +20899,9 @@ class PathsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19839,7 +20926,9 @@ class VisualizationItem(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19848,7 +20937,9 @@ class VisualizationItem(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     )
     initiator: str | None = None
@@ -19864,7 +20955,9 @@ class VisualizationMessage(BaseModel):
         TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
         | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -19873,7 +20966,9 @@ class VisualizationMessage(BaseModel):
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
     )
     id: str | None = None
@@ -20030,46 +21125,19 @@ class WebVitalsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EndpointRequest(BaseModel):
+class NamedArgs1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bucket_overrides: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Per-column bucket function overrides for range variable materialization."
-            " Keys are column names, values are bucket keys (hour, day, week, month)."
-        ),
-    )
-    cache_age_seconds: float | None = None
-    derived_from_insight: str | None = None
-    description: str | None = None
-    is_active: bool | None = None
-    is_materialized: bool | None = Field(
-        default=None,
-        description="Whether this endpoint's query results are materialized to S3",
-    )
-    name: str | None = None
-    query: (
-        HogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | PathsQuery
-        | StickinessQuery
-        | LifecycleQuery
-        | WebStatsTableQuery
-        | WebOverviewQuery
-        | None
-    ) = None
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Target a specific version for updates (optional, defaults to current version)"),
-    )
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+
+
+class IsExperimentFunnelsQuery(BaseModel):
+    namedArgs: NamedArgs1 | None = None
+
+
+class IsExperimentTrendsQuery(BaseModel):
+    namedArgs: NamedArgs1 | None = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -20097,7 +21165,9 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -20147,7 +21217,13 @@ class InsightActorsQueryOptions(BaseModel):
     )
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: InsightActorsQueryOptionsResponse | None = None
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
+    source: (
+        InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | StickinessActorsQuery
+        | ExperimentActorsQuery
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -20156,6 +21232,13 @@ class SessionBatchEventsQuery(BaseModel):
         extra="forbid",
     )
     actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionSteps: list[EventsQueryActionStep] | None = Field(
+        default=None,
+        description=(
+            "Show events matching action steps directly, used when no actionId is"
+            " provided (e.g. previewing unsaved actions). Ignored if actionId is set."
+        ),
+    )
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(
         default=None,
@@ -20185,7 +21268,9 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -20221,7 +21306,9 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -20273,6 +21360,7 @@ class ActorsQuery(BaseModel):
         InsightActorsQuery
         | FunnelsActorsQuery
         | FunnelCorrelationActorsQuery
+        | ExperimentActorsQuery
         | StickinessActorsQuery
         | HogQLQuery
         | None
@@ -20286,6 +21374,13 @@ class EventsQuery(BaseModel):
         extra="forbid",
     )
     actionId: int | None = Field(default=None, description="Show events matching a given action")
+    actionSteps: list[EventsQueryActionStep] | None = Field(
+        default=None,
+        description=(
+            "Show events matching action steps directly, used when no actionId is"
+            " provided (e.g. previewing unsaved actions). Ignored if actionId is set."
+        ),
+    )
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(
         default=None,
@@ -20315,7 +21410,9 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -20347,7 +21444,9 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -20584,6 +21683,7 @@ class HogQLAutocomplete(BaseModel):
         | WebPageURLSearchQuery
         | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -20665,6 +21765,7 @@ class HogQLMetadata(BaseModel):
         | WebPageURLSearchQuery
         | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
@@ -20770,6 +21871,7 @@ class MaxInsightContext(BaseModel):
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -20808,7 +21910,6 @@ class MaxInsightContext(BaseModel):
         | EndpointsUsageTrendsQuery
         | PropertyValuesQuery
     ) = Field(..., discriminator="kind")
-    result: Any | None = None
     type: Literal["insight"] = "insight"
     variablesOverride: dict[str, HogQLVariable] | None = None
 
@@ -20885,6 +21986,7 @@ class QueryRequest(BaseModel):
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -20992,6 +22094,7 @@ class QuerySchemaRoot(
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -21069,6 +22172,7 @@ class QuerySchemaRoot(
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -21151,6 +22255,7 @@ class QueryUpgradeRequest(BaseModel):
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -21233,6 +22338,7 @@ class QueryUpgradeResponse(BaseModel):
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -21349,7 +22455,20 @@ class SourceConfig(BaseModel):
     webhookSetupCaption: str | None = None
 
 
-class Option(BaseModel):
+class SourceFieldSelectConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    converter: SourceFieldSelectConfigConverter | None = None
+    defaultValue: str
+    label: str
+    name: str
+    options: list[SourceFieldSelectConfigOption]
+    required: bool
+    type: Literal["select"] = "select"
+
+
+class SourceFieldSelectConfigOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21366,19 +22485,6 @@ class Option(BaseModel):
     ) = None
     label: str
     value: str
-
-
-class SourceFieldSelectConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    converter: SourceFieldSelectConfigConverter | None = None
-    defaultValue: str
-    label: str
-    name: str
-    options: list[Option]
-    required: bool
-    type: Literal["select"] = "select"
 
 
 class SourceFieldSwitchGroupConfig(BaseModel):
@@ -21415,7 +22521,9 @@ class VisualizationArtifactContent(BaseModel):
         AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
+        | AssistantStickinessQuery
         | AssistantPathsQuery
+        | AssistantLifecycleQuery
         | AssistantHogQLQuery
         | EventsNode
         | ActionsNode
@@ -21454,6 +22562,7 @@ class VisualizationArtifactContent(BaseModel):
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
         | WebAnalyticsExternalSummaryQuery
+        | WebNotableChangesQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -21501,3 +22610,4 @@ MaxDashboardContext.model_rebuild()
 MaxInsightContext.model_rebuild()
 QueryRequest.model_rebuild()
 SourceConfig.model_rebuild()
+SourceFieldSelectConfig.model_rebuild()

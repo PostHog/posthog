@@ -757,12 +757,20 @@ def custom_postprocessing_hook(result, generator, request, public):
             definition["x-explicit-tags"] = explicit_tags
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects", "environments"]]
-            match = re.search(
-                r"((\/api\/(organizations|projects|environments)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
-                path,
-            )
-            if match:
-                definition["tags"].append(match.group("one"))
+
+            # If a ViewSet sets x-swagger-tag via @extend_schema(extensions={"x-swagger-tag": "..."}),
+            # use that as the sole display tag instead of appending the URL-derived one.
+            # This controls Swagger UI grouping without affecting x-explicit-tags (used for codegen).
+            swagger_tag = definition.pop("x-swagger-tag", None)
+            if swagger_tag:
+                definition["tags"] = [swagger_tag]
+            else:
+                match = re.search(
+                    r"((\/api\/(organizations|projects|environments)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
+                    path,
+                )
+                if match:
+                    definition["tags"].append(match.group("one"))
             for tag in definition["tags"]:
                 all_tags.append(tag)
 

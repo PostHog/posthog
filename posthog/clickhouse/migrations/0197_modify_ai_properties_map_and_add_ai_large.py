@@ -11,7 +11,7 @@ operations = [
     *[
         run_sql_with_exceptions(
             statement,
-            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            node_roles=[NodeRole.DATA],
             sharded=False,
             is_alter_on_replicated_table=False,
         )
@@ -25,7 +25,7 @@ operations = [
     *[
         run_sql_with_exceptions(
             statement,
-            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            node_roles=[NodeRole.DATA],
             sharded=False,
             is_alter_on_replicated_table=False,
         )

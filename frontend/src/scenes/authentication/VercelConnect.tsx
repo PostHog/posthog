@@ -41,7 +41,15 @@ export function VercelConnect(): JSX.Element {
     const [success, setSuccess] = useState(false)
     const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
     const [selectedOrg, setSelectedOrg] = useState<string | null>(null)
-    const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
+    const [envMapping, setEnvMapping] = useState<{
+        production: number | null
+        preview: number | null
+        development: number | null
+    }>({
+        production: null,
+        preview: null,
+        development: null,
+    })
     const [linkedOrgName, setLinkedOrgName] = useState<string>('')
 
     useEffect(() => {
@@ -75,11 +83,12 @@ export function VercelConnect(): JSX.Element {
     useEffect(() => {
         if (selectedOrg && sessionInfo) {
             const org = sessionInfo.organizations.find((o) => o.id === selectedOrg)
-            const availableTeams = org?.teams.filter((t) => !t.already_linked) || []
-            if (availableTeams.length === 1) {
-                setSelectedTeam(availableTeams[0].id)
+            const teams = org?.teams.filter((t) => !t.already_linked) || []
+            if (teams.length === 1) {
+                const id = teams[0].id
+                setEnvMapping({ production: id, preview: id, development: id })
             } else {
-                setSelectedTeam(null)
+                setEnvMapping({ production: null, preview: null, development: null })
             }
         }
     }, [selectedOrg, sessionInfo])
@@ -101,7 +110,11 @@ export function VercelConnect(): JSX.Element {
             body: JSON.stringify({
                 session: sessionKey,
                 organization_id: selectedOrg,
-                team_id: selectedTeam,
+                environment_mapping: {
+                    production: envMapping.production,
+                    preview: envMapping.preview || envMapping.production,
+                    development: envMapping.development || envMapping.production,
+                },
             }),
         })
             .then((res) => {
@@ -216,17 +229,22 @@ export function VercelConnect(): JSX.Element {
                     </div>
 
                     {selectedOrg && availableTeams.length > 0 && (
-                        <div className="mb-6">
-                            <LemonSelect
-                                fullWidth
-                                placeholder="Select a project"
-                                value={selectedTeam}
-                                onChange={(value) => setSelectedTeam(value)}
-                                options={availableTeams.map((t) => ({
-                                    value: t.id,
-                                    label: t.name,
-                                }))}
-                            />
+                        <div className="mb-6 space-y-3">
+                            {(['production', 'preview', 'development'] as const).map((env) => (
+                                <div key={env}>
+                                    <label className="text-xs font-medium text-muted uppercase mb-1 block">{env}</label>
+                                    <LemonSelect
+                                        fullWidth
+                                        placeholder="Select a project"
+                                        value={envMapping[env]}
+                                        onChange={(value) => setEnvMapping((prev) => ({ ...prev, [env]: value }))}
+                                        options={availableTeams.map((t) => ({
+                                            value: t.id,
+                                            label: t.name,
+                                        }))}
+                                    />
+                                </div>
+                            ))}
                         </div>
                     )}
 
@@ -234,7 +252,7 @@ export function VercelConnect(): JSX.Element {
                         fullWidth
                         type="primary"
                         center
-                        disabled={!selectedOrg || !selectedTeam || linking}
+                        disabled={!selectedOrg || !envMapping.production || linking}
                         loading={linking}
                         onClick={handleLink}
                     >

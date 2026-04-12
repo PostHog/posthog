@@ -1953,3 +1953,434 @@ async fn test_flag_definitions_with_legacy_secret_token_fallback() {
         response.text().await.unwrap()
     );
 }
+
+/// Tests the DB-backed rate limit allowlist end-to-end.
+/// Combined into a single test to avoid DB-level interference — all scenarios
+/// share the same `posthog_instancesetting` row.
+///
+/// Scenarios tested:
+/// 1. Allowlisted team bypasses rate limit (200 instead of 429)
+/// 2. Non-allowlisted team gets rate limited (429)
+/// 3. With two teams, only the listed one bypasses
+/// 4. Env var allowlist preserved when DB row is missing
+/// 5. null DB value treated as empty allowlist
+/// 6. Invalid team IDs skipped, valid ones kept
+/// 7. Django-format JSON-encoded string (json.dumps wrapping)
+#[tokio::test]
+async fn test_db_rate_limit_allowlist() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+
+    let context = TestContext::new(None).await;
+
+    // Clean up any leftover rows from a previous failed run
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
+
+    let (team1, secret1, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let (team2, secret2, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // --- Scenario 1: allowlisted team bypasses rate limit ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team1.id.to_string())
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        // First request triggers DB refresh
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Second request would be rate limited, but allowlist bypasses it
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Allowlisted team should bypass rate limit"
+        );
+    }
+
+    // --- Scenario 2: non-allowlisted team gets rate limited ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        context
+            .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            429,
+            "Non-allowlisted team should be rate limited"
+        );
+    }
+
+    // --- Scenario 3: only listed team bypasses, other team gets limited ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(
+            r#"{{"{}": "1/second", "{}": "1/second"}}"#,
+            team1.id, team2.id
+        )
+        .parse()
+        .unwrap();
+
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team1.id.to_string())
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client.clone(), team1.id)
+            .await
+            .unwrap();
+        context
+            .populate_flag_definitions_cache(redis_client, team2.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        // Team1 (allowlisted) can make many requests
+        for i in 0..5 {
+            let resp = client
+                .get(format!(
+                    "http://{}/flags/definitions?token={}",
+                    server.addr, team1.api_token
+                ))
+                .header("Authorization", format!("Bearer {secret1}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                200,
+                "Allowlisted team1 request {i} should succeed"
+            );
+        }
+
+        // Team2 (not allowlisted) should eventually be rate limited
+        let mut saw_rate_limit = false;
+        for _ in 0..10 {
+            let resp = client
+                .get(format!(
+                    "http://{}/flags/definitions?token={}",
+                    server.addr, team2.api_token
+                ))
+                .header("Authorization", format!("Bearer {secret2}"))
+                .send()
+                .await
+                .unwrap();
+            if resp.status() == 429 {
+                saw_rate_limit = true;
+                break;
+            }
+        }
+        assert!(
+            saw_rate_limit,
+            "Non-allowlisted team2 should eventually be rate limited"
+        );
+    }
+
+    // --- Scenario 4: env var allowlist preserved when DB row is missing ---
+    {
+        // Configure team1 as allowlisted via the env var (set at server startup)
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+        config.rate_limiting_allow_list_teams = team1.id.to_string().parse().unwrap();
+
+        // Ensure no DB row exists — env var default should be kept
+        context
+            .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        // First request triggers DB refresh — row missing, so env var default is kept
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Second request: team1 should still bypass via env var allowlist
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Env var allowlist should be preserved when DB row is missing"
+        );
+    }
+
+    // --- Scenario 5: null DB value treated as empty allowlist ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        context
+            .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", "null")
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // null means empty allowlist — team should be rate limited
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            429,
+            "null DB value should be treated as empty allowlist"
+        );
+    }
+
+    // --- Scenario 6: invalid team IDs skipped, valid ones kept ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        // Mix of valid and invalid IDs — team1 should still be allowlisted
+        context
+            .set_instance_setting(
+                "RATE_LIMITING_ALLOW_LIST_TEAMS",
+                &format!("{},abc,xyz", team1.id),
+            )
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // team1 is in the valid portion of the allowlist — should bypass
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Valid team IDs should be kept even when invalid ones are present"
+        );
+    }
+
+    // --- Scenario 7: Django-format JSON-encoded string ---
+    {
+        let mut config = Config::default_test_config();
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+            .parse()
+            .unwrap();
+
+        // Django's set_instance_setting calls json.dumps(value), so "23047"
+        // is stored as "\"23047\"" in raw_value
+        context
+            .set_instance_setting(
+                "RATE_LIMITING_ALLOW_LIST_TEAMS",
+                &format!("\"{}\"", team1.id),
+            )
+            .await
+            .unwrap();
+
+        let redis_client =
+            feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
+                .await;
+        context
+            .populate_flag_definitions_cache(redis_client, team1.id)
+            .await
+            .unwrap();
+
+        let server = common::ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // team1 should bypass via JSON-encoded allowlist
+        let resp = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, team1.api_token
+            ))
+            .header("Authorization", format!("Bearer {secret1}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "Django-format JSON-encoded allowlist should work"
+        );
+    }
+
+    // Clean up
+    context
+        .delete_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS")
+        .await
+        .unwrap();
+}

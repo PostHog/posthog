@@ -8,22 +8,22 @@ from posthog.models.web_preaggregated.migrations import add_mat_metadata_fields_
 operations = [
     run_sql_with_exceptions(
         add_mat_metadata_fields_to_table("web_pre_aggregated_stats"),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         add_mat_metadata_fields_to_table("web_pre_aggregated_bounces"),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         add_mat_metadata_fields_to_table("web_pre_aggregated_stats_staging"),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         add_mat_metadata_fields_to_table("web_pre_aggregated_bounces_staging"),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         is_alter_on_replicated_table=True,
     ),
 ]

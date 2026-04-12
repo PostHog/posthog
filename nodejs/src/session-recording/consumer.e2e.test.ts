@@ -844,10 +844,11 @@ describe('Session Recording Consumer Integration', () => {
 
         const ingester = new SessionRecordingIngester(
             hub as any,
-            false,
             hub.postgres,
             kafkaMetadataProducer,
-            kafkaMessageProducer
+            kafkaMessageProducer,
+            hub.redisPool,
+            hub.redisPool
         )
 
         return { ingester, kafkaMetadataProducer }

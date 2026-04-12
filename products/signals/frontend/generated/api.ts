@@ -9,9 +9,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    PaginatedPauseStateResponseListApi,
     PaginatedSignalSourceConfigListApi,
+    PauseResponseApi,
+    PauseUntilRequestApi,
+    SignalProcessingListParams,
     SignalSourceConfigApi,
     SignalSourceConfigsListParams,
+    UnpauseResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -30,6 +35,73 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+/**
+ * Return current processing state including pause status.
+ */
+export const getSignalProcessingListUrl = (projectId: string, params?: SignalProcessingListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signal_processing/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signal_processing/`
+}
+
+export const signalProcessingList = async (
+    projectId: string,
+    params?: SignalProcessingListParams,
+    options?: RequestInit
+): Promise<PaginatedPauseStateResponseListApi> => {
+    return apiMutator<PaginatedPauseStateResponseListApi>(getSignalProcessingListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * View and control signal processing pipeline state for a team.
+ */
+export const getSignalProcessingPauseUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_processing/pause/`
+}
+
+export const signalProcessingPauseUpdate = async (
+    projectId: string,
+    pauseUntilRequestApi: PauseUntilRequestApi,
+    options?: RequestInit
+): Promise<PauseResponseApi> => {
+    return apiMutator<PauseResponseApi>(getSignalProcessingPauseUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pauseUntilRequestApi),
+    })
+}
+
+/**
+ * View and control signal processing pipeline state for a team.
+ */
+export const getSignalProcessingUnpauseCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signal_processing/unpause/`
+}
+
+export const signalProcessingUnpauseCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UnpauseResponseApi> => {
+    return apiMutator<UnpauseResponseApi>(getSignalProcessingUnpauseCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getSignalSourceConfigsListUrl = (projectId: string, params?: SignalSourceConfigsListParams) => {
     const normalizedParams = new URLSearchParams()

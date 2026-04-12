@@ -84,6 +84,24 @@ class TestTypeformTransport:
         assert "since" not in request.params
         assert "until" not in request.params
 
+    def test_responses_paginator_init_request_resets_state_between_forms(self) -> None:
+        paginator = TypeformResponsesPaginator()
+        response = Mock()
+
+        # Simulate mid-stream state: Form A fetched one page but there are more
+        paginator.update_state(response, data=[{"token": "tok_a1"}])
+        assert paginator._cursor == "tok_a1"
+
+        # Reset for Form B — must clear the stale cursor
+        paginator.init_request(Mock())
+
+        # update_request should not inject stale cursor from Form A
+        request_b = Mock()
+        request_b.params = {"page_size": 1000, "since": "2026-03-01", "until": "2026-03-25"}
+        paginator.update_request(request_b)
+        assert "before" not in request_b.params
+        assert request_b.params["since"] == "2026-03-01"
+
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
             ValueError,

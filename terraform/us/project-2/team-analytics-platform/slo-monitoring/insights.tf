@@ -40,7 +40,7 @@ locals {
 
   # Row budgets for queries (with 2x margin for safety).
   slo_burn_rate_limit    = 168 * 4 * 2 # 7 days * 24h * 4 metrics * margin
-  slo_duration_limit     = 28 * 3 * 2  # 28 days * 3 percentiles * margin
+  slo_duration_limit     = 7 * 3 * 2   # 7 days * 3 percentiles * margin
   slo_success_rate_limit = length(local.slo_operations) * 28 * 2
 
   # Explicit operation list for the success rate query (avoids DISTINCT drift).
@@ -51,17 +51,46 @@ locals {
   # Placeholders: {{OPERATION}}, {{REGION}}, {{ERROR_BUDGET}}
   # ---------------------------------------------------------------------------
   slo_burn_rate_query = <<-SQL
-    WITH hourly AS (
+    -- Single scan: GROUP BY (cid, hour) extracts correlation_id once per row.
+    -- Correlated events (cid != '') are paired by cid then attributed to start hour.
+    -- Uncorrelated events (cid = '') use bucket-based counting with clamp.
+    WITH per_cid_hour AS (
         SELECT
-            toStartOfHour(timestamp) AS hour,
-            countIf(event = 'slo_operation_started') AS total,
-            countIf(event = 'slo_operation_started')
-              - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
+            coalesce(nullIf(properties.correlation_id, ''), '') AS cid,
+            toStartOfHour(timestamp) AS event_hour,
+            countIf(event = 'slo_operation_started') AS starts,
+            countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND timestamp >= now() - INTERVAL 35 DAY
+        GROUP BY cid, event_hour
+    ),
+    hourly AS (
+        SELECT hour, sum(total) AS total, sum(failures) AS failures
+        FROM (
+            -- Uncorrelated: each row is one hour bucket, clamp failures to 0
+            SELECT
+                event_hour AS hour,
+                starts AS total,
+                greatest(starts - successes, 0) AS failures
+            FROM per_cid_hour
+            WHERE cid = ''
+
+            UNION ALL
+
+            -- Correlated: collapse across hours per cid, attribute to start hour
+            SELECT
+                toStartOfHour(min(first_start)) AS hour,
+                1 AS total,
+                if(max(successes) > 0, 0, 1) AS failures
+            FROM per_cid_hour
+            WHERE cid != ''
+            GROUP BY cid
+            HAVING hour IS NOT NULL
+        )
         GROUP BY hour
     ),
     hour_range AS (
@@ -96,12 +125,16 @@ locals {
     FROM (
         SELECT
             hour,
+            if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_1h,
+            if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL) AS raw_24h,
+            if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL) AS raw_7d,
+            if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL) AS raw_28d,
             ['Burn rate 1h', 'Burn rate 24h', 'Burn rate 7d', 'Burn rate 28d'] AS metrics,
             [
-                if(t1h  > 0, round((f1h  / t1h)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t24h > 0, round((f24h / t24h) / {{ERROR_BUDGET}}, 2), NULL),
-                if(t7d  > 0, round((f7d  / t7d)  / {{ERROR_BUDGET}}, 2), NULL),
-                if(t28d > 0, round((f28d / t28d) / {{ERROR_BUDGET}}, 2), NULL)
+                sign(raw_1h)  * log10(1 + abs(raw_1h)),
+                sign(raw_24h) * log10(1 + abs(raw_24h)),
+                sign(raw_7d)  * log10(1 + abs(raw_7d)),
+                sign(raw_28d) * log10(1 + abs(raw_28d))
             ] AS vals
         FROM rolling
         WHERE hour >= now() - INTERVAL 7 DAY
@@ -127,11 +160,11 @@ locals {
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND properties.duration_ms IS NOT NULL
-          AND timestamp >= now() - INTERVAL 28 DAY
+          AND timestamp >= now() - INTERVAL 7 DAY
         GROUP BY date
     ),
     date_range AS (
-        SELECT toDate(now()) - number AS date FROM numbers(28)
+        SELECT toDate(now()) - number AS date FROM numbers(7)
     ),
     base AS (
         SELECT
@@ -192,7 +225,8 @@ resource "posthog_insight" "slo_burn_rate" {
       seriesBreakdownColumn = "metric"
       showLegend            = true
       goalLines = [
-        { label = "Budget rate", value = 1.0, position = "start" }
+        { label = "Budget rate", value = 0.30, position = "start" },
+        { label = "100x burn",   value = 2.00, position = "start" }
       ]
     }
     tableSettings = {
@@ -260,13 +294,17 @@ resource "posthog_insight" "slo_success_rate" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
+        -- No correlation_id needed: daily buckets have negligible cross-bucket issues.
         WITH daily AS (
             SELECT
                 toDate(timestamp) AS date,
                 properties.operation AS operation,
                 countIf(event = 'slo_operation_started') AS total,
-                countIf(event = 'slo_operation_started')
-                  - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS failures
+                greatest(
+                    countIf(event = 'slo_operation_started')
+                      - countIf(event = 'slo_operation_completed' AND properties.outcome = 'success'),
+                    0
+                ) AS failures
             FROM events
             WHERE event IN ('slo_operation_started', 'slo_operation_completed')
               AND properties.operation IN (${local.slo_operation_list})
@@ -342,6 +380,7 @@ resource "posthog_insight" "slo_volume" {
     source = {
       kind  = "HogQLQuery"
       query = <<-SQL
+        -- No correlation_id needed: single 28-day bucket has no cross-bucket issue.
         SELECT
             properties.operation AS operation,
             if(
@@ -352,8 +391,11 @@ resource "posthog_insight" "slo_volume" {
             countIf(event = 'slo_operation_started') AS started,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
             countIf(event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
-            countIf(event = 'slo_operation_started')
-              - countIf(event = 'slo_operation_completed') AS never_completed,
+            greatest(
+                countIf(event = 'slo_operation_started')
+                  - countIf(event = 'slo_operation_completed'),
+                0
+            ) AS never_completed,
             if(
                 countIf(event = 'slo_operation_started') > 0,
                 round(countIf(event = 'slo_operation_completed' AND properties.outcome = 'success')

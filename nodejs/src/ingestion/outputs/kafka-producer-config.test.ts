@@ -3,6 +3,7 @@ import { hostname } from 'os'
 import { AllowedConfigKey, getProducerConfig } from './kafka-producer-config'
 
 const TEST_CONFIG_MAP: Partial<Record<AllowedConfigKey, string>> = {
+    'client.id': 'TEST_CLIENT_ID',
     'metadata.broker.list': 'TEST_BROKER',
     'security.protocol': 'TEST_SECURITY_PROTOCOL',
     'compression.codec': 'TEST_COMPRESSION',
@@ -84,10 +85,18 @@ describe('getProducerConfig', () => {
         expect(() => getProducerConfig(TEST_CONFIG_MAP)).toThrow()
     })
 
-    it('always sets client.id to hostname', () => {
+    it('defaults client.id to hostname when env var is not set', () => {
         const config = getProducerConfig(TEST_CONFIG_MAP)
 
         expect(config['client.id']).toBe(hostname())
+    })
+
+    it('overrides client.id when env var is set', () => {
+        process.env.TEST_CLIENT_ID = 'my-custom-client-id'
+
+        const config = getProducerConfig(TEST_CONFIG_MAP)
+
+        expect(config['client.id']).toBe('my-custom-client-id')
     })
 
     it('ignores env vars not in the config map', () => {

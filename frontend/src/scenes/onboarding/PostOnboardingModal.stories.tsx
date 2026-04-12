@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -9,26 +9,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { PostOnboardingModal } from './PostOnboardingModal'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 
-interface PostOnboardingModalProps {
-    productKey: ProductKey
-}
-
-type Story = StoryObj<PostOnboardingModalProps>
-const meta: Meta<PostOnboardingModalProps> = {
+const meta: Meta = {
     title: 'Scenes-Other/Onboarding/Post Onboarding Modal',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-    },
-    render: ({ productKey }) => {
-        useMountedLogic(postOnboardingModalLogic)
-        const { openPostOnboardingModal } = useActions(postOnboardingModalLogic)
-
-        useEffect(() => {
-            openPostOnboardingModal(productKey)
-        }, [productKey, openPostOnboardingModal])
-
-        return <PostOnboardingModal />
     },
     argTypes: {
         productKey: {
@@ -39,30 +24,55 @@ const meta: Meta<PostOnboardingModalProps> = {
 }
 export default meta
 
-export const ProductAnalytics: Story = { args: { productKey: ProductKey.PRODUCT_ANALYTICS } }
+const Template: StoryFn<{ productKey: ProductKey }> = ({ productKey }) => {
+    useMountedLogic(postOnboardingModalLogic)
+    const { openPostOnboardingModal } = useActions(postOnboardingModalLogic)
 
-export const WebAnalytics: Story = { args: { productKey: ProductKey.WEB_ANALYTICS } }
+    useEffect(() => {
+        openPostOnboardingModal(productKey)
+    }, [productKey, openPostOnboardingModal])
 
-export const SessionReplay: Story = { args: { productKey: ProductKey.SESSION_REPLAY } }
+    return <PostOnboardingModal />
+}
 
-export const FeatureFlags: Story = { args: { productKey: ProductKey.FEATURE_FLAGS } }
+export const ProductAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+ProductAnalytics.args = { productKey: ProductKey.PRODUCT_ANALYTICS }
 
-export const Experiments: Story = { args: { productKey: ProductKey.EXPERIMENTS } }
+export const WebAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+WebAnalytics.args = { productKey: ProductKey.WEB_ANALYTICS }
 
-export const Surveys: Story = { args: { productKey: ProductKey.SURVEYS } }
+export const SessionReplay: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+SessionReplay.args = { productKey: ProductKey.SESSION_REPLAY }
 
-export const DataWarehouse: Story = { args: { productKey: ProductKey.DATA_WAREHOUSE } }
+export const FeatureFlags: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+FeatureFlags.args = { productKey: ProductKey.FEATURE_FLAGS }
 
-export const ErrorTracking: Story = { args: { productKey: ProductKey.ERROR_TRACKING } }
+export const Experiments: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+Experiments.args = { productKey: ProductKey.EXPERIMENTS }
 
-export const LLMAnalytics: Story = { args: { productKey: ProductKey.LLM_ANALYTICS } }
+export const Surveys: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+Surveys.args = { productKey: ProductKey.SURVEYS }
 
-export const RevenueAnalytics: Story = { args: { productKey: ProductKey.REVENUE_ANALYTICS } }
+export const DataWarehouse: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+DataWarehouse.args = { productKey: ProductKey.DATA_WAREHOUSE }
 
-export const Logs: Story = { args: { productKey: ProductKey.LOGS } }
+export const ErrorTracking: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+ErrorTracking.args = { productKey: ProductKey.ERROR_TRACKING }
 
-export const Workflows: Story = { args: { productKey: ProductKey.WORKFLOWS } }
+export const LLMAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+LLMAnalytics.args = { productKey: ProductKey.LLM_ANALYTICS }
 
-export const Endpoints: Story = { args: { productKey: ProductKey.ENDPOINTS } }
+export const RevenueAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+RevenueAnalytics.args = { productKey: ProductKey.REVENUE_ANALYTICS }
 
-export const EarlyAccessFeatures: Story = { args: { productKey: ProductKey.EARLY_ACCESS_FEATURES } }
+export const Logs: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+Logs.args = { productKey: ProductKey.LOGS }
+
+export const Workflows: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+Workflows.args = { productKey: ProductKey.WORKFLOWS }
+
+export const Endpoints: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+Endpoints.args = { productKey: ProductKey.ENDPOINTS }
+
+export const EarlyAccessFeatures: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+EarlyAccessFeatures.args = { productKey: ProductKey.EARLY_ACCESS_FEATURES }

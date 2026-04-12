@@ -152,10 +152,16 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             return HttpResponseRedirect(redirect_to=link_url)
 
 
+class EnvironmentMappingSerializer(serializers.Serializer):
+    production = serializers.IntegerField(required=True)
+    preview = serializers.IntegerField(required=False)
+    development = serializers.IntegerField(required=False)
+
+
 class VercelConnectLinkSerializer(serializers.Serializer):
     session = serializers.CharField(required=True)
     organization_id = serializers.UUIDField(required=True)
-    team_id = serializers.IntegerField(required=True)
+    environment_mapping = EnvironmentMappingSerializer(required=True)
 
 
 class VercelConnectLinkViewSet(viewsets.GenericViewSet):
@@ -172,7 +178,10 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         user = cast(User, request.user)
         session_key = serializer.validated_data["session"]
         organization_id = serializer.validated_data["organization_id"]
-        team_id = serializer.validated_data["team_id"]
+        env_mapping = serializer.validated_data["environment_mapping"]
+        production_team_id = env_mapping["production"]
+        preview_team_id = env_mapping.get("preview", production_team_id)
+        development_team_id = env_mapping.get("development", production_team_id)
 
         try:
             cached_data = _load_connect_session(session_key)
@@ -217,13 +226,19 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     "Please unlink the existing one first or choose a different organization."
                 )
 
-        try:
-            team = Team.objects.get(pk=team_id, organization=organization)
-        except Team.DoesNotExist:
-            raise exceptions.ValidationError("The selected project does not belong to this organization.")
+        unique_team_ids = {production_team_id, preview_team_id, development_team_id}
+        teams_by_id: dict[int, Team] = {}
+        for tid in unique_team_ids:
+            try:
+                teams_by_id[tid] = Team.objects.get(pk=tid, organization=organization)
+            except Team.DoesNotExist:
+                raise exceptions.ValidationError(f"Project {tid} does not belong to this organization.")
 
-        if Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists():
-            raise exceptions.ValidationError("This project already has a Vercel integration.")
+        for tid in unique_team_ids:
+            if Integration.objects.filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL).exists():
+                raise exceptions.ValidationError(f"Project '{teams_by_id[tid].name}' already has a Vercel integration.")
+
+        production_team = teams_by_id[production_team_id]
 
         with transaction.atomic():
             OrganizationIntegration.objects.create(
@@ -235,6 +250,11 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     "vercel_team_id": cached_data.get("team_id"),
                     "vercel_user_id": cached_data["user_id"],
                     "configuration_id": cached_data.get("configuration_id"),
+                    "environment_mapping": {
+                        "production": production_team_id,
+                        "preview": preview_team_id,
+                        "development": development_team_id,
+                    },
                     "user_mappings": {
                         cached_data["user_id"]: user.pk,
                     },
@@ -248,40 +268,45 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 created_by=user,
             )
 
-            resource = Integration.objects.create(
-                team=team,
-                kind=Integration.IntegrationKind.VERCEL,
-                integration_id=str(team.pk),
-                config={"type": "connectable"},
-                created_by=user,
-            )
+            resources: dict[int, Integration] = {}
+            for tid, team in teams_by_id.items():
+                resources[tid] = Integration.objects.create(
+                    team=team,
+                    kind=Integration.IntegrationKind.VERCEL,
+                    integration_id=str(team.pk),
+                    config={"type": "connectable"},
+                    created_by=user,
+                )
 
         from ee.vercel.integration import VercelIntegration
+
+        production_resource = resources[production_team_id]
+        secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
 
         client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
-            resource_id=str(resource.pk),
+            resource_id=str(production_resource.pk),
             product_id="posthog",
-            name=team.name,
-            secrets=VercelIntegration._build_secrets(team),
+            name=production_team.name,
+            secrets=secrets,
         )
         if not import_result.success:
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
                 installation_id=installation_id,
-                resource_id=str(resource.pk),
+                resource_id=str(production_resource.pk),
                 integration="vercel",
             )
 
-        VercelIntegration.bulk_sync_feature_flags_to_vercel(team)
+        VercelIntegration.bulk_sync_feature_flags_to_vercel(production_team)
 
         logger.info(
             "Vercel connectable account linked",
             installation_id=installation_id,
             organization_id=str(organization_id),
-            team_id=team_id,
+            production_team_id=production_team_id,
             user_id=user.pk,
             integration="vercel",
         )
@@ -295,6 +320,43 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             },
             status=201,
         )
+
+    @staticmethod
+    def _build_env_secrets(
+        teams_by_id: dict[int, Team],
+        production_id: int,
+        preview_id: int,
+        development_id: int,
+    ) -> list[dict]:
+        from posthog.utils import absolute_uri
+
+        prod_team = teams_by_id[production_id]
+        preview_team = teams_by_id[preview_id]
+        dev_team = teams_by_id[development_id]
+
+        all_same = production_id == preview_id == development_id
+
+        secrets: list[dict] = [
+            {
+                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+                "value": prod_team.api_token,
+                **(
+                    {}
+                    if all_same
+                    else {
+                        "environmentOverrides": {
+                            "preview": preview_team.api_token,
+                            "development": dev_team.api_token,
+                        }
+                    }
+                ),
+            },
+            {
+                "name": "NEXT_PUBLIC_POSTHOG_HOST",
+                "value": absolute_uri(),
+            },
+        ]
+        return secrets
 
     @decorators.action(detail=False, methods=["get"], url_path="session")
     def session_info(self, request: Request) -> Response:

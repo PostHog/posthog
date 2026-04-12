@@ -75,6 +75,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/cdp/apps',
         iconType: 'data_pipeline',
     },
+    [Scene.BatchExport]: {
+        projectBased: true,
+        name: 'Batch export',
+        activityScope: ActivityScope.BATCH_EXPORT,
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
+    [Scene.BatchExportNew]: {
+        projectBased: true,
+        name: 'New batch export',
+        iconType: 'data_pipeline',
+        defaultDocsPath: '/docs/cdp/batch-exports',
+        changelogTeamSlug: 'Batch Exports',
+    },
     [Scene.BillingAuthorizationStatus]: {
         organizationBased: true,
         defaultDocsPath: '/pricing',
@@ -172,6 +187,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
+    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -520,6 +536,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Monitor the health of your PostHog integrations.',
         iconType: 'health',
     },
+    [Scene.HealthCategoryDetail]: {
+        projectBased: true,
+        name: 'Health detail',
+        iconType: 'health',
+    },
     [Scene.PipelineStatus]: {
         projectBased: true,
         name: 'Pipeline status',
@@ -541,6 +562,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
+    [Scene.Subscriptions]: {
+        projectBased: true,
+        name: 'Subscriptions',
+        iconType: 'inbox',
+        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
+    },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -550,6 +577,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
+        layout: 'app-raw-no-header',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
     [Scene.SurveyFormBuilder]: {
@@ -896,6 +924,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
@@ -948,7 +977,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    // Parameterized route must come after static /health/* routes
+    [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
+    [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],

@@ -8,3 +8,28 @@ This workflow periodically processes those embeddings to find patterns - if mult
 (e.g., "User clicked submit button repeatedly but nothing happened"), those segments cluster together
 and become a Task for the team to fix.
 """
+
+from posthog.temporal.ai.video_segment_clustering.activities import (
+    cluster_segments_activity,
+    emit_signals_from_clusters_activity,
+    fetch_segments_activity,
+    get_sessions_to_prime_activity,
+)
+from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
+from posthog.temporal.ai.video_segment_clustering.coordinator_workflow import (
+    VideoSegmentClusteringCoordinatorWorkflow,
+    get_proactive_tasks_enabled_team_ids_activity,
+)
+
+VIDEO_SEGMENT_CLUSTERING_WORKFLOWS = [
+    VideoSegmentClusteringWorkflow,
+    VideoSegmentClusteringCoordinatorWorkflow,
+]
+
+VIDEO_SEGMENT_CLUSTERING_ACTIVITIES = [
+    get_sessions_to_prime_activity,
+    fetch_segments_activity,
+    cluster_segments_activity,
+    emit_signals_from_clusters_activity,
+    get_proactive_tasks_enabled_team_ids_activity,
+]

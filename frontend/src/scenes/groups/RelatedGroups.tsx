@@ -26,9 +26,7 @@ export function RelatedGroups({
     pageSize,
     embedded = false,
 }: RelatedGroupsProps): JSX.Element {
-    const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(
-        relatedGroupsLogic({ groupTypeIndex, id, type })
-    )
+    const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
     const dataSource = type === 'person' ? relatedPeople : relatedActors
     const { aggregationLabel } = useValues(groupsModel)
 

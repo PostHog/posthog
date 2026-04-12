@@ -376,6 +376,16 @@ impl Client for ReadWriteClient {
         self.writer.setex(k, v, seconds).await
     }
 
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.setex_with_format(k, v, seconds, format).await
+    }
+
     async fn set_nx_ex(
         &self,
         k: String,

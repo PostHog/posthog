@@ -77,20 +77,20 @@ const GroupBase = ({ group }: { group: Record<string, IconCollection> }): JSX.El
 
 export const Elements: StoryObj = {
     render: () => <GroupBase group={ELEMENTS} />,
-    storyName: 'Category - Elements',
+    name: 'Category - Elements',
 }
 
 export const TeamsAndCompanies: StoryObj = {
     render: () => <GroupBase group={TEAMS_AND_COMPANIES} />,
-    storyName: 'Category - Teams & Companies',
+    name: 'Category - Teams & Companies',
 }
 
 export const Technology: StoryObj = {
     render: () => <GroupBase group={TECHNOLOGY} />,
-    storyName: 'Category - Technology',
+    name: 'Category - Technology',
 }
 
 export const Objects: StoryObj = {
     render: () => <GroupBase group={OBJECTS} />,
-    storyName: 'Category - Objects',
+    name: 'Category - Objects',
 }

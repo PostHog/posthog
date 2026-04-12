@@ -703,10 +703,11 @@ class TestPersonhogEnvInjection:
             version="1.0",
             capabilities=capabilities,
             intents=intents,
-            always_required=["backend"],
+            always_required=["backend", "nodejs"],
         )
         registry = MockRegistry(capability_units)
         registry._processes["backend"] = {"shell": "./bin/start-backend", "capability": ""}
+        registry._processes["nodejs"] = {"shell": "./bin/posthog-node", "capability": "event_ingestion"}
         return intent_map, registry
 
     @parameterized.expand(
@@ -721,9 +722,12 @@ class TestPersonhogEnvInjection:
         resolved = resolver.resolve(intents)
         config = MprocsGenerator(registry).generate(resolved)
 
-        shell = config.procs["backend"]["shell"]
-        for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
-            if should_inject:
-                assert var in shell
-            else:
-                assert var not in shell
+        for proc_name in ["backend", "nodejs"]:
+            if proc_name not in config.procs:
+                continue
+            shell = config.procs[proc_name]["shell"]
+            for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
+                if should_inject:
+                    assert var in shell, f"{var} should be in {proc_name} shell"
+                else:
+                    assert var not in shell, f"{var} should not be in {proc_name} shell"

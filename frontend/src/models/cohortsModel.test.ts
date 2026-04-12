@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { CohortType, FilterLogicalOperator } from '~/types'
 
-import { cohortsModel } from './cohortsModel'
+import { cohortsModel, processCohort } from './cohortsModel'
 
 const MOCK_COHORTS = {
     count: 2,
@@ -168,6 +168,84 @@ describe('cohortsModel', () => {
                         2: expect.objectContaining({ id: 2, name: 'Cohort two' }),
                     }),
                 })
+        })
+    })
+
+    describe('processCohort', () => {
+        it.each([
+            {
+                name: 'wraps flat criteria into nested group format',
+                cohort: {
+                    id: 3,
+                    name: 'Flat format cohort',
+                    count: 0,
+                    groups: [],
+                    is_calculating: false,
+                    is_static: false,
+                    filters: {
+                        properties: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: 'behavioral',
+                                    key: 'purchase',
+                                    value: 'performed_event',
+                                    event_type: 'events',
+                                    operator: 'gte',
+                                    operator_value: 2,
+                                    time_value: 30,
+                                    time_interval: 'day',
+                                    negation: false,
+                                },
+                            ],
+                        },
+                    },
+                } as CohortType,
+                expectedType: FilterLogicalOperator.And,
+                expectedCriteriaKey: 'purchase',
+            },
+            {
+                name: 'leaves already nested criteria unchanged',
+                cohort: {
+                    id: 4,
+                    name: 'Nested format cohort',
+                    count: 0,
+                    groups: [],
+                    is_calculating: false,
+                    is_static: false,
+                    filters: {
+                        properties: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: 'behavioral',
+                                            key: 'purchase',
+                                            value: 'performed_event',
+                                            event_type: 'events',
+                                            explicit_datetime: '-30d',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                } as CohortType,
+                expectedType: FilterLogicalOperator.And,
+                expectedCriteriaKey: 'purchase',
+            },
+        ])('$name', ({ cohort, expectedType, expectedCriteriaKey }) => {
+            const result = processCohort(cohort)
+            const group = result.filters.properties.values[0]
+            expect(group).toHaveProperty('type', expectedType)
+            expect(group).toHaveProperty('values')
+            expect((group as any).values).toHaveLength(1)
+            expect((group as any).values[0]).toMatchObject({
+                type: 'behavioral',
+                key: expectedCriteriaKey,
+            })
         })
     })
 })

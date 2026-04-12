@@ -24,6 +24,13 @@ export interface PathItem {
     views: number
 }
 
+export const DIRECT_REFERRER = '$direct'
+
+export interface ReferrerItem {
+    referrer: string
+    views: number
+}
+
 export interface SlidingWindowBucket {
     pageviews: number
     newUserCount: number
@@ -31,6 +38,7 @@ export interface SlidingWindowBucket {
     devices: Map<string, Set<string>>
     browsers: Map<string, Set<string>>
     paths: Map<string, number>
+    referrers: Map<string, number>
     uniqueUsers: Set<string>
     countries: Map<string, Set<string>>
 }

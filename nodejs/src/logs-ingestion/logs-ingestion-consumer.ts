@@ -21,6 +21,8 @@ import { LogsIngestionMessage } from './types'
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
+    kafkaProducer: KafkaProducerWrapper // Warpstream - for logs data
+    mskProducer: KafkaProducerWrapper // MSK - for app_metrics
 }
 
 export type UsageStats = {
@@ -90,8 +92,8 @@ export const logsRecordsDroppedCounter = new Counter({
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
-    private kafkaProducer?: KafkaProducerWrapper // Warpstream - for logs data
-    private mskProducer?: KafkaProducerWrapper // MSK - for app_metrics
+    private kafkaProducer: KafkaProducerWrapper
+    private mskProducer: KafkaProducerWrapper
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
 
@@ -102,7 +104,7 @@ export class LogsIngestionConsumer {
     protected dlqTopic?: string
 
     constructor(
-        private config: LogsIngestionConsumerConfig,
+        config: LogsIngestionConsumerConfig,
         private deps: LogsIngestionConsumerDeps,
         overrides: Partial<LogsIngestionConsumerConfig> = {}
     ) {
@@ -114,6 +116,9 @@ export class LogsIngestionConsumer {
         this.overflowTopic =
             overrides.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC
         this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
+
+        this.kafkaProducer = deps.kafkaProducer
+        this.mskProducer = deps.mskProducer
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
@@ -479,17 +484,6 @@ export class LogsIngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        await Promise.all([
-            // Warpstream producer for logs data (uses KAFKA_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
-                this.kafkaProducer = producer
-            }),
-            // Metrics producer for app_metrics (uses KAFKA_METRICS_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'METRICS_PRODUCER').then((producer) => {
-                this.mskProducer = producer
-            }),
-        ])
-
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -505,7 +499,6 @@ export class LogsIngestionConsumer {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
-        await Promise.all([this.kafkaProducer?.disconnect(), this.mskProducer?.disconnect()])
         logger.info('💤', 'Consumer stopped!')
     }
 

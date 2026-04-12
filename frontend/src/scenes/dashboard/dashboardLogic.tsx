@@ -32,7 +32,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, dashboardToSaveableTemplate } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -41,6 +41,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -352,7 +353,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAnalysisRating: (rating: 'up' | 'down' | null) => ({ rating }),
     })),
 
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         dashboard: [
             null as DashboardType<QueryBasedInsightModel> | null,
             {
@@ -417,8 +418,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
-                    actions.abortAnyRunningQuery()
-
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
@@ -467,6 +466,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         breakpoint()
 
+                        // Dashboard filters or variables changed—each tile must reload so charts match the
+                        // settings you just saved (same flow as Apply filters).
+                        const shouldRefreshTilesAfterSave = filtersChanged || variablesChanged
+
                         const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
@@ -479,6 +482,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                         actions.resetUrlFilters()
                         actions.resetUrlVariables()
+                        if (shouldRefreshTilesAfterSave) {
+                            cache.shouldRefreshTilesAfterSave = true
+                        }
                         return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -627,6 +633,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
+        generatedDashboardMetadata: [
+            null as { name: string; description: string } | null,
+            {
+                generateDashboardMetadata: async () => {
+                    try {
+                        const response = await api.dashboards.generateMetadata(props.id)
+                        eventUsageLogic.actions.reportDashboardMetadataAiGenerated({ dashboardId: props.id })
+                        return { name: response.name, description: response.description }
+                    } catch (e) {
+                        eventUsageLogic.actions.reportDashboardMetadataAiGenerationFailed({ dashboardId: props.id })
+                        lemonToast.error('Failed to generate name and description')
+                        throw e
+                    }
+                },
+            },
+        ],
     })),
     reducers(({ props }) => ({
         dashboardLoading: [
@@ -757,7 +779,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return state
                 },
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (
+                    state,
+                    { insight, extraDashboardIds, sourceDashboardId }
+                ) => {
+                    if (sourceDashboardId != null && sourceDashboardId !== props.id) {
+                        // Insight payload is from another dashboard's refresh; merged query/date range must not leak here.
+                        return state
+                    }
                     const targetDashboards = (insight.dashboard_tiles || [])
                         .map((tile) => tile.dashboard_id)
                         .concat(extraDashboardIds || [])
@@ -1258,29 +1287,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             return null
                         }
 
-                        const urlValueOverride = urlVariable?.value
-                        const dashboardValueOverride = dashboard.persisted_variables?.[v.variableId]?.value
-                        const insightValueOverride = v.value
-                        const defaultVariableValue = variable.default_value
-
-                        const urlIsNullOverride = urlVariable?.isNull
-                        const dashboardIsNullOverride = dashboard.persisted_variables?.[v.variableId]?.isNull
-                        const insightIsNullOverride = v.isNull
-                        const defaultVariableIsNull = variable.isNull
+                        const dashboardVariable = dashboard.persisted_variables?.[v.variableId]
+                        const variableSources = [urlVariable, dashboardVariable, v]
+                        const valueSource = variableSources.find((source) =>
+                            source ? Object.prototype.hasOwnProperty.call(source, 'value') : false
+                        )
+                        const isNullSource = variableSources.find((source) =>
+                            source ? Object.prototype.hasOwnProperty.call(source, 'isNull') : false
+                        )
 
                         // determine effective variable state
                         const resultVar: Variable = {
                             ...variable,
-                            value:
-                                urlValueOverride ||
-                                dashboardValueOverride ||
-                                insightValueOverride ||
-                                defaultVariableValue,
-                            isNull:
-                                urlIsNullOverride ||
-                                dashboardIsNullOverride ||
-                                insightIsNullOverride ||
-                                defaultVariableIsNull,
+                            value: valueSource ? valueSource.value : variable.default_value,
+                            isNull: isNullSource ? isNullSource.isNull : variable.isNull,
                         }
 
                         // get insights using variable
@@ -1334,52 +1354,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
-                return dashboard
-                    ? {
-                          template_name: dashboard.name,
-                          dashboard_description: dashboard.description,
-                          dashboard_filters: dashboard.filters,
-                          tags: dashboard.tags || [],
-                          tiles: dashboard.tiles
-                              .filter((tile) => !tile.error) // Skip error tiles when creating templates
-                              .map((tile) => {
-                                  if (tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          query: tile.insight.query,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.button_tile) {
-                                      return {
-                                          button_tile: {
-                                              url: tile.button_tile.url,
-                                              text: tile.button_tile.text,
-                                              placement: tile.button_tile.placement,
-                                              style: tile.button_tile.style,
-                                          },
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  throw new Error('Unknown tile type')
-                              }),
-                          variables: [],
-                      }
-                    : undefined
-            },
+            (dashboard: DashboardType): DashboardTemplateEditorType | undefined =>
+                dashboardToSaveableTemplate(dashboard),
         ],
         placement: [
             () => [(_, props) => props.placement],
@@ -1551,6 +1527,46 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : false
             },
         ],
+        /** Save-as-project-template from dashboard scene: editor on dashboard, payload has tiles; customers also need authoring flag. Staff use the same modal, with an optional JSON editor entry inside. */
+        canSaveProjectDashboardTemplate: [
+            (s) => [userLogic.selectors.user, s.featureFlags, s.canEditDashboard, s.asDashboardTemplate],
+            (user, featureFlags, canEditDashboard, asDashboardTemplate): boolean => {
+                if (!canEditDashboard || !(asDashboardTemplate?.tiles?.length ?? 0)) {
+                    return false
+                }
+                if (user?.is_staff) {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]
+            },
+        ],
+        /** AI dashboard title/description: editor access, tiles present, main dashboard scene only, not shared/embed routes. */
+        canGenerateDashboardAiMetadata: [
+            (s) => [s.canEditDashboard, s.placement, s.dashboard, router.selectors.location],
+            (
+                canEditDashboard: boolean,
+                placement: DashboardPlacement,
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                { pathname }: { pathname: string }
+            ): boolean => {
+                const tiles = dashboard?.tiles?.filter((t: DashboardTile<QueryBasedInsightModel>) => !t.deleted) ?? []
+                const hasInsightOrTextTile = tiles.some((t) => !!(t.insight || t.text))
+                if (!canEditDashboard || !hasInsightOrTextTile) {
+                    return false
+                }
+                if (placement !== DashboardPlacement.Dashboard) {
+                    return false
+                }
+                if (
+                    pathname.startsWith('/shared/') ||
+                    pathname.startsWith('/embedded/') ||
+                    pathname.startsWith('/shared_dashboard/')
+                ) {
+                    return false
+                }
+                return true
+            },
+        ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict
             (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
@@ -1700,11 +1716,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                     }
                     // Deferred — quick filters wait for quickFiltersUrlRestoreComplete,
-                    // variables wait for getVariablesSuccess. Explicitly trigger
-                    // the variable fetch since variableDataLogic uses lazyLoaders
-                    // and may not load until a component subscribes to its values.
+                    // variables wait for loadVariablesSuccess. Explicitly trigger
+                    // the variable fetch to ensure variables are loaded before
+                    // the dashboard loads.
                     if (hasVariablesInUrl) {
-                        variableDataLogic.actions.getVariables()
+                        variableDataLogic.actions.loadVariables()
                     } else {
                         // No URL variables to wait for — mark as loaded so the
                         // urlVariables selector is active for runtime overrides
@@ -1749,6 +1765,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        generateDashboardMetadataSuccess: ({ generatedDashboardMetadata }) => {
+            if (generatedDashboardMetadata && values.dashboard) {
+                dashboardsModel.actions.updateDashboard({
+                    id: values.dashboard.id,
+                    name: generatedDashboardMetadata.name,
+                    description: generatedDashboardMetadata.description,
+                    allowUndo: true,
+                })
+                if (generatedDashboardMetadata.description && !sceneLayoutLogic.values.showDescription) {
+                    sceneLayoutLogic.actions.toggleShowDescription()
+                }
+            }
+        },
         togglePinned: () => {
             if (values.dashboard) {
                 // Reducers have already run, so values.isPinned reflects the desired new state.
@@ -1843,7 +1872,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
+            if (sourceDashboardId != null && sourceDashboardId !== props.id) {
+                // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
+                return
+            }
             const targetDashboards = (insight.dashboard_tiles || [])
                 .map((tile) => tile.dashboard_id)
                 .concat(extraDashboardIds || [])
@@ -2002,7 +2035,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 if (refreshedInsight) {
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                     actions.setRefreshStatus(insight.short_id)
                 } else {
                     actions.setRefreshError(insight.short_id)
@@ -2096,7 +2129,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
 
                         if (refreshedInsight) {
-                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
                             if (refreshedInsight.is_cached) {
@@ -2216,6 +2249,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Sync the saved dashboard (including any name/description changes) to
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+            if (cache.shouldRefreshTilesAfterSave) {
+                cache.shouldRefreshTilesAfterSave = false
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
             }
         },
         setDashboardMode: async ({ mode, source }) => {
@@ -2458,7 +2498,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setInitialQuickFiltersLoaded(true)
 
             // If variables are also in the URL and haven't loaded yet, let
-            // getVariablesSuccess trigger the load — by then filtersOverrideForLoad
+            // loadVariablesSuccess trigger the load — by then filtersOverrideForLoad
             // will already include the restored quick filter properties.
             if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !values.initialVariablesLoaded) {
                 return
@@ -2473,7 +2513,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
-        [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
+        [variableDataLogic.actionTypes.loadVariablesSuccess]: () => {
             // Only run this handler once on startup
             // This ensures variables are loaded before the dashboard is loaded and insights are refreshed
             if (values.initialVariablesLoaded) {

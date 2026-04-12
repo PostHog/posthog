@@ -1,5 +1,6 @@
 from typing import Any
 
+from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
@@ -65,6 +66,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "updated_at",
             "is_recurring",
             "recurrence_interval",
+            "cron_expression",
             "last_executed_at",
             "end_date",
         ]
@@ -95,19 +97,46 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         recurrence_interval = data.get(
             "recurrence_interval", getattr(instance, "recurrence_interval", None) if instance else None
         )
+        cron_expression = data.get("cron_expression", getattr(instance, "cron_expression", None) if instance else None)
         payload = data.get("payload", getattr(instance, "payload", {}) if instance else {})
 
+        # cron_expression and recurrence_interval are mutually exclusive
+        if cron_expression and recurrence_interval:
+            raise serializers.ValidationError(
+                {"cron_expression": "Cannot set both cron_expression and recurrence_interval. Use one or the other."}
+            )
+
+        # Validate cron expression syntax (only standard 5-field expressions are allowed)
+        if cron_expression:
+            parts = cron_expression.strip().split()
+            if len(parts) != 5:
+                raise serializers.ValidationError(
+                    {
+                        "cron_expression": "Only standard 5-field cron expressions are supported "
+                        "(minute hour day month weekday). Example: '0 9 * * 1-5'."
+                    }
+                )
+            if not croniter.is_valid(cron_expression):
+                raise serializers.ValidationError(
+                    {
+                        "cron_expression": "Invalid cron expression. Use standard 5-field cron syntax (e.g., '0 9 * * 1-5')."
+                    }
+                )
+
         if is_recurring:
-            if not recurrence_interval:
+            if not recurrence_interval and not cron_expression:
                 raise serializers.ValidationError(
-                    {"recurrence_interval": "This field is required when is_recurring is true."}
+                    {
+                        "recurrence_interval": "Either recurrence_interval or cron_expression is required when is_recurring is true."
+                    }
                 )
-            # Validate recurrence_interval is a valid choice
-            valid_intervals = [choice[0] for choice in ScheduledChange.RecurrenceInterval.choices]
-            if recurrence_interval not in valid_intervals:
-                raise serializers.ValidationError(
-                    {"recurrence_interval": f"Must be one of: {', '.join(valid_intervals)}"}
-                )
+            # Validate recurrence_interval is a valid choice (when using interval mode)
+            if recurrence_interval:
+                valid_intervals = [choice[0] for choice in ScheduledChange.RecurrenceInterval.choices]
+                if recurrence_interval not in valid_intervals:
+                    raise serializers.ValidationError(
+                        {"recurrence_interval": f"Must be one of: {', '.join(valid_intervals)}"}
+                    )
             # Recurring add_release_condition is not supported because it appends
             # condition groups on each run, creating duplicates.
             if payload.get("operation") == ScheduledChange.OperationType.ADD_RELEASE_CONDITION:
@@ -117,12 +146,19 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
                         "because it appends conditions on each run, creating duplicates."
                     }
                 )
-        # For new schedules (create), if is_recurring is false, recurrence_interval must be null
-        # We only preserve recurrence_interval when is_recurring=false for UPDATES (pausing existing schedules)
-        if not instance and not is_recurring and recurrence_interval:
-            raise serializers.ValidationError(
-                {"recurrence_interval": "Cannot set recurrence_interval when is_recurring is false for new schedules."}
-            )
+        # For new schedules (create), if is_recurring is false, recurrence config must be null.
+        # We only preserve recurrence config when is_recurring=false for UPDATES (pausing existing schedules).
+        if not instance and not is_recurring:
+            if recurrence_interval:
+                raise serializers.ValidationError(
+                    {
+                        "recurrence_interval": "Cannot set recurrence_interval when is_recurring is false for new schedules."
+                    }
+                )
+            if cron_expression:
+                raise serializers.ValidationError(
+                    {"cron_expression": "Cannot set cron_expression when is_recurring is false for new schedules."}
+                )
 
         # Validate end_date is after scheduled_at
         end_date = data.get("end_date", getattr(instance, "end_date", None) if instance else None)

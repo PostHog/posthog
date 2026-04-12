@@ -9,9 +9,7 @@ from products.error_tracking.backend.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(
-        ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(
         ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]
     ),

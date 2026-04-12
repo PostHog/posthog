@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { NodeKind, SessionData } from '~/queries/schema/schema-general'
+import { PersonType } from '~/types'
 
 import type { sampledSessionsModalLogicType } from './sampledSessionsModalLogicType'
 
@@ -20,6 +21,7 @@ export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
         openModal: (modalData: ModalData) => ({ modalData }),
         closeModal: true,
         checkRecordingAvailability: (sessionData: SessionData[]) => ({ sessionData }),
+        fetchPersonDetails: (sessionData: SessionData[]) => ({ sessionData }),
     }),
 
     reducers({
@@ -79,12 +81,32 @@ export const sampledSessionsModalLogic = kea<sampledSessionsModalLogicType>([
                 },
             },
         ],
+        personDetails: [
+            new Map<string, PersonType>() as Map<string, PersonType>,
+            {
+                fetchPersonDetails: async ({ sessionData }) => {
+                    const personIds = [...new Set(sessionData.map(({ person_id }) => person_id).filter(Boolean))]
+                    if (personIds.length === 0) {
+                        return new Map()
+                    }
+
+                    try {
+                        const results = await api.persons.getByUUIDs(personIds)
+                        return new Map(Object.entries(results))
+                    } catch (error) {
+                        console.error('Failed to fetch person details:', error)
+                        return new Map()
+                    }
+                },
+            },
+        ],
     })),
 
     listeners(({ actions }) => ({
         openModal: ({ modalData }) => {
             if (modalData.sessionData.length > 0) {
                 actions.checkRecordingAvailability(modalData.sessionData)
+                actions.fetchPersonDetails(modalData.sessionData)
             }
         },
     })),

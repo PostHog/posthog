@@ -4,7 +4,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -22,6 +23,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -30,11 +32,13 @@ from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
 from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
 
@@ -43,6 +47,8 @@ from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetric
 logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
+
+ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -65,8 +71,6 @@ class ExperimentQueryStatus(str, Enum):
 class ExperimentService:
     """Single source of truth for experiment business logic."""
 
-    LEGACY_METRIC_KINDS = {"ExperimentTrendsQuery", "ExperimentFunnelsQuery"}
-
     def __init__(self, team: Team, user: Any):
         self.team = team
         self.user = user
@@ -78,10 +82,32 @@ class ExperimentService:
             raise ValidationError("End date must be after start date")
 
     @staticmethod
-    def validate_experiment_parameters(parameters: dict | None) -> None:
-        """Validate experiment parameters accepted by the API layer."""
+    def validate_variant_shapes(parameters: dict | None) -> None:
+        """Validate that variant entries are well-formed dicts with required keys.
+
+        This catches malformed input early before it reaches FeatureFlagSerializer,
+        preventing unhandled KeyError/AttributeError 500s.
+        """
         if not parameters:
             return
+        variants = parameters.get("feature_flag_variants", [])
+        for i, variant in enumerate(variants):
+            if not isinstance(variant, dict):
+                raise ValidationError(f"Feature flag variant at index {i} must be an object")
+            if "key" not in variant:
+                raise ValidationError(f"Feature flag variant at index {i} must have a 'key' field")
+
+    @staticmethod
+    def validate_experiment_parameters(parameters: dict | None) -> None:
+        """Validate experiment parameters accepted by the API layer.
+
+        Includes shape validation plus count/control checks.
+        Called from the serializer where the full parameter set is available.
+        """
+        if not parameters:
+            return
+
+        ExperimentService.validate_variant_shapes(parameters)
 
         variants = parameters.get("feature_flag_variants", [])
 
@@ -128,7 +154,7 @@ class ExperimentService:
                 raise ValidationError(f"Invalid metric at index {i}: must be a dict")
 
             kind = metric.get("kind")
-            if kind in cls.LEGACY_METRIC_KINDS:
+            if kind in LEGACY_METRIC_KINDS:
                 raise ValidationError(
                     f"Invalid metric at index {i}: legacy metric kind '{kind}' is no longer supported for new experiments. "
                     "Use 'ExperimentMetric' instead."
@@ -142,6 +168,61 @@ class ExperimentService:
                     ExperimentMetric.model_validate(metric)
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
+
+    VALID_STATS_METHODS = {"bayesian", "frequentist"}
+
+    EXPERIMENT_ORDER_ALLOWLIST = {
+        "created_at",
+        "-created_at",
+        "updated_at",
+        "-updated_at",
+        "name",
+        "-name",
+        "start_date",
+        "-start_date",
+        "end_date",
+        "-end_date",
+        "duration",
+        "-duration",
+        "status",
+        "-status",
+    }
+
+    ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
+        "created_at",
+        "-created_at",
+        "key",
+        "-key",
+        "name",
+        "-name",
+    }
+
+    @classmethod
+    def validate_stats_config(cls, stats_config: dict | None) -> None:
+        """Validate stats_config shape and method value."""
+        if not stats_config:
+            return
+        method = stats_config.get("method")
+        if method is not None and method not in cls.VALID_STATS_METHODS:
+            raise ValidationError(
+                f"Invalid stats method: '{method}'. Must be one of: {', '.join(sorted(cls.VALID_STATS_METHODS))}"
+            )
+
+    @staticmethod
+    def validate_no_duplicate_metric_uuids(*metric_lists: list | None) -> None:
+        """Reject metrics with duplicate UUIDs across all provided metric lists."""
+        seen: set[str] = set()
+        for metrics in metric_lists:
+            if not metrics:
+                continue
+            for metric in metrics:
+                if not isinstance(metric, dict):
+                    continue
+                uuid = metric.get("uuid")
+                if uuid is not None:
+                    if uuid in seen:
+                        raise ValidationError(f"Duplicate metric UUID: '{uuid}'. Each metric must have a unique UUID.")
+                    seen.add(uuid)
 
     @staticmethod
     def validate_saved_metrics_ids(saved_metrics_ids: list | None, team_id: int) -> None:
@@ -169,6 +250,101 @@ class ExperimentService:
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
+    @staticmethod
+    def _extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
+        """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
+        event_names: set[str] = set()
+        action_ids: set[int] = set()
+        if not metrics:
+            return event_names, action_ids
+
+        for metric in metrics:
+            nodes: list[dict] = []
+            metric_type = metric.get("metric_type")
+            if metric_type == "mean":
+                if source := metric.get("source"):
+                    nodes.append(source)
+            elif metric_type == "funnel":
+                nodes.extend(metric.get("series") or [])
+            elif metric_type == "ratio":
+                if num := metric.get("numerator"):
+                    nodes.append(num)
+                if den := metric.get("denominator"):
+                    nodes.append(den)
+            elif metric_type == "retention":
+                if se := metric.get("start_event"):
+                    nodes.append(se)
+                if ce := metric.get("completion_event"):
+                    nodes.append(ce)
+
+            for node in nodes:
+                kind = node.get("kind")
+                if kind == "EventsNode":
+                    event = node.get("event")
+                    if event is not None:
+                        event_names.add(event)
+                elif kind == "ActionsNode":
+                    if (action_id := node.get("id")) is not None:
+                        action_ids.add(int(action_id))
+
+        return event_names, action_ids
+
+    @classmethod
+    def validate_metric_action_ids(cls, metrics: list[dict] | None, team_id: int) -> None:
+        """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
+
+        Actions are explicitly created entities with stable IDs, so a reference to a
+        nonexistent action is almost certainly a mistake, so we raise a hard validation error.
+        """
+        _, action_ids = cls._extract_entity_nodes(metrics)
+        if not action_ids:
+            return
+
+        existing_ids = set(
+            Action.objects.filter(
+                id__in=action_ids,
+                team_id=team_id,
+                deleted=False,
+            ).values_list("id", flat=True)
+        )
+        missing = action_ids - existing_ids
+        if missing:
+            missing_str = ", ".join(str(aid) for aid in sorted(missing))
+            raise ValidationError(
+                f"Action(s) with ID {missing_str} not found or deleted. "
+                "Each ActionsNode must reference an existing action belonging to this project."
+            )
+
+    def validate_metric_event_names(self, metrics: list[dict] | None) -> None:
+        """Validate that all EventsNode event names have been seen by this team.
+
+        The frontend event picker already prevents selecting unknown events, so an
+        unrecognized name coming through the API is almost certainly a typo.
+        Callers that intentionally reference not-yet-ingested events (e.g. setting up
+        an experiment before deploying the emitting code) can pass
+        ``allow_unknown_events=True`` to bypass this check.
+        """
+        event_names, _ = self._extract_entity_nodes(metrics)
+        if not event_names:
+            return
+
+        from products.event_definitions.backend.models.event_definition import EventDefinition
+
+        existing = set(
+            EventDefinition.objects.filter(
+                team_id=self.team.id,
+                name__in=event_names,
+            ).values_list("name", flat=True)
+        )
+        unknown = event_names - existing
+        if unknown:
+            unknown_str = ", ".join(f"'{name}'" for name in sorted(unknown))
+            raise ValidationError(
+                f"Event(s) {unknown_str} not found. "
+                "No events with these names have been ingested by this project. "
+                "If this is intentional, set allow_unknown_events=True."
+            )
+
     @transaction.atomic
     def create_experiment(
         self,
@@ -192,17 +368,26 @@ class ExperimentService:
         create_in_folder: str | None = None,
         filters: dict | None = None,
         scheduling_config: dict | None = None,
-        exposure_preaggregation_enabled: bool = False,
+        only_count_matured_users: bool = False,
         archived: bool = False,
         deleted: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         serializer_context: dict | None = None,
         event_source: EventSource | None = None,
+        allow_unknown_events: bool = False,
+        creation_mode: ExperimentCreationMode = "new",
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        self.validate_variant_shapes(parameters)
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
+        self.validate_metric_action_ids(metrics, self.team.id)
+        self.validate_metric_action_ids(metrics_secondary, self.team.id)
+        if not allow_unknown_events:
+            self.validate_metric_event_names(metrics)
+            self.validate_metric_event_names(metrics_secondary)
+        self.validate_stats_config(stats_config)
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -222,10 +407,28 @@ class ExperimentService:
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
-                metric["fingerprint"] = compute_metric_fingerprint(metric, start_date, stats_method, exposure_criteria)
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
+                metric["fingerprint"] = compute_metric_fingerprint(
+                    metric,
+                    start_date,
+                    stats_method,
+                    exposure_criteria,
+                    only_count_matured_users=only_count_matured_users,
+                )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
-                metric["fingerprint"] = compute_metric_fingerprint(metric, start_date, stats_method, exposure_criteria)
+                if not metric.get("uuid"):
+                    metric["uuid"] = str(uuid4())
+                metric["fingerprint"] = compute_metric_fingerprint(
+                    metric,
+                    start_date,
+                    stats_method,
+                    exposure_criteria,
+                    only_count_matured_users=only_count_matured_users,
+                )
+
+        self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
 
         if metrics is not None:
             primary_ordering = list(primary_metrics_ordered_uuids or [])
@@ -263,7 +466,7 @@ class ExperimentService:
             "primary_metrics_ordered_uuids": primary_metrics_ordered_uuids,
             "secondary_metrics_ordered_uuids": secondary_metrics_ordered_uuids,
             "scheduling_config": scheduling_config,
-            "exposure_preaggregation_enabled": exposure_preaggregation_enabled,
+            "only_count_matured_users": only_count_matured_users,
             "archived": archived,
             "deleted": deleted,
             "conclusion": conclusion,
@@ -285,6 +488,8 @@ class ExperimentService:
             experiment,
             serializer_context=serializer_context,
             event_source=event_source,
+            allow_unknown_events=allow_unknown_events,
+            creation_mode=creation_mode,
         )
 
         return experiment
@@ -299,14 +504,19 @@ class ExperimentService:
         *,
         serializer_context: dict | None,
         event_source: EventSource | None,
+        allow_unknown_events: bool = False,
+        creation_mode: ExperimentCreationMode,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
             return
 
         analytics_metadata = experiment.get_analytics_metadata()
+        analytics_metadata["creation_mode"] = creation_mode
         if event_source is not None:
             analytics_metadata["source"] = event_source
+        if allow_unknown_events:
+            analytics_metadata["allow_unknown_events"] = True
 
         report_user_action(
             self.user,
@@ -410,6 +620,7 @@ class ExperimentService:
         start_date: datetime | None,
         stats_config: dict | None,
         exposure_criteria: dict | None,
+        only_count_matured_users: bool = False,
     ) -> list[dict]:
         """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
@@ -417,21 +628,30 @@ class ExperimentService:
         for metric in metrics:
             metric_copy = deepcopy(metric)
             metric_copy["fingerprint"] = compute_metric_fingerprint(
-                metric_copy, start_date, stats_method, exposure_criteria
+                metric_copy,
+                start_date,
+                stats_method,
+                exposure_criteria,
+                only_count_matured_users=only_count_matured_users,
             )
             updated.append(metric_copy)
         return updated
 
     def _apply_stats_config_defaults(self, stats_config: dict | None) -> dict:
         """Apply team-level defaults to stats_config."""
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
         result = dict(stats_config or {})
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
         if not result.get("method"):
-            default_method = self.team.default_experiment_stats_method or "bayesian"
+            default_method = config.default_experiment_stats_method or "bayesian"
             result["method"] = default_method
 
-        if self.team.default_experiment_confidence_level is not None:
-            confidence_level = float(self.team.default_experiment_confidence_level)
+        if config.default_experiment_confidence_level is not None:
+            confidence_level = float(config.default_experiment_confidence_level)
             bayesian_config = result.get("bayesian") or {}
             frequentist_config = result.get("frequentist") or {}
             if bayesian_config.get("ci_level") is None:
@@ -576,6 +796,8 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
+        if feature_flag.deleted:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
         self._validate_existing_flag(feature_flag)
 
         # Set start_date
@@ -1017,6 +1239,7 @@ class ExperimentService:
         update_data: dict,
         *,
         serializer_context: dict | None = None,
+        allow_unknown_events: bool = False,
     ) -> Experiment:
         """Update an experiment with full business-logic validation.
 
@@ -1026,6 +1249,14 @@ class ExperimentService:
         """
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+        if "metrics" in update_data:
+            self.validate_metric_action_ids(update_data["metrics"], self.team.id)
+            if not allow_unknown_events:
+                self.validate_metric_event_names(update_data["metrics"])
+        if "metrics_secondary" in update_data:
+            self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
+            if not allow_unknown_events:
+                self.validate_metric_event_names(update_data["metrics_secondary"])
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -1110,16 +1341,29 @@ class ExperimentService:
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
 
+        # --- validate updated fields ------------------------------------------
+        if "stats_config" in update_data:
+            self.validate_stats_config(update_data["stats_config"])
+
+        updated_primary = update_data.get("metrics", experiment.metrics)
+        updated_secondary = update_data.get("metrics_secondary", experiment.metrics_secondary)
+        self.validate_no_duplicate_metric_uuids(updated_primary, updated_secondary)
+
         # --- fingerprint recalculation -------------------------------------
         start_date = update_data.get("start_date", experiment.start_date)
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
+        only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
             if metrics:
                 update_data[metric_field] = self._recompute_fingerprints(
-                    metrics, start_date, stats_config, exposure_criteria
+                    metrics,
+                    start_date,
+                    stats_config,
+                    exposure_criteria,
+                    only_count_matured_users=only_count_matured_users,
                 )
 
         # --- metric ordering sync + validation -----------------------------
@@ -1147,6 +1391,28 @@ class ExperimentService:
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
+        # Check for legacy metrics first
+        if experiment_has_legacy_metrics(experiment):
+            allowed_fields = {"name", "description", "end_date"}
+            update_fields = set(update_data.keys())
+
+            # Remove internal fields that are handled separately
+            update_fields.discard("get_feature_flag_key")
+
+            disallowed_fields = update_fields - allowed_fields
+            if disallowed_fields:
+                raise ValidationError(
+                    f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                )
+
+            # Validate end_date if present
+            if "end_date" in update_data:
+                self.validate_experiment_date_range(experiment.start_date, update_data["end_date"])
+
+            # If only allowed fields are being updated, skip the rest of the validation
+            return
+
         if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
             raise ValidationError(
                 "Cannot restore experiment: the linked feature flag has been deleted. "
@@ -1174,6 +1440,7 @@ class ExperimentService:
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "saved_metrics_ids",
+            "only_count_matured_users",
         }
         extra_keys = set(update_data.keys()) - expected_keys
 
@@ -1204,21 +1471,35 @@ class ExperimentService:
     # Duplication
     # ------------------------------------------------------------------
 
-    def duplicate_experiment(
+    def clone_experiment(
         self,
         source_experiment: Experiment,
         *,
+        target_team: Team | None = None,
         feature_flag_key: str | None = None,
         name: str | None = None,
         serializer_context: dict | None = None,
     ) -> Experiment:
-        """Duplicate an experiment as a new draft."""
+        """Clone an experiment as a new draft, optionally into a different project.
+
+        Warning: if feature_flag_key is None or matches the source experiment's
+        flag key, the duplicate will reuse the same FeatureFlag instance. This
+        means lifecycle operations on either experiment (pause, ship, etc.) will
+        affect both. Callers should provide a unique feature_flag_key.
+        """
+        target = target_team or self.team
+        is_cross_project = target.id != self.team.id
         if feature_flag_key is None:
             feature_flag_key = source_experiment.feature_flag.key
 
         parameters = deepcopy(source_experiment.parameters) or {}
-        if feature_flag_key != source_experiment.feature_flag.key:
-            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
+
+        # Reuse variants from an existing flag in the target project.
+        # For cross-project clones we always check the target; for same-project
+        # clones we only check when the key differs from the source flag.
+        should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
+        if should_check_existing:
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
             if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
                 parameters["feature_flag_variants"] = existing_flag.filters["multivariate"]["variants"]
 
@@ -1228,43 +1509,78 @@ class ExperimentService:
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
         if name:
-            duplicate_name = name
+            clone_name = name
         else:
             base_name = f"{source_experiment.name} (Copy)"
-            duplicate_name = base_name
+            clone_name = base_name
             counter = 1
-            while Experiment.objects.filter(team_id=self.team.id, name=duplicate_name, deleted=False).exists():
-                duplicate_name = f"{base_name} {counter}"
+            while Experiment.objects.filter(team_id=target.id, name=clone_name, deleted=False).exists():
+                clone_name = f"{base_name} {counter}"
                 counter += 1
 
-        saved_metrics_data = []
-        for link in source_experiment.experimenttosavedmetric_set.all():
-            saved_metrics_data.append(
-                {
-                    "id": link.saved_metric.id,
-                    "metadata": link.metadata,
-                }
-            )
+        # Saved metrics are team-scoped — only copy for same-project clones.
+        saved_metrics_data: list[dict] | None = None
+        if not is_cross_project:
+            saved_metrics_data = [
+                {"id": link.saved_metric.id, "metadata": link.metadata}
+                for link in source_experiment.experimenttosavedmetric_set.all()
+            ] or None
 
-        duplicate_description = source_experiment.description or ""
-        duplicate_type = source_experiment.type or "product"
-
-        return self.create_experiment(
-            name=duplicate_name,
+        service = ExperimentService(team=target, user=self.user) if is_cross_project else self
+        creation_mode: ExperimentCreationMode = "copy_to_project" if is_cross_project else "duplicate"
+        return service.create_experiment(
+            name=clone_name,
             feature_flag_key=feature_flag_key,
-            description=duplicate_description,
-            type=duplicate_type,
+            description=source_experiment.description or "",
+            type=source_experiment.type or "product",
             parameters=parameters,
             filters=source_experiment.filters,
-            metrics=source_experiment.metrics,
-            metrics_secondary=source_experiment.metrics_secondary,
+            metrics=deepcopy(source_experiment.metrics),
+            metrics_secondary=deepcopy(source_experiment.metrics_secondary),
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
             exposure_criteria=source_experiment.exposure_criteria,
-            saved_metrics_ids=saved_metrics_data or None,
+            saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
             secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
-            exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
+            only_count_matured_users=source_experiment.only_count_matured_users,
+            serializer_context=serializer_context,
+            # For duplicate we set allow_unknown_events since the goal here is to actually duplicate:
+            allow_unknown_events=True,
+            creation_mode=creation_mode,
+        )
+
+    def duplicate_experiment(
+        self,
+        source_experiment: Experiment,
+        *,
+        feature_flag_key: str | None = None,
+        name: str | None = None,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Duplicate an experiment as a new draft."""
+        return self.clone_experiment(
+            source_experiment,
+            feature_flag_key=feature_flag_key,
+            name=name,
+            serializer_context=serializer_context,
+        )
+
+    def copy_experiment_to_project(
+        self,
+        source_experiment: Experiment,
+        target_team: Team,
+        *,
+        feature_flag_key: str | None = None,
+        name: str | None = None,
+        serializer_context: dict | None = None,
+    ) -> Experiment:
+        """Duplicate an experiment as a new draft in a different project."""
+        return self.clone_experiment(
+            source_experiment,
+            target_team=target_team,
+            feature_flag_key=feature_flag_key,
+            name=name,
             serializer_context=serializer_context,
         )
 
@@ -1439,6 +1755,8 @@ class ExperimentService:
         order = query_params.get("order")
         if order:
             order_value = str(order)
+            if order_value not in self.EXPERIMENT_ORDER_ALLOWLIST:
+                raise ValidationError(f"Invalid order field: '{order_value}'")
             if order_value in ["duration", "-duration"]:
                 queryset = queryset.annotate(
                     computed_duration=Case(
@@ -1550,6 +1868,9 @@ class ExperimentService:
                 queryset = queryset.filter(eval_context_count__gt=0)
             else:
                 queryset = queryset.filter(eval_context_count=0)
+
+        if order and order not in self.ELIGIBLE_FLAGS_ORDER_ALLOWLIST:
+            raise ValidationError(f"Invalid order field: '{order}'")
 
         queryset = queryset.order_by(order or "-created_at")
 

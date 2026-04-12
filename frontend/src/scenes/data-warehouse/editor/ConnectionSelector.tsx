@@ -53,7 +53,7 @@ export function ConnectionSelector(): JSX.Element | null {
                 }
 
                 if (nextValue === ADD_POSTGRES_DIRECT_CONNECTION) {
-                    router.actions.push(urls.dataWarehouseSourceNew('Postgres'))
+                    router.actions.push(urls.dataWarehouseSourceNew('Postgres', undefined, undefined, 'direct'))
                     return
                 }
 

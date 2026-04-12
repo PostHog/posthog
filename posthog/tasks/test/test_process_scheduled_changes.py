@@ -1418,3 +1418,121 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         failure_data = json.loads(scheduled_change.failure_reason)
         self.assertFalse(failure_data["will_retry"])
         self.assertEqual(failure_data["error_classification"], "unrecoverable")
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_cron_recurring_schedule_executes_and_advances(self) -> None:
+        feature_flag = FeatureFlag.objects.create(
+            name="Cron Flag",
+            key="cron-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # "At 09:00 on weekdays" — current time is Monday 2024-01-15 09:00
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+        )
+
+        process_scheduled_changes()
+
+        feature_flag.refresh_from_db()
+        self.assertTrue(feature_flag.active)
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        # Next weekday at 09:00 is Tuesday 2024-01-16
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_cron_recurring_schedule_paused_is_skipped(self) -> None:
+        feature_flag = FeatureFlag.objects.create(
+            name="Cron Paused Flag",
+            key="cron-paused-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=False,
+            cron_expression="0 9 * * 1-5",
+        )
+
+        process_scheduled_changes()
+
+        feature_flag.refresh_from_db()
+        self.assertFalse(feature_flag.active)
+
+    @freeze_time("2024-01-19T09:00:00Z")
+    def test_cron_recurring_schedule_skips_missed_runs(self) -> None:
+        feature_flag = FeatureFlag.objects.create(
+            name="Cron Delayed Flag",
+            key="cron-delayed-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Scheduled for Monday Jan 15, but processing happens Friday Jan 19
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        # Should skip past Tue/Wed/Thu/Fri and land on Monday Jan 22
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 22, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-16T09:00:00Z")
+    def test_cron_recurring_schedule_respects_end_date(self) -> None:
+        feature_flag = FeatureFlag.objects.create(
+            name="Cron End Flag",
+            key="cron-end-flag",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 1, 16, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            cron_expression="0 9 * * 1-5",
+            end_date=datetime(2024, 1, 16, 23, 59, tzinfo=UTC),
+        )
+
+        process_scheduled_changes()
+
+        feature_flag.refresh_from_db()
+        self.assertTrue(feature_flag.active)
+
+        scheduled_change.refresh_from_db()
+        # Next cron match (Jan 17) is past end_date's day, so schedule is completed
+        self.assertIsNotNone(scheduled_change.executed_at)

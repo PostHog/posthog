@@ -26,9 +26,9 @@ from products.conversations.backend.formatting import (
     rich_content_to_slack_payload,
 )
 from products.conversations.backend.mailgun import get_smtp_connection
-from products.conversations.backend.models import EmailMessageMapping, TeamConversationsEmailConfig
+from products.conversations.backend.models import EmailMessageMapping
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.slack import get_slack_client
+from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
@@ -101,6 +101,7 @@ def post_reply_to_slack(
     author_name: str,
     slack_channel_id: str,
     slack_thread_ts: str,
+    author_email: str = "",
 ) -> None:
     """Post a support agent's reply to the corresponding Slack thread."""
 
@@ -134,14 +135,20 @@ def post_reply_to_slack(
     bot_display_name = support_settings.get("slack_bot_display_name")
     bot_icon_url = support_settings.get("slack_bot_icon_url")
 
+    # Resolve the replying user's Slack profile picture
+    author_icon_url: str | None = None
+    if author_email:
+        author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+
+    icon_url = author_icon_url or bot_icon_url
     message_kwargs: dict = {
         "channel": slack_channel_id,
         "thread_ts": slack_thread_ts,
         "text": slack_text,
         "username": author_name or bot_display_name or "Support",
     }
-    if not author_name and bot_icon_url:
-        message_kwargs["icon_url"] = bot_icon_url
+    if icon_url:
+        message_kwargs["icon_url"] = icon_url
     if slack_blocks:
         message_kwargs["blocks"] = slack_blocks
 
@@ -214,8 +221,8 @@ def post_reply_to_slack(
                     "text": fallback_text,
                     "username": author_name or bot_display_name or "Support",
                 }
-                if not author_name and bot_icon_url:
-                    fallback_kwargs["icon_url"] = bot_icon_url
+                if icon_url:
+                    fallback_kwargs["icon_url"] = icon_url
                 client.chat_postMessage(**fallback_kwargs)
                 logger.warning(
                     "🖼️ slack_reply_image_upload_fallback_links_posted",
@@ -388,19 +395,18 @@ def send_email_reply(
         return
 
     try:
-        config = TeamConversationsEmailConfig.objects.get(team=team)
-    except TeamConversationsEmailConfig.DoesNotExist:
-        logger.warning("email_reply_no_config", team_id=team_id)
+        ticket = Ticket.objects.select_related("email_config").get(id=ticket_id, team=team)
+    except Ticket.DoesNotExist:
+        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
+        return
+
+    config = ticket.email_config
+    if not config:
+        logger.warning("email_reply_no_config", team_id=team_id, ticket_id=ticket_id)
         return
 
     if not config.domain_verified:
         logger.warning("email_reply_domain_not_verified", team_id=team_id, domain=config.domain)
-        return
-
-    try:
-        ticket = Ticket.objects.get(id=ticket_id, team=team)
-    except Ticket.DoesNotExist:
-        logger.warning("email_reply_ticket_not_found", ticket_id=ticket_id)
         return
 
     if not ticket.email_from:

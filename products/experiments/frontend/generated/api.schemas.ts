@@ -313,13 +313,14 @@ export interface ExperimentApi {
     metrics_secondary?: unknown | null
     stats_config?: unknown | null
     scheduling_config?: unknown | null
+    allow_unknown_events?: boolean
     _create_in_folder?: string
     conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
-    exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
@@ -378,19 +379,29 @@ export interface PatchedExperimentApi {
     metrics_secondary?: unknown | null
     stats_config?: unknown | null
     scheduling_config?: unknown | null
+    allow_unknown_events?: boolean
     _create_in_folder?: string
     conclusion?: ExperimentConclusionEnumApi | BlankEnumApi | NullEnumApi | null
     /** @nullable */
     conclusion_comment?: string | null
     primary_metrics_ordered_uuids?: unknown | null
     secondary_metrics_ordered_uuids?: unknown | null
-    exposure_preaggregation_enabled?: boolean
+    only_count_matured_users?: boolean
     readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface CopyExperimentToProjectApi {
+    /** The team ID to copy the experiment to. */
+    target_team_id: number
+    /** Optional feature flag key to use in the destination team. */
+    feature_flag_key?: string
+    /** Optional name for the copied experiment. */
+    name?: string
 }
 
 /**
