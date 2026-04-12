@@ -18,6 +18,9 @@ export interface Series<Meta = unknown> {
     dashPattern?: number[]
     /** When true, the series is excluded from rendering, scales, and tooltips. */
     hidden?: boolean
+    /** When true, the series still renders and participates in scales and hit-testing,
+     *  but is omitted from the tooltip's seriesData so it doesn't appear as a row. */
+    hideFromTooltip?: boolean
     /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
     pointRadius?: number
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext

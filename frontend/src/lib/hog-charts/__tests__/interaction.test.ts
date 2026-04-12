@@ -148,6 +148,26 @@ describe('hog-charts interaction', () => {
             expect(result?.seriesData[0].series.key).toBe('v')
         })
 
+        it('excludes hideFromTooltip series from seriesData but still uses their values for position.y', () => {
+            const shown = makeSeries({ key: 'shown', data: [10] })
+            const hiddenFromTooltip = makeSeries({ key: 'hft', data: [50], hideFromTooltip: true })
+            const alsoShown = makeSeries({ key: 'also', data: [20] })
+            // yScale: 10 -> 80, 20 -> 60, 50 -> 5. position.y is min(yPixels)
+            // — if the hideFromTooltip series contributes, result is 5; otherwise 60.
+            const yScale = (v: number): number => ({ 10: 80, 20: 60, 50: 5 })[v] ?? 0
+            const result = buildTooltipContext(
+                0,
+                [shown, hiddenFromTooltip, alsoShown],
+                ['a'],
+                xConst,
+                yScale,
+                fakeCanvasBounds,
+                defaultResolveValue
+            )
+            expect(result?.seriesData.map((d) => d.series.key)).toEqual(['shown', 'also'])
+            expect(result?.position.y).toBe(5)
+        })
+
         it('includes correct pixel position from xScale and minimum yScale output', () => {
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [50] })

@@ -4,9 +4,10 @@ import { useCallback, useMemo } from 'react'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { LineChart } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
+import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -16,8 +17,10 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
@@ -46,8 +49,10 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         formula,
         isStickiness,
         labelGroupType,
+        hasPersonsModal,
+        querySource,
     } = useValues(trendsDataLogic(insightProps))
-    const { timezone, baseCurrency } = useValues(teamLogic)
+    const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
@@ -110,24 +115,66 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         }
     }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView, goalLines])
 
-    const formatCompareLabel = context?.formatCompareLabel
+    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+
+    const clickDeps = useMemo(
+        () => ({
+            context,
+            hasPersonsModal: !!hasPersonsModal,
+            interval,
+            timezone,
+            weekStartDay,
+            resolvedDateRange: insightData?.resolved_date_range ?? null,
+            querySource,
+            indexedResults: indexedResults ?? [],
+            openPersonsModal,
+        }),
+        [
+            context,
+            hasPersonsModal,
+            interval,
+            timezone,
+            weekStartDay,
+            insightData?.resolved_date_range,
+            querySource,
+            indexedResults,
+            openPersonsModal,
+        ]
+    )
+
+    const onPointClick = useCallback(
+        (clickData: PointClickData) => {
+            handleTrendsLineChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+        },
+        [clickDeps]
+    )
+
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
-                context={ctx}
-                timezone={timezone}
-                interval={interval ?? undefined}
-                breakdownFilter={breakdownFilter ?? undefined}
-                dateRange={insightData?.resolved_date_range ?? undefined}
-                trendsFilter={trendsFilter}
-                formula={formula}
-                showPercentView={isStickiness}
-                isPercentStackView={isPercentStackView}
-                baseCurrency={baseCurrency}
-                groupTypeLabel={resolvedGroupTypeLabel}
-                formatCompareLabel={formatCompareLabel}
-            />
-        ),
+        (ctx: TooltipContext<TrendsSeriesMeta>) => {
+            const onRowClick = canHandleClick
+                ? (datum: SeriesDatum) => {
+                      const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
+                      handleTrendsLineChartClick(seriesKey, datum.dataIndex, clickDeps)
+                  }
+                : undefined
+            return (
+                <TrendsTooltip
+                    context={ctx}
+                    timezone={timezone}
+                    interval={interval ?? undefined}
+                    breakdownFilter={breakdownFilter ?? undefined}
+                    dateRange={insightData?.resolved_date_range ?? undefined}
+                    trendsFilter={trendsFilter}
+                    formula={formula}
+                    showPercentView={isStickiness}
+                    isPercentStackView={isPercentStackView}
+                    baseCurrency={baseCurrency}
+                    groupTypeLabel={resolvedGroupTypeLabel}
+                    formatCompareLabel={context?.formatCompareLabel}
+                    onRowClick={onRowClick}
+                />
+            )
+        },
         [
             timezone,
             interval,
@@ -139,7 +186,9 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             isPercentStackView,
             baseCurrency,
             resolvedGroupTypeLabel,
-            formatCompareLabel,
+            context?.formatCompareLabel,
+            canHandleClick,
+            clickDeps,
         ]
     )
 
@@ -147,5 +196,14 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    return <LineChart series={hogSeries} labels={labels} config={chartConfig} theme={theme} tooltip={renderTooltip} />
+    return (
+        <LineChart
+            series={hogSeries}
+            labels={labels}
+            config={chartConfig}
+            theme={theme}
+            tooltip={renderTooltip}
+            onPointClick={canHandleClick ? onPointClick : undefined}
+        />
+    )
 }

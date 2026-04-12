@@ -178,3 +178,50 @@ export function lookupSeries(eventName: string, breakdownProperty?: string): Ser
     }
     return [config.default]
 }
+
+// Canned actor lookups keyed by (event, breakdown_value, day). Lets the
+// default ActorsQuery mock return different persons for different click
+// contexts so tests can assert on displayed names instead of poking at the
+// raw query body — if the wrong persons show up, we know the query was wrong.
+
+export interface ActorFixture {
+    email: string
+}
+
+/** Nested map: event → breakdown_value ('__none__' when no breakdown) → day → actors. */
+const actorsByEventBreakdownDay: Record<string, Record<string, Record<string, ActorFixture[]>>> = {
+    $pageview: {
+        __none__: {
+            '2024-06-10': [{ email: 'pageview-mon-a@example.com' }],
+            '2024-06-11': [{ email: 'pageview-tue-a@example.com' }],
+            '2024-06-12': [{ email: 'pageview-wed-a@example.com' }, { email: 'pageview-wed-b@example.com' }],
+            '2024-06-13': [{ email: 'pageview-thu-a@example.com' }],
+            '2024-06-14': [{ email: 'pageview-fri-a@example.com' }],
+        },
+    },
+    Napped: {
+        Spike: {
+            '2024-06-12': [{ email: 'spike-fan@example.com' }],
+        },
+        Bramble: {
+            '2024-06-12': [{ email: 'bramble-fan@example.com' }],
+        },
+        Thistle: {
+            '2024-06-12': [{ email: 'thistle-fan@example.com' }],
+        },
+    },
+}
+
+export interface ActorsLookupQuery {
+    event?: string
+    breakdown?: string | number | null
+    day?: string | number | null
+}
+
+export function lookupActors({ event, breakdown, day }: ActorsLookupQuery): ActorFixture[] {
+    if (!event || !day) {
+        return []
+    }
+    const breakdownKey = breakdown == null ? '__none__' : String(breakdown)
+    return actorsByEventBreakdownDay[event]?.[breakdownKey]?.[String(day)] ?? []
+}

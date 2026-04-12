@@ -63,7 +63,9 @@ export function buildTooltipContext<Meta = unknown>(
             continue
         }
         const value = resolveValue(s, dataIndex)
-        seriesData.push({ series: s, value, color: s.color })
+        if (!s.hideFromTooltip) {
+            seriesData.push({ series: s, value, color: s.color })
+        }
         const yVal = yScale(value)
         if (isFinite(yVal)) {
             yPixels.push(yVal)
