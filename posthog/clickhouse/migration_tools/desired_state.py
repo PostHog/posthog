@@ -60,9 +60,7 @@ def _parse_column(raw: dict[str, Any]) -> ColumnDef:
     )
 
 
-def _parse_columns(
-    raw: Any, all_tables: dict[str, Any], _visited: frozenset[str] | None = None
-) -> list[ColumnDef]:
+def _parse_columns(raw: Any, all_tables: dict[str, Any], _visited: frozenset[str] | None = None) -> list[ColumnDef]:
     """Parse columns, handling 'inherit <table_name>' syntax.
 
     Tracks visited tables via _visited to detect circular inheritance.
