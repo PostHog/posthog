@@ -434,7 +434,7 @@ def load_pending_deletions(
                         "group_type_index": deletion.group_type_index,
                         "created_at": deletion.created_at,
                         "delete_verified_at": deletion.delete_verified_at,
-                        "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
+                        "created_by_id": str(deletion.created_by_id) if deletion.created_by_id else None,
                         "team_id": deletion.team_id,
                     }
                     for deletion in chunk
