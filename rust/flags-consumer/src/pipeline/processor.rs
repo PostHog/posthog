@@ -5,12 +5,12 @@ use common_database::is_transient_error;
 use common_kafka::kafka_consumer::Offset;
 
 use crate::config::Config;
-use crate::consumer::EventWithOffset;
 use crate::metric_consts;
+use crate::pipeline::batch::EventWithOffset;
 use crate::storage::error::CdcError;
-use crate::storage::postgres::{
+use crate::storage::postgres::PostgresStorage;
+use crate::storage::types::{
     DistinctIdAssignmentData, DistinctIdDeletionData, PersonDeletionData, PersonUpdateData,
-    PostgresStorage,
 };
 use crate::types::CdcEvent;
 
@@ -151,9 +151,6 @@ async fn execute_writes(
         .increment(person_deletions.len() as u64);
     }
 
-    // Distinct-ID operations need individual transactions (two-row atomic
-    // update), so they can't be batched via UNNEST. At ~750 msg/s for
-    // distinct_ids, individual transactions are fine.
     for assignment in did_assignments {
         with_retry(config, || storage.upsert_distinct_id(assignment)).await?;
     }

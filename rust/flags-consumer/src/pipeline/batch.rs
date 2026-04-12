@@ -1,16 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
+use common_kafka::kafka_consumer::Offset;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 use crate::metric_consts;
-use crate::processor;
+use crate::pipeline::processor;
 use crate::storage::postgres::PostgresStorage;
-use crate::types::{CdcEvent, KafkaMessage};
+use crate::types::CdcEvent;
 
 /// A CDC event paired with its Kafka offset for deferred storage.
 pub struct EventWithOffset {
@@ -22,68 +22,6 @@ pub struct EventWithOffset {
 /// Keyed by (topic, partition), stores offset. Topic uses `Box<str>` since
 /// it's read-only after construction.
 type HeartbeatState = HashMap<(Box<str>, i32), i64>;
-
-/// Run a single-topic consumer loop, generic over the message type.
-///
-/// `M` must implement [`KafkaMessage`], which provides the deserialization
-/// target, the `team_id()` accessor for early filtering, the `classify()`
-/// method to convert raw messages into [`CdcEvent`]s, and the `SOURCE`
-/// label for metrics.
-///
-/// Monomorphised at compile time — no dynamic dispatch, no vtable overhead.
-pub async fn consume_loop<M: KafkaMessage>(
-    consumer: SingleTopicConsumer,
-    tx: mpsc::Sender<EventWithOffset>,
-    team_filter: Option<HashSet<i32>>,
-    shutdown: CancellationToken,
-) {
-    loop {
-        tokio::select! {
-            biased;
-            _ = shutdown.cancelled() => {
-                tracing::info!("{} consumer shutting down", M::SOURCE);
-                break;
-            }
-            result = consumer.json_recv::<M>() => {
-                match result {
-                    Ok((msg, offset)) => {
-                        metrics::counter!(metric_consts::MESSAGES_RECEIVED, "source" => M::SOURCE)
-                            .increment(1);
-
-                        if let Some(ref filter) = team_filter {
-                            if !filter.contains(&msg.team_id()) {
-                                offset.store().expect("failed to store filtered offset");
-                                metrics::counter!(metric_consts::MESSAGES_FILTERED, "source" => M::SOURCE)
-                                    .increment(1);
-                                continue;
-                            }
-                        }
-
-                        let event = msg.classify();
-                        if tx.send(EventWithOffset { event, offset }).await.is_err() {
-                            tracing::info!("{} channel closed, exiting", M::SOURCE);
-                            break;
-                        }
-                    }
-                    Err(RecvErr::Serde(e)) => {
-                        tracing::warn!("{} serde error (poison pill skipped): {e}", M::SOURCE);
-                        metrics::counter!(metric_consts::MESSAGES_SKIPPED, "source" => M::SOURCE, "reason" => "serde")
-                            .increment(1);
-                    }
-                    Err(RecvErr::Empty) => {
-                        metrics::counter!(metric_consts::MESSAGES_SKIPPED, "source" => M::SOURCE, "reason" => "empty")
-                            .increment(1);
-                    }
-                    Err(RecvErr::Kafka(e)) => {
-                        tracing::error!("{} kafka error: {e}", M::SOURCE);
-                        metrics::counter!(metric_consts::KAFKA_ERRORS, "source" => M::SOURCE).increment(1);
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// Run the batch processor loop.
 ///
@@ -133,7 +71,6 @@ pub async fn batch_processor_loop(
             msg = rx.recv() => {
                 match msg {
                     Some(item) => {
-                        // Track heartbeat watermarks from every received message.
                         track_heartbeat(&item.offset, &mut heartbeat_state);
 
                         batch.push(item);

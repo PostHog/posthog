@@ -1,7 +1,7 @@
 pub mod config;
-pub mod consumer;
+pub mod kafka;
 pub mod metric_consts;
-pub mod processor;
+pub mod pipeline;
 pub mod storage;
 pub mod types;
 

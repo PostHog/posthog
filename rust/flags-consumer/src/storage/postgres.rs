@@ -3,37 +3,9 @@ use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
 use crate::metric_consts;
-
-/// Data needed for a person property upsert.
-pub struct PersonUpdateData {
-    pub team_id: i32,
-    pub person_uuid: Uuid,
-    pub properties: serde_json::Value,
-    pub version: i64,
-}
-
-/// Data needed for a person deletion.
-pub struct PersonDeletionData {
-    pub team_id: i32,
-    pub person_uuid: Uuid,
-    pub version: i64,
-}
-
-/// Data needed for a distinct-ID assignment (add to new owner, remove from old).
-pub struct DistinctIdAssignmentData {
-    pub team_id: i32,
-    pub person_uuid: Uuid,
-    pub distinct_id: Box<str>,
-    pub version: i64,
-}
-
-/// Data needed for a distinct-ID deletion (remove from owner).
-pub struct DistinctIdDeletionData {
-    pub team_id: i32,
-    pub person_uuid: Uuid,
-    pub distinct_id: Box<str>,
-    pub version: i64,
-}
+use crate::storage::types::{
+    DistinctIdAssignmentData, DistinctIdDeletionData, PersonDeletionData, PersonUpdateData,
+};
 
 /// Storage handle for the dedicated `flags_read_store` PostgreSQL database.
 pub struct PostgresStorage {
