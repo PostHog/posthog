@@ -503,27 +503,15 @@ describe('insightNavLogic', () => {
                     } as Node),
                 ])
 
+                // Switch back to Trends — full multi-breakdown should be restored
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.TRENDS)
-                }).toDispatchActions([
-                    builtInsightDataLogic.actionCreators.setQuery({
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'TrendsQuery',
-                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
-                            trendsFilter: { showValuesOnSeries: true },
-                            filterTestAccounts: true,
-                            version: 2,
-                            interval: 'hour',
-                            breakdownFilter: {
-                                breakdowns: undefined,
-                                breakdown: '$pathname',
-                                breakdown_type: 'group',
-                                breakdown_group_type_index: 0,
-                                breakdown_normalize_url: true,
-                            },
-                        },
-                    } as Node),
+                }).toFinishAllListeners()
+
+                const restoredQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(restoredQuery.breakdownFilter?.breakdowns).toEqual([
+                    { property: '$pathname', type: 'group', normalize_url: true, group_type_index: 0 },
+                    { property: '$device_type', type: 'event' },
                 ])
             })
 
@@ -611,6 +599,141 @@ describe('insightNavLogic', () => {
                 })
                 expect((builtInsightDataLogic.values.query as InsightVizNode).source).not.toMatchObject({
                     retentionFilter: expect.objectContaining({ showValuesOnSeries: true }),
+                })
+            })
+
+            it('preserves multiple breakdowns through round-trip via single-breakdown type', async () => {
+                const trendsWithMultipleBreakdowns: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdowns: [
+                                { property: '$browser', type: 'event' },
+                                { property: '$os', type: 'event' },
+                                { property: '$device_type', type: 'event' },
+                            ],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithMultipleBreakdowns)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                const funnelsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                expect(funnelsQuery.breakdownFilter?.breakdown).toBe('$browser')
+                expect(funnelsQuery.breakdownFilter?.breakdowns).toBeUndefined()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const trendsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsQuery.breakdownFilter?.breakdowns).toEqual([
+                    { property: '$browser', type: 'event' },
+                    { property: '$os', type: 'event' },
+                    { property: '$device_type', type: 'event' },
+                ])
+            })
+
+            it('preserves breakdownFilter through round-trip via unsupported type', async () => {
+                const trendsWithBreakdown: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdown: '$browser',
+                            breakdown_type: 'event',
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithBreakdown)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.not.objectContaining({ breakdownFilter: expect.anything() }),
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.objectContaining({
+                        kind: 'TrendsQuery',
+                        breakdownFilter: {
+                            breakdown: '$browser',
+                            breakdown_type: 'event',
+                        },
+                    }),
+                })
+            })
+
+            it('preserves compareFilter through round-trip via unsupported type', async () => {
+                const trendsWithCompare: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        compareFilter: { compare: true },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithCompare)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.not.objectContaining({ compareFilter: expect.anything() }),
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.objectContaining({
+                        kind: 'TrendsQuery',
+                        compareFilter: { compare: true },
+                    }),
                 })
             })
 
