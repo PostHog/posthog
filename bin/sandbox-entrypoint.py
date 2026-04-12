@@ -9,7 +9,7 @@ Startup modes, all dispatched from the bottom of this file:
      (shallow git clone, files written as the sandbox uid directly) before
      `compose up`, so there's no checkout or chown gymnastics at boot.
   2. User phase (default): launch a detached tmux server with a claude window
-     (spinner → real claude once Python deps are ready) and a setup window
+     and a setup window
      (runs run_setup() via SANDBOX_MODE=setup); PID 1 blocks on a has-session
      poll loop until the session dies.
   3. Setup phase (SANDBOX_MODE=setup): runs inside the tmux setup window.
