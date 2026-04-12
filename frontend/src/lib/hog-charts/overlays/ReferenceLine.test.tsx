@@ -5,10 +5,6 @@ import type { BaseChartContext } from '../core/chart-context'
 import { ChartContext } from '../core/chart-context'
 import { ReferenceLine, ReferenceLines } from './ReferenceLine'
 
-// Auto-cleanup isn't wired in this project's jest setup, so call it manually to
-// avoid leaked DOM between tests leading to ambiguous getByText matches.
-afterEach(() => cleanup())
-
 const DIMENSIONS = {
     width: 800,
     height: 400,
@@ -42,6 +38,8 @@ function lineDiv(container: HTMLElement, side: 'top' | 'left'): HTMLDivElement |
 }
 
 describe('ReferenceLine', () => {
+    afterEach(() => cleanup())
+
     describe('horizontal', () => {
         it('renders null when value is not a number', () => {
             const { container } = renderInChart(<ReferenceLine value="Mon" />)
