@@ -60,8 +60,9 @@ pub async fn batch_processor_loop(
             _ = batch_timer.tick() => {
                 if !batch.is_empty() {
                     flush_batch(&mut batch, &storage, &config, &mut heartbeat_state).await;
-                    liveness_handle.report_healthy();
                 }
+                // Report healthy on every tick — an idle consumer is alive.
+                liveness_handle.report_healthy();
             }
 
             _ = heartbeat_timer.tick() => {
