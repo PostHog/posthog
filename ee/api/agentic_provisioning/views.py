@@ -1015,6 +1015,10 @@ def provisioning_resources_create(request: Request) -> Response:
         except Team.DoesNotExist:
             _capture_provisioning_event("resource_created", "error", error_code="team_not_found", team_id=team_id)
             return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+        project_name = configuration.get("project_name")
+        if project_name and team.name != project_name:
+            team.name = project_name
+            team.save(update_fields=["name"])
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
     _set_provisioning_service_id(team, resolved_service_id)
