@@ -138,18 +138,15 @@ describe('ReferenceLine', () => {
     })
 
     describe('variants and style overrides', () => {
-        it('defaults to the "goal" variant (dashed, 2px)', () => {
-            const { container } = renderInChart(<ReferenceLine value={50} />)
+        it.each([
+            ['goal (default)', undefined, 'dashed', '2px'],
+            ['alert', 'alert' as const, 'dashed', '2px'],
+            ['marker', 'marker' as const, 'solid', '1px'],
+        ])('variant %s renders expected stroke style', (_name, variant, expectedStyle, expectedWidth) => {
+            const { container } = renderInChart(<ReferenceLine value={50} variant={variant} />)
             const line = lineDiv(container, 'top')!
-            expect(line.style.borderTopStyle).toBe('dashed')
-            expect(line.style.borderTopWidth).toBe('2px')
-        })
-
-        it('renders "marker" as a solid 1px line', () => {
-            const { container } = renderInChart(<ReferenceLine value={50} variant="marker" />)
-            const line = lineDiv(container, 'top')!
-            expect(line.style.borderTopStyle).toBe('solid')
-            expect(line.style.borderTopWidth).toBe('1px')
+            expect(line.style.borderTopStyle).toBe(expectedStyle)
+            expect(line.style.borderTopWidth).toBe(expectedWidth)
         })
 
         it('applies an explicit style.stroke override', () => {
