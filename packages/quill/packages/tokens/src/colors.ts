@@ -61,9 +61,9 @@ function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark')
     return `oklch(${lightness} ${chromaExpr} ${hueVar})`
 }
 
-/** Static oklch value (not theme-derived) */
-function oklch(l: number, c: number, h: number): string {
-    return `oklch(${l} ${c} ${h})`
+/** Static oklch value (not theme-derived). `alpha` is a fraction in [0, 1]. */
+function oklch(l: number, c: number, h: number, alpha?: number): string {
+    return alpha !== undefined ? `oklch(${l} ${c} ${h} / ${alpha * 100}%)` : `oklch(${l} ${c} ${h})`
 }
 
 // ── Semantic color definitions ────────────────────────
@@ -122,7 +122,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         warning: [oklch(0.93, 0.04, 74.41), oklch(0.29, 0.03, 75), 'bg-warning'],
         'warning-foreground': [oklch(0.476, 0.114, 61.907), oklch(0.77, 0.14, 99.29), 'text-warning-foreground'],
 
-        info: [oklch(0.882, 0.059, 254.128), oklch(0.4242, 0.1982, 265.5), 'bg-info'],
+        info: [oklch(0.882, 0.059, 254.128), oklch(0.4242, 0.1982, 265.5, 0.4), 'bg-info'],
         'info-foreground': [oklch(0.49, 0.02, 254), oklch(0.882, 0.059, 254.128), 'text-info-foreground'],
 
         // ── Borders & rings (theme-derived) ───────────
@@ -163,8 +163,17 @@ export function resolveTheme(mode: 'light' | 'dark'): Record<string, string> {
     return Object.fromEntries(Object.entries(semanticColors).map(([k, v]) => [k, v[i]])) as Record<string, string>
 }
 
-/** Names of tokens that are theme-derived (reference --theme-hue etc.) */
-const THEME_DERIVED_TOKENS = new Set([
+/**
+ * Names of tokens that are theme-derived and must be emitted on `*` (not
+ * `:root`) so local `[--theme-hue:X]` overrides re-evaluate per-element.
+ *
+ * Direct references to `--theme-hue`, `--theme-dark-hue`, `--theme-tint`,
+ * or `--primary-hue` are validated at module load (see `assertThemeDerivedSyncedWithColors`
+ * below). The `fill-*` tokens are transitive — they reference
+ * `var(--accent)` / `var(--muted)` rather than a theme var directly, so
+ * they can't be auto-detected and must be listed explicitly.
+ */
+const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'background',
     'card',
     'popover',
@@ -173,13 +182,44 @@ const THEME_DERIVED_TOKENS = new Set([
     'primary',
     'border',
     'input',
-    // fill-* reference var(--accent) / var(--muted) which are theme-derived,
-    // so they must also live on * to re-evaluate on local overrides
+    // Transitive: reference var(--accent) / var(--muted) — must also live
+    // on `*` to re-evaluate on local overrides.
     'fill-hover',
     'fill-active',
     'fill-expanded',
     'fill-selected',
 ])
+
+/**
+ * Build-time guard: every token whose value contains a direct reference
+ * to one of the theme variables MUST appear in `THEME_DERIVED_TOKENS`.
+ * Otherwise it would land on `:root` and local subtree overrides
+ * (`[--theme-hue:X]`) would silently fail for it.
+ *
+ * This runs once at module load. It only catches direct references;
+ * transitive references (e.g. `fill-*` → `var(--accent)`) must be kept
+ * in the set manually.
+ */
+function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>): void {
+    const DIRECT_THEME_VARS = [
+        'var(--theme-hue)',
+        'var(--theme-dark-hue)',
+        'var(--theme-tint)',
+        'var(--primary-hue)',
+    ]
+    for (const [key, [light, dark]] of Object.entries(colors)) {
+        const refsThemeVar = DIRECT_THEME_VARS.some((v) => light.includes(v) || dark.includes(v))
+        if (refsThemeVar && !THEME_DERIVED_TOKENS.has(key)) {
+            throw new Error(
+                `[@posthog/quill-tokens] Token "${key}" references a theme variable ` +
+                    `but is missing from THEME_DERIVED_TOKENS. Add it to the set in colors.ts ` +
+                    `or local [--theme-hue:X] overrides will silently fail for this token.`
+            )
+        }
+    }
+}
+
+assertThemeDerivedSyncedWithColors(semanticColors)
 
 /** Generate color-system.css (:root light + .dark overrides) */
 export function generateColorSystemCSS(theme: ThemeConfig = DEFAULT_THEME): string {
