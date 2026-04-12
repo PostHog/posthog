@@ -323,6 +323,7 @@ export interface ClusteringRunRequestApi {
  * * `hourly` - Hourly
  * `daily` - Daily
  * `weekly` - Weekly
+ * `every_n` - Every N
  */
 export type EvaluationReportFrequencyEnumApi =
     (typeof EvaluationReportFrequencyEnumApi)[keyof typeof EvaluationReportFrequencyEnumApi]
@@ -331,6 +332,7 @@ export const EvaluationReportFrequencyEnumApi = {
     Hourly: 'hourly',
     Daily: 'daily',
     Weekly: 'weekly',
+    EveryN: 'every_n',
 } as const
 
 /**
@@ -374,6 +376,25 @@ export interface EvaluationReportApi {
     /** @nullable */
     readonly last_delivered_at: string | null
     report_prompt_guidance?: string
+    /**
+     * Number of new eval results that triggers a report
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    trigger_threshold?: number | null
+    /**
+     * Minimum minutes between count-triggered reports
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /**
+     * Maximum count-triggered report runs per calendar day (UTC)
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    daily_run_cap?: number
     /** @nullable */
     readonly created_by: number | null
     readonly created_at: string
@@ -408,6 +429,25 @@ export interface PatchedEvaluationReportApi {
     /** @nullable */
     readonly last_delivered_at?: string | null
     report_prompt_guidance?: string
+    /**
+     * Number of new eval results that triggers a report
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    trigger_threshold?: number | null
+    /**
+     * Minimum minutes between count-triggered reports
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /**
+     * Maximum count-triggered report runs per calendar day (UTC)
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    daily_run_cap?: number
     /** @nullable */
     readonly created_by?: number | null
     readonly created_at?: string
