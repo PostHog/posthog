@@ -722,9 +722,7 @@ def diff_state(
                     )
                 )
             elif not current_select:
-                import logging
-
-                logging.getLogger("migrations").warning(
+                logger.warning(
                     "MV %s: SELECT comparison not possible (as_select not available from host). "
                     "Verify manually with 'ch_migrate schema'.",
                     table_name,
