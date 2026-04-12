@@ -1,0 +1,28 @@
+[package]
+name = "flags-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-common = { path = "../personhog-common" }
+common-database = { path = "../common/database" }
+common-alloc = { path = "../common/alloc" }
+common-metrics = { path = "../common/metrics" }
+lifecycle = { path = "../common/lifecycle" }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+
+axum = { workspace = true }
+envconfig = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true
