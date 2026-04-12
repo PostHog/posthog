@@ -450,14 +450,7 @@ def _ensure_jetbrains() -> None:
 
 
 def _host_git_config_file(key: str) -> str:
-    """Resolve a host git config value to an existing file path, or ``/dev/null``.
-
-    Used for config keys whose values are paths we want to bind-mount into
-    the sandbox — ``user.signingkey`` and ``gpg.ssh.allowedSignersFile``. If
-    the key is unset, or the value isn't a real file (e.g. user.signingkey
-    holds a literal key string, or the file was moved), returns ``/dev/null``
-    so compose skips the mount cleanly.
-    """
+    """Resolve a git config path to a real file, or /dev/null for compose mounts."""
     result = run(
         ["git", "config", "--global", "--get", key],
         check=False,
@@ -471,15 +464,9 @@ def _host_git_config_file(key: str) -> str:
 
 
 def _check_host_git_signing() -> None:
-    """Advisory: warn if the host's signing config references missing files.
+    """Warn if signing config references missing files (opaque git error otherwise).
 
-    Called once from ``cmd_create``. If ``user.signingkey`` or
-    ``gpg.ssh.allowedSignersFile`` is set to a path that doesn't exist on
-    disk, signing inside the sandbox won't work, and the failure would
-    otherwise be an opaque git error at commit time. Literal key strings
-    in ``user.signingkey`` (which git supports via the ``key::`` prefix or
-    bare ``ssh-*``/``ecdsa-*`` tokens) are fine — they don't reference a
-    file and the copied host gitconfig handles them natively.
+    Literal key strings in user.signingkey (ssh-*, ecdsa-*, key::) are fine.
     """
     checks = (
         ("user.signingkey", True),  # allow literal key strings
@@ -501,15 +488,10 @@ def _check_host_git_signing() -> None:
 
 
 def _host_ssh_auth_sock() -> str:
-    """Resolve the host-side path to bind-mount as /ssh-agent in the sandbox.
+    """Host-side path for the /ssh-agent bind mount.
 
-    On Linux we pass the user's $SSH_AUTH_SOCK straight through. On macOS the
-    real socket lives at a launchd path like /private/tmp/... that can't be
-    mounted into the Linux VM that runs containers — both OrbStack and Docker
-    Desktop handle this by exposing the host agent at the magic path
-    ``/run/host-services/ssh-auth.sock``. We hardcode that on Darwin so users
-    don't need any per-host setup, and it transparently works with 1Password's
-    SSH agent (which breaks the direct-mount path).
+    On macOS, OrbStack/Docker Desktop expose the host agent at a magic path;
+    the real launchd socket can't be mounted into the Linux VM directly.
     """
     if platform.system() == "Darwin":
         return "/run/host-services/ssh-auth.sock"
@@ -517,26 +499,11 @@ def _host_ssh_auth_sock() -> str:
 
 
 def _check_macos_ssh_agent_launchd() -> None:
-    """Advisory: warn if launchd's SSH_AUTH_SOCK doesn't match the login shell.
+    """Warn if launchd's SSH_AUTH_SOCK differs from the login shell's.
 
-    OrbStack inherits its environment from launchd when launched from the
-    dock, so its SSH agent proxy at /run/host-services/ssh-auth.sock forwards
-    to whatever SSH_AUTH_SOCK launchd was carrying at OrbStack launch time. If
-    the user has configured Secretive or 1Password in their shell profile but
-    never propagated that value into launchd, the sandbox will talk to the
-    stock macOS ssh-agent rather than their real signing agent, so any
-    commits that rely on commit.gpgsign will fail inside the sandbox.
-
-    Source of truth for "what the user intended" is whatever their own login
-    shell has at ``$SSH_AUTH_SOCK`` — i.e. what a fresh terminal window would
-    see. We shell out to ``$SHELL -lc`` so the user's rc files run, and take
-    the last non-empty line of stdout to defend against rc files that print
-    banners above our probe.
-
-    Non-blocking: print the mismatch, offer an interactive fix (launchctl
-    setenv + LaunchAgent plist), and continue either way. The user still has
-    to quit and relaunch OrbStack themselves for the change to reach running
-    containers — we can't do that without killing any in-flight sandboxes.
+    OrbStack inherits from launchd, so if 1Password/Secretive is only set in
+    the shell profile, the sandbox talks to the wrong agent. Offers an
+    interactive fix (launchctl setenv + LaunchAgent plist).
     """
     if platform.system() != "Darwin":
         return
@@ -579,17 +546,9 @@ def _check_macos_ssh_agent_launchd() -> None:
 
 
 def _check_ssh_agent_has_keys() -> None:
-    """Advisory: warn if the host SSH agent is reachable but holds no keys.
+    """Warn if the SSH agent is running but empty (sandbox forwards the agent, not key files).
 
-    Catches the common first-time case where the user has ~/.ssh/id_ed25519
-    on disk (their terminal git "just works" because ssh reads the file
-    directly) but has never loaded it into ssh-agent. Inside the sandbox we
-    only forward the agent socket — the key file isn't mounted — so an empty
-    agent means `git push` fails with `Permission denied (publickey)`.
-
-    Non-blocking. `ssh-add -l` exit codes: 0 = has keys, 1 = empty agent,
-    2 = no agent at all. Only warn on 1 (the confusing case); skip 2 because
-    users without any agent probably don't push from the sandbox.
+    Only warns on exit code 1 (empty agent), not 2 (no agent).
     """
     result = run(["ssh-add", "-l"], check=False, capture=True)
     if result.returncode != 1:
@@ -609,13 +568,7 @@ def _check_ssh_agent_has_keys() -> None:
 
 
 def _install_ssh_agent_launchagent(socket_path: str) -> None:
-    """Propagate the shell's SSH_AUTH_SOCK into launchd now and at every login.
-
-    Writes ~/Library/LaunchAgents/com.posthog.sandbox.ssh-auth-sock.plist,
-    updates the current launchd session via `launchctl setenv`, and reloads
-    the plist so it reapplies on next login. OrbStack itself must still be
-    relaunched manually to pick up the new value.
-    """
+    """Set SSH_AUTH_SOCK in launchd now and persist via LaunchAgent plist."""
     plist_path = Path.home() / "Library/LaunchAgents/com.posthog.sandbox.ssh-auth-sock.plist"
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(
@@ -640,14 +593,10 @@ def _install_ssh_agent_launchagent(socket_path: str) -> None:
             """)
     )
 
-    # Apply to the current launchd session so an OrbStack relaunched after
-    # this point inherits the new value without the user having to log out.
+    # Apply immediately so a relaunched OrbStack picks it up.
     run(["launchctl", "setenv", "SSH_AUTH_SOCK", socket_path])
 
-    # Register the plist for next login. Unload first to keep re-runs
-    # idempotent — the unload is expected to fail on fresh installs (nothing
-    # to unload), which is why it alone is check=False. The load is the real
-    # operation; it must succeed.
+    # Register for next login. Unload first for idempotency (fails on fresh install, hence check=False).
     run(["launchctl", "unload", str(plist_path)], check=False, capture=True)
     run(["launchctl", "load", "-w", str(plist_path)])
 
@@ -657,11 +606,7 @@ def _install_ssh_agent_launchagent(socket_path: str) -> None:
 
 @functools.cache
 def _host_compose_env() -> dict[str, str]:
-    """Env vars derived from host state — invariant for the duration of a run.
-
-    Cached because cmd_list iterates over every sandbox and each compose call
-    would otherwise re-probe git config / ssh agent / claude dotfiles.
-    """
+    """Env vars from host state, cached to avoid re-probing per sandbox in cmd_list."""
     config = _load_config()
     ide = config.get("jetbrains")
     claude_json = Path.home() / ".claude.json"
@@ -673,17 +618,10 @@ def _host_compose_env() -> dict[str, str]:
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
         "SANDBOX_CLAUDE_JSON": str(claude_json) if claude_json.is_file() else "/dev/null",
-        # Host ~/.gitconfig — copied into the sandbox user's home at boot so
-        # git identity, aliases, and defaults match the host.
         "SANDBOX_HOST_GITCONFIG": str(host_gitconfig) if host_gitconfig.is_file() else "/dev/null",
-        # Host paths referenced by git signing config, bind-mounted read-only
-        # into the sandbox. The entrypoint rewrites the copied gitconfig to
-        # point at the in-container mount paths.
+        # Signing paths — entrypoint rewrites the copied gitconfig to point here.
         "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
         "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
-        # Host-side source for the /ssh-agent bind mount — resolves to the
-        # OrbStack/Docker Desktop magic path on macOS, $SSH_AUTH_SOCK on Linux,
-        # or empty (falls back to /dev/null in compose) when no agent exists.
         "SSH_AUTH_SOCK": _host_ssh_auth_sock(),
     }
 
@@ -744,19 +682,17 @@ def _populate_workspace_volume(
     origin_branch_sha: str | None = None,
     branch_ref: str = "",
 ) -> None:
-    """Populate volume_name with a fresh workspace checked out to branch_sha.
+    """Populate volume with a shallow clone checked out to branch_sha.
 
-    Fetches from the host .git by ref name (branch_ref) so ``--depth`` works
-    over file:// transport. The clone runs as the sandbox user so every file
-    lands owned by that uid.
+    Fetches by ref name (not bare SHA) because --depth only works with named
+    refs over file:// transport. Runs as sandbox user so files have correct ownership.
     """
     uid = os.getuid()
     gid = os.getgid()
 
     run(["docker", "volume", "create", volume_name], capture=True)
 
-    # Chown the fresh volume's mount point so the non-root clone can write
-    # inside it. Single directory — ~instant.
+    # Chown so the non-root clone can write.
     run(
         [
             "docker",
@@ -773,8 +709,6 @@ def _populate_workspace_volume(
     )
 
     # file:// transport avoids CVE-2022-39253 symlink following.
-    # We fetch by ref name (not bare SHA) because --depth only works with
-    # named refs over file:// transport.
     script = r"""
         set -e
         git init -q -b "$BRANCH" /workspace
@@ -790,13 +724,10 @@ def _populate_workspace_volume(
             $GIT fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
-        # Mirror origin/<branch> so `git push` inside the sandbox updates it
-        # and `sandbox destroy` can tell pushed from unpushed commits.
+        # Set origin/<branch> so `sandbox destroy` can detect unpushed commits.
         if [ -n "$ORIGIN_BRANCH_SHA" ]; then
-            # Only fetch if origin differs from the branch tip — the object
-            # is already local from the main fetch. A redundant --depth=1
-            # fetch of the same SHA adds it to .git/shallow, clobbering the
-            # depth=50 history.
+            # Skip fetch if same as branch tip (already local); a redundant
+            # --depth=1 fetch would clobber the depth=50 shallow history.
             if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
                 $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
             fi
@@ -812,13 +743,9 @@ def _populate_workspace_volume(
             "--rm",
             "--user",
             f"{uid}:{gid}",
-            # alpine/git's entrypoint is `git` — override to run a shell script.
             "--entrypoint",
             "sh",
-            # HOME must be writable for git. LFS smudge is skipped: the host's
-            # .git has LFS pointers whose blobs aren't reachable here and are
-            # irrelevant for dev work (ML test fixtures). Run `git lfs pull`
-            # inside the sandbox if anyone actually needs them.
+            # LFS pointers from host .git aren't reachable here; skip smudge.
             "-e",
             "HOME=/tmp",
             "-e",
@@ -907,19 +834,9 @@ def _prompt_branch_choice(branch: str, local_sha: str, origin_sha: str) -> str:
 
 
 def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str | None, str | None, str]:
-    """Decide which commit the sandbox's <branch> should start at.
+    """Decide which commit the sandbox should start at. Never mutates host refs.
 
     Returns (branch_sha, base_sha, origin_branch_sha, branch_ref).
-
-    - base_sha is None when branch == base_branch.
-    - origin_branch_sha is whatever ``refs/remotes/origin/<branch>`` resolves
-      to on the host, or None. Injected into the sandbox so `sandbox destroy`
-      can distinguish pushed from unpushed work.
-    - branch_ref is the host ref that branch_sha was resolved from (e.g.
-      ``refs/heads/foo``). Fetching by named ref lets ``--depth`` work over
-      file:// transport; bare-SHA fetches silently ignore depth.
-
-    Policy — never mutates refs on the host.
     """
     local_sha = _rev_parse(f"refs/heads/{branch}")
     origin_sha = _rev_parse(f"refs/remotes/origin/{branch}")
@@ -951,8 +868,7 @@ def _warn_if_host_dirty(branch: str) -> None:
     head = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture=True).stdout.strip()
     if head != branch:
         return
-    # Untracked files (??) are usually scratch — only warn on modified/staged
-    # tracked files, which is where stale state in the sandbox would bite.
+    # Only warn on modified/staged tracked files, not untracked.
     status = run(["git", "status", "--porcelain"], capture=True).stdout
     dirty_lines = [line for line in status.splitlines() if line.strip() and not line.startswith("??")]
     if not dirty_lines:
@@ -1115,11 +1031,7 @@ def init_cache_from_master() -> None:
 def check_migration_staleness(branch_sha: str) -> str | None:
     """Compare cached migration versions against the branch's max_migration files.
 
-    One container call bundles all the reads: the cache volume holds the
-    migration version per app (``posthog__migrations``, ``ee__migrations``, …)
-    and the host ``.git`` holds the branch's current ``max_migration.txt`` for
-    each. The script emits ``<key>\\t<cached>\\t<branch>`` so the Python side
-    just compares numbers.
+    Returns a summary string of apps where the cache is ahead, or None.
     """
     script = r"""
         set -e
@@ -1413,21 +1325,10 @@ def _container_running(container: str) -> bool:
 
 
 def _sandbox_local_work(project: str) -> tuple[str, str] | None:
-    """Return (commits_summary, dirty_summary) of unpushed work in the sandbox.
+    """Return (commits_summary, dirty_summary) of unpushed work, or None.
 
-    Runs against the workspace volume via a throwaway alpine/git container, so
-    it works whether the sandbox is running or stopped. Returns None when the
-    volume doesn't exist or when there's nothing to report.
-
-    Commits: `git log --branches --not --remotes` iterates over every local
-    branch and excludes anything reachable from any remote-tracking ref. A
-    push inside the sandbox updates `refs/remotes/origin/<branch>`
-    automatically, so pushed commits are filtered out naturally. For new
-    branches created in the sandbox (no origin counterpart yet), we
-    additionally exclude anything reachable from `refs/sandbox/start` (the
-    starting SHA we pinned at creation) to hide pre-existing history.
-
-    Dirty: `git status --porcelain` of the current working tree.
+    Works whether the sandbox is running or stopped (uses a throwaway container).
+    Uses refs/sandbox/start to exclude pre-existing history on new branches.
     """
     volume = workspace_volume_name(project)
     if run(["docker", "volume", "inspect", volume], check=False, capture=True).returncode != 0:
@@ -1586,12 +1487,7 @@ def cmd_idea(branch: str) -> None:
 
 
 def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
-    """Exec into the tmux session — replaces the current process.
-
-    `target` selects which window to land on (window lookup is by name,
-    so reordering doesn't break it). Default is `claude` so `sandbox create`
-    and `sandbox shell` always drop the user into the Claude TUI.
-    """
+    """Exec into the tmux session (replaces current process)."""
     os.execvp(
         "docker",
         [
@@ -1636,10 +1532,7 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
     )
 
     # Wait for tmux then attach (replaces this process).
-    # The entrypoint now starts tmux within a couple of seconds of container
-    # boot (the claude window runs a spinner until Python deps are ready),
-    # so this loop typically fires once or twice rather than for the whole
-    # ~90s dependency install.
+    # Tmux starts within seconds of boot; this loop is usually very short.
     info("Waiting for tmux... (showing entrypoint progress)")
     seen_steps: set[str] = set()
     deadline = time.monotonic() + 300

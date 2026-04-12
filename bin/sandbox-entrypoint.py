@@ -2,24 +2,18 @@
 """
 Sandbox container entrypoint.
 
-Startup modes, all dispatched from the bottom of this file:
+Four modes, dispatched at the bottom of this file:
 
-  1. Root phase (UID 0): create sandbox user, seed SSH config, then re-exec
-     as the sandbox user. The workspace volume is populated by bin/sandbox
-     (shallow git clone, files written as the sandbox uid directly) before
-     `compose up`, so there's no checkout or chown gymnastics at boot.
-  2. User phase (default): launch a detached tmux server with a claude window
-     and a setup window
-     (runs run_setup() via SANDBOX_MODE=setup); PID 1 blocks on a has-session
-     poll loop until the session dies.
-  3. Setup phase (SANDBOX_MODE=setup): runs inside the tmux setup window.
-     Installs deps, migrates, seeds demo data, spawns the phrocs window, and
-     exec's into bash -l so the window stays usable.
-  4. Cache-init phase (SANDBOX_MODE=cache-init): install all deps, run
-     migrations, generate demo data, pre-build the Rust workspace, then exit.
-     Used by `bin/sandbox create` to populate shared cache volumes before
-     snapshotting the databases. Skips sshd and claude-auth in the root phase
-     since they're not needed for a one-off build.
+  1. Root phase (UID 0): create sandbox user, seed SSH/git config, re-exec
+     as the sandbox user. Workspace is already populated by bin/sandbox.
+  2. User phase (default): launch tmux with claude immediately in window 0
+     and a setup window in window 1; PID 1 poll-blocks on the tmux session.
+  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 1. Installs deps
+     (Python/Node/Rust in parallel), migrates, seeds demo data, spawns the
+     phrocs window, then exec's into bash -l so the window stays usable.
+  4. Cache-init phase (SANDBOX_MODE=cache-init): one-shot cache warming for
+     `bin/sandbox create` — installs deps, migrates, generates demo data,
+     pre-builds Rust, then exits so the host can snapshot databases.
 """
 
 from __future__ import annotations
@@ -40,9 +34,7 @@ WORKSPACE = Path("/workspace")
 SANDBOX_HOME = Path("/tmp/sandbox-home")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
-# Coarse phase label surfaced in the tmux status line (polled every 2s).
-# Setup failures are surfaced here and by keeping the setup window alive as a
-# bash shell with a visible traceback.
+# Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
 STATUS_FILE = Path("/tmp/sandbox-status")
 
 # ---------------------------------------------------------------------------
@@ -87,13 +79,7 @@ def write_file_if_missing(path: Path, content: str) -> None:
 
 
 def _write_status(step: str) -> None:
-    """Write a coarse label to the tmux status-right file.
-
-    Never a percentage — it would be fabricated. Just the current phase so
-    users know what the sandbox is doing while waiting for claude to start.
-    Swallows OSError because the status line is a pure UX signal; a tmpfs
-    write failing must not crash setup.
-    """
+    """Update the tmux status bar label. Swallows OSError — purely cosmetic."""
     try:
         STATUS_FILE.write_text(step)
     except OSError:
@@ -141,12 +127,7 @@ def export_environment(uid: int, gid: int) -> None:
 
 
 def _configure_ssh_agent_env() -> None:
-    """Set SSH_AUTH_SOCK iff /ssh-agent is a real forwarded socket.
-
-    The compose file binds the host agent (or /dev/null) onto /ssh-agent.
-    Kept out of compose ``environment:`` so docker exec sessions don't see
-    a dangling SSH_AUTH_SOCK when the fallback /dev/null mount is in effect.
-    """
+    """Set SSH_AUTH_SOCK only if /ssh-agent is a real socket (not /dev/null fallback)."""
     if Path("/ssh-agent").exists() and stat.S_ISSOCK(Path("/ssh-agent").lstat().st_mode):
         os.environ["SSH_AUTH_SOCK"] = "/ssh-agent"
     else:
@@ -154,13 +135,7 @@ def _configure_ssh_agent_env() -> None:
 
 
 def configure_user_ssh(uid: int, gid: int) -> None:
-    """Seed the sandbox user's ~/.ssh with a GitHub-friendly client config.
-
-    Without this, the first ``git push`` over the forwarded agent can trip
-    on a host key prompt, which hangs in non-interactive tmux panes.
-    accept-new pins github.com on first contact but still fails on changed
-    keys — safer than ``StrictHostKeyChecking no``.
-    """
+    """Seed ~/.ssh/config so git push doesn't hang on a host-key prompt in tmux."""
     ssh_dir = SANDBOX_HOME / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
     config = ssh_dir / "config"
@@ -223,18 +198,11 @@ def copy_claude_auth(uid: int, gid: int) -> None:
 
 
 def copy_host_gitconfig(uid: int, gid: int) -> None:
-    """Copy the host ~/.gitconfig into the sandbox home and rewrite signing paths.
+    """Copy host ~/.gitconfig and rewrite signing paths for the container.
 
-    The host gitconfig is mounted read-only at /tmp/host-gitconfig (or /dev/null
-    when the host has none); we copy rather than mount in place so that
-    `git config --global` still works inside the sandbox for per-sandbox
-    overrides without leaking back to the host.
-
-    The host gitconfig typically references two more files by absolute host
-    path — ``user.signingkey`` (the SSH signing .pub file) and
-    ``gpg.ssh.allowedSignersFile`` — neither of which exists inside the
-    container. Compose bind-mounts the real host files at fixed in-container
-    paths, and we rewrite the copied gitconfig to point at those.
+    Copied (not mounted) so ``git config --global`` works without leaking
+    back to the host. Signing paths (user.signingkey, allowedSignersFile)
+    are rewritten to their in-container mount locations.
     """
     src = Path("/tmp/host-gitconfig")
     if not src.is_file():
@@ -243,10 +211,8 @@ def copy_host_gitconfig(uid: int, gid: int) -> None:
     shutil.copy2(src, dst)
     run(["chown", f"{uid}:{gid}", str(dst)])
 
-    # Rewrite config keys that reference host-absolute paths to the in-container
-    # bind-mount location. Compose mounts /dev/null when the host has no such
-    # file configured, so is_file() is the honest "did the user set this up?"
-    # check.
+    # Rewrite host-absolute paths to in-container mount paths.
+    # Compose mounts /dev/null when unconfigured, so is_file() is correct.
     rewrites = {
         "user.signingkey": Path("/tmp/host-git-signingkey"),
         "gpg.ssh.allowedSignersFile": Path("/tmp/host-allowed-signers"),
@@ -268,15 +234,11 @@ def root_phase() -> None:
 
     create_sandbox_user(uid, gid)
 
-    # Decide whether SSH_AUTH_SOCK should be set before export_environment
-    # snapshots os.environ into /etc/profile.d — that way login shells (tmux
-    # panes, `sandbox ssh`, sshd sessions) all pick up the correct state via
-    # the normal /etc/profile.d sourcing, no per-command probes needed.
+    # Must run before export_environment snapshots os.environ into /etc/profile.d.
     _configure_ssh_agent_env()
     export_environment(uid, gid)
 
-    # Skip steps that aren't needed for a one-off cache build (no SSH access,
-    # no IDE, no interactive tooling).
+    # cache-init doesn't need SSH, auth, or IDE config.
     if os.environ.get("SANDBOX_MODE") != "cache-init":
         start_sshd(uid, gid)
         configure_user_ssh(uid, gid)
@@ -293,12 +255,7 @@ def root_phase() -> None:
 
 
 def _run_captured(label: str, cmd: list[str], **kwargs) -> None:
-    """Run a subprocess capturing output; dump it only on failure.
-
-    Keeps the tmux window clean when the three parallel installs run — on
-    success nothing extra is printed, on failure the full stdout+stderr is
-    surfaced so the user doesn't have to dig in container logs.
-    """
+    """Run a subprocess, suppressing output on success, dumping it on failure."""
     result = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
     if result.returncode == 0:
         return
@@ -368,11 +325,10 @@ def ensure_demo_data() -> None:
 
 
 def install_geoip() -> None:
-    """Symlink the GeoIP database from the Docker image into the worktree.
+    """Symlink GeoIP database from the Docker image into the worktree.
 
-    Also writes the GeoLite2-City.json sidecar that bin/download-mmdb uses to
-    decide whether to re-download. Without it, bin/start's download-mmdb would
-    clobber the symlink and re-fetch 60MB from mmdbcdn on every fresh boot.
+    The .json sidecar prevents bin/start's download-mmdb from clobbering
+    the symlink and re-fetching on every boot.
     """
     share = WORKSPACE / "share"
     share.mkdir(parents=True, exist_ok=True)
@@ -446,9 +402,7 @@ def setup_jetbrains_background() -> None:
     if pid != 0:
         return  # Parent continues
 
-    # Child process — runs in background.
-    # Redirect stdio to a log file so the child's late writes don't scribble
-    # over the setup tmux window's bash prompt after setup completes.
+    # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
     log_path = "/tmp/sandbox-jetbrains.log"
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.dup2(log_fd, 1)
@@ -557,21 +511,13 @@ def _setup_user_env() -> None:
     _configure_ssh_agent_env()
     Path("/cache/cargo-target").mkdir(parents=True, exist_ok=True)
     os.chdir(WORKSPACE)
-    # pushInsteadOf (not insteadOf) leaves anonymous HTTPS fetches alone —
-    # critical for cargo deps like rust/Cargo.toml's js-source-scopes and
-    # rust/capture's axum-test-helper, which clone without an agent during
-    # cache-init.
+    # pushInsteadOf (not insteadOf) so anonymous HTTPS fetches still work
+    # for cargo deps that clone without an SSH agent during cache-init.
     run(["git", "config", "--global", "url.git@github.com:.pushInsteadOf", "https://github.com/"])
 
 
 def _run_parallel(tasks: dict[str, Callable[[], None]]) -> None:
-    """Run the named tasks in parallel, re-raising the first failure.
-
-    The raise exits the enclosing ThreadPoolExecutor context manager; remaining
-    tasks keep running until the pool's shutdown(wait=True) joins them, but
-    their results are ignored. The first-failure message is logged so the
-    surviving background output in the tmux window is easier to scan.
-    """
+    """Run named tasks in parallel, re-raising the first failure."""
     with ThreadPoolExecutor() as pool:
         futures = {pool.submit(fn): name for name, fn in tasks.items()}
         for future in as_completed(futures):
@@ -584,22 +530,14 @@ def _run_parallel(tasks: dict[str, Callable[[], None]]) -> None:
 
 
 def user_phase() -> None:
-    """PID 1 of the app container.
-
-    Lean: set up env, install the GeoIP symlink, launch a detached tmux server
-    with a claude window and a setup window (runs run_setup() and then spawns
-    phrocs), then block on a has-session poll loop to keep PID 1 alive.
-    """
+    """PID 1: launch tmux (claude + setup windows), then poll-block on the session."""
     _setup_user_env()
     install_geoip()
 
     _write_status("booting")
 
-    # Window 0: claude (launched immediately; it may briefly see "hogli: not
-    #   found" if a tool call races with uv sync, but typical warm boots are
-    #   fast enough that this rarely bites)
-    # Window 1: setup (runs run_setup(); spawns phrocs window on completion)
-    # Both use the sandbox-scoped tmux server + conf file.
+    # Window 0: claude (launched immediately, may lack hogli until uv sync finishes)
+    # Window 1: setup (deps, migrations, then spawns phrocs in window 2)
     tmux = ["tmux", "-L", "sandbox"]
     run(
         [
@@ -617,9 +555,8 @@ def user_phase() -> None:
             "claude",
         ]
     )
-    # Keep the claude pane alive across claude crashes (pairs with the
-    # pane-died respawn hook in tmux.sandbox.conf). Scoped to this window so
-    # the setup/phrocs windows still close normally when their shells exit.
+    # Auto-respawn on crash (pairs with pane-died hook in tmux.sandbox.conf).
+    # Scoped to claude window only so setup/phrocs close normally.
     run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
 
     run(
@@ -637,12 +574,8 @@ def user_phase() -> None:
     )
     run([*tmux, "select-window", "-t", "posthog:claude"])
 
-    # Block PID 1 on the tmux session. If the user runs `tmux kill-server`
-    # inside the container, the loop exits and we terminate non-zero so
-    # compose's `restart: on-failure` brings the container back up with a
-    # fresh tmux + claude window. `docker compose stop` sends SIGTERM, which
-    # Docker classifies as a manual stop and will not auto-restart regardless
-    # of exit code, so this is safe.
+    # Block on tmux session. Exit non-zero when it dies so compose's
+    # restart: on-failure brings the container back.
     while (
         subprocess.run(
             [*tmux, "has-session", "-t", "posthog"],
@@ -655,25 +588,16 @@ def user_phase() -> None:
 
 
 def run_setup() -> None:
-    """Run inside the tmux setup window (dispatched via SANDBOX_MODE=setup).
+    """Tmux window 1: install deps, migrate, seed data, spawn phrocs, exec bash.
 
-    Installs deps, runs migrations, seeds demo data, generates the mprocs
-    config, kicks off JetBrains registration in the background, spawns the
-    phrocs window, and then exec's into an interactive login shell so the
-    window stays usable with full scrollback.
-
-    Claude is already running in window 0 by this point — we want the user to
-    be able to plan and edit code against the warming sandbox. If anything
-    here raises, we write "SETUP FAILED" to the status line (visible in every
-    window's tmux status bar) and drop into a bash shell with the traceback
-    on screen so the user can diagnose without losing the tmux window.
+    On failure, writes "SETUP FAILED" to the status bar and drops into bash
+    so the user can diagnose. Claude keeps running in window 0 either way.
     """
     _setup_user_env()
     _write_status("setup starting")
 
     try:
-        # Kafka is health-gated by compose so this is safe to run synchronously
-        # early. ~700ms on a warm broker.
+        # Kafka is health-gated by compose, safe to call early.
         create_kafka_topics()
 
         def install_python_and_migrate() -> None:
@@ -694,9 +618,7 @@ def run_setup() -> None:
         # generate_mprocs_config needs the hogli symlink created by install_python_deps.
         generate_mprocs_config()
 
-        # setup_jetbrains_background os.fork()s internally, so it runs after the
-        # ThreadPoolExecutor is closed. Its child redirects stdio to a log file
-        # so late writes don't scribble over this window's bash prompt.
+        # Forks internally — must run after ThreadPoolExecutor is closed.
         try:
             setup_jetbrains_background()
         except Exception as e:
@@ -708,9 +630,7 @@ def run_setup() -> None:
 
         _write_status("sandbox ready")
 
-        # Hand off to phrocs in its own window. Creating the window from inside
-        # the setup window (rather than the claude window or a detached tmux call)
-        # keeps the tmux command chain simple and predictable.
+        # Spawn phrocs in its own tmux window.
         run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
 
         print(  # noqa: T201
@@ -727,9 +647,7 @@ def run_setup() -> None:
             flush=True,
         )
 
-    # Leave this window as a usable login shell with full scrollback so the
-    # user can inspect the setup logs or run ad-hoc commands — same path for
-    # both success and failure, so the window is always recoverable.
+    # Exec into bash so this window stays usable (both success and failure).
     os.execvp("bash", ["bash", "-l"])
 
 
