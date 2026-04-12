@@ -211,6 +211,7 @@ class TestLocalEvaluationCache(BaseTest):
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
 
+
 class TestLocalEvaluationSignals(BaseTest):
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
