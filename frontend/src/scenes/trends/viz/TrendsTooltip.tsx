@@ -5,39 +5,12 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, IntervalType } from '~/types'
+import { IntervalType } from '~/types'
 
-interface TrendsSeriesMeta {
-    action?: ActionFilter
-    breakdown_value?: string | number | string[]
-    compare_label?: SeriesDatum['compare_label']
-    days?: string[]
-    order?: number
-    filter?: SeriesDatum['filter']
-}
-
-function extractMeta(raw: Record<string, unknown> | undefined): TrendsSeriesMeta {
-    if (!raw) {
-        return {}
-    }
-    const action = typeof raw.action === 'object' && raw.action !== null ? (raw.action as ActionFilter) : undefined
-    const breakdown_value =
-        typeof raw.breakdown_value === 'string' ||
-        typeof raw.breakdown_value === 'number' ||
-        Array.isArray(raw.breakdown_value)
-            ? (raw.breakdown_value as string | number | string[])
-            : undefined
-    const compare_label =
-        typeof raw.compare_label === 'string' ? (raw.compare_label as SeriesDatum['compare_label']) : undefined
-    const days = Array.isArray(raw.days) ? (raw.days as string[]) : undefined
-    const order = typeof raw.order === 'number' ? raw.order : undefined
-    const filter =
-        typeof raw.filter === 'object' && raw.filter !== null ? (raw.filter as SeriesDatum['filter']) : undefined
-    return { action, breakdown_value, compare_label, days, order, filter }
-}
+import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 
 interface TrendsTooltipProps {
-    context: TooltipContext
+    context: TooltipContext<TrendsSeriesMeta>
     timezone?: string
     interval?: IntervalType
     breakdownFilter?: BreakdownFilter
@@ -72,7 +45,7 @@ export function TrendsTooltip({
     // are, the bridge (or TrendsLineChartD3) will need to mark them as non-tooltip rows — legacy
     // Chart.js path used a `hideTooltip: true` flag on the dataset for this.
     const seriesData: SeriesDatum[] = context.seriesData.map((entry, idx) => {
-        const meta = extractMeta(entry.series.meta)
+        const meta = entry.series.meta ?? {}
         return {
             id: idx,
             dataIndex: context.dataIndex,
@@ -89,8 +62,7 @@ export function TrendsTooltip({
         }
     })
 
-    const firstMeta = extractMeta(context.seriesData[0]?.series.meta)
-    const date = firstMeta.days?.[context.dataIndex]
+    const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
 
     const renderCount = (value: number): string => {
         if (showPercentView) {

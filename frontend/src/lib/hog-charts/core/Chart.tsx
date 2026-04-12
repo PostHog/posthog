@@ -37,15 +37,15 @@ function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactE
     return <div style={OVERLAY_STYLE}>{children}</div>
 }
 
-export interface ChartProps {
-    series: Series[]
+export interface ChartProps<Meta = unknown> {
+    series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
     draw: (args: ChartDrawArgs) => void
-    tooltip?: (ctx: TooltipContext) => React.ReactNode
-    onPointClick?: (data: PointClickData) => void
+    tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
+    onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
     /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
@@ -54,7 +54,7 @@ export interface ChartProps {
 
 export const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
 
-export function Chart({
+export function Chart<Meta = unknown>({
     series,
     labels,
     config,
@@ -66,7 +66,7 @@ export function Chart({
     className,
     children,
     resolveValue,
-}: ChartProps): React.ReactElement {
+}: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
         yTickFormatter,
@@ -116,7 +116,7 @@ export function Chart({
         return (v: number) => autoFormatYTick(v, domainMax)
     }, [yTickFormatter, scales])
 
-    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction({
+    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,

@@ -18,6 +18,7 @@ import { ChartDisplayType } from '~/types'
 import { InsightEmptyState } from '../../insights/EmptyStates'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
 interface TrendsLineChartD3Props {
@@ -65,7 +66,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
-    const hogSeries: Series[] = useMemo(
+    const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? [])
                 .filter((r: IndexedTrendResult) => r.count !== 0)
@@ -111,7 +112,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const formatCompareLabel = context?.formatCompareLabel
     const renderTooltip = useCallback(
-        (ctx: TooltipContext) => (
+        (ctx: TooltipContext<TrendsSeriesMeta>) => (
             <TrendsTooltip
                 context={ctx}
                 timezone={timezone}
