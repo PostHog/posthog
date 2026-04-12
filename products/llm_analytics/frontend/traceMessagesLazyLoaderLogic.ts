@@ -224,8 +224,8 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                         ) AS last_output_fallback
                                     FROM events
                                     WHERE event IN ('$ai_trace', '$ai_generation')
-                                      AND timestamp >= toDateTime('${fromStr}')
-                                      AND timestamp <= toDateTime('${toStr}')
+                                      AND timestamp >= toDateTime('${fromStr}', 'UTC')
+                                      AND timestamp <= toDateTime('${toStr}', 'UTC')
                                       AND properties.$ai_trace_id IN (${idList})
                                     GROUP BY trace_id
                                 `,
