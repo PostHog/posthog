@@ -29,6 +29,12 @@ tables:
               default_kind: DEFAULT
             - name: version
               type: UInt64
+            - name: last_seen_at
+              type: Nullable(DateTime64)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
 
     writable_person:
         engine: Distributed
