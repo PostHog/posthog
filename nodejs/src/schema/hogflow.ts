@@ -247,6 +247,15 @@ export const HogFlowSchema = z.object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
+            // Event-based conversion: array of event subscriptions (same shape as wait_until_event)
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
         })
         .optional(),
     exit_condition: z.enum([

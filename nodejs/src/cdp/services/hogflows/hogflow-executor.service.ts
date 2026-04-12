@@ -87,6 +87,7 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly redis: RedisV2 | null
+    private readonly eventSubscriptionsService: EventSubscriptionsService | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
@@ -95,6 +96,7 @@ export class HogFlowExecutorService {
         eventSubscriptionsService?: EventSubscriptionsService
     ) {
         this.redis = redis ?? null
+        this.eventSubscriptionsService = eventSubscriptionsService ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -287,6 +289,18 @@ export class HogFlowExecutorService {
             }
         }
 
+        // Event-based conversion: if the workflow has conversion events configured
+        // and the job was parked with conversion subscriptions, check whether the
+        // consumer consumed them (meaning a conversion event arrived).
+        if (!conversionMatch && hogFlow.conversion?.events?.length && this.eventSubscriptionsService) {
+            const conversionSubs = await this.eventSubscriptionsService.getForJob(invocation.id, 'conversion')
+            // If the workflow was parked (waitingForEvent or any delay) and conversion
+            // subscriptions are gone, the consumer matched a conversion event.
+            if (invocation.state?.currentAction?.waitingForEvent && conversionSubs.length === 0) {
+                conversionMatch = true
+            }
+        }
+
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
                 if (triggerMatch === false) {
@@ -395,7 +409,7 @@ export class HogFlowExecutorService {
                 }
 
                 if (handlerResult.scheduledAt) {
-                    this.scheduleInvocation(result, handlerResult.scheduledAt)
+                    await this.scheduleInvocation(result, handlerResult.scheduledAt)
                 }
 
                 if (handlerResult.nextAction) {
@@ -548,12 +562,14 @@ export class HogFlowExecutorService {
     }
 
     /**
-     * Updates the scheduledAt field on the result to indicate that the invocation should be scheduled for the future
+     * Updates the scheduledAt field on the result to indicate that the invocation should be scheduled for the future.
+     * If the workflow has event-based conversion goals configured, also creates conversion subscriptions
+     * so the cdp-events consumer can wake the job early when a conversion event arrives.
      */
-    private scheduleInvocation(
+    private async scheduleInvocation(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         scheduledAt: DateTime
-    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         // If the result has scheduled for the future then we return that triggering a push back to the queue
         result.invocation.queueScheduledAt = scheduledAt
         result.finished = false
@@ -563,7 +579,50 @@ export class HogFlowExecutorService {
             message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
+        // If the workflow has event-based conversion goals, create conversion
+        // subscriptions alongside whatever step-specific subscriptions the
+        // handler already created. This lets the consumer wake the job when
+        // a conversion event arrives, and shouldExitEarly will detect it.
+        await this.createConversionSubscriptions(result.invocation, scheduledAt)
+
         return result
+    }
+
+    /**
+     * Creates conversion event subscriptions if the hogflow has conversion.events configured.
+     */
+    private async createConversionSubscriptions(
+        invocation: CyclotronJobInvocationHogFlow,
+        expiresAt: DateTime
+    ): Promise<void> {
+        const conversionEvents = invocation.hogFlow.conversion?.events
+        if (!conversionEvents?.length || !this.eventSubscriptionsService) {
+            return
+        }
+
+        const personId = invocation.state?.personId ?? invocation.person?.id
+        if (!personId) {
+            return
+        }
+
+        const subs = conversionEvents.flatMap((eventConfig: any) => {
+            const eventNames = extractConversionEventNames(eventConfig.filters)
+            const bytecode = eventConfig.filters?.bytecode ?? eventConfig.bytecode ?? null
+            return eventNames.map((eventName: string) => ({
+                jobId: invocation.id,
+                teamId: invocation.teamId,
+                personId: String(personId),
+                eventName,
+                type: 'conversion' as const,
+                filters: eventConfig.filters ?? null,
+                bytecode: Array.isArray(bytecode) && bytecode.length > 0 ? bytecode : null,
+                expiresAt: expiresAt.toJSDate(),
+            }))
+        })
+
+        if (subs.length > 0) {
+            await this.eventSubscriptionsService.createMany(subs)
+        }
     }
 
     private logAction(
@@ -728,4 +787,21 @@ export class HogFlowExecutorService {
 
         return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
+}
+
+/**
+ * Extract event names from conversion event filter config.
+ * Same shape as the trigger/wait_until_event filters: `{ events: [{ id, name }] }`.
+ */
+function extractConversionEventNames(filters: any): string[] {
+    if (!filters || typeof filters !== 'object') {
+        return []
+    }
+    const events = filters.events
+    if (!Array.isArray(events) || events.length === 0) {
+        return []
+    }
+    return events
+        .map((e: any) => (e && typeof e === 'object' ? (e.id ?? e.name ?? '') : ''))
+        .filter((name: string) => name !== '')
 }

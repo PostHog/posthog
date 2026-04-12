@@ -1,5 +1,6 @@
--- Event subscriptions for the wait_until_event workflow step.
--- A row represents one workflow invocation that is paused waiting for a specific event
+-- Event subscriptions for workflow steps that need to react to incoming events.
+-- Used by both wait_until_event (type='wait_step') and conversion goals (type='conversion').
+-- A row represents one workflow invocation waiting for a specific event
 -- (matching event_name + filters) to arrive for a specific person.
 -- The cdp-events consumer queries this table when processing events and wakes
 -- matched jobs by setting cyclotron_jobs.scheduled = NOW().
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS cyclotron_event_subscriptions (
     team_id INT NOT NULL,
     person_id TEXT NOT NULL,
     event_name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'wait_step',  -- 'wait_step' or 'conversion'
     filters JSONB,
     bytecode JSONB,
     expires_at TIMESTAMPTZ NOT NULL,
