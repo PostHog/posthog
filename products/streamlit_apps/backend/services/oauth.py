@@ -14,6 +14,10 @@ from posthog.models.utils import generate_random_oauth_access_token
 logger = structlog.get_logger(__name__)
 
 STREAMLIT_OAUTH_APP_NAME = "PostHog Streamlit Apps"
+# Deterministic client_id — seeded by migration 0002_seed_streamlit_oauth_app.
+# We look the row up by this field (not by `name`, which is user-editable via
+# the admin) so the lookup is guaranteed single-row and stable across renames.
+STREAMLIT_OAUTH_CLIENT_ID = "posthog-streamlit-apps-first-party"
 ACCESS_TOKEN_EXPIRY_SECONDS = 60 * 60  # 1 hour
 # Bridge tokens live longer than the user's iframe token because they back the
 # in-sandbox HogQL shim for the entire sandbox lifetime (15 min TTL + buffer).
@@ -24,11 +28,11 @@ BRIDGE_TOKEN_EXPIRY_SECONDS = 60 * 20
 def get_streamlit_oauth_app() -> OAuthApplication:
     """Return the pre-seeded Streamlit OAuth application.
 
-    The row is created by migration 0004_seed_streamlit_oauth_app. We cache it
+    The row is created by migration 0002_seed_streamlit_oauth_app. We cache it
     here because (a) the row never changes during a process lifetime and (b)
     every connect_info / sandbox start hits this lookup.
     """
-    return OAuthApplication.objects.get(name=STREAMLIT_OAUTH_APP_NAME)
+    return OAuthApplication.objects.get(client_id=STREAMLIT_OAUTH_CLIENT_ID)
 
 
 def create_streamlit_access_token(user: User, team_id: int) -> str:

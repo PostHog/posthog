@@ -25,10 +25,6 @@ class ValidationResult:
     valid: bool
     errors: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
-    # Kept on the dataclass for backward compatibility with the API/serializer
-    # — both default to empty/false because requirements.txt support is gone.
-    packages: list[str] = field(default_factory=list)
-    has_requirements: bool = False
 
 
 def validate_zip(file: BytesIO) -> ValidationResult:

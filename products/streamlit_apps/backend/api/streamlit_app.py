@@ -47,8 +47,6 @@ class StreamlitAppVersionSerializer(serializers.ModelSerializer):
             "version_number",
             "zip_file",
             "zip_hash",
-            "has_requirements",
-            "packages",
             "snapshot_id",
             "created_by",
             "created_at",
@@ -288,8 +286,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     version_number=next_version_number,
                     zip_file=zip_path,
                     zip_hash=zip_hash,
-                    has_requirements=validation.has_requirements,
-                    packages=validation.packages,
                     created_by=request.user,
                 )
 

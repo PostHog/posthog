@@ -61,9 +61,6 @@ class StreamlitAppVersion(models.Model):
     snapshot_id = models.CharField(max_length=255, null=True, blank=True)
     snapshot_created_at = models.DateTimeField(null=True, blank=True)
 
-    has_requirements = models.BooleanField(default=False)
-    packages = models.JSONField(default=list)
-
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

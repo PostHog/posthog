@@ -39,14 +39,13 @@ def _make_mock_sandbox_class(sandbox=None):
 @patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeStartApp(BaseTest):
-    def _create_app_with_version(self, has_requirements=False, snapshot_id=None):
+    def _create_app_with_version(self, snapshot_id=None):
         app = StreamlitApp.objects.create(team=self.team, name="Test App", created_by=self.user)
         version = StreamlitAppVersion.objects.create(
             app=app,
             version_number=1,
             zip_file="s3://bucket/app.zip",
             zip_hash="abc123",
-            has_requirements=has_requirements,
             snapshot_id=snapshot_id,
         )
         app.active_version = version
@@ -85,7 +84,7 @@ class TestAppRuntimeStartApp(BaseTest):
         mock_sandbox = _make_mock_sandbox()
         mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
 
-        app, _version = self._create_app_with_version(has_requirements=True)
+        app, _version = self._create_app_with_version()
         zip_content = _make_zip_bytes({"app.py": "pass", "requirements.txt": "pandas\n"})
 
         service = AppRuntimeService()

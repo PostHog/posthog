@@ -7,8 +7,6 @@ export interface StreamlitAppVersion {
     version_number: number
     zip_file: string
     zip_hash: string
-    has_requirements: boolean
-    packages: string[]
     snapshot_id: string | null
     created_by: UserBasicType | null
     created_at: string

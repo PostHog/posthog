@@ -52,13 +52,10 @@ class TestStreamlitAppVersionModel(BaseTest):
             version_number=1,
             zip_file="s3://bucket/path.zip",
             zip_hash="abc123",
-            has_requirements=True,
-            packages=["pandas", "numpy"],
             created_by=self.user,
         )
         assert version.version_number == 1
         assert version.snapshot_id is None
-        assert version.packages == ["pandas", "numpy"]
 
     def test_unique_version_per_app(self):
         app = StreamlitApp.objects.create(team=self.team, name="Test App")

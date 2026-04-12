@@ -1,1 +1,1 @@
-0008_softdelete_partial_unique
+0002_seed_streamlit_oauth_app
