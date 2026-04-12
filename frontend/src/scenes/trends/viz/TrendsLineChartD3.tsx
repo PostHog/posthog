@@ -3,10 +3,12 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
+import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
+import type { ReferenceLineProps } from 'lib/hog-charts/overlays/ReferenceLine'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,12 +30,13 @@ import { TrendsTooltip } from './TrendsTooltip'
 
 interface TrendsLineChartD3Props {
     context?: QueryContext<InsightVizNode>
+    inSharedMode?: boolean
 }
 
 export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -56,6 +59,10 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+
+    const { alertThresholdLines } = useValues(
+        insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
+    )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel =
@@ -112,7 +119,14 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         }
     }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView])
 
-    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+    const referenceLines = useMemo(() => {
+        const alertLines: ReferenceLineProps[] = alertThresholdLines.map((line) => ({
+            value: line.value,
+            label: line.label ?? undefined,
+            variant: 'alert' as const,
+        }))
+        return [...alertLines, ...goalLinesToReferenceLines(goalLines, hogSeries)]
+    }, [alertThresholdLines, goalLines, hogSeries])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
