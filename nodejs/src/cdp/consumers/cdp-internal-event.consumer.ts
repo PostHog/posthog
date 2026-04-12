@@ -16,6 +16,7 @@ import { counterParseError } from './metrics'
 export class CdpInternalEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
+    protected enableEventSubscriptionMatching = false
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')

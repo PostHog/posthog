@@ -33,6 +33,10 @@ export class CdpEventsConsumer<
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
+    // Subclasses that process non-user events (person updates, internal events,
+    // data warehouse events) should set this to false to avoid running
+    // subscription lookups for events that will never match.
+    protected enableEventSubscriptionMatching = true
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
 
@@ -95,38 +99,56 @@ export class CdpEventsConsumer<
      * For each event in the batch, look up any wait_until_event subscriptions
      * for the same team + event_name + person_id, evaluate their property filters
      * against the event, and wake any matched workflow jobs.
+     *
+     * Uses a single batched DB query for the lookup instead of one per event.
      */
     private async wakeWaitingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
         const subscriptionsService = this.eventSubscriptionsService
-        if (!subscriptionsService) {
+        if (!subscriptionsService || !this.enableEventSubscriptionMatching) {
             return
         }
 
-        const matchedJobIds = new Set<string>()
+        // Build lookup tuples and index globals by (team, event, person) for
+        // fast association after the batched query returns.
+        const tuples: { teamId: number; eventName: string; personId: string }[] = []
+        const globalsByKey = new Map<string, HogFunctionInvocationGlobals>()
 
         for (const globals of invocationGlobals) {
             const personId = globals.person?.id
             if (!personId) {
                 continue
             }
+            const key = `${globals.project.id}:${globals.event.event}:${personId}`
+            if (!globalsByKey.has(key)) {
+                tuples.push({ teamId: globals.project.id, eventName: globals.event.event, personId: String(personId) })
+                globalsByKey.set(key, globals)
+            }
+        }
 
-            const candidates = await subscriptionsService.findMatchingForEvent(
-                globals.project.id,
-                globals.event.event,
-                String(personId)
-            )
+        if (tuples.length === 0) {
+            return
+        }
 
-            if (candidates.length === 0) {
+        // Single batched query for all events in the batch.
+        const candidates = await subscriptionsService.findMatchingForEvents(tuples)
+
+        if (candidates.length === 0) {
+            return
+        }
+
+        // Evaluate bytecode filters for each candidate against its event.
+        const matchedJobIds = new Set<string>()
+
+        for (const candidate of candidates) {
+            const key = `${candidate.teamId}:${candidate.eventName}:${candidate.personId}`
+            const globals = globalsByKey.get(key)
+            if (!globals) {
                 continue
             }
-
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
-
-            for (const candidate of candidates) {
-                const matched = await this.evaluateSubscriptionFilters(candidate, filterGlobals)
-                if (matched) {
-                    matchedJobIds.add(candidate.jobId)
-                }
+            const matched = await this.evaluateSubscriptionFilters(candidate, filterGlobals)
+            if (matched) {
+                matchedJobIds.add(candidate.jobId)
             }
         }
 
@@ -484,7 +506,15 @@ export class CdpEventsConsumer<
                         this.deps.teamManager.getTeam(clickHouseEvent.team_id),
                     ])
 
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                    if (!team) {
+                        return
+                    }
+
+                    // When the subscriptions service is active, we can't skip
+                    // events from teams with no active functions/flows because
+                    // those teams may still have parked wait_until_event jobs
+                    // with active subscriptions that need to be woken.
+                    if (!teamHogFunctions.length && !teamHogFlows.length && !this.eventSubscriptionsService) {
                         return
                     }
 

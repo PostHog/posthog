@@ -333,7 +333,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                const branchingTypes = [
+                    'conditional_branch',
+                    'random_cohort_branch',
+                    'wait_until_condition',
+                    'wait_until_event',
+                ]
                 return !branchingTypes.includes(selectedNode?.data.type ?? '')
             },
         ],

@@ -1,7 +1,5 @@
 import { Pool } from 'pg'
 
-import { logger } from '../../../utils/logger'
-
 /**
  * A single waiting subscription. One workflow invocation may have several
  * subscription rows (one per event in its `wait_until_event` config).
@@ -84,16 +82,33 @@ export class EventSubscriptionsService {
     }
 
     /**
-     * Look up candidate subscriptions matching `(team_id, event_name, person_id)`.
-     * The caller is expected to evaluate the filters against the actual event
-     * before deciding which jobs to wake.
+     * Look up candidate subscriptions matching any of the given
+     * `(team_id, event_name, person_id)` tuples in a single query.
+     * Filters out expired subscriptions. The caller is expected to
+     * evaluate the bytecode filters against the actual events before
+     * deciding which jobs to wake.
      */
-    async findMatchingForEvent(teamId: number, eventName: string, personId: string): Promise<EventSubscription[]> {
+    async findMatchingForEvents(
+        tuples: { teamId: number; eventName: string; personId: string }[]
+    ): Promise<EventSubscription[]> {
+        if (tuples.length === 0) {
+            return []
+        }
+
+        const teamIds = tuples.map((t) => t.teamId)
+        const eventNames = tuples.map((t) => t.eventName)
+        const personIds = tuples.map((t) => t.personId)
+
         const result = await this.pool.query(
-            `SELECT id, job_id, team_id, person_id, event_name, filters, bytecode, expires_at
-             FROM cyclotron_event_subscriptions
-             WHERE team_id = $1 AND event_name = $2 AND person_id = $3`,
-            [teamId, eventName, personId]
+            `SELECT es.id, es.job_id, es.team_id, es.person_id, es.event_name, es.filters, es.bytecode, es.expires_at
+             FROM cyclotron_event_subscriptions es
+             INNER JOIN (
+                 SELECT unnest($1::int[]) AS team_id,
+                        unnest($2::text[]) AS event_name,
+                        unnest($3::text[]) AS person_id
+             ) AS lookups USING (team_id, event_name, person_id)
+             WHERE es.expires_at > NOW()`,
+            [teamIds, eventNames, personIds]
         )
         return result.rows.map(rowToSubscription)
     }
@@ -108,28 +123,25 @@ export class EventSubscriptionsService {
             return 0
         }
 
-        const client = await this.pool.connect()
-        try {
-            await client.query('BEGIN')
-
-            const updateResult = await client.query(
-                `UPDATE cyclotron_jobs
-                 SET scheduled = NOW()
-                 WHERE id = ANY($1::uuid[]) AND status = 'available'`,
-                [jobIds]
+        // Use a CTE so we only delete subscriptions for jobs that were actually
+        // woken (status was 'available'). Without this, a near-simultaneous
+        // timeout + event match would delete the subscriptions even though the
+        // job was already 'running' from the timeout path, causing the handler
+        // to incorrectly take the "matched" path.
+        const result = await this.pool.query(
+            `WITH woken AS (
+                UPDATE cyclotron_jobs
+                SET scheduled = NOW()
+                WHERE id = ANY($1::uuid[]) AND status = 'available'
+                RETURNING id
             )
+            DELETE FROM cyclotron_event_subscriptions
+            WHERE job_id IN (SELECT id FROM woken)
+            RETURNING job_id`,
+            [jobIds]
+        )
 
-            await client.query(`DELETE FROM cyclotron_event_subscriptions WHERE job_id = ANY($1::uuid[])`, [jobIds])
-
-            await client.query('COMMIT')
-            return updateResult.rowCount ?? 0
-        } catch (err) {
-            await client.query('ROLLBACK')
-            logger.error('EventSubscriptionsService.wakeJobs failed', { error: String(err) })
-            throw err
-        } finally {
-            client.release()
-        }
+        return result.rowCount ?? 0
     }
 }
 

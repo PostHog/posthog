@@ -18,6 +18,7 @@ import { counterParseError } from './metrics'
 export class CdpDatawarehouseEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
+    protected enableEventSubscriptionMatching = false
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, 'cdp_data_warehouse_source_table', 'cdp-data-warehouse-events-consumer')
