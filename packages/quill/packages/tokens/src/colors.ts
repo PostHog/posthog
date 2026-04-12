@@ -1,7 +1,13 @@
 /**
- * PostHog Design System — Color Tokens (shadcn-aligned)
+ * PostHog Design System — Color Tokens (hue-based theming)
  *
- * Each value is [light, dark]. Index 0 = light, index 1 = dark.
+ * Surface/neutral colors are derived from a shared theme hue + tint.
+ * Consumers can override `--theme-hue` (and optionally `--theme-dark-hue`,
+ * `--theme-tint`) on `:root` to shift the entire palette at runtime —
+ * no rebuild required.
+ *
+ * Status colors (destructive, success, warning, info) and primary are
+ * independent of the theme hue.
  */
 
 import { cssVarsFlat } from './css'
@@ -9,90 +15,157 @@ import { generateShadowCSS } from './shadow'
 import { generateSpacingCSS } from './spacing'
 import { generateFontSizeCSS, generateFontFamilyCSS } from './typography'
 
-export const semanticColors: Record<string, ColorTuple> = {
-    background: ['oklch(0.97 0.006 106)', 'hsl(240 8% 8%)', 'bg-background'],
-    foreground: ['oklch(0.13 0.028 262)', 'oklch(0.967 0.003 265)', 'text-foreground'],
+// ── Theme configuration ───────────────────────────────
 
-    card: ['oklch(1 0 0)', 'hsl(235 8% 15%)', 'bg-card'],
-    'card-foreground': ['oklch(0.13 0.028 262)', 'oklch(0.967 0.003 265)', 'text-card-foreground'],
+export interface ThemeConfig {
+    /** OKLCH hue angle (0–360) for light mode surfaces */
+    hue: number
+    /** OKLCH hue angle for dark mode surfaces */
+    darkHue: number
+    /** Base OKLCH chroma for neutral surface tinting (0 = pure grey) */
+    tint: number
+}
 
-    popover: ['oklch(1 0 0)', 'hsl(235 8% 15%)', 'bg-popover'],
-    'popover-foreground': ['oklch(0.13 0.028 262)', 'oklch(0.967 0.003 265)', 'text-popover-foreground'],
+/** PostHog's warm yellowish-grey default */
+export const DEFAULT_THEME: ThemeConfig = {
+    hue: 90,
+    darkHue: 264,
+    tint: 0.006,
+}
 
-    primary: ['oklch(0.6514 0.2137 37.89)', 'oklch(0.8325 0.1611 84.54)', 'bg-primary'],
-    'primary-foreground': ['oklch(1 0 0)', 'oklch(0.13 0.028 262)', 'text-primary-foreground'],
+// ── Types ─────────────────────────────────────────────
 
-    secondary: ['oklch(0.31 0 0)', 'oklch(0.86 0 0)', 'bg-secondary'],
-    'secondary-foreground': ['oklch(1 0 0)', 'oklch(0.13 0.028 262)', 'text-secondary-foreground'],
-
-    muted: ['oklch(0.94 0.01 0)', 'hsl(240 8% 10%)', 'bg-muted'],
-    'muted-foreground': ['oklch(0.446 0.03 257)', 'oklch(0.709 0 0)', 'text-muted-foreground'],
-
-    accent: ['oklch(0.923 0.003 49)', 'hsl(230 8% 20%)', 'bg-accent'],
-    'accent-foreground': ['oklch(0.13 0.028 262)', 'oklch(0.967 0.003 265)', 'text-accent-foreground'],
-
-    destructive: ['oklch(0.92 0.03 32.22)', 'oklch(0.24 0.03 2.79)', 'bg-destructive'],
-    'destructive-foreground': ['oklch(0.59 0.2 23.61)', 'oklch(0.6316 0.1927 24.53)', 'text-destructive-foreground'],
-
-    success: ['oklch(0.94 0.06 154.03)', 'oklch(0.27 0.04 157.6)', 'bg-success'],
-    'success-foreground': ['oklch(0.448 0.119 151.328)', 'oklch(0.925 0.084 155.995)', 'text-success-foreground'],
-
-    warning: ['oklch(0.93 0.04 74.41)', 'oklab(0.29 0.03 0.05)', 'bg-warning'],
-    'warning-foreground': ['oklch(0.476 0.114 61.907)', 'oklch(0.77 0.14 99.29)', 'text-warning-foreground'],
-
-    info: ['oklch(0.882 0.059 254.128)', 'oklch(0.4242 0.1982 265.5 / 40%)', 'bg-info'],
-    'info-foreground': ['oklab(0.49 -0.02 -0.24)', 'oklch(0.882 0.059 254.128)', 'text-info-foreground'],
-
-    border: ['oklch(0.923 0.003 49)', 'hsl(230 8% 20%)', 'border-border'],
-    input: ['oklch(0.81 0 0 / 1)', 'oklch(0.46 0.02 279.18)', 'border-input'],
-    ring: ['oklch(0.446 0.03 257)', 'oklch(0.709 0 0)', 'border-ring'],
-
-    // Hovering default button
-    'fill-hover': [
-        'color-mix(in oklch, var(--accent) 40%, transparent)',
-        'color-mix(in oklch, var(--accent) 40%, transparent)',
-        'bg-fill-hover',
-    ],
-    // Active default button
-    'fill-active': ['var(--accent)', 'var(--accent)', 'bg-fill-active'],
-    // Expanded default button
-    'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
-    // Selected default button (checked or selected)
-    'fill-selected': [
-        'color-mix(in oklch, var(--fill-hover) 50%, transparent)',
-        'color-mix(in oklch, var(--accent) 50%, transparent)',
-        'bg-fill-selected',
-    ],
-} as const
-
-// ── Types ──────────────────────────────────────────────
-
-export type SemanticColorKey = keyof typeof semanticColors
+export type SemanticColorKey = string
 export type ColorTuple = readonly [light: string, dark: string, tailwindClass: string]
 
-// ── Style generation config ────────────────────────────
+// ── Color recipe helpers ──────────────────────────────
+
+/**
+ * Build an oklch() value referencing CSS custom properties so the
+ * theme hue/tint can be overridden at runtime.
+ *
+ * When chromaScale is 1, emits `var(--theme-tint)` directly.
+ * Otherwise wraps in `calc(var(--theme-tint) * scale)`.
+ */
+function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark'): string {
+    const hueVar = mode === 'light' ? 'var(--theme-hue)' : 'var(--theme-dark-hue)'
+    const chromaExpr =
+        chromaScale === 1
+            ? 'var(--theme-tint)'
+            : chromaScale === 0
+              ? '0'
+              : `calc(var(--theme-tint) * ${chromaScale})`
+    return `oklch(${lightness} ${chromaExpr} ${hueVar})`
+}
+
+/** Static oklch value (not theme-derived) */
+function oklch(l: number, c: number, h: number): string {
+    return `oklch(${l} ${c} ${h})`
+}
+
+// ── Semantic color definitions ────────────────────────
+
+/**
+ * Build the full semantic color map.
+ *
+ * Surface/neutral colors use CSS custom property expressions so they
+ * respond to runtime `--theme-hue` / `--theme-tint` overrides.
+ * Status and brand colors are static OKLCH values.
+ */
+export function buildSemanticColors(): Record<string, ColorTuple> {
+    return {
+        // ── Surfaces (theme-derived) ──────────────────
+        background: [surface(0.97, 1, 'light'), surface(0.145, 1.5, 'dark'), 'bg-background'],
+        foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
+
+        card: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-card'],
+        'card-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-card-foreground'],
+
+        popover: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-popover'],
+        'popover-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-popover-foreground'],
+
+        muted: [surface(0.94, 1.5, 'light'), surface(0.17, 1.5, 'dark'), 'bg-muted'],
+        'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
+
+        accent: [surface(0.923, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'bg-accent'],
+        'accent-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-accent-foreground'],
+
+        // ── Brand (independent of theme hue) ──────────
+        primary: [oklch(0.6514, 0.2137, 37.89), oklch(0.8325, 0.1611, 84.54), 'bg-primary'],
+        'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
+
+        secondary: [oklch(0.31, 0, 0), oklch(0.86, 0, 0), 'bg-secondary'],
+        'secondary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-secondary-foreground'],
+
+        // ── Status (independent of theme hue) ─────────
+        destructive: [oklch(0.92, 0.03, 32.22), oklch(0.24, 0.03, 2.79), 'bg-destructive'],
+        'destructive-foreground': [
+            oklch(0.59, 0.2, 23.61),
+            oklch(0.6316, 0.1927, 24.53),
+            'text-destructive-foreground',
+        ],
+
+        success: [oklch(0.94, 0.06, 154.03), oklch(0.27, 0.04, 157.6), 'bg-success'],
+        'success-foreground': [
+            oklch(0.448, 0.119, 151.328),
+            oklch(0.925, 0.084, 155.995),
+            'text-success-foreground',
+        ],
+
+        warning: [oklch(0.93, 0.04, 74.41), oklch(0.29, 0.03, 75), 'bg-warning'],
+        'warning-foreground': [oklch(0.476, 0.114, 61.907), oklch(0.77, 0.14, 99.29), 'text-warning-foreground'],
+
+        info: [oklch(0.882, 0.059, 254.128), oklch(0.4242, 0.1982, 265.5), 'bg-info'],
+        'info-foreground': [oklch(0.49, 0.02, 254), oklch(0.882, 0.059, 254.128), 'text-info-foreground'],
+
+        // ── Borders & rings (theme-derived) ───────────
+        border: [surface(0.90, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
+        input: [surface(0.81, 0.5, 'light'), surface(0.30, 1.5, 'dark'), 'border-input'],
+        ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
+
+        // ── Interactive fills (reference other tokens) ─
+        'fill-hover': [
+            'color-mix(in oklch, var(--accent) 40%, transparent)',
+            'color-mix(in oklch, var(--accent) 40%, transparent)',
+            'bg-fill-hover',
+        ],
+        'fill-active': ['var(--accent)', 'var(--accent)', 'bg-fill-active'],
+        'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
+        'fill-selected': [
+            'color-mix(in oklch, var(--fill-hover) 50%, transparent)',
+            'color-mix(in oklch, var(--accent) 50%, transparent)',
+            'bg-fill-selected',
+        ],
+    } as const
+}
+
+export const semanticColors = buildSemanticColors()
+
+// ── Style generation config ───────────────────────────
 
 export interface StylesConfig {
     /** Include @layer base reset rules (apps only) */
     includeBaseLayer?: boolean
 }
 
-// ── Helpers ────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────
 
 /** Flat object for one theme */
-export function resolveTheme(mode: 'light' | 'dark'): Record<SemanticColorKey, string> {
+export function resolveTheme(mode: 'light' | 'dark'): Record<string, string> {
     const i = mode === 'light' ? 0 : 1
-    return Object.fromEntries(Object.entries(semanticColors).map(([k, v]) => [k, v[i]])) as Record<
-        SemanticColorKey,
-        string
-    >
+    return Object.fromEntries(Object.entries(semanticColors).map(([k, v]) => [k, v[i]])) as Record<string, string>
 }
 
 /** Generate color-system.css (:root light + .dark overrides) */
-export function generateColorSystemCSS(): string {
+export function generateColorSystemCSS(theme: ThemeConfig = DEFAULT_THEME): string {
+    const themeVars = (indent = '  '): string =>
+        [`${indent}--theme-hue: ${theme.hue};`, `${indent}--theme-dark-hue: ${theme.darkHue};`, `${indent}--theme-tint: ${theme.tint};`].join(
+            '\n'
+        )
+
     const varsBlock = (selector: string, i: number): string => {
-        const lightDark = Object.fromEntries(Object.entries(semanticColors).map(([k, v]) => [k, v[i]]))
-        return `${selector} {\n  --radius: 0.625rem;\n${cssVarsFlat(lightDark)}\n}`
+        const colorVars = Object.fromEntries(Object.entries(semanticColors).map(([k, v]) => [k, v[i]]))
+        return `${selector} {\n  --radius: 0.625rem;\n${themeVars()}\n${cssVarsFlat(colorVars)}\n}`
     }
 
     return `/* Auto-generated by @posthog/quill-tokens — do not edit manually */
