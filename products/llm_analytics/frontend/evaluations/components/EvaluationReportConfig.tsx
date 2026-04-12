@@ -17,7 +17,34 @@ const FREQUENCY_OPTIONS = [
     { value: 'hourly' as const, label: 'Hourly' },
     { value: 'daily' as const, label: 'Daily' },
     { value: 'weekly' as const, label: 'Weekly' },
+    { value: 'every_n' as const, label: 'Every N evaluations' },
 ]
+
+const TRIGGER_THRESHOLD_MIN = 10
+const TRIGGER_THRESHOLD_MAX = 10_000
+const TRIGGER_THRESHOLD_DEFAULT = 100
+
+/** Threshold config shown when frequency is 'every_n' */
+function ThresholdConfig({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
+    return (
+        <div>
+            <label className="font-semibold text-sm">Evaluation count threshold</label>
+            <LemonInput
+                type="number"
+                min={TRIGGER_THRESHOLD_MIN}
+                max={TRIGGER_THRESHOLD_MAX}
+                value={value}
+                onChange={(val) => onChange(Number(val))}
+                fullWidth
+            />
+            <p className="text-xs text-muted mt-1">
+                A report will be generated after this many new evaluation results arrive. Checked every 5 minutes. Min{' '}
+                {TRIGGER_THRESHOLD_MIN}, max {TRIGGER_THRESHOLD_MAX.toLocaleString()}. Cooldown: at most one report per
+                hour, up to 10 per day.
+            </p>
+        </div>
+    )
+}
 
 /** Shared delivery targets configuration */
 function DeliveryTargetsConfig({
@@ -89,6 +116,7 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
         setPendingSlackIntegrationId,
         setPendingSlackChannelValue,
         setPendingReportPromptGuidance,
+        setPendingTriggerThreshold,
     } = useActions(evaluationReportLogic({ evaluationId }))
 
     return (
@@ -119,6 +147,9 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
                             fullWidth
                         />
                     </div>
+                    {pendingConfig.frequency === 'every_n' && (
+                        <ThresholdConfig value={pendingConfig.triggerThreshold} onChange={setPendingTriggerThreshold} />
+                    )}
                     <DeliveryTargetsConfig
                         emailValue={pendingConfig.emailValue}
                         onEmailChange={setPendingEmailValue}
@@ -158,6 +189,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
     const [slackIntegrationId, setSlackIntegrationId] = useState<number | null>(null)
     const [slackChannelValue, setSlackChannelValue] = useState('')
     const [guidance, setGuidance] = useState('')
+    const [triggerThreshold, setTriggerThreshold] = useState(TRIGGER_THRESHOLD_DEFAULT)
 
     // Seed the delivery-target form state from the active report so the user can edit
     // email/Slack targets without having to disable + recreate the schedule.
@@ -165,12 +197,17 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
         if (!activeReport) {
             return
         }
-        const emailTarget = activeReport.delivery_targets.find((t) => t.type === 'email')
-        const slackTarget = activeReport.delivery_targets.find((t) => t.type === 'slack')
+        const emailTarget = activeReport.delivery_targets.find(
+            (t: EvaluationReportDeliveryTarget) => t.type === 'email'
+        )
+        const slackTarget = activeReport.delivery_targets.find(
+            (t: EvaluationReportDeliveryTarget) => t.type === 'slack'
+        )
         setEmailValue(emailTarget?.value ?? '')
         setSlackIntegrationId(slackTarget?.integration_id ?? null)
         setSlackChannelValue(slackTarget?.channel ?? '')
         setGuidance(activeReport.report_prompt_guidance ?? '')
+        setTriggerThreshold(activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT)
     }, [activeReport])
 
     const isEnabled = !!activeReport || formEnabled
@@ -210,6 +247,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
             frequency,
             delivery_targets: targets,
             report_prompt_guidance: guidance,
+            trigger_threshold: frequency === 'every_n' ? triggerThreshold : null,
         })
         setFormEnabled(false)
     }
@@ -246,6 +284,10 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                         />
                     </div>
 
+                    {activeReport.frequency === 'every_n' && (
+                        <ThresholdConfig value={triggerThreshold} onChange={setTriggerThreshold} />
+                    )}
+
                     <DeliveryTargetsConfig
                         emailValue={emailValue}
                         onEmailChange={setEmailValue}
@@ -269,17 +311,25 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                     </div>
 
                     {(() => {
-                        const currentEmail = activeReport.delivery_targets.find((t) => t.type === 'email')?.value ?? ''
-                        const currentSlack = activeReport.delivery_targets.find((t) => t.type === 'slack')
+                        const currentEmail =
+                            activeReport.delivery_targets.find(
+                                (t: EvaluationReportDeliveryTarget) => t.type === 'email'
+                            )?.value ?? ''
+                        const currentSlack = activeReport.delivery_targets.find(
+                            (t: EvaluationReportDeliveryTarget) => t.type === 'slack'
+                        )
                         const currentSlackIntegrationId: number | null = currentSlack?.integration_id ?? null
                         const currentSlackChannel = currentSlack?.channel ?? ''
                         const currentGuidance = activeReport.report_prompt_guidance ?? ''
+                        const currentThreshold = activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT
                         const targetsDirty =
                             emailValue.trim() !== currentEmail ||
                             slackIntegrationId !== currentSlackIntegrationId ||
                             slackChannelValue !== currentSlackChannel
                         const guidanceDirty = guidance !== currentGuidance
-                        const isDirty = targetsDirty || guidanceDirty
+                        const thresholdDirty =
+                            activeReport.frequency === 'every_n' && triggerThreshold !== currentThreshold
+                        const isDirty = targetsDirty || guidanceDirty || thresholdDirty
                         const hasAnyTarget = hasEmail || hasSlack
                         return (
                             <div className="flex justify-end">
@@ -306,12 +356,16 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                                                 channel: slackChannelValue,
                                             })
                                         }
+                                        const data: Record<string, unknown> = {
+                                            delivery_targets: targets,
+                                            report_prompt_guidance: guidance,
+                                        }
+                                        if (activeReport.frequency === 'every_n') {
+                                            data.trigger_threshold = triggerThreshold
+                                        }
                                         updateReport({
                                             reportId: activeReport.id,
-                                            data: {
-                                                delivery_targets: targets,
-                                                report_prompt_guidance: guidance,
-                                            },
+                                            data,
                                         })
                                     }}
                                 >
@@ -321,10 +375,18 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                         )
                     })()}
 
-                    {activeReport.next_delivery_date && (
+                    {activeReport.frequency === 'every_n' ? (
                         <div className="text-sm text-muted">
-                            Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
+                            A report will be generated when{' '}
+                            {activeReport.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT} new evaluation results arrive.
+                            Checked every 5 minutes.
                         </div>
+                    ) : (
+                        activeReport.next_delivery_date && (
+                            <div className="text-sm text-muted">
+                                Next delivery: {new Date(activeReport.next_delivery_date).toLocaleString()}
+                            </div>
+                        )
                     )}
 
                     <p className="text-xs text-muted m-0">Generated reports appear in the Reports tab.</p>
@@ -341,6 +403,9 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                                 fullWidth
                             />
                         </div>
+                        {frequency === 'every_n' && (
+                            <ThresholdConfig value={triggerThreshold} onChange={setTriggerThreshold} />
+                        )}
                         <DeliveryTargetsConfig
                             emailValue={emailValue}
                             onEmailChange={setEmailValue}

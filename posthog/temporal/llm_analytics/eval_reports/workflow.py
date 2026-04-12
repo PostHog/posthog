@@ -9,6 +9,7 @@ from structlog import get_logger
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.eval_reports.activities import (
     deliver_report_activity,
+    fetch_count_triggered_eval_reports_activity,
     fetch_due_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -19,6 +20,7 @@ from posthog.temporal.llm_analytics.eval_reports.constants import (
     AGENT_ACTIVITY_TIMEOUT,
     AGENT_HEARTBEAT_TIMEOUT,
     AGENT_RETRY_POLICY,
+    CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
     DELIVER_RETRY_POLICY,
@@ -34,6 +36,7 @@ from posthog.temporal.llm_analytics.eval_reports.constants import (
     WORKFLOW_EXECUTION_TIMEOUT,
 )
 from posthog.temporal.llm_analytics.eval_reports.types import (
+    CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
     GenerateAndDeliverEvalReportWorkflowInput,
     PrepareReportContextInput,
@@ -76,6 +79,42 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
                 GenerateAndDeliverEvalReportWorkflow.run,
                 GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
                 id=f"eval-report-{report_id}",
+                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+            )
+            tasks.append(task)
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
+class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
+    """5-minute workflow that checks count-based evaluation reports for threshold crossings."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> CheckCountTriggeredReportsWorkflowInputs:
+        if not inputs:
+            return CheckCountTriggeredReportsWorkflowInputs()
+        loaded = json.loads(inputs[0])
+        return CheckCountTriggeredReportsWorkflowInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
+        result = await temporalio.workflow.execute_activity(
+            fetch_count_triggered_eval_reports_activity,
+            inputs,
+            start_to_close_timeout=FETCH_ACTIVITY_TIMEOUT,
+            retry_policy=FETCH_RETRY_POLICY,
+        )
+
+        if not result.report_ids:
+            return
+
+        tasks = []
+        for report_id in result.report_ids:
+            task = temporalio.workflow.execute_child_workflow(
+                GenerateAndDeliverEvalReportWorkflow.run,
+                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+                id=f"eval-report-count-{report_id}",
                 execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
             )
             tasks.append(task)

@@ -10,6 +10,11 @@ class ScheduleAllEvalReportsWorkflowInputs:
 
 
 @dataclasses.dataclass
+class CheckCountTriggeredReportsWorkflowInputs:
+    pass
+
+
+@dataclasses.dataclass
 class FetchDueEvalReportsOutput:
     report_ids: list[str]
 

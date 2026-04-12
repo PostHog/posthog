@@ -11,8 +11,10 @@ EVAL_REPORT_AGENT_TIMEOUT = 600.0  # 10 minutes
 
 # Workflow names
 SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME = "schedule-all-eval-reports"
+CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME = "check-count-triggered-eval-reports"
 GENERATE_EVAL_REPORT_WORKFLOW_NAME = "generate-and-deliver-eval-report"
 SCHEDULE_ID = "schedule-all-eval-reports-schedule"
+COUNT_TRIGGER_SCHEDULE_ID = "check-count-triggered-eval-reports-schedule"
 
 # Workflow timeouts
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)

@@ -8,6 +8,7 @@ from structlog import get_logger
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.llm_analytics.eval_reports.types import (
+    CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
     FetchDueEvalReportsOutput,
     PrepareReportContextInput,
@@ -27,7 +28,7 @@ logger = get_logger(__name__)
 async def fetch_due_eval_reports_activity(
     inputs: ScheduleAllEvalReportsWorkflowInputs,
 ) -> FetchDueEvalReportsOutput:
-    """Return a list of evaluation report IDs that are due for delivery."""
+    """Return a list of time-based evaluation report IDs that are due for delivery."""
     now_with_buffer = dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
 
     @database_sync_to_async(thread_sensitive=False)
@@ -40,11 +41,82 @@ async def fetch_due_eval_reports_activity(
                 next_delivery_date__lte=now_with_buffer,
                 enabled=True,
                 deleted=False,
-            ).values_list("id", flat=True)
+            )
+            .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
+            .values_list("id", flat=True)
         ]
 
     report_ids = await get_report_ids()
     await logger.ainfo(f"Found {len(report_ids)} due evaluation reports")
+    return FetchDueEvalReportsOutput(report_ids=report_ids)
+
+
+@temporalio.activity.defn
+async def fetch_count_triggered_eval_reports_activity(
+    inputs: CheckCountTriggeredReportsWorkflowInputs,
+) -> FetchDueEvalReportsOutput:
+    """Check count-based reports and return those whose eval count exceeds the threshold."""
+
+    @database_sync_to_async(thread_sensitive=False)
+    def check_reports() -> list[str]:
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.query import execute_hogql_query
+
+        from posthog.models import Team
+
+        from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+
+        now = dt.datetime.now(tz=dt.UTC)
+        due: list[str] = []
+
+        reports = EvaluationReport.objects.filter(
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            enabled=True,
+            deleted=False,
+            trigger_threshold__isnull=False,
+        ).select_related("evaluation")
+
+        for report in reports:
+            # Cooldown: skip if last delivery was too recent
+            if report.last_delivered_at:
+                cooldown_delta = dt.timedelta(minutes=report.cooldown_minutes)
+                if (now - report.last_delivered_at) < cooldown_delta:
+                    continue
+
+            # Daily cap: skip if too many runs today
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_runs = EvaluationReportRun.objects.filter(
+                report=report,
+                created_at__gte=today_start,
+            ).count()
+            if today_runs >= report.daily_run_cap:
+                continue
+
+            # Count evals since last delivery (or start_date if first run)
+            since = report.last_delivered_at or report.start_date
+            since_str = since.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+            team = Team.objects.get(id=report.team_id)
+            query = parse_select(
+                f"""
+                SELECT count() as total
+                FROM events
+                WHERE event = '$ai_evaluation'
+                    AND properties.$ai_evaluation_id = '{report.evaluation_id}'
+                    AND timestamp >= '{since_str}'
+                """
+            )
+            result = execute_hogql_query(query=query, team=team)
+            rows = result.results or []
+            count = rows[0][0] if rows else 0
+
+            if count >= report.trigger_threshold:
+                due.append(str(report.id))
+
+        return due
+
+    report_ids = await check_reports()
+    await logger.ainfo(f"Found {len(report_ids)} count-triggered evaluation reports ready")
     return FetchDueEvalReportsOutput(report_ids=report_ids)
 
 
@@ -72,13 +144,21 @@ async def prepare_report_context_activity(
 
         if inputs.manual:
             # Manual "Generate now": always look back one full frequency period
-            # so the user always gets a meaningful report regardless of last delivery
-            period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
+            # so the user always gets a meaningful report regardless of last delivery.
+            # Count-triggered reports don't have a time-based frequency, so we use
+            # the time since last delivery (or start_date) to capture all new evals.
+            if report.frequency == "every_n":
+                period_start = report.last_delivered_at or report.start_date
+            else:
+                period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
         elif report.last_delivered_at:
             period_start = report.last_delivered_at
         else:
-            # First scheduled run: look back one period
-            period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
+            # First run: look back one period (or to start_date for count-triggered)
+            if report.frequency == "every_n":
+                period_start = report.start_date
+            else:
+                period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
 
         # Previous period for comparison (same duration, shifted back)
         period_duration = period_end - period_start

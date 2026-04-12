@@ -24,6 +24,7 @@ export interface PendingReportConfig {
     slackIntegrationId: number | null
     slackChannelValue: string
     reportPromptGuidance: string
+    triggerThreshold: number
 }
 
 const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
@@ -33,6 +34,7 @@ const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
     slackIntegrationId: null,
     slackChannelValue: '',
     reportPromptGuidance: '',
+    triggerThreshold: 100,
 }
 
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
@@ -51,6 +53,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         setPendingSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setPendingSlackChannelValue: (channelValue: string) => ({ channelValue }),
         setPendingReportPromptGuidance: (reportPromptGuidance: string) => ({ reportPromptGuidance }),
+        setPendingTriggerThreshold: (triggerThreshold: number) => ({ triggerThreshold }),
         createPendingReport: (evaluationId: string) => ({ evaluationId }),
 
         // Existing report actions
@@ -76,6 +79,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 setPendingReportPromptGuidance: (state, { reportPromptGuidance }) => ({
                     ...state,
                     reportPromptGuidance,
+                }),
+                setPendingTriggerThreshold: (state, { triggerThreshold }) => ({
+                    ...state,
+                    triggerThreshold,
                 }),
             },
         ],
@@ -105,17 +112,22 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     frequency: EvaluationReportFrequency
                     delivery_targets: EvaluationReportDeliveryTarget[]
                     report_prompt_guidance?: string
+                    trigger_threshold?: number | null
                 }) => {
+                    const body: Record<string, unknown> = {
+                        evaluation: params.evaluationId,
+                        frequency: params.frequency,
+                        start_date: new Date().toISOString(),
+                        delivery_targets: params.delivery_targets,
+                        report_prompt_guidance: params.report_prompt_guidance ?? '',
+                        enabled: true,
+                    }
+                    if (params.frequency === 'every_n' && params.trigger_threshold != null) {
+                        body.trigger_threshold = params.trigger_threshold
+                    }
                     const report = await api.create(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`,
-                        {
-                            evaluation: params.evaluationId,
-                            frequency: params.frequency,
-                            start_date: new Date().toISOString(),
-                            delivery_targets: params.delivery_targets,
-                            report_prompt_guidance: params.report_prompt_guidance ?? '',
-                            enabled: true,
-                        }
+                        body
                     )
                     return [...values.reports, report]
                 },
@@ -214,6 +226,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 frequency: pendingConfig.frequency,
                 delivery_targets: targets,
                 report_prompt_guidance: pendingConfig.reportPromptGuidance,
+                trigger_threshold: pendingConfig.frequency === 'every_n' ? pendingConfig.triggerThreshold : null,
             })
         },
     })),

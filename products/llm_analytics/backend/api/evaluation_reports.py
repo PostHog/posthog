@@ -38,6 +38,9 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "deleted",
             "last_delivered_at",
             "report_prompt_guidance",
+            "trigger_threshold",
+            "cooldown_minutes",
+            "daily_run_cap",
             "created_by",
             "created_at",
         ]
@@ -51,6 +54,28 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         if value.team_id != team.id:
             raise serializers.ValidationError("Evaluation does not belong to this team.")
         return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        frequency = attrs.get("frequency") or (self.instance.frequency if self.instance else None)
+        if frequency == EvaluationReport.Frequency.EVERY_N:
+            threshold = attrs.get("trigger_threshold") or (self.instance.trigger_threshold if self.instance else None)
+            if threshold is None:
+                raise serializers.ValidationError({"trigger_threshold": "Required when frequency is 'every_n'."})
+            if threshold < EvaluationReport.TRIGGER_THRESHOLD_MIN:
+                raise serializers.ValidationError(
+                    {"trigger_threshold": f"Minimum is {EvaluationReport.TRIGGER_THRESHOLD_MIN}."}
+                )
+            if threshold > EvaluationReport.TRIGGER_THRESHOLD_MAX:
+                raise serializers.ValidationError(
+                    {"trigger_threshold": f"Maximum is {EvaluationReport.TRIGGER_THRESHOLD_MAX}."}
+                )
+            cooldown = attrs.get("cooldown_minutes", EvaluationReport.COOLDOWN_MINUTES_DEFAULT)
+            if cooldown < EvaluationReport.COOLDOWN_MINUTES_MIN:
+                raise serializers.ValidationError(
+                    {"cooldown_minutes": f"Minimum is {EvaluationReport.COOLDOWN_MINUTES_MIN} minutes."}
+                )
+        return attrs
 
     def validate_delivery_targets(self, value: list) -> list:
         if not isinstance(value, list) or len(value) == 0:

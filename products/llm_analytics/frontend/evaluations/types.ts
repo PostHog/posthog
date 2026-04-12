@@ -82,7 +82,7 @@ export interface HogTestResult {
     error: string | null
 }
 
-export type EvaluationReportFrequency = 'hourly' | 'daily' | 'weekly'
+export type EvaluationReportFrequency = 'hourly' | 'daily' | 'weekly' | 'every_n'
 
 export interface EvaluationReportDeliveryTarget {
     type: 'email' | 'slack'
@@ -105,6 +105,12 @@ export interface EvaluationReport {
     last_delivered_at: string | null
     /** Optional per-report custom guidance appended to the agent's system prompt. */
     report_prompt_guidance: string
+    /** Number of new eval results that triggers a report (only for every_n frequency). */
+    trigger_threshold: number | null
+    /** Minimum minutes between count-triggered reports. */
+    cooldown_minutes: number
+    /** Maximum count-triggered report runs per calendar day (UTC). */
+    daily_run_cap: number
     created_by: number | null
     created_at: string
 }

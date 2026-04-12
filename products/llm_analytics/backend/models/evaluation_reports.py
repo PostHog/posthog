@@ -25,6 +25,14 @@ class EvaluationReport(UUIDTModel):
         HOURLY = "hourly"
         DAILY = "daily"
         WEEKLY = "weekly"
+        EVERY_N = "every_n"
+
+    TRIGGER_THRESHOLD_MIN = 10
+    TRIGGER_THRESHOLD_MAX = 10_000
+    TRIGGER_THRESHOLD_DEFAULT = 100
+    COOLDOWN_MINUTES_MIN = 60
+    COOLDOWN_MINUTES_DEFAULT = 60
+    DAILY_RUN_CAP_DEFAULT = 10
 
     class ByWeekDay(models.TextChoices):
         MONDAY = "monday"
@@ -65,12 +73,31 @@ class EvaluationReport(UUIDTModel):
     deleted = models.BooleanField(default=False)
     last_delivered_at = models.DateTimeField(null=True, blank=True)
 
+    # Count-based trigger settings (only used when frequency='every_n')
+    trigger_threshold = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Number of new eval results that triggers a report",
+    )
+    cooldown_minutes = models.IntegerField(
+        default=60,
+        help_text="Minimum minutes between count-triggered reports",
+    )
+    daily_run_cap = models.IntegerField(
+        default=10,
+        help_text="Maximum count-triggered report runs per calendar day (UTC)",
+    )
+
     # Optional per-report custom guidance appended to the agent's system prompt.
     # Lets users steer focus/scope/section choices without touching the base prompt.
     report_prompt_guidance = models.TextField(blank=True, default="")
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def is_count_triggered(self) -> bool:
+        return self.frequency == self.Frequency.EVERY_N
 
     @property
     def rrule(self):
@@ -89,6 +116,11 @@ class EvaluationReport(UUIDTModel):
     SCHEDULE_FIELDS = ("frequency", "byweekday", "start_date")
 
     def set_next_delivery_date(self, from_dt=None):
+        if self.is_count_triggered:
+            # Count-based reports don't have a time-based schedule.
+            # next_delivery_date is unused — the 5-minute poll checks eval counts.
+            self.next_delivery_date = None
+            return
         now = timezone.now() + timedelta(minutes=15)
         self.next_delivery_date = self.rrule.after(dt=max(from_dt or now, now), inc=False)
 
