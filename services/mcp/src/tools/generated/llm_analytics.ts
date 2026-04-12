@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     LlmAnalyticsClusteringJobsListQueryParams,
     LlmAnalyticsClusteringJobsRetrieveParams,
+    LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsSentimentCreateBody,
     LlmAnalyticsSummarizationCreateBody,
 } from '@/generated/llm_analytics/api'
@@ -27,6 +28,38 @@ const llmAnalyticsClusteringJobsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const LlmAnalyticsEvaluationSummaryCreateSchema = LlmAnalyticsEvaluationSummaryCreateBody
+
+const llmAnalyticsEvaluationSummaryCreate = (): ToolBase<
+    typeof LlmAnalyticsEvaluationSummaryCreateSchema,
+    Schemas.EvaluationSummaryResponse
+> => ({
+    name: 'llm-analytics-evaluation-summary-create',
+    schema: LlmAnalyticsEvaluationSummaryCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsEvaluationSummaryCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.evaluation_id !== undefined) {
+            body['evaluation_id'] = params.evaluation_id
+        }
+        if (params.filter !== undefined) {
+            body['filter'] = params.filter
+        }
+        if (params.generation_ids !== undefined) {
+            body['generation_ids'] = params.generation_ids
+        }
+        if (params.force_refresh !== undefined) {
+            body['force_refresh'] = params.force_refresh
+        }
+        const result = await context.api.request<Schemas.EvaluationSummaryResponse>({
+            method: 'POST',
+            path: `/api/environments/${projectId}/llm_analytics/evaluation_summary/`,
+            body,
         })
         return result
     },
@@ -134,6 +167,7 @@ const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llm-analytics-clustering-jobs-list': llmAnalyticsClusteringJobsList,
+    'llm-analytics-evaluation-summary-create': llmAnalyticsEvaluationSummaryCreate,
     'llm-analytics-sentiment-create': llmAnalyticsSentimentCreate,
     'llm-analytics-summarization-create': llmAnalyticsSummarizationCreate,
     'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,

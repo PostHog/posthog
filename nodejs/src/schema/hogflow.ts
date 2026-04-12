@@ -43,25 +43,25 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('webhook'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('manual'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('schedule'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
         // Future: recurring schedule fields can be added here
     }),
@@ -163,7 +163,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
@@ -175,7 +175,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
@@ -187,7 +187,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),

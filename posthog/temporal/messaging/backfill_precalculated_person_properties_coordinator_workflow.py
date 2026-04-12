@@ -25,6 +25,7 @@ class PersonIdRangesPageInputs:
     batch_size: int  # persons per range
     page_size: int  # number of ranges to return per page
     after_person_id: str | None  # cursor: fetch persons with ID > this value, None for first page
+    person_id: str | None = None  # Optional specific person ID to filter for
 
 
 @dataclasses.dataclass
@@ -50,12 +51,14 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     query_limit = limit + 1
 
     after_clause = "AND id > %(after_person_id)s" if inputs.after_person_id is not None else ""
+    person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
     query = f"""
         SELECT id as person_id
         FROM person FINAL
         WHERE team_id = %(team_id)s
           AND is_deleted = 0
           {after_clause}
+          {person_filter_clause}
         ORDER BY id
         LIMIT %(limit)s
         FORMAT JSONEachRow
@@ -63,6 +66,8 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     query_params: dict[str, object] = {"team_id": inputs.team_id, "limit": query_limit}
     if inputs.after_person_id is not None:
         query_params["after_person_id"] = inputs.after_person_id
+    if inputs.person_id is not None:
+        query_params["person_id"] = inputs.person_id
 
     ranges: list[tuple[str, str]] = []
     current_batch_start: str | None = None
@@ -126,6 +131,8 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000  # Persons per batch
     concurrent_workflows: int = 5  # Number of concurrent workflows to run
+    person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -173,6 +180,8 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             batch_size=inputs.batch_size,
             start_person_id=start_person_id,
             end_person_id=end_person_id,
+            person_id=inputs.person_id,
+            single_cohort_mode=inputs.single_cohort_mode,
         )
 
         # Start child workflow
@@ -245,6 +254,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                     batch_size=inputs.batch_size,
                     page_size=inputs.concurrent_workflows,
                     after_person_id=cursor,
+                    person_id=inputs.person_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 heartbeat_timeout=dt.timedelta(minutes=5),

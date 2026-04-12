@@ -275,7 +275,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["core"])
+@extend_schema(tags=["integrations"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -561,7 +561,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="github_repos", responses=GitHubReposResponseSerializer)
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         github = GitHubIntegration(self.get_object())
-        return Response({"repositories": github.list_repositories()})
+        return Response({"repositories": github.list_all_repositories()})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],

@@ -37,42 +37,43 @@ function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactE
     return <div style={OVERLAY_STYLE}>{children}</div>
 }
 
-export interface ChartProps {
-    series: Series[]
+export interface ChartProps<Meta = unknown> {
+    series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
     draw: (args: ChartDrawArgs) => void
-    tooltip?: React.ComponentType<TooltipContext>
-    onPointClick?: (data: PointClickData) => void
+    tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
+    onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
     /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
     resolveValue?: ResolveValueFn
 }
 
-const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
+export const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
 
-export function Chart({
+export function Chart<Meta = unknown>({
     series,
     labels,
     config,
     theme,
     createScales: createScalesFn,
     draw,
-    tooltip: TooltipComponent = DefaultTooltip,
+    tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
     children,
     resolveValue,
-}: ChartProps): React.ReactElement {
+}: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
         showTooltip = true,
+        pinnableTooltip = false,
         showCrosshair = false,
         goalLines,
     } = config ?? {}
@@ -115,13 +116,15 @@ export function Chart({
         return (v: number) => autoFormatYTick(v, domainMax)
     }, [yTickFormatter, scales])
 
-    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction({
+    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
         series: coloredSeries,
         canvasRef,
+        wrapperRef,
         showTooltip,
+        pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
     })
@@ -189,7 +192,9 @@ export function Chart({
 
                             {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
 
-                            {tooltipCtx && showTooltip && <Tooltip context={tooltipCtx} component={TooltipComponent} />}
+                            {tooltipCtx && showTooltip && (
+                                <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
+                            )}
 
                             {children}
                         </OverlayLayer>

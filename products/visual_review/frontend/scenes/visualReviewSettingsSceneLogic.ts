@@ -5,8 +5,9 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
+
+import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
@@ -131,6 +132,11 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 const github = integrations?.find((i: { kind: string }) => i.kind === 'github')
                 const installationId = github?.config?.installation_id
                 if (installationId) {
+                    const accountType = github?.config?.account?.type
+                    const accountName = github?.config?.account?.name
+                    if (accountType === 'Organization' && accountName) {
+                        return `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                    }
                     return `https://github.com/settings/installations/${installationId}`
                 }
                 return null

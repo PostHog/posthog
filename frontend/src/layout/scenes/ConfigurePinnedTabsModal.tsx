@@ -178,7 +178,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             type="secondary"
                                             onClick={() => {
                                                 posthog.capture('homepage configure set homepage', {
-                                                    value: 'launchpad',
+                                                    'homepage choice': 'launchpad',
                                                 })
                                                 setHomepage(null)
                                             }}
@@ -194,7 +194,9 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             size="small"
                                             type="secondary"
                                             onClick={() => {
-                                                posthog.capture('homepage configure set homepage', { value: 'search' })
+                                                posthog.capture('homepage configure set homepage', {
+                                                    'homepage choice': 'search',
+                                                })
                                                 setHomepage(newTabHomepage)
                                             }}
                                             data-attr="configure-homepage-modal-set-search"
@@ -207,7 +209,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             type="secondary"
                                             onClick={() => {
                                                 posthog.capture('homepage configure set homepage', {
-                                                    value: 'default_dashboard',
+                                                    'homepage choice': 'default_dashboard',
                                                 })
                                                 const dashboardId = currentTeam?.primary_dashboard
                                                 if (dashboardId) {

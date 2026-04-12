@@ -6,4 +6,4 @@ from .feature_flag import (
     get_feature_flags_for_team_in_cache,
     set_feature_flags_for_team_in_cache,
 )
-from .user_blast_radius import get_user_blast_radius
+from .user_blast_radius import BlastRadiusResult, get_user_blast_radius

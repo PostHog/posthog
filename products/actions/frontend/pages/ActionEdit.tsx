@@ -66,7 +66,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }
     const { isComplete } = useValues(actionLogic({ id }))
     const logic = actionEditLogic(logicProps)
-    const { action, actionChanged, analyticsReferences } = useValues(logic)
+    const { action, actionChanged } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
 
     // Sync the loaded action prop with the logic's internal state
@@ -326,7 +326,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 />
             </Form>
             <ActionHogFunctions />
-            {id && analyticsReferences.length > 0 && (
+            {id && (
                 <LemonCollapse
                     defaultActiveKey="used-in-analytics"
                     panels={[
@@ -469,13 +469,18 @@ function MatchingEvents({
 }
 
 function ReferencesList({ logicProps }: { logicProps: ActionEditLogicProps }): JSX.Element {
-    const { filteredReferences, referencesSearch } = useValues(actionEditLogic(logicProps))
+    const { filteredReferences, referencesSearch, referencesLoading } = useValues(actionEditLogic(logicProps))
     const { setReferencesSearch } = useActions(actionEditLogic(logicProps))
 
     return (
         <div className="flex flex-col gap-4">
             <LemonInput type="search" placeholder="Search..." value={referencesSearch} onChange={setReferencesSearch} />
-            <LemonTable dataSource={filteredReferences} columns={REFERENCES_COLUMNS} pagination={{ pageSize: 10 }} />
+            <LemonTable
+                dataSource={filteredReferences}
+                columns={REFERENCES_COLUMNS}
+                pagination={{ pageSize: 10 }}
+                loading={referencesLoading}
+            />
         </div>
     )
 }

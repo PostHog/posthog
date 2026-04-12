@@ -6,7 +6,8 @@ from datetime import timedelta
 import temporalio.workflow as wf
 
 from posthog.event_usage import EventSource
-from posthog.slo.types import SloConfig
+from posthog.slo.types import SloConfig, SloOutcome
+from posthog.tasks.exports.failure_handler import is_user_query_error_type
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
@@ -46,8 +47,11 @@ class ExportAssetWorkflow(PostHogWorkflow):
         except Exception as e:
             if inputs.slo:
                 err = extract_error_details(e)
+                exception_class = err.exception_class or type(e).__name__
                 inputs.slo.completion_properties["error"] = {
-                    "exception_class": err.exception_class or type(e).__name__,
+                    "exception_class": exception_class,
                     "error_trace": err.error_trace or "\n".join(traceback.format_exception(e)[:5]),
                 }
+                if is_user_query_error_type(exception_class):
+                    inputs.slo.outcome = SloOutcome.SUCCESS
             raise

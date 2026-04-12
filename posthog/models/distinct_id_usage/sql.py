@@ -89,7 +89,7 @@ def KAFKA_DISTINCT_ID_USAGE_TABLE_SQL():
         engine=kafka_engine(
             topic=KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON,
             group=CONSUMER_GROUP_DISTINCT_ID_USAGE,
-            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_NAMED_COLLECTION,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         ),
     )
 

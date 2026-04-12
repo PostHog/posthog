@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { customerJourneysLogic } from './customerJourneysLogic'
 
@@ -15,11 +18,17 @@ export function DeleteJourneyButton(): JSX.Element | null {
         return null
     }
 
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
+
     return (
         <LemonButton
             size="small"
             type="secondary"
             status="danger"
+            disabledReason={accessControlDisabledReason}
             onClick={() =>
                 LemonDialog.open({
                     title: 'Delete customer journey',

@@ -439,6 +439,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "ongoing": True,
                 "activity_score": ANY,
                 "has_summary": False,
+                "summary_outcome": None,
                 "external_references": [],
             },
         ]
@@ -773,6 +774,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "ongoing": None,
             "activity_score": None,
             "has_summary": False,
+            "summary_outcome": None,
             "external_references": [],
         }
 

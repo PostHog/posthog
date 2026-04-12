@@ -308,14 +308,25 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             // Note: setInsightMetadata state updates are handled by the loader
             setInsightMetadataLocal: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
-            [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
-                const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
+            [dashboardsModel.actionTypes.updateDashboardInsight]: (
+                state,
+                { insight, extraDashboardIds, sourceDashboardId }
+            ) => {
+                // Dashboard refresh responses merge that dashboard's filters into `query`; only the embedded
+                // insight for that dashboard (`props.dashboardId`) should apply them. Other dashboards or
+                // non-dashboard views should ignore this action when `sourceDashboardId` is set.
+                if (sourceDashboardId != null) {
+                    if (props.dashboardId !== sourceDashboardId) {
+                        return state
+                    }
+                }
+                const targetDashboards = (insight?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
-                    item?.short_id === state.short_id &&
+                    insight?.short_id === state.short_id &&
                     props.dashboardId &&
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
-                    return { ...state, ...item }
+                    return { ...state, ...insight }
                 }
                 return state
             },

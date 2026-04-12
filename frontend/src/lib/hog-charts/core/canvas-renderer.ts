@@ -43,43 +43,49 @@ export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[
     ctx.setLineDash([])
 }
 
-export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fillOpacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
 
     // Split into contiguous segments to handle data gaps consistently with drawLine
-    const segments: { x: number; y: number }[][] = []
-    let current: { x: number; y: number }[] = []
+    const segments: { top: { x: number; y: number }[]; bottom: { x: number; y: number }[] }[] = []
+    let currentTop: { x: number; y: number }[] = []
+    let currentBottom: { x: number; y: number }[] = []
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
-        const y = yScale(data[i])
-        if (x != null && isFinite(y)) {
-            current.push({ x, y })
-        } else if (current.length > 0) {
-            segments.push(current)
-            current = []
+        const yTop = yScale(data[i])
+        if (x != null && isFinite(yTop)) {
+            currentTop.push({ x, y: yTop })
+            const yBot = bottomValues ? yScale(bottomValues[i]) : baseline
+            currentBottom.push({ x, y: isFinite(yBot) ? yBot : baseline })
+        } else if (currentTop.length > 0) {
+            segments.push({ top: currentTop, bottom: currentBottom })
+            currentTop = []
+            currentBottom = []
         }
     }
-    if (current.length > 0) {
-        segments.push(current)
+    if (currentTop.length > 0) {
+        segments.push({ top: currentTop, bottom: currentBottom })
     }
 
     ctx.globalAlpha = opacity
     ctx.fillStyle = series.color
 
-    for (const points of segments) {
-        if (points.length < 2) {
+    for (const { top, bottom } of segments) {
+        if (top.length < 2) {
             continue
         }
         ctx.beginPath()
-        ctx.moveTo(points[0].x, points[0].y)
-        for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y)
+        ctx.moveTo(top[0].x, top[0].y)
+        for (let i = 1; i < top.length; i++) {
+            ctx.lineTo(top[i].x, top[i].y)
         }
-        ctx.lineTo(points[points.length - 1].x, baseline)
-        ctx.lineTo(points[0].x, baseline)
+        // Close along bottom edge in reverse
+        for (let i = bottom.length - 1; i >= 0; i--) {
+            ctx.lineTo(bottom[i].x, bottom[i].y)
+        }
         ctx.closePath()
         ctx.fill()
     }

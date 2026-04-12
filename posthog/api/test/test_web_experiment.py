@@ -99,6 +99,7 @@ class TestWebExperiment(APIBaseTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": web_experiment.created_at,
+                "creation_mode": "new",
             },
             team=ANY,
             request=ANY,
