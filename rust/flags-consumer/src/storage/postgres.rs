@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use chrono::{DateTime, Utc};
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
@@ -6,6 +8,19 @@ use crate::metric_consts;
 use crate::storage::types::{
     DistinctIdAssignmentData, DistinctIdDeletionData, PersonDeletionData, PersonUpdateData,
 };
+
+// Pre-allocated label arrays for timing guards — avoids two String heap
+// allocations per DB call on the hot path.
+static LABELS_PERSON_UPSERT: LazyLock<[(String, String); 1]> =
+    LazyLock::new(|| [("operation".to_string(), "person_upsert".to_string())]);
+static LABELS_PERSON_DELETE: LazyLock<[(String, String); 1]> =
+    LazyLock::new(|| [("operation".to_string(), "person_delete".to_string())]);
+static LABELS_DID_ASSIGN: LazyLock<[(String, String); 1]> =
+    LazyLock::new(|| [("operation".to_string(), "did_assign".to_string())]);
+static LABELS_DID_DELETE: LazyLock<[(String, String); 1]> =
+    LazyLock::new(|| [("operation".to_string(), "did_delete".to_string())]);
+static LABELS_HEARTBEAT: LazyLock<[(String, String); 1]> =
+    LazyLock::new(|| [("operation".to_string(), "heartbeat".to_string())]);
 
 /// Storage handle for the dedicated `flags_read_store` PostgreSQL database.
 pub struct PostgresStorage {
@@ -40,8 +55,10 @@ impl PostgresStorage {
             return Ok(0);
         }
 
-        let labels = [("operation".to_string(), "person_upsert".to_string())];
-        let _timer = common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &labels);
+        let _timer = common_metrics::timing_guard(
+            metric_consts::DB_QUERY_DURATION_MS,
+            &*LABELS_PERSON_UPSERT,
+        );
 
         let team_ids: Vec<i32> = updates.iter().map(|u| u.team_id).collect();
         let person_uuids: Vec<Uuid> = updates.iter().map(|u| u.person_uuid).collect();
@@ -81,8 +98,10 @@ impl PostgresStorage {
             return Ok(0);
         }
 
-        let labels = [("operation".to_string(), "person_delete".to_string())];
-        let _timer = common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &labels);
+        let _timer = common_metrics::timing_guard(
+            metric_consts::DB_QUERY_DURATION_MS,
+            &*LABELS_PERSON_DELETE,
+        );
 
         let team_ids: Vec<i32> = deletions.iter().map(|d| d.team_id).collect();
         let person_uuids: Vec<Uuid> = deletions.iter().map(|d| d.person_uuid).collect();
@@ -123,8 +142,8 @@ impl PostgresStorage {
         &self,
         assignment: &DistinctIdAssignmentData,
     ) -> Result<(), sqlx::Error> {
-        let labels = [("operation".to_string(), "did_assign".to_string())];
-        let _timer = common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &labels);
+        let _timer =
+            common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &*LABELS_DID_ASSIGN);
 
         let mut tx = self.pool.begin().await?;
 
@@ -181,8 +200,8 @@ impl PostgresStorage {
         &self,
         deletion: &DistinctIdDeletionData,
     ) -> Result<(), sqlx::Error> {
-        let labels = [("operation".to_string(), "did_delete".to_string())];
-        let _timer = common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &labels);
+        let _timer =
+            common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &*LABELS_DID_DELETE);
 
         sqlx::query(
             r#"
@@ -216,8 +235,8 @@ impl PostgresStorage {
         offset: i64,
         event_ts: Option<DateTime<Utc>>,
     ) -> Result<(), sqlx::Error> {
-        let labels = [("operation".to_string(), "heartbeat".to_string())];
-        let _timer = common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &labels);
+        let _timer =
+            common_metrics::timing_guard(metric_consts::DB_QUERY_DURATION_MS, &*LABELS_HEARTBEAT);
 
         sqlx::query(
             r#"
