@@ -180,14 +180,10 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('adds a series breakdown after mount if one already selected in query', async () => {
-        builtDataVizLogic.unmount()
         remountWithQuery({
             ...makeInitialQuery(),
             chartSettings: { goalLines: undefined, seriesBreakdownColumn: 'test_column' },
         })
-        dummyDataVisualizationLogicProps.query = globalQuery
-        builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
-        builtDataVizLogic.mount()
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
