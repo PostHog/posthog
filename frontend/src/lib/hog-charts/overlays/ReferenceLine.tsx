@@ -74,7 +74,7 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
     return (
         <>
             {lines.map((props, i) => (
-                <ReferenceLine key={`${props.value}-${props.label ?? i}`} {...props} />
+                <ReferenceLine key={`${i}-${props.value}-${props.label ?? ''}`} {...props} />
             ))}
         </>
     )
@@ -85,12 +85,12 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
     const { orientation = 'horizontal', variant = 'goal', style } = props
-    const resolved = useMemo(() => resolveStyle(variant, style), [variant, style])
+    const resolved = useMemo(() => resolveStyle(variant, style), [variant, style?.color, style?.stroke, style?.width])
 
     const common: ResolvedProps = {
         resolved,
         fillSide: props.fillSide,
-        fillColor: style?.fillColor ?? resolved.color,
+        fillColor: resolveVariableColor(style?.fillColor) ?? resolved.color,
         fillOpacity: style?.fillOpacity ?? 0.1,
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
