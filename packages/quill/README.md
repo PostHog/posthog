@@ -112,7 +112,11 @@ pnpm add @posthog/quill-tokens
 ```
 
 ```ts
-import { semanticColors, spacing, shadow } from '@posthog/quill-tokens'
+import { semanticColors, spacing, spacingPx, shadow } from '@posthog/quill-tokens'
+
+// spacing is a function that computes at any step, not a lookup table:
+spacing(4) // '1rem'  — for CSS-in-JS
+spacingPx(4) // 16      — for React Native / Figma plugins
 ```
 
 Most apps won't need this — the CSS custom properties (`var(--primary)`, `var(--background)`, `var(--border)`, etc.) from the main stylesheet are usually enough.
