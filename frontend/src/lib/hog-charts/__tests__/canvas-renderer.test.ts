@@ -50,6 +50,11 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
     return { ctx, dimensions, xScale, yScale: patchedYScale as any, labels }
 }
 
+/** Collects dash-pattern argument of each setLineDash call (ignoring the final [] reset). */
+function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
+    return ctx.setLineDash.mock.calls.map(([p]: [number[]]) => p)
+}
+
 describe('hog-charts canvas-renderer', () => {
     describe('drawLine — gap handling', () => {
         it.each([
@@ -98,6 +103,217 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(makeDrawContext(ctx, labels), series, [10, 90])
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawLine — partial dashing (dashedFromIndex / dashedToIndex)', () => {
+        it('uses a single solid stroke when neither index is set', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 20, 30] })
+            drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(ctx.stroke).toHaveBeenCalledTimes(1)
+            expect(dashCalls(ctx)).toEqual([[], []])
+        })
+
+        it('preserves series.dashPattern on the fast path', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 20, 30], dashPattern: [4, 4] })
+            drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+            expect(dashCalls(ctx)).toEqual([[4, 4], []])
+        })
+
+        describe('dashedFromIndex', () => {
+            it('splits into solid + dashed subpaths sharing the boundary point', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({
+                    key: 's1',
+                    data: [10, 20, 30, 40, 50],
+                    dashedFromIndex: 3,
+                })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+                // Solid [0..2], dashed [2..4]. Each subpath calls moveTo once, lineTo per extra point.
+                expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+                expect(ctx.stroke).toHaveBeenCalledTimes(2)
+                expect(ctx.moveTo).toHaveBeenCalledTimes(2)
+                // Solid 0..2: 2 lineTos. Dashed 2..4: 2 lineTos.
+                expect(ctx.lineTo).toHaveBeenCalledTimes(4)
+                expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+            })
+
+            it('dashes the projection tail (incomplete-data use case)', () => {
+                const ctx = mockCanvasContext()
+                const data = [10, 20, 30, 40, 50]
+                const series = makeSeries({ key: 's1', data, dashedFromIndex: data.length - 1 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+                // Solid [0..3], dashed [3..4] (just the last segment).
+                expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+                expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+            })
+
+            it('dashes the entire line when dashedFromIndex === 0', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({ key: 's1', data: [10, 20, 30], dashedFromIndex: 0 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[10, 10], []])
+            })
+
+            it('treats dashedFromIndex >= length as unset', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({ key: 's1', data: [10, 20, 30], dashedFromIndex: 99 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[], []])
+            })
+
+            it('clamps negative dashedFromIndex to 0 (entire line dashed)', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({ key: 's1', data: [10, 20, 30], dashedFromIndex: -5 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[10, 10], []])
+            })
+        })
+
+        describe('dashedToIndex', () => {
+            it('splits into dashed + solid subpaths', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({
+                    key: 's1',
+                    data: [10, 20, 30, 40, 50],
+                    dashedToIndex: 1,
+                })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+                // Dashed [0..1], solid [1..4].
+                expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+                expect(dashCalls(ctx)).toEqual([[10, 10], [], []])
+            })
+
+            it('dashes the entire line when dashedToIndex === length - 1', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({ key: 's1', data: [10, 20, 30], dashedToIndex: 2 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[10, 10], []])
+            })
+
+            it('treats dashedToIndex < 0 as unset', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({ key: 's1', data: [10, 20, 30], dashedToIndex: -5 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[], []])
+            })
+
+            it('clamps dashedToIndex beyond length to the last index (entire line dashed)', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({ key: 's1', data: [10, 20, 30], dashedToIndex: 99 })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[10, 10], []])
+            })
+        })
+
+        describe('both ends dashed', () => {
+            it('splits into dashed + solid + dashed when there is a solid middle', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({
+                    key: 's1',
+                    data: [10, 20, 30, 40, 50, 60, 70],
+                    dashedToIndex: 1,
+                    dashedFromIndex: 5,
+                })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e', 'f', 'g']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(3)
+                expect(ctx.stroke).toHaveBeenCalledTimes(3)
+                expect(dashCalls(ctx)).toEqual([[10, 10], [], [10, 10], []])
+            })
+
+            it('dashes the entire line when the two dashed ends meet (to === from - 1)', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({
+                    key: 's1',
+                    data: [10, 20, 30, 40, 50],
+                    dashedToIndex: 2,
+                    dashedFromIndex: 3,
+                })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[10, 10], []])
+            })
+
+            it('dashes the entire line when the two dashed ends overlap (to > from - 1)', () => {
+                const ctx = mockCanvasContext()
+                const series = makeSeries({
+                    key: 's1',
+                    data: [10, 20, 30, 40, 50],
+                    dashedToIndex: 3,
+                    dashedFromIndex: 2,
+                })
+                drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+                expect(dashCalls(ctx)).toEqual([[10, 10], []])
+            })
+        })
+
+        it('rounds non-integer indices', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 20, 30, 40, 50],
+                dashedFromIndex: 3.6,
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+            // Rounded to 4: solid [0..3], dashed [3..4].
+            expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+        })
+
+        it('honors series.dashedPattern override', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 20, 30, 40],
+                dashedFromIndex: 2,
+                dashedPattern: [2, 8],
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd']), series)
+            expect(dashCalls(ctx)).toEqual([[], [2, 8], []])
+        })
+
+        it('uses series.dashPattern for the non-dashed subpath', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 20, 30, 40],
+                dashPattern: [2, 2],
+                dashedFromIndex: 2,
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd']), series)
+            expect(dashCalls(ctx)).toEqual([[2, 2], [10, 10], []])
+        })
+
+        it('applies partial dashing against the yValues override length, not series.data', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [0, 0, 0, 0], // longer than yValues override
+                dashedFromIndex: 1,
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b']), series, [10, 90])
+            // yValues is length 2, dashedFromIndex = 1: solid [0..0] (empty, skipped), dashed [0..1].
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(dashCalls(ctx)).toEqual([[10, 10], []])
+        })
+
+        it('does not crash on a length-1 data array', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [42], dashedFromIndex: 0 })
+            drawLine(makeDrawContext(ctx, ['a']), series)
+            // Whole line dashed, but with only one point there are no segments to draw.
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(1)
+            expect(ctx.lineTo).toHaveBeenCalledTimes(0)
         })
     })
 

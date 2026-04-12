@@ -53,6 +53,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         labelGroupType,
         hasPersonsModal,
         querySource,
+        incompletenessOffsetFromEnd,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -73,27 +74,38 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
+    // Mirrors the legacy LineGraph: dash the trailing points that cover the in-progress period.
+    // Disabled for stickiness (indices aren't dates) and for the "previous" comparison series.
+    const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
+
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? [])
                 .filter((r: IndexedTrendResult) => r.count !== 0)
-                .map((r: IndexedTrendResult) => ({
-                    key: `${r.id}`,
-                    label: r.label ?? '',
-                    data: r.data,
-                    color: getTrendsColor(r),
-                    fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                    meta: {
-                        action: r.action,
-                        breakdown_value: r.breakdown_value,
-                        compare_label: r.compare_label,
-                        days: r.days,
-                        // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
-                        order: r.action?.order ?? r.id,
-                        filter: r.filter,
-                    },
-                })),
-        [indexedResults, display, getTrendsColor]
+                .map((r: IndexedTrendResult) => {
+                    const isActiveSeries = !r.compare || r.compare_label !== 'previous'
+                    // Dash the in-progress tail. Matches the legacy LineGraph incompleteStartIndex logic.
+                    const dashedFromIndex =
+                        isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
+                    return {
+                        key: `${r.id}`,
+                        label: r.label ?? '',
+                        data: r.data,
+                        color: getTrendsColor(r),
+                        fillArea: display === ChartDisplayType.ActionsAreaGraph,
+                        dashedFromIndex,
+                        meta: {
+                            action: r.action,
+                            breakdown_value: r.breakdown_value,
+                            compare_label: r.compare_label,
+                            days: r.days,
+                            // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
+                            order: r.action?.order ?? r.id,
+                            filter: r.filter,
+                        },
+                    }
+                }),
+        [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd]
     )
 
     const chartConfig: LineChartConfig = useMemo(() => {
