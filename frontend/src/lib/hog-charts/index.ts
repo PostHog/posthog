@@ -25,15 +25,3 @@ export type {
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
-
-// Reference line overlay primitive
-export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'
-export type {
-    ReferenceLineFillSide,
-    ReferenceLineLabelPosition,
-    ReferenceLineOrientation,
-    ReferenceLineProps,
-    ReferenceLineStroke,
-    ReferenceLineStyle,
-    ReferenceLineVariant,
-} from './overlays/ReferenceLine'

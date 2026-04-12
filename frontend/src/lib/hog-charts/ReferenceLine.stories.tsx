@@ -1,8 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { LineChart, ReferenceLine } from 'lib/hog-charts'
-import type { LineChartConfig, ReferenceLineFillSide, ReferenceLineVariant, Series } from 'lib/hog-charts'
+import { LineChart } from 'lib/hog-charts'
+import type { LineChartConfig, Series } from 'lib/hog-charts'
+import { ReferenceLine } from 'lib/hog-charts/overlays/ReferenceLine'
+import type { ReferenceLineFillSide, ReferenceLineVariant } from 'lib/hog-charts/overlays/ReferenceLine'
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
