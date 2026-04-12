@@ -783,34 +783,31 @@ def _populate_workspace_volume(
         capture=True,
     )
 
-    # file:// transport + uploadpack.allowAnySHA1InWant lets us fetch an
-    # arbitrary commit without requiring it to be advertised as a ref on the
-    # source — so the host doesn't need refs/heads/<branch> to exist.
-    # protocol.file.allow=always is the CVE-2022-39253 unlock for file://.
+    # We use file:// transport (not a bare path) to avoid CVE-2022-39253
+    # symlink following.  Server-side config (allowAnySHA1InWant) is passed
+    # via --upload-pack so it reaches the git-upload-pack subprocess that
+    # file:// spawns — plain -c flags only apply to the client.
     script = r"""
         set -e
         git init -q -b "$BRANCH" /workspace
         cd /workspace
-        GIT_OPTS="-c safe.directory=/host-git -c protocol.file.allow=always -c uploadpack.allowAnySHA1InWant=true"
-        # shellcheck disable=SC2086
-        git $GIT_OPTS fetch --depth=50 --no-tags file:///host-git "$BRANCH_SHA"
+
+        CLIENT="-c safe.directory=/host-git -c protocol.file.allow=always"
+        UPLOAD_PACK="git -c safe.directory=/host-git -c uploadpack.allowAnySHA1InWant=true upload-pack"
+
+        git $CLIENT fetch --upload-pack="$UPLOAD_PACK" --depth=50 --no-tags file:///host-git "$BRANCH_SHA"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
-        # Record the starting point. `sandbox destroy` uses this as the
-        # fallback baseline when refs/remotes/origin/<branch> does not exist
-        # (fresh-off-master branches that have never been pushed).
         git update-ref refs/sandbox/start "$BRANCH_SHA"
         git reset --hard
+
         if [ -n "$BASE_SHA" ]; then
-            # shellcheck disable=SC2086
-            git $GIT_OPTS fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
+            git $CLIENT fetch --upload-pack="$UPLOAD_PACK" --depth=1 --no-tags file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
-        # If the host knew origin/<branch> at creation, mirror it in. A later
-        # `git push` inside the sandbox updates this ref automatically, so
-        # `sandbox destroy` can tell pushed from unpushed commits natively.
+        # Mirror origin/<branch> so `git push` inside the sandbox updates it
+        # and `sandbox destroy` can tell pushed from unpushed commits.
         if [ -n "$ORIGIN_BRANCH_SHA" ]; then
-            # shellcheck disable=SC2086
-            git $GIT_OPTS fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+            git $CLIENT fetch --upload-pack="$UPLOAD_PACK" --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
         git remote add origin "$ORIGIN_URL"
