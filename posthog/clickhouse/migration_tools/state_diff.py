@@ -467,6 +467,8 @@ def _normalize_mv_select(sql: str) -> str:
     s = re.sub(r"/\*.*?\*/", " ", s, flags=re.DOTALL)
     # Strip trailing SETTINGS clause (not part of the logical query)
     s = re.sub(r"\bSETTINGS\b\s+.*$", "", s, flags=re.IGNORECASE)
+    # Resolve Jinja-style {{ database }} template before lowercasing
+    s = re.sub(r"\{\{\s*database\s*\}\}\.", "", s)
     # Lowercase everything — simpler and more robust than keyword-by-keyword
     s = s.lower()
     # Strip database prefix from qualified table names: `db.table` → `table`
