@@ -383,6 +383,9 @@ importers:
       '@babel/plugin-transform-class-properties':
         specifier: ^7.24.7
         version: 7.24.7(@babel/core@7.26.0)
+      '@babel/plugin-transform-class-static-block':
+        specifier: ^7.24.7
+        version: 7.28.6(@babel/core@7.26.0)
       '@babel/plugin-transform-nullish-coalescing-operator':
         specifier: ^7.24.7
         version: 7.24.7(@babel/core@7.26.0)
@@ -4449,8 +4452,8 @@ packages:
     peerDependencies:
       '@babel/core': ^7.0.0-0
 
-  '@babel/plugin-transform-class-static-block@7.23.4':
-    resolution: {integrity: sha512-nsWu/1M+ggti1SOALj3hfx5FXzAY06fwPJsUZD4/A5e1bWi46VUIWtD+kOX6/IdhXGsXBWllLFDSnqSCdUNydQ==}
+  '@babel/plugin-transform-class-static-block@7.28.6':
+    resolution: {integrity: sha512-rfQ++ghVwTWTqQ7w8qyDxL1XGihjBss4CmTgGRCTAC9RIbhVpyp4fOeZtta0Lbf+dTNIVJer6ych2ibHwkZqsQ==}
     engines: {node: '>=6.9.0'}
     peerDependencies:
       '@babel/core': ^7.12.0
@@ -22554,8 +22557,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.397.0:
-    resolution: {integrity: sha512-czgVpuWiN4iIg7DzF047ASYkWrjpazrB/XdGnkgEKHbHY+ZXYUzALB4AmlYIVOWEgJKMqXUQLixNcI8Y+OZmCA==}
+  unlayer-types@1.398.0:
+    resolution: {integrity: sha512-bqSs038ZPxhlXlnetanpaeUHlt7HfzqYphF8GL7ofwyRwaBAUwxqDsPwff6rfd2ASpIMmqoEPk9lOvkfVU66sQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -25536,8 +25539,8 @@ snapshots:
     dependencies:
       '@babel/core': 7.26.0
       '@babel/helper-environment-visitor': 7.24.7
-      '@babel/helper-member-expression-to-functions': 7.24.7
-      '@babel/helper-optimise-call-expression': 7.24.7
+      '@babel/helper-member-expression-to-functions': 7.28.5
+      '@babel/helper-optimise-call-expression': 7.27.1
     transitivePeerDependencies:
       - supports-color
 
@@ -25545,8 +25548,8 @@ snapshots:
     dependencies:
       '@babel/core': 7.28.0
       '@babel/helper-environment-visitor': 7.24.7
-      '@babel/helper-member-expression-to-functions': 7.24.7
-      '@babel/helper-optimise-call-expression': 7.24.7
+      '@babel/helper-member-expression-to-functions': 7.28.5
+      '@babel/helper-optimise-call-expression': 7.27.1
     transitivePeerDependencies:
       - supports-color
 
@@ -25554,8 +25557,8 @@ snapshots:
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-environment-visitor': 7.24.7
-      '@babel/helper-member-expression-to-functions': 7.24.7
-      '@babel/helper-optimise-call-expression': 7.24.7
+      '@babel/helper-member-expression-to-functions': 7.28.5
+      '@babel/helper-optimise-call-expression': 7.27.1
     transitivePeerDependencies:
       - supports-color
 
@@ -26183,30 +26186,27 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/plugin-transform-class-static-block@7.23.4(@babel/core@7.26.0)':
+  '@babel/plugin-transform-class-static-block@7.28.6(@babel/core@7.26.0)':
     dependencies:
       '@babel/core': 7.26.0
       '@babel/helper-create-class-features-plugin': 7.28.6(@babel/core@7.26.0)
       '@babel/helper-plugin-utils': 7.28.6
-      '@babel/plugin-syntax-class-static-block': 7.14.5(@babel/core@7.26.0)
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/plugin-transform-class-static-block@7.23.4(@babel/core@7.28.0)':
+  '@babel/plugin-transform-class-static-block@7.28.6(@babel/core@7.28.0)':
     dependencies:
       '@babel/core': 7.28.0
       '@babel/helper-create-class-features-plugin': 7.28.6(@babel/core@7.28.0)
       '@babel/helper-plugin-utils': 7.28.6
-      '@babel/plugin-syntax-class-static-block': 7.14.5(@babel/core@7.28.0)
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/plugin-transform-class-static-block@7.23.4(@babel/core@7.29.0)':
+  '@babel/plugin-transform-class-static-block@7.28.6(@babel/core@7.29.0)':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-create-class-features-plugin': 7.28.6(@babel/core@7.29.0)
       '@babel/helper-plugin-utils': 7.28.6
-      '@babel/plugin-syntax-class-static-block': 7.14.5(@babel/core@7.29.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -27154,7 +27154,7 @@ snapshots:
       '@babel/plugin-transform-block-scoped-functions': 7.23.3(@babel/core@7.26.0)
       '@babel/plugin-transform-block-scoping': 7.23.4(@babel/core@7.26.0)
       '@babel/plugin-transform-class-properties': 7.24.7(@babel/core@7.26.0)
-      '@babel/plugin-transform-class-static-block': 7.23.4(@babel/core@7.26.0)
+      '@babel/plugin-transform-class-static-block': 7.28.6(@babel/core@7.26.0)
       '@babel/plugin-transform-classes': 7.23.5(@babel/core@7.26.0)
       '@babel/plugin-transform-computed-properties': 7.23.3(@babel/core@7.26.0)
       '@babel/plugin-transform-destructuring': 7.23.3(@babel/core@7.26.0)
@@ -27240,7 +27240,7 @@ snapshots:
       '@babel/plugin-transform-block-scoped-functions': 7.23.3(@babel/core@7.28.0)
       '@babel/plugin-transform-block-scoping': 7.23.4(@babel/core@7.28.0)
       '@babel/plugin-transform-class-properties': 7.24.7(@babel/core@7.28.0)
-      '@babel/plugin-transform-class-static-block': 7.23.4(@babel/core@7.28.0)
+      '@babel/plugin-transform-class-static-block': 7.28.6(@babel/core@7.28.0)
       '@babel/plugin-transform-classes': 7.23.5(@babel/core@7.28.0)
       '@babel/plugin-transform-computed-properties': 7.23.3(@babel/core@7.28.0)
       '@babel/plugin-transform-destructuring': 7.23.3(@babel/core@7.28.0)
@@ -27326,7 +27326,7 @@ snapshots:
       '@babel/plugin-transform-block-scoped-functions': 7.23.3(@babel/core@7.29.0)
       '@babel/plugin-transform-block-scoping': 7.23.4(@babel/core@7.29.0)
       '@babel/plugin-transform-class-properties': 7.24.7(@babel/core@7.29.0)
-      '@babel/plugin-transform-class-static-block': 7.23.4(@babel/core@7.29.0)
+      '@babel/plugin-transform-class-static-block': 7.28.6(@babel/core@7.29.0)
       '@babel/plugin-transform-classes': 7.23.5(@babel/core@7.29.0)
       '@babel/plugin-transform-computed-properties': 7.23.3(@babel/core@7.29.0)
       '@babel/plugin-transform-destructuring': 7.23.3(@babel/core@7.29.0)
@@ -47092,7 +47092,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.397.0
+      unlayer-types: 1.398.0
 
   react-error-overlay@6.0.9: {}
 
@@ -49602,7 +49602,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.397.0: {}
+  unlayer-types@1.398.0: {}
 
   unpipe@1.0.0: {}
 
