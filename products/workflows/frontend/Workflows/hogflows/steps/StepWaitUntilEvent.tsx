@@ -27,9 +27,8 @@ export function StepWaitUntilEventConfiguration({ node }: { node: Node<WaitUntil
             <StepSchemaErrors />
 
             <div className="text-xs text-muted">
-                Pause until any of the configured events fire for the user, or until the timeout. The matched path is
-                taken on event arrival; the timeout path is taken if no event arrives in time. This is different from
-                "Wait until condition", which only re-checks person properties on a polling schedule.
+                Choose which events to wait for. The workflow continues on the matched path when any event fires, or the
+                timeout path if none arrive in time.
             </div>
 
             <HogFlowEventFilters
