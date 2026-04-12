@@ -25,7 +25,7 @@ export const semanticColors: Record<string, ColorTuple> = {
     secondary: ['oklch(0.31 0 0)', 'oklch(0.86 0 0)', 'bg-secondary'],
     'secondary-foreground': ['oklch(1 0 0)', 'oklch(0.13 0.028 262)', 'text-secondary-foreground'],
 
-    muted: ['oklch(0.97 0.006 106)', 'hsl(240 8% 10%)', 'bg-muted'],
+    muted: ['oklch(0.94 0.01 0)', 'hsl(240 8% 10%)', 'bg-muted'],
     'muted-foreground': ['oklch(0.446 0.03 257)', 'oklch(0.709 0 0)', 'text-muted-foreground'],
 
     accent: ['oklch(0.923 0.003 49)', 'hsl(230 8% 20%)', 'bg-accent'],
