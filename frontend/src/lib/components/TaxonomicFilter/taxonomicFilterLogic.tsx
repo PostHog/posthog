@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import Fuse from 'fuse.js'
 import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -51,10 +50,6 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
-import {
-    ReplayTaxonomicFilters,
-    replayTaxonomicFiltersProperties,
-} from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -63,7 +58,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
@@ -78,6 +73,7 @@ import {
     PersonType,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterType,
     QueryBasedInsightModel,
     SessionRecordingPlaylistType,
     TeamType,
@@ -366,6 +362,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
         ],
+        suggestedFiltersLabel: [
+            () => [(_, props) => props.suggestedFiltersLabel],
+            (suggestedFiltersLabel) => suggestedFiltersLabel,
+        ],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -411,7 +411,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.schemaColumns,
+                (_, props) => props.schemaColumnsLoading,
                 s.metadataSource,
+                s.suggestedFiltersLabel,
                 s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
                 s.maxContextOptions,
@@ -427,7 +429,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
                 eventNames: string[],
                 schemaColumns: DatabaseSchemaField[],
+                schemaColumnsLoading: boolean | undefined,
                 metadataSource: AnyDataNode,
+                suggestedFiltersLabel: string | undefined,
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
@@ -516,7 +520,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
-                    ...(schemaColumns.length > 0
+                    ...(schemaColumns.length > 0 || schemaColumnsLoading
                         ? [
                               {
                                   name: 'Data warehouse properties',
@@ -806,9 +810,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'spans',
                         type: TaxonomicFilterGroupType.Spans,
                         options: [
-                            { key: 'message', name: 'Message', propertyFilterType: 'span' },
                             { key: 'trace_id', name: 'trace_id', propertyFilterType: 'span' },
                             { key: 'span_id', name: 'span_id', propertyFilterType: 'span' },
+                            { key: 'duration', name: 'duration (ms)', propertyFilterType: 'span' },
                         ],
                         localItemsSearch: (items: any[], q: string): any[] => {
                             if (!q) {
@@ -1150,28 +1154,40 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
-                        categoryLabel: (count: number) => 'Replay' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.Replay,
-                        render: ReplayTaxonomicFilters,
-                        localItemsSearch: (
-                            items: TaxonomicDefinitionTypes[],
-                            q: string
-                        ): TaxonomicDefinitionTypes[] => {
-                            if (q.trim() === '') {
-                                return items
-                            }
-                            const fuse = new Fuse(replayTaxonomicFiltersProperties, {
-                                keys: ['label', 'key'],
-                                threshold: 0.3,
-                                ignoreLocation: true,
-                            })
-                            return fuse.search(q).map((result) => result.item)
-                        },
+                        options: [
+                            {
+                                key: 'visited_page',
+                                name: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'snapshot_source',
+                                name: getFilterLabel('snapshot_source', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'level',
+                                name: getFilterLabel('level', TaxonomicFilterGroupType.LogEntries),
+                                propertyFilterType: PropertyFilterType.LogEntry,
+                            },
+                            {
+                                key: 'message',
+                                name: getFilterLabel('message', TaxonomicFilterGroupType.LogEntries),
+                                propertyFilterType: PropertyFilterType.LogEntry,
+                            },
+                            {
+                                key: 'comment_text',
+                                name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                        ],
+                        getName: (option: Record<string, any>) => option.name,
+                        getValue: (option: Record<string, any>) => option.key,
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
                                     `api/environments/${teamId}/events/values/?key=` +
-                                    'api/event/values/?key=' +
                                     encodeURIComponent('$current_url') +
                                     '&event_name=' +
                                     encodeURIComponent('$pageview')
@@ -1208,9 +1224,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'On this page',
                     },
                     {
-                        name: 'Suggested filters',
-                        searchPlaceholder: 'suggested filters',
-                        categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
+                        name: suggestedFiltersLabel ?? 'Suggested filters',
+                        searchPlaceholder: (suggestedFiltersLabel ?? 'Suggested filters').toLowerCase(),
+                        categoryLabel: (count: number) =>
+                            (suggestedFiltersLabel ?? 'Suggested filters') + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.SuggestedFilters,
                         isLocalOnly: true,
                         isMetaGroup: true,
@@ -1223,7 +1240,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
-                        getPopoverHeader: () => 'Suggested filters',
+                        getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
                     },
                     {
                         name: 'Recent',

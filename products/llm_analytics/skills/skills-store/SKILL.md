@@ -36,6 +36,21 @@ posthog:prompt-list
 { "search": "llm" }
 ```
 
+By default `prompt-list` returns only metadata (name, version, size) and omits prompt bodies,
+so responses stay small even when there are many skills.
+The intended flow is **list to discover the name, then `prompt-get` the one you actually want**.
+
+If you need a snippet to disambiguate between similarly-named skills without a follow-up fetch,
+ask for previews:
+
+```json
+posthog:prompt-list
+{ "content": "preview" }
+```
+
+`content=full` is also available but should be avoided —
+it returns every prompt body in one call and is almost never what you want.
+
 ## Loading and using a skill
 
 ### Step 1 — Fetch the skill by name
@@ -72,7 +87,10 @@ posthog:prompt-get
 { "prompt_name": "my-new-skill" }
 ```
 
-Then update using the version from the response:
+Then update using the version from the response.
+You can either send the full prompt, or use `edits` for incremental find/replace changes:
+
+### Full replacement
 
 ```json
 posthog:prompt-update
@@ -82,6 +100,24 @@ posthog:prompt-update
   "base_version": 1
 }
 ```
+
+### Incremental edits
+
+For small changes, use `edits` instead of resending the entire prompt.
+Each edit's `old` text must match exactly once in the current version:
+
+```json
+posthog:prompt-update
+{
+  "prompt_name": "my-new-skill",
+  "edits": [
+    { "old": "old text to find", "new": "replacement text" }
+  ],
+  "base_version": 1
+}
+```
+
+Only one of `prompt` or `edits` may be provided, not both.
 
 ## Porting a local skill
 

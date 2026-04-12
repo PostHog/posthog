@@ -144,9 +144,6 @@ tools:
     persons-reset-person-distinct-id-create:
         operation: persons_reset_person_distinct_id_create
         enabled: false
-    persons-stickiness-retrieve:
-        operation: persons_stickiness_retrieve
-        enabled: false
     persons-trends-retrieve:
         operation: persons_trends_retrieve
         enabled: false

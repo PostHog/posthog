@@ -23,6 +23,7 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.alert_utils import advance_next_check_at
+from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertCheck, LogsAlertConfiguration
 from products.logs.backend.temporal.metrics import increment_checks_total, record_check_duration, record_scheduler_lag
 
@@ -155,7 +156,14 @@ def _evaluate_single_alert(
     notified = False
     notification_failed = False
     if outcome.notification == NotificationAction.FIRE:
-        notified = _emit_alert_event(alert, "$logs_alert_firing", check_result, now)
+        notified = _emit_alert_event(
+            alert,
+            "$logs_alert_firing",
+            check_result,
+            now,
+            date_from=date_from,
+            date_to=date_to,
+        )
         notification_failed = not notified
         if notified:
             stats["fired"] += 1
@@ -168,7 +176,14 @@ def _evaluate_single_alert(
             notified=notified,
         )
     elif outcome.notification == NotificationAction.RESOLVE:
-        notified = _emit_alert_event(alert, "$logs_alert_resolved", check_result, now)
+        notified = _emit_alert_event(
+            alert,
+            "$logs_alert_resolved",
+            check_result,
+            now,
+            date_from=date_from,
+            date_to=date_to,
+        )
         notification_failed = not notified
         if notified:
             stats["resolved"] += 1
@@ -241,6 +256,9 @@ def _emit_alert_event(
     event_name: str,
     check_result: CheckResult,
     now: datetime,
+    *,
+    date_from: datetime,
+    date_to: datetime,
 ) -> bool:
     """Produce an internal event to Kafka for CDP processing. Returns True on success."""
     properties: dict = {
@@ -252,6 +270,10 @@ def _emit_alert_event(
         "window_minutes": alert.window_minutes,
         "result_count": check_result.result_count,
         "filters": alert.filters,
+        "service_names": alert.filters.get("serviceNames", []),
+        "severity_levels": alert.filters.get("severityLevels", []),
+        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
+        "triggered_at": now.isoformat(),
     }
 
     try:

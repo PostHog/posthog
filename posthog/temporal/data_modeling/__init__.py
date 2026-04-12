@@ -1,4 +1,5 @@
 from posthog.temporal.data_modeling.activities import (
+    check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
     fail_materialization_activity,
     get_dag_structure_activity,
@@ -23,6 +24,7 @@ from posthog.temporal.data_modeling.workflows import ExecuteDAGWorkflow, Materia
 
 WORKFLOWS = [RunWorkflow, MaterializeViewWorkflow, ExecuteDAGWorkflow]
 ACTIVITIES = [
+    check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
     get_dag_structure_activity,
     fail_materialization_activity,

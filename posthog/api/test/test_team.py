@@ -2518,6 +2518,152 @@ def team_api_test_factory():
                     },
                     "mindurationms",
                 ),
+                (
+                    "event_object_missing_name",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"properties": []}],
+                                },
+                            }
+                        ],
+                    },
+                    "name",
+                ),
+                (
+                    "event_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [123],
+                                },
+                            }
+                        ],
+                    },
+                    "string or object",
+                ),
+                (
+                    "event_property_missing_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"key": "amount", "operator": "gt", "value": 100}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "hogql", "operator": "gt", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_missing_key",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"type": "event", "operator": "exact", "value": "foo"}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "key",
+                ),
+                (
+                    "event_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "event", "operator": "banana", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+                (
+                    "group_level_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"name": "error"}],
+                                    "properties": [
+                                        {"key": "country", "type": "person", "operator": "banana", "value": "US"}
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
             ]
         )
         def test_session_recording_trigger_groups_validation_errors(
@@ -2565,6 +2711,79 @@ def team_api_test_factory():
                         "conditions": {
                             "matchType": "any",
                             "flag": "simple-feature-flag",
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_event_objects_and_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "rich-events",
+                        "name": "Events with WHERE clauses",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "all",
+                            "events": [
+                                "simple_event",
+                                {
+                                    "name": "purchase",
+                                    "properties": [
+                                        {"key": "amount", "type": "event", "operator": "gt", "value": 100},
+                                        {"key": "currency", "type": "event", "operator": "exact", "value": "USD"},
+                                    ],
+                                },
+                                {"name": "$exception"},
+                            ],
+                            "urls": [
+                                {
+                                    "url": "/checkout.*",
+                                    "matching": "regex",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_group_level_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "us-errors",
+                        "name": "US errors on checkout",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": [{"name": "$exception"}, {"name": "purchase_error"}],
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "operator": "icontains",
+                                    "value": ["checkout.acme.com", "payments.acme.com"],
+                                },
+                                {"key": "country", "type": "person", "operator": "exact", "value": "US"},
+                            ],
                         },
                     },
                 ],

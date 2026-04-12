@@ -14,7 +14,7 @@ import {
     CohortsRetrieveParams,
 } from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsListSchema = CohortsListQueryParams
@@ -33,12 +33,18 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                     offset: params.offset,
                 },
             })
+            const filtered = {
+                ...result,
+                results: result.results.map((item: any) =>
+                    pickResponseFields(item, ['id', 'name', 'description', 'count', 'is_static', 'created_at'])
+                ),
+            } as typeof result
             return await withPostHogUrl(
                 context,
                 {
-                    ...result,
+                    ...filtered,
                     results: await Promise.all(
-                        result.results.map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
+                        filtered.results.map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
                     ),
                 },
                 '/cohorts'

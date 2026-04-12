@@ -29,7 +29,6 @@ class RepoSelectionResult(BaseModel):
     reason: str = Field(description="Why this repository was selected, or why none of the candidates matched.")
 
 
-_GITHUB_REPOS_PER_PAGE = 100
 _MAX_GITHUB_REPOS = 500
 
 
@@ -42,19 +41,14 @@ def _list_candidate_repos(team_id: int) -> list[str]:
     repos: set[str] = set()
     for integration in integrations:
         github = GitHubIntegration(integration)
-        page = 1
-        while True:
-            repo_entries = github.list_repositories(page=page)
-            for repo in repo_entries:
-                full_name = repo.get("full_name")
-                if full_name:
-                    repos.add(full_name.lower())
-                    if len(repos) >= _MAX_GITHUB_REPOS:
-                        logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
-                        return sorted(repos)
-            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
-                break
-            page += 1
+        repo_entries = github.list_all_repositories(max_repos=_MAX_GITHUB_REPOS)
+        for repo in repo_entries:
+            full_name = repo.get("full_name")
+            if full_name:
+                repos.add(full_name.lower())
+                if len(repos) >= _MAX_GITHUB_REPOS:
+                    logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
+                    return sorted(repos)
     return sorted(repos)
 
 
@@ -105,6 +99,7 @@ async def select_repository_for_report(
     user_id: int,
     signals: list[SignalData],
     *,
+    sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
@@ -127,6 +122,8 @@ async def select_repository_for_report(
         team_id=team_id,
         user_id=user_id,
         repository=REPO_SELECTION_DUMMY_REPOSITORY,
+        sandbox_environment_id=sandbox_environment_id,
+        posthog_mcp_scopes=[],  # Only uses gh CLI — no PostHog MCP tools, only internal scopes (task:write, llm_gateway:read)
     )
     result = await run_sandbox_agent_get_structured_output(
         prompt=prompt,

@@ -12,7 +12,6 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
-    ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SCIM = "scim"

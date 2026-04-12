@@ -622,6 +622,110 @@ class TestSessionSummarySerializerValidation:
         assert "segments[0].name" in serializer.errors
         assert "session_outcome.success" in serializer.errors
 
+    def test_valid_summary_with_sentiment(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.3,
+            "outcome": "friction",
+            "sentiment_signals": [
+                {
+                    "signal_type": "repeated_error",
+                    "segment_index": 0,
+                    "description": "User hit the same validation error twice",
+                    "intensity": 0.4,
+                },
+            ],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_valid_summary_without_sentiment(self) -> None:
+        data = _get_valid_summary_data()
+        assert "sentiment" not in data
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_valid_summary_with_null_sentiment(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = None
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_sentiment_with_empty_signals(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.0,
+            "outcome": "successful",
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    @pytest.mark.parametrize("outcome", ["successful", "friction", "frustrated", "blocked"])
+    def test_sentiment_valid_outcome_values(self, outcome: str) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": outcome,
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_sentiment_invalid_outcome(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": "unknown",
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_sentiment_frustration_score_out_of_range(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 1.5,
+            "outcome": "frustrated",
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_sentiment_signal_invalid_type(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": "friction",
+            "sentiment_signals": [
+                {
+                    "signal_type": "invalid_type",
+                    "segment_index": 0,
+                    "description": "Something happened",
+                    "intensity": 0.5,
+                },
+            ],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_sentiment_signal_intensity_out_of_range(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": "friction",
+            "sentiment_signals": [
+                {
+                    "signal_type": "rage_click",
+                    "segment_index": 0,
+                    "description": "Rage clicking on button",
+                    "intensity": 2.0,
+                },
+            ],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
     def test_validation_correctly_identifies_error_position_in_arrays(self) -> None:
         data = {
             "segments": [

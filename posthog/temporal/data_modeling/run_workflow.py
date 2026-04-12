@@ -13,6 +13,7 @@ import collections.abc
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -1363,6 +1364,10 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
 
+    # Will always be defined if this activity was started by a workflow
+    assert workflow_id
+    assert workflow_run_id
+
     if len(inputs.select) != 0:
         label = inputs.select[0].label
         saved_query = await get_saved_query(team, label)
@@ -1376,34 +1381,74 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
 @dataclasses.dataclass
 class CleanupRunningJobsActivityInputs:
     team_id: int
+    saved_query_ids: list[str] = dataclasses.field(default_factory=list)
+
+
+@database_sync_to_async
+def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None) -> list[DataModelingJob]:
+    """Atomically fetch and mark orphaned RUNNING jobs as FAILED.
+
+    When saved_query_ids is provided, only jobs belonging to those saved queries
+    are preempted (self-preemption). Otherwise, falls back to team-wide cleanup
+    for backwards compatibility.
+
+    The SELECT and UPDATE run inside a single transaction with row-level locks
+    so concurrent cleanups cannot process the same jobs twice.
+    """
+    with transaction.atomic():
+        filters: dict[str, typing.Any] = {
+            "team_id": team_id,
+            "status": DataModelingJob.Status.RUNNING,
+            "engine": DataModelingJob.Engine.CLICKHOUSE,
+        }
+        if saved_query_ids:
+            resolved_uuids: list[uuid.UUID] = []
+            for label in saved_query_ids:
+                try:
+                    resolved_uuids.append(uuid.UUID(label))
+                except ValueError:
+                    try:
+                        sq = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(team_id=team_id, name=label)
+                        resolved_uuids.append(sq.id)
+                    except DataWarehouseSavedQuery.DoesNotExist:
+                        pass
+            if resolved_uuids:
+                filters["saved_query_id__in"] = resolved_uuids
+
+        orphaned_jobs = list(DataModelingJob.objects.select_for_update().filter(**filters))
+
+        if not orphaned_jobs:
+            return []
+
+        DataModelingJob.objects.filter(id__in=[job.id for job in orphaned_jobs]).update(
+            status=DataModelingJob.Status.FAILED,
+            rows_materialized=0,
+            error="Preempted: This job did not complete before the next scheduled job was triggered.",
+            updated_at=dt.datetime.now(dt.UTC),
+        )
+
+        return orphaned_jobs
 
 
 @temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
-    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
-    Since only one job can run at a time per team, any existing RUNNING jobs
-    are orphaned when a new run starts.
-    """
+    """Marks orphaned RUNNING DataModelingJobs for this saved query as FAILED when starting a new run."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            status=DataModelingJob.Status.RUNNING,
-            engine=DataModelingJob.Engine.CLICKHOUSE,
-        ).update
-    )(
-        status=DataModelingJob.Status.FAILED,
-        rows_materialized=0,
-        error="Preempted: This job did not complete before the next scheduled job was triggered.",
-        updated_at=dt.datetime.now(dt.UTC),
-    )
+    orphaned_jobs = await _preempt_running_jobs(inputs.team_id, inputs.saved_query_ids or None)
 
-    if orphaned_count > 0:
-        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
-    else:
+    if not orphaned_jobs:
         await logger.adebug("No orphaned jobs found")
+        return
+
+    await logger.ainfo(
+        f"Cleaned up {len(orphaned_jobs)} orphaned jobs",
+        orphaned_count=len(orphaned_jobs),
+        orphaned_job_ids=[str(job.id) for job in orphaned_jobs],
+        orphaned_saved_query_ids=[str(job.saved_query_id) for job in orphaned_jobs if job.saved_query_id is not None],
+        orphaned_workflow_ids=[job.workflow_id for job in orphaned_jobs if job.workflow_id],
+    )
 
 
 @temporalio.activity.defn
@@ -1584,9 +1629,10 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        saved_query_ids = [s.label for s in inputs.select]
         await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
-            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id, saved_query_ids=saved_query_ids),
             start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
