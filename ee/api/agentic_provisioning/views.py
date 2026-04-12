@@ -50,7 +50,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, PROJECT_ID_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .authentication import ProvisioningAuthentication
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
@@ -895,32 +895,81 @@ def _resolve_or_create_project_team(
 ) -> tuple[Team, list[int]]:
     """Look up or create a team for the given project_id.
 
-    Uses a cache mapping (org_id, project_id) → team_id. If no mapping exists,
-    creates a new team in the user's org and updates the access token's scoped_teams.
+    Uses TeamProvisioningConfig (DB-backed with unique constraint) for the
+    project_id → team_id mapping. This ensures idempotency even across cache
+    evictions and handles race conditions via IntegrityError.
     """
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    existing = (
+        TeamProvisioningConfig.objects.filter(
+            stripe_project_id=project_id,
+            team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
+        )
+        .select_related("team")
+        .first()
+    )
+    if existing:
+        return existing.team, scoped_teams
+
     base_team = Team.objects.get(id=scoped_teams[0])
-    org_id = str(base_team.organization_id)
-    cache_key = f"{PROJECT_ID_CACHE_PREFIX}{org_id}:{project_id}"
-
-    existing_team_id = cache.get(cache_key)
-    if existing_team_id:
-        try:
-            return Team.objects.get(id=existing_team_id), scoped_teams
-        except Team.DoesNotExist:
-            pass
-
-    project_name = configuration.get("project_name", f"Project {project_id}")
-    new_team = Team.objects.create(
+    project_name = configuration.get("project_name", "Default project")
+    new_team = Team.objects.create_with_data(
+        initiating_user=user,
         organization=base_team.organization,
         name=project_name,
     )
-    cache.set(cache_key, new_team.id, timeout=None)
 
-    updated_scoped = [*scoped_teams, new_team.id]
-    access_token.scoped_teams = updated_scoped
-    access_token.save(update_fields=["scoped_teams"])
+    try:
+        TeamProvisioningConfig.objects.update_or_create(
+            team=new_team,
+            defaults={"stripe_project_id": project_id},
+        )
+    except IntegrityError:
+        new_team.delete()
+        race_winner = TeamProvisioningConfig.objects.filter(stripe_project_id=project_id).select_related("team").first()
+        if race_winner:
+            return race_winner.team, scoped_teams
+        return base_team, scoped_teams
 
-    return new_team, updated_scoped
+    _add_team_to_token_scopes(access_token, new_team.id)
+
+    return new_team, [*scoped_teams, new_team.id]
+
+
+def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
+    teams = list(access_token.scoped_teams or [])
+    if team_id not in teams:
+        teams.append(team_id)
+        access_token.scoped_teams = teams
+        access_token.save(update_fields=["scoped_teams"])
+
+    refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+    for rt in refresh_tokens:
+        rt_teams = list(rt.scoped_teams or [])
+        if team_id not in rt_teams:
+            rt_teams.append(team_id)
+            rt.scoped_teams = rt_teams
+            rt.save(update_fields=["scoped_teams"])
+
+
+def _get_provisioning_service_id(team: Team) -> str:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    try:
+        config = TeamProvisioningConfig.objects.get(team=team)
+        return config.service_id
+    except TeamProvisioningConfig.DoesNotExist:
+        return ANALYTICS_SERVICE_ID
+
+
+def _set_provisioning_service_id(team: Team, service_id: str) -> None:
+    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+    TeamProvisioningConfig.objects.update_or_create(
+        team=team,
+        defaults={"service_id": service_id},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -968,7 +1017,7 @@ def provisioning_resources_create(request: Request) -> Response:
             return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or ANALYTICS_SERVICE_ID
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team.id}", resolved_service_id, timeout=None)
+    _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
     if billing_result is False:
@@ -1066,7 +1115,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
 
     _capture_provisioning_event("credential_rotation", "success", team_id=team_id)
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
+    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -1139,7 +1188,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
             resource_id=resource_id,
         )
 
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", service_id, timeout=None)
+    _set_provisioning_service_id(team, service_id)
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -1205,7 +1254,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or ANALYTICS_SERVICE_ID
+    service_id = _get_provisioning_service_id(team)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
