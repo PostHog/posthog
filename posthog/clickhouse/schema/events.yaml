@@ -61,6 +61,180 @@ tables:
               type: DateTime64(3)
             - name: group4_created_at
               type: DateTime64(3)
+            # Base columns from EVENTS_TABLE_BASE_SQL
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+            - name: historical_migration
+              type: Bool
+            # Dynamically materialized columns (dmat slots)
+            - name: dmat_string_0
+              type: Nullable(String)
+            - name: dmat_string_1
+              type: Nullable(String)
+            - name: dmat_string_2
+              type: Nullable(String)
+            - name: dmat_string_3
+              type: Nullable(String)
+            - name: dmat_string_4
+              type: Nullable(String)
+            - name: dmat_string_5
+              type: Nullable(String)
+            - name: dmat_string_6
+              type: Nullable(String)
+            - name: dmat_string_7
+              type: Nullable(String)
+            - name: dmat_string_8
+              type: Nullable(String)
+            - name: dmat_string_9
+              type: Nullable(String)
+            - name: dmat_numeric_0
+              type: Nullable(Float64)
+            - name: dmat_numeric_1
+              type: Nullable(Float64)
+            - name: dmat_numeric_2
+              type: Nullable(Float64)
+            - name: dmat_numeric_3
+              type: Nullable(Float64)
+            - name: dmat_numeric_4
+              type: Nullable(Float64)
+            - name: dmat_numeric_5
+              type: Nullable(Float64)
+            - name: dmat_numeric_6
+              type: Nullable(Float64)
+            - name: dmat_numeric_7
+              type: Nullable(Float64)
+            - name: dmat_numeric_8
+              type: Nullable(Float64)
+            - name: dmat_numeric_9
+              type: Nullable(Float64)
+            - name: dmat_bool_0
+              type: Nullable(UInt8)
+            - name: dmat_bool_1
+              type: Nullable(UInt8)
+            - name: dmat_bool_2
+              type: Nullable(UInt8)
+            - name: dmat_bool_3
+              type: Nullable(UInt8)
+            - name: dmat_bool_4
+              type: Nullable(UInt8)
+            - name: dmat_bool_5
+              type: Nullable(UInt8)
+            - name: dmat_bool_6
+              type: Nullable(UInt8)
+            - name: dmat_bool_7
+              type: Nullable(UInt8)
+            - name: dmat_bool_8
+              type: Nullable(UInt8)
+            - name: dmat_bool_9
+              type: Nullable(UInt8)
+            - name: dmat_datetime_0
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_1
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_2
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_3
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_4
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_5
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_6
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_7
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_8
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_9
+              type: Nullable(DateTime64(6, 'UTC'))
+            # Materialized columns from properties
+            - name: $group_0
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+            - name: $group_1
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+            - name: $group_2
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+            - name: $group_3
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+            - name: $group_4
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+            - name: $window_id
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')"
+            - name: $session_id
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+            - name: $session_id_uuid
+              type: Nullable(UInt128)
+              default_kind: MATERIALIZED
+              default_expression: "toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))"
+            # Materialized columns from elements_chain
+            - name: elements_chain_href
+              type: String
+              default_kind: MATERIALIZED
+              default_expression: "extract(elements_chain, '(?::|\\\")href=\"(.*?)\"')"
+            - name: elements_chain_texts
+              type: Array(String)
+              default_kind: MATERIALIZED
+              default_expression: "arrayDistinct(extractAll(elements_chain, '(?::|\\\")text=\"(.*?)\"'))"
+            - name: elements_chain_ids
+              type: Array(String)
+              default_kind: MATERIALIZED
+              default_expression: "arrayDistinct(extractAll(elements_chain, '(?::|\\\")attr_id=\"(.*?)\"'))"
+            - name: elements_chain_elements
+              type: "Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label'))"
+              default_kind: MATERIALIZED
+              default_expression: "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))"
+            # Property group map columns
+            - name: properties_group_custom
+              type: Map(String, String)
+              default_kind: MATERIALIZED
+              default_expression: "mapSort(mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+              codec: ZSTD(1)
+            - name: properties_group_ai
+              type: Map(String, String)
+              default_kind: MATERIALIZED
+              default_expression: "mapSort(mapFilter((key, _) -> key LIKE '$ai_%' AND key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+              codec: ZSTD(1)
+            - name: properties_group_ai_large
+              type: Map(String, String)
+              default_kind: MATERIALIZED
+              default_expression: "mapSort(mapFilter((key, _) -> key IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+              codec: ZSTD(1)
+            - name: properties_group_feature_flags
+              type: Map(String, String)
+              default_kind: MATERIALIZED
+              default_expression: "mapSort(mapFilter((key, _) -> key like '$feature/%', CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+              codec: ZSTD(1)
+            - name: person_properties_map_custom
+              type: Map(String, String)
+              default_kind: MATERIALIZED
+              default_expression: "mapSort(mapFilter((key, _) -> key NOT LIKE '$%', CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+              codec: ZSTD(1)
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            # Extra columns
+            - name: inserted_at
+              type: Nullable(DateTime64(6, 'UTC'))
+              default_kind: DEFAULT
+              default_expression: "NOW64()"
+            - name: consumer_breadcrumbs
+              type: Array(String)
 
     writable_events:
         engine: Distributed
