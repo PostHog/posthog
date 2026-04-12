@@ -75,22 +75,26 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         () =>
             (indexedResults ?? [])
                 .filter((r: IndexedTrendResult) => r.count !== 0)
-                .map((r: IndexedTrendResult) => ({
-                    key: `${r.id}`,
-                    label: r.label ?? '',
-                    data: r.data,
-                    color: getTrendsColor(r),
-                    fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                    meta: {
-                        action: r.action,
-                        breakdown_value: r.breakdown_value,
-                        compare_label: r.compare_label,
-                        days: r.days,
-                        // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
-                        order: r.action?.order ?? r.id,
-                        filter: r.filter,
-                    },
-                })),
+                .map((r: IndexedTrendResult) => {
+                    const isPrevious = r.compare_label === 'previous'
+                    const color = isPrevious ? `${getTrendsColor(r)}80` : getTrendsColor(r)
+                    return {
+                        key: `${r.id}`,
+                        label: r.label ?? '',
+                        data: r.data,
+                        color,
+                        fillArea: display === ChartDisplayType.ActionsAreaGraph,
+                        meta: {
+                            action: r.action,
+                            breakdown_value: r.breakdown_value,
+                            compare_label: r.compare_label,
+                            days: r.days,
+                            // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
+                            order: r.action?.order ?? r.id,
+                            filter: r.filter,
+                        },
+                    }
+                }),
         [indexedResults, display, getTrendsColor]
     )
 
