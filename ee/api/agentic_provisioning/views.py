@@ -715,9 +715,7 @@ def _exchange_authorization_code(request: Request) -> Response:
     scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
 
     token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS
-        if oauth_app and oauth_app.is_provisioning_partner
-        else ACCESS_TOKEN_EXPIRY_SECONDS
+        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
     )
 
     access_token_value = generate_random_oauth_access_token(None)
@@ -782,9 +780,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         old_access.delete()
 
     token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS
-        if oauth_app and oauth_app.is_provisioning_partner
-        else ACCESS_TOKEN_EXPIRY_SECONDS
+        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
     )
 
     new_access_value = generate_random_oauth_access_token(None)
