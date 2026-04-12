@@ -249,6 +249,7 @@ class TestProvisioningAuthentication(APIBaseTest):
             algorithm="RS256",
             provisioning_auth_method="pkce",
             provisioning_partner_type="disabled",
+            provisioning_active=True,
             provisioning_can_create_accounts=False,
         )
 

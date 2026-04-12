@@ -72,6 +72,7 @@ STRIPE_APP_NAME = "PostHog Stripe App"
 STRIPE_PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
 
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600  # keep existing expiry; reduce after verifying Stripe handles refresh
+PARTNER_TOKEN_EXPIRY_SECONDS = 3600
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +682,7 @@ def _exchange_authorization_code(request: Request) -> Response:
         if not code_verifier:
             _capture_provisioning_event("token_exchange", "missing_code_verifier", grant_type="authorization_code")
             return Response(
-                {"error": "invalid_request", "error_description": "code_verifier is required for PKCE"}, status=400
+                {"error": "invalid_request", "error_description": "code_verifier is required for PKCE"}, status=401
             )
         computed = (
             base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
@@ -713,12 +714,18 @@ def _exchange_authorization_code(request: Request) -> Response:
     oauth_app = _get_oauth_app_for_code(code_data)
     scope_str = " ".join(scopes) if scopes else StripeIntegration.SCOPES
 
+    token_expiry = (
+        PARTNER_TOKEN_EXPIRY_SECONDS
+        if oauth_app and oauth_app.is_provisioning_partner
+        else ACCESS_TOKEN_EXPIRY_SECONDS
+    )
+
     access_token_value = generate_random_oauth_access_token(None)
     access_token = OAuthAccessToken.objects.create(
         application=oauth_app,
         token=access_token_value,
         user=user,
-        expires=timezone.now() + timedelta(seconds=ACCESS_TOKEN_EXPIRY_SECONDS),
+        expires=timezone.now() + timedelta(seconds=token_expiry),
         scope=scope_str,
         scoped_teams=[team_id],
     )
@@ -741,7 +748,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             "token_type": "bearer",
             "access_token": access_token_value,
             "refresh_token": refresh_token_value,
-            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
+            "expires_in": token_expiry,
             "account": {
                 "id": account_id,
                 "payment_credentials": "orchestrator",
@@ -774,12 +781,18 @@ def _exchange_refresh_token(request: Request) -> Response:
     if old_access:
         old_access.delete()
 
+    token_expiry = (
+        PARTNER_TOKEN_EXPIRY_SECONDS
+        if oauth_app and oauth_app.is_provisioning_partner
+        else ACCESS_TOKEN_EXPIRY_SECONDS
+    )
+
     new_access_value = generate_random_oauth_access_token(None)
     new_access = OAuthAccessToken.objects.create(
         application=oauth_app,
         token=new_access_value,
         user=user,
-        expires=timezone.now() + timedelta(seconds=ACCESS_TOKEN_EXPIRY_SECONDS),
+        expires=timezone.now() + timedelta(seconds=token_expiry),
         scope=old_scope,
         scoped_teams=scoped_teams,
     )
@@ -800,7 +813,7 @@ def _exchange_refresh_token(request: Request) -> Response:
             "token_type": "bearer",
             "access_token": new_access_value,
             "refresh_token": new_refresh_value,
-            "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
+            "expires_in": token_expiry,
         }
     )
 
@@ -907,7 +920,7 @@ def _resolve_or_create_project_team(
     )
     cache.set(cache_key, new_team.id, timeout=None)
 
-    updated_scoped = list(scoped_teams) + [new_team.id]
+    updated_scoped = [*scoped_teams, new_team.id]
     access_token.scoped_teams = updated_scoped
     access_token.save(update_fields=["scoped_teams"])
 
