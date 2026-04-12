@@ -9,8 +9,6 @@ use crate::storage::types::{
     DistinctIdAssignmentData, DistinctIdDeletionData, PersonDeletionData, PersonUpdateData,
 };
 
-// Pre-allocated label arrays for timing guards — avoids two String heap
-// allocations per DB call on the hot path.
 static LABELS_PERSON_UPSERT: LazyLock<[(String, String); 1]> =
     LazyLock::new(|| [("operation".to_string(), "person_upsert".to_string())]);
 static LABELS_PERSON_DELETE: LazyLock<[(String, String); 1]> =
@@ -22,7 +20,7 @@ static LABELS_DID_DELETE: LazyLock<[(String, String); 1]> =
 static LABELS_HEARTBEAT: LazyLock<[(String, String); 1]> =
     LazyLock::new(|| [("operation".to_string(), "heartbeat".to_string())]);
 
-/// Storage handle for the dedicated `flags_read_store` PostgreSQL database.
+/// PostgreSQL handle for the dedicated `flags_read_store` database.
 pub struct PostgresStorage {
     pub pool: PgPool,
 }
@@ -32,8 +30,7 @@ impl PostgresStorage {
         Self { pool }
     }
 
-    /// Connectivity check used at startup to fail fast if the dedicated store
-    /// is unreachable or misconfigured.
+    /// Startup connectivity check.
     pub async fn ping(&self) -> Result<(), sqlx::Error> {
         sqlx::query_scalar::<_, i32>("SELECT 1")
             .fetch_one(&self.pool)
@@ -41,12 +38,8 @@ impl PostgresStorage {
             .map(|_| ())
     }
 
-    // ── Person property upserts (batch via UNNEST) ────────────────────────
-
-    /// Batch-upsert person properties using UNNEST for efficiency.
-    ///
-    /// The version guard (`WHERE person_version < EXCLUDED.person_version`)
-    /// ensures idempotent, order-independent writes: only newer versions win.
+    /// Batch-upsert person properties via UNNEST.
+    /// Version guard: only newer versions overwrite existing rows.
     pub async fn batch_upsert_persons(
         &self,
         updates: &[PersonUpdateData],
@@ -86,10 +79,8 @@ impl PostgresStorage {
         Ok(result.rows_affected())
     }
 
-    // ── Person deletions (batch via UNNEST) ───────────────────────────────
-
-    /// Batch-delete persons whose stored version is older than the incoming
-    /// deletion version (which includes the +100 bump from the producer).
+    /// Batch-delete persons via UNNEST.
+    /// The incoming version includes a +100 bump from the producer for deletions.
     pub async fn batch_delete_persons(
         &self,
         deletions: &[PersonDeletionData],
@@ -129,15 +120,8 @@ impl PostgresStorage {
         Ok(result.rows_affected())
     }
 
-    // ── Distinct-ID assignment (transactional two-phase) ──────────────────
-
-    /// Assign a distinct_id to a person, atomically removing it from any
-    /// previous owner within the same team.
-    ///
-    /// This handles person merges: when distinct_id X is reassigned from
-    /// person A to person B, we must remove X from A's array and add it to
-    /// B's array in a single transaction to avoid a window where the
-    /// distinct_id is missing from both.
+    /// Assign a distinct_id to a person within a transaction.
+    /// Removes it from any previous owner first (handles person merges).
     pub async fn upsert_distinct_id(
         &self,
         assignment: &DistinctIdAssignmentData,
@@ -147,8 +131,6 @@ impl PostgresStorage {
 
         let mut tx = self.pool.begin().await?;
 
-        // Step 1: Remove the distinct_id from any current owner that isn't the
-        // target person. This handles merge reassignment.
         sqlx::query(
             r#"
             UPDATE flags_person_lookup
@@ -164,9 +146,6 @@ impl PostgresStorage {
         .execute(&mut *tx)
         .await?;
 
-        // Step 2: Add the distinct_id to the target person. Creates the row
-        // if it doesn't exist. The version guard prevents stale assignments
-        // from overwriting newer state.
         sqlx::query(
             r#"
             INSERT INTO flags_person_lookup (team_id, person_uuid, distinct_ids, distinct_id_version)
@@ -192,8 +171,6 @@ impl PostgresStorage {
         tx.commit().await?;
         Ok(())
     }
-
-    // ── Distinct-ID deletion ──────────────────────────────────────────────
 
     /// Remove a distinct_id from its owner's array.
     pub async fn delete_distinct_id(
@@ -223,11 +200,7 @@ impl PostgresStorage {
         Ok(())
     }
 
-    // ── Heartbeat ─────────────────────────────────────────────────────────
-
-    /// Write a heartbeat record for lag monitoring. Uses `GREATEST` on
-    /// `last_offset` to ensure monotonic advancement even if heartbeats
-    /// arrive out of order.
+    /// Write a heartbeat record for lag monitoring.
     pub async fn write_heartbeat(
         &self,
         source: &str,

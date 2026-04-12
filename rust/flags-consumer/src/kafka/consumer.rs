@@ -9,14 +9,7 @@ use crate::kafka::messages::KafkaMessage;
 use crate::metric_consts;
 use crate::pipeline::batch::EventWithOffset;
 
-/// Run a single-topic consumer loop, generic over the message type.
-///
-/// `M` must implement [`KafkaMessage`], which provides the deserialization
-/// target, the `team_id()` accessor for early filtering, the `classify()`
-/// method to convert raw messages into [`CdcEvent`]s, and the `SOURCE`
-/// label for metrics.
-///
-/// Monomorphised at compile time — no dynamic dispatch, no vtable overhead.
+/// Single-topic consumer loop, generic over the message type `M`.
 pub async fn consume_loop<M: KafkaMessage>(
     consumer: SingleTopicConsumer,
     tx: mpsc::Sender<EventWithOffset>,

@@ -5,10 +5,6 @@ use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 
 /// Configuration for the `flags-consumer` CDC service.
-///
-/// The service consumes from Kafka topics (`clickhouse_person`,
-/// `clickhouse_person_distinct_id`) and writes version-guarded upserts to the
-/// dedicated `flags_read_store` PostgreSQL database.
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     // ── Database ──────────────────────────────────────────────────────────
@@ -27,9 +23,7 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub idle_timeout_secs: u64,
 
-    /// Statement timeout for CDC writes. Higher than the read-path 1000ms
-    /// because batch UNNEST upserts and transactional distinct-ID updates
-    /// can take longer under load.
+    /// Statement timeout for CDC writes (ms).
     #[envconfig(default = "5000")]
     pub write_statement_timeout_ms: u64,
 
@@ -52,7 +46,6 @@ pub struct Config {
     #[envconfig(default = "flags-cdc-consumer")]
     pub kafka_consumer_group: String,
 
-    /// POC starts from latest to avoid replaying the full topic history.
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 

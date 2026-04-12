@@ -119,10 +119,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Setup helpers — keep main() focused on orchestration
-// ---------------------------------------------------------------------------
-
 fn init_tracing() {
     let log_layer = fmt::layer()
         .with_target(true)

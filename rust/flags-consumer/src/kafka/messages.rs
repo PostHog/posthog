@@ -5,34 +5,23 @@ use uuid::Uuid;
 use crate::types::CdcEvent;
 use crate::utils::mock::Mock;
 
-/// A Kafka message that can be classified into a [`CdcEvent`].
+/// A Kafka message that can be deserialized, filtered, and classified into a [`CdcEvent`].
 ///
-/// Implemented by each raw message type (`PersonMessage`,
-/// `DistinctIdMessage`). The generic consumer loop is parameterised over
-/// this trait, so adding a new topic requires only a new struct + impl —
-/// no changes to the consumer machinery.
-///
-/// The `DeserializeOwned + Send` super-traits are required by
-/// `SingleTopicConsumer::json_recv`.
+/// Adding a new topic requires a new struct + impl of this trait.
 pub trait KafkaMessage: DeserializeOwned + Send {
-    /// Label used in Prometheus metrics (e.g. `"person"`, `"distinct_id"`).
-    /// Must be a `&'static str` to avoid allocation in the hot path.
+    /// Prometheus metrics label for this topic.
     const SOURCE: &'static str;
 
-    /// Extract the team_id for early filtering before classification.
     fn team_id(&self) -> i32;
 
-    /// Classify the raw message into the internal [`CdcEvent`] enum.
-    /// Consumes `self` — the raw message is not needed after classification.
+    /// Classify into a [`CdcEvent`], consuming the raw message.
     fn classify(self) -> CdcEvent;
 }
 
 /// Raw message from the `clickhouse_person` Kafka topic.
 ///
-/// The `properties` field arrives as a JSON-encoded string (stringified by
-/// the Plugin Server), not as a nested object. It's kept as `String` to
-/// mirror the wire format faithfully. The inner JSON is parsed only in
-/// `classify()`, and only for non-deletion messages.
+/// `properties` is a JSON-encoded string (the Plugin Server stringifies it).
+/// Parsed into `serde_json::Value` in `classify()`, only for non-deletion messages.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PersonMessage {
     pub id: Uuid,

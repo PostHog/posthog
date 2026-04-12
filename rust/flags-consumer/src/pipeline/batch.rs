@@ -12,8 +12,8 @@ use crate::pipeline::processor;
 use crate::storage::postgres::PostgresStorage;
 use crate::types::CdcEvent;
 
-/// Small cache mapping topic name `&str` → `Arc<str>` so we allocate
-/// once per unique topic name instead of once per message.
+/// Interns topic name strings so `HeartbeatState` key lookups don't
+/// allocate on every message.
 struct TopicInterns(HashMap<Box<str>, Arc<str>>);
 
 impl TopicInterns {
@@ -31,22 +31,16 @@ impl TopicInterns {
     }
 }
 
-/// A CDC event paired with its Kafka offset for deferred storage.
 pub struct EventWithOffset {
     pub event: CdcEvent,
     pub offset: Offset,
 }
 
-/// Highest-watermark tracker for heartbeat writes.
-/// Keyed by (topic_name, partition), stores the highest offset seen.
-/// Topic names are interned via `Arc<str>` so the key lookup reuses the
-/// same allocation instead of heap-allocating a `Box<str>` per message.
+/// Highest offset seen per (topic, partition). Used for periodic heartbeat writes.
 type HeartbeatState = HashMap<(Arc<str>, i32), i64>;
 
-/// Run the batch processor loop.
-///
-/// Drains the shared channel, accumulates events into batches (flushed on
-/// size or timeout), and periodically writes heartbeat records.
+/// Accumulates events into batches, flushing on size or timeout.
+/// Also writes periodic heartbeat records for lag monitoring.
 pub async fn batch_processor_loop(
     mut rx: mpsc::Receiver<EventWithOffset>,
     storage: Arc<PostgresStorage>,
@@ -61,7 +55,6 @@ pub async fn batch_processor_loop(
     let mut heartbeat_state: HeartbeatState = HashMap::new();
     let mut topic_interns = TopicInterns::new();
 
-    // Consume the first immediate tick so timers only fire after the interval.
     batch_timer.tick().await;
     heartbeat_timer.tick().await;
 
@@ -82,7 +75,6 @@ pub async fn batch_processor_loop(
                 if !batch.is_empty() {
                     flush_batch(&mut batch, &storage, &config, &mut heartbeat_state, &mut topic_interns).await;
                 }
-                // Report healthy on every tick — an idle consumer is alive.
                 liveness_handle.report_healthy();
             }
 
@@ -112,8 +104,6 @@ pub async fn batch_processor_loop(
 }
 
 /// Update the heartbeat high-watermark for the given offset's (topic, partition).
-/// Uses `TopicInterns` to avoid a heap allocation per call — the `Arc<str>`
-/// key is cloned (reference count bump) instead of allocating a fresh `Box<str>`.
 fn track_heartbeat(offset: &Offset, state: &mut HeartbeatState, interns: &mut TopicInterns) {
     let topic = interns.get(offset.topic());
     let partition = offset.partition();
@@ -128,14 +118,8 @@ fn track_heartbeat(offset: &Offset, state: &mut HeartbeatState, interns: &mut To
         .or_insert(value);
 }
 
-/// Flush the accumulated batch: process events, store offsets.
-///
-/// Drains the batch vec — `drain(..)` moves elements out while preserving
-/// the backing allocation, so the next batch reuses the same memory.
-///
-/// `process_batch` takes `EventWithOffset` items directly so it can move
-/// events into storage data types without cloning, and returns offsets
-/// for storage after processing completes.
+/// Flush the batch: drain events into the processor, then store offsets.
+/// `drain(..)` preserves the vec's allocation for the next batch.
 async fn flush_batch(
     batch: &mut Vec<EventWithOffset>,
     storage: &PostgresStorage,

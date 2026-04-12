@@ -1,14 +1,9 @@
 use uuid::Uuid;
 
-/// Internal event after deserialization and classification.
+/// Internal CDC event produced by classifying a Kafka message.
 ///
-/// Not `Clone` by design — events are moved through the pipeline (consumer →
-/// channel → processor → storage) without copying. This prevents accidental
-/// deep-cloning of `serde_json::Value` property trees.
-///
-/// String fields that are read-only after construction use `Box<str>` instead
-/// of `String` to save 8 bytes per instance (no capacity field) and to signal
-/// immutability.
+/// Intentionally not `Clone` — events move through the pipeline without
+/// copying. Immutable string fields use `Box<str>`.
 #[derive(Debug)]
 pub enum CdcEvent {
     PersonUpdate {

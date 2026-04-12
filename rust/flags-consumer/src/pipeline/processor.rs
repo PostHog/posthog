@@ -14,21 +14,10 @@ use crate::storage::types::{
 };
 use crate::types::CdcEvent;
 
-/// Process a batch of CDC events by dispatching them to the appropriate
-/// storage methods.
-///
-/// Accepts a `drain` iterator over `EventWithOffset` to avoid intermediate
-/// allocations — events are moved directly into storage data types while
-/// offsets are collected for the caller to store after processing.
-///
-/// Events are separated into four categories and executed in order:
-/// 1. Person upserts (UNNEST batch)
-/// 2. Person deletions (UNNEST batch)
-/// 3. Distinct-ID assignments (individual transactions)
-/// 4. Distinct-ID deletions (individual)
+/// Classify events into operation types, execute DB writes, return offsets.
 ///
 /// Returns all offsets regardless of success/failure — the caller decides
-/// whether to store them (POC: always store for forward progress).
+/// whether to store them.
 pub async fn process_batch(
     items: impl Iterator<Item = EventWithOffset>,
     size_hint: usize,
@@ -124,7 +113,8 @@ pub async fn process_batch(
     offsets
 }
 
-/// Execute all storage writes for a classified batch.
+/// Execute storage writes: person upserts/deletes (batched via UNNEST),
+/// then distinct-ID assignments/deletes (individual transactions).
 async fn execute_writes(
     storage: &PostgresStorage,
     config: &Config,
@@ -176,12 +166,7 @@ async fn execute_writes(
     Ok(())
 }
 
-/// Retry a fallible async operation with exponential backoff.
-///
-/// Uses `common_database::is_transient_error()` to classify errors by
-/// SQLSTATE. Transient errors (connection loss, deadlock, resource
-/// exhaustion) are retried; permanent errors (constraint violations,
-/// syntax errors) fail immediately.
+/// Retry with exponential backoff on transient DB errors (SQLSTATE-classified).
 async fn with_retry<F, Fut, T>(config: &Config, f: F) -> Result<T, CdcError>
 where
     F: Fn() -> Fut,
