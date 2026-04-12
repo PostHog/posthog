@@ -58,8 +58,9 @@ export class WaitUntilEventHandler implements ActionHandler {
             return this.createAndPark(invocation, action, String(personId), result)
         }
 
-        // Re-entry: figure out which path was taken by checking the subscriptions table.
-        const remaining = await this.subscriptions.getForJob(invocation.id)
+        // Re-entry: figure out which path was taken by checking only wait_step
+        // subscriptions (not conversion subscriptions, which are managed by the executor).
+        const remaining = await this.subscriptions.getForJob(invocation.id, 'wait_step')
 
         // Clear the waiting flag so the next action sees a clean state.
         if (invocation.state?.currentAction) {
@@ -83,7 +84,7 @@ export class WaitUntilEventHandler implements ActionHandler {
             timestamp: DateTime.now(),
             message: `Timed out waiting for event${remaining.length > 1 ? 's' : ''} (${eventNames}) - taking the timeout path`,
         })
-        await this.subscriptions.deleteForJob(invocation.id)
+        await this.subscriptions.deleteForJob(invocation.id, 'wait_step')
         return { nextAction: findContinueAction(invocation) }
     }
 
