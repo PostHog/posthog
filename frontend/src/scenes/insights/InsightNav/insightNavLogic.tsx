@@ -610,35 +610,40 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
     }
 
-    const caps = FIELD_CAPABILITIES[query.kind]
-    if (caps) {
-        if (caps.series && cache.series) {
-            mergedQuery.series = (
-                typeof caps.series === 'function' ? caps.series(cache.series) : cache.series
-            ) as typeof mergedQuery.series
-        }
-        if (caps.interval && cache.interval) {
-            mergedQuery.interval = typeof caps.interval === 'function' ? caps.interval(cache.interval) : cache.interval
-        }
-        if (caps.breakdownFilter && cache.breakdownFilter) {
-            mergedQuery.breakdownFilter =
-                typeof caps.breakdownFilter === 'function'
-                    ? caps.breakdownFilter(cache.breakdownFilter, cache)
-                    : cache.breakdownFilter
-        }
-        if (caps.compareFilter && cache.compareFilter) {
-            mergedQuery.compareFilter = cache.compareFilter
-        }
-        if (caps.funnelPathsFilter && cache.funnelPathsFilter) {
-            mergedQuery.funnelPathsFilter = cache.funnelPathsFilter
-        }
-    }
-
     // Insight-specific filter merge (web analytics already returned above)
     return {
         ...mergedQuery,
+        ...buildCachedFields(query, cache),
         ...buildInsightFilter(query as ProductAnalyticsInsightQueryNode, cache),
     } as InsightQueryNode
+}
+
+const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): Partial<QueryPropertyCache> => {
+    const caps = FIELD_CAPABILITIES[query.kind]
+    if (!caps) {
+        return {}
+    }
+
+    const result: Partial<QueryPropertyCache> = {}
+    if (caps.series && cache.series) {
+        result.series = typeof caps.series === 'function' ? caps.series(cache.series) : cache.series
+    }
+    if (caps.interval && cache.interval) {
+        result.interval = typeof caps.interval === 'function' ? caps.interval(cache.interval) : cache.interval
+    }
+    if (caps.breakdownFilter && cache.breakdownFilter) {
+        result.breakdownFilter =
+            typeof caps.breakdownFilter === 'function'
+                ? caps.breakdownFilter(cache.breakdownFilter, cache)
+                : cache.breakdownFilter
+    }
+    if (caps.compareFilter && cache.compareFilter) {
+        result.compareFilter = cache.compareFilter
+    }
+    if (caps.funnelPathsFilter && cache.funnelPathsFilter) {
+        result.funnelPathsFilter = cache.funnelPathsFilter
+    }
+    return result
 }
 
 const buildInsightFilter = (
