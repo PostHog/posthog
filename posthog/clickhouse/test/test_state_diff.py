@@ -8,6 +8,7 @@ from posthog.clickhouse.migration_tools.state_diff import (
     _is_kafka_virtual_column,
     _normalize_default,
     _normalize_interval_funcs,
+    _normalize_type,
     diff_state,
 )
 
@@ -272,3 +273,215 @@ class TestDiffConvergenceKafkaMVStability:
         }
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+
+# -- Fix 1: Lambda condition parenthesization normalization --
+
+
+class TestNormalizeLambdaParens:
+    def test_lambda_parens_stripped(self):
+        a = "mapFilter((key, _) -> (key NOT LIKE '$%'), m)"
+        b = "mapFilter((key, _) -> key NOT LIKE '$%', m)"
+        assert _normalize_default(a) == _normalize_default(b)
+
+    def test_lambda_nested_parens_preserved(self):
+        a = "arrayMap((x) -> (toInt64(x) + 1), arr)"
+        b = "arrayMap((x) -> toInt64(x) + 1, arr)"
+        assert _normalize_default(a) == _normalize_default(b)
+
+    def test_lambda_no_parens_unchanged(self):
+        a = "arrayMap((x) -> x + 1, arr)"
+        assert _normalize_default(a) == _normalize_default(a)
+
+
+# -- Fix 2: Enum8/Enum16 type normalization --
+
+
+class TestNormalizeType:
+    def test_enum8_to_enum(self):
+        assert _normalize_type("Enum8('a' = 1, 'button' = 2)") == "Enum('a', 'button')"
+
+    def test_enum16_to_enum(self):
+        assert _normalize_type("Enum16('x' = 100, 'y' = 200)") == "Enum('x', 'y')"
+
+    def test_array_enum8(self):
+        assert _normalize_type("Array(Enum8('a' = 1, 'button' = 2))") == "Array(Enum('a', 'button'))"
+
+    def test_plain_enum_unchanged(self):
+        assert _normalize_type("Enum('a', 'b')") == "Enum('a', 'b')"
+
+    def test_non_enum_unchanged(self):
+        assert _normalize_type("String") == "String"
+
+
+class TestDiffConvergenceEnum8:
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_no_alter_for_enum8_vs_enum(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "test_table": DesiredTable(
+                    name="test_table",
+                    engine="ReplacingMergeTree",
+                    columns=[
+                        _col("id", "UInt64"),
+                        _col("status", "Enum('active', 'deleted')"),
+                    ],
+                    on_nodes=["all"],
+                    order_by=["id"],
+                ),
+            }
+        )
+        current = {
+            "test_table": TableSchema(
+                name="test_table",
+                engine="ReplacingMergeTree",
+                columns=[
+                    _live_col("id", "UInt64"),
+                    _live_col("status", "Enum8('active' = 1, 'deleted' = 2)"),
+                ],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+
+# -- Fix 3: Quote escaping normalization --
+
+
+class TestNormalizeQuoteEscaping:
+    def test_double_backslash_quote(self):
+        a = 'DEFAULT \\\\"hello\\\\"'
+        b = 'DEFAULT "hello"'
+        assert _normalize_default(a) == _normalize_default(b)
+
+    def test_single_backslash_quote(self):
+        a = 'DEFAULT \\"hello\\"'
+        b = 'DEFAULT "hello"'
+        assert _normalize_default(a) == _normalize_default(b)
+
+
+# -- Fix 4: DateTime64 precision and Decimal type aliases --
+
+
+class TestNormalizeDateTime64:
+    def test_datetime64_default_precision(self):
+        assert _normalize_type("DateTime64") == "DateTime64(3)"
+
+    def test_datetime64_explicit_3(self):
+        assert _normalize_type("DateTime64(3)") == "DateTime64(3)"
+
+    def test_datetime64_explicit_6(self):
+        assert _normalize_type("DateTime64(6)") == "DateTime64(6)"
+
+    def test_nullable_datetime64(self):
+        assert _normalize_type("Nullable(DateTime64)") == "Nullable(DateTime64(3))"
+
+
+class TestNormalizeDecimal:
+    def test_decimal_18_10_to_decimal64(self):
+        assert _normalize_type("Decimal(18, 10)") == "Decimal64(10)"
+
+    def test_decimal_9_2_to_decimal32(self):
+        assert _normalize_type("Decimal(9, 2)") == "Decimal32(2)"
+
+    def test_decimal_38_10_to_decimal128(self):
+        assert _normalize_type("Decimal(38, 10)") == "Decimal128(10)"
+
+    def test_decimal64_unchanged(self):
+        assert _normalize_type("Decimal64(10)") == "Decimal64(10)"
+
+
+class TestDiffConvergenceDateTime64:
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_no_alter_datetime64_vs_datetime64_3(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "test_table": DesiredTable(
+                    name="test_table",
+                    engine="ReplacingMergeTree",
+                    columns=[
+                        _col("id", "UInt64"),
+                        _col("created_at", "DateTime64(3)"),
+                    ],
+                    on_nodes=["all"],
+                    order_by=["id"],
+                ),
+            }
+        )
+        current = {
+            "test_table": TableSchema(
+                name="test_table",
+                engine="ReplacingMergeTree",
+                columns=[
+                    _live_col("id", "UInt64"),
+                    _live_col("created_at", "DateTime64"),
+                ],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+
+# -- Fix 5: Kafka/MV recreate cascade prevention --
+
+
+class TestKafkaMVCascadePrevention:
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_kafka_recreated_after_mv_recreate(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[_col("event", "String")],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+                "sharded_events": DesiredTable(
+                    name="sharded_events",
+                    engine="ReplacingMergeTree",
+                    columns=[_col("event", "String")],
+                    on_nodes=["all"],
+                    order_by=["event"],
+                ),
+                "kafka_events_mv": DesiredTable(
+                    name="kafka_events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event FROM posthog.kafka_events",
+                ),
+            }
+        )
+        # Current state: MV target changed → triggers recreate_mv
+        current = {
+            "kafka_events": TableSchema(
+                name="kafka_events",
+                engine="Kafka",
+                columns=[_live_col("event", "String")],
+            ),
+            "sharded_events": TableSchema(
+                name="sharded_events",
+                engine="ReplacingMergeTree",
+                columns=[_live_col("event", "String")],
+            ),
+            "kafka_events_mv": TableSchema(
+                name="kafka_events_mv",
+                engine="MaterializedView",
+                engine_full="MaterializedView TO posthog.old_target",
+                as_select="SELECT event FROM posthog.kafka_events",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        # Should have a recreate_mv for the MV
+        mv_recreates = [d for d in diffs if d.action == "recreate_mv"]
+        assert len(mv_recreates) == 1, f"Expected 1 MV recreate but got: {[d.detail for d in mv_recreates]}"
+        # Should have a create step for the Kafka table (cascade prevention)
+        kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
+        assert len(kafka_creates) == 1, f"Expected Kafka re-create but got: {[d.detail for d in kafka_creates]}"
+        assert "cascade" in kafka_creates[0].detail.lower()

@@ -154,10 +154,47 @@ def _normalize_interval_funcs(s: str) -> str:
 def _normalize_default(s: str) -> str:
     """Normalize a default expression for semantic comparison.
 
-    Handles: toIntervalX(N) → INTERVAL N X, case folding, whitespace collapse.
+    Handles: backslash-escaped quotes, toIntervalX(N) → INTERVAL N X,
+    case folding, whitespace collapse, lambda-body paren stripping.
     """
+    # Fix 3: Normalize backslash-escaped quotes (CH double-escapes in some contexts)
+    s = s.replace('\\\\"', '"').replace('\\"', '"')
     s = _normalize_interval_funcs(s)
-    return re.sub(r"\s+", " ", s.strip().lower())
+    s = re.sub(r"\s+", " ", s.strip().lower())
+    # Fix 1: Strip semantically redundant outer parens in lambda bodies.
+    # CH wraps lambda conditions: `-> (key NOT LIKE '$%')` vs `-> key NOT LIKE '$%'`
+    s = re.sub(r"->\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)", r"-> \1", s)
+    return s
+
+
+def _normalize_type(s: str) -> str:
+    """Normalize a column type string for semantic comparison.
+
+    Handles:
+    - Enum8/Enum16 → Enum (strip bit-width suffix and = N value assignments)
+    - DateTime64 → DateTime64(3) (3 is the default precision)
+    - Decimal(18, 10) → Decimal64(10) (CH alias)
+    """
+    # Fix 2: Enum8('a' = 1, 'b' = 2) → Enum('a', 'b')
+    s = re.sub(r"Enum(?:8|16)\(", "Enum(", s)
+    s = re.sub(r"'([^']+)'\s*=\s*\d+", r"'\1'", s)
+    # Fix 4: DateTime64 without precision → DateTime64(3)
+    s = re.sub(r"\bDateTime64\b(?!\()", "DateTime64(3)", s)
+
+    # Fix 4: Decimal(18, 10) → Decimal64(10) etc.
+    # Decimal(P, S) where P ≤ 18 → Decimal64(S); P ≤ 9 → Decimal32(S); P ≤ 38 → Decimal128(S)
+    def _decimal_alias(m: re.Match) -> str:
+        p, s = int(m.group(1)), m.group(2)
+        if p <= 9:
+            return f"Decimal32({s})"
+        elif p <= 18:
+            return f"Decimal64({s})"
+        elif p <= 38:
+            return f"Decimal128({s})"
+        return m.group(0)
+
+    s = re.sub(r"\bDecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", _decimal_alias, s)
+    return s
 
 
 # Kafka virtual columns injected by ClickHouse — not declared in YAML.
@@ -642,7 +679,8 @@ def diff_state(
         # Compare by (name, type) tuples because desired_cols has ColumnDef values
         # while current_cols has ColumnSchema values (different dataclass types).
         if desired_table.engine.lower() in ("kafka", "dictionary") and (
-            {(c.name, c.type) for c in desired_cols.values()} != {(c.name, c.type) for c in current_cols.values()}
+            {(c.name, _normalize_type(c.type)) for c in desired_cols.values()}
+            != {(c.name, _normalize_type(c.type)) for c in current_cols.values()}
         ):
             drops.append(
                 StateDiff(
@@ -707,7 +745,7 @@ def diff_state(
         for col_name in sorted(set(desired_cols.keys()) & set(current_cols.keys())):
             desired_col = desired_cols[col_name]
             current_col = current_cols[col_name]
-            if desired_col.type != current_col.type:
+            if _normalize_type(desired_col.type) != _normalize_type(current_col.type):
                 alters.append(
                     StateDiff(
                         action="alter_modify_column",
@@ -774,6 +812,37 @@ def diff_state(
     drops.sort(key=_drop_sort_key)
     alters.sort(key=_alter_sort_key)
     creates.sort(key=_create_sort_key)
+
+    # Fix 5: Kafka/MV recreate cascade prevention.
+    # When an MV is recreated (DROP + CREATE), ClickHouse can cascade-drop
+    # the source Kafka table if it was created inline. Re-add a CREATE step
+    # for any Kafka table that is the source of a recreated MV.
+    kafka_tables_in_desired = {name: t for name, t in desired_without_skipped.items() if _is_kafka(t.engine)}
+    if kafka_tables_in_desired:
+        # Collect table names already being created
+        tables_being_created = {d.table for d in creates}
+        for rec in recreates:
+            if rec.action != "recreate_mv":
+                continue
+            mv_table = desired_without_skipped.get(rec.table)
+            if not mv_table or not mv_table.select:
+                continue
+            # Find which Kafka tables are referenced in the MV SELECT
+            for kafka_name, kafka_def in kafka_tables_in_desired.items():
+                # Check if the Kafka table name appears in the MV's SELECT
+                # (qualified as db.name or unqualified)
+                if kafka_name in mv_table.select and kafka_name not in tables_being_created:
+                    creates.append(
+                        StateDiff(
+                            action="create",
+                            table=kafka_name,
+                            detail=f"Re-create Kafka table {kafka_name} (cascade-dropped by MV {rec.table} recreate)",
+                            sql=_generate_create_sql(kafka_def, db, cl),
+                            node_roles=kafka_def.on_nodes,
+                            depends_on=[],
+                        )
+                    )
+                    tables_being_created.add(kafka_name)
 
     return drops + alters + creates + recreates
 
