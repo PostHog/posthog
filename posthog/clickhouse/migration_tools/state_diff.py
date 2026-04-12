@@ -481,8 +481,10 @@ def _normalize_mv_select(sql: str) -> str:
     # Strip database prefix from qualified table names: `db.table` → `table`
     # Matches `word.` before an identifier (letter/underscore start).
     s = re.sub(r"\b\w+\.\b(?=[a-z_])", "", s)
-    # Normalize == to = (ClickHouse stores single-equals for comparisons)
-    s = s.replace("==", "=")
+    # Normalize == to = with surrounding spaces (CH stores `x = 0`, YAML may have `x==0`)
+    s = re.sub(r"==", " = ", s)
+    # Strip redundant parens that CH adds to lambda bodies and expressions
+    s = _strip_redundant_parens(s)
     # Collapse whitespace
     s = re.sub(r"\s+", " ", s)
     return s.strip()
