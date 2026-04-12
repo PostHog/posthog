@@ -15,7 +15,7 @@ from posthog.clickhouse.cluster import (
     Query,
 )
 from posthog.dags.common import JobOwners
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 OWNER_TAG = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
@@ -46,14 +46,17 @@ def _temp_table_name(team_id: int, request_id: str) -> str:
 
 def _property_filter_clause(properties: list[str]) -> str:
     if len(properties) == 1:
-        return "JSONHas(properties, %(filter_property)s)"
-    return "hasAny(JSONExtractKeys(properties), %(filter_properties)s)"
+        return jsonhas_expr(properties[0], "fp_0")
+    exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+    return f"({' OR '.join(exprs)})"
 
 
 def _property_filter_params(properties: list[str]) -> dict:
-    if len(properties) == 1:
-        return {"filter_property": properties[0]}
-    return {"filter_properties": properties}
+    params: dict[str, str] = {}
+    for i, prop in enumerate(properties):
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+    return params
 
 
 def _base_params(ctx: DeletionRequestContext) -> dict:

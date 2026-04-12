@@ -168,6 +168,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
 
     @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_funnel_metric_with_steps_data_disabled(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)

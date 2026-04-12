@@ -28,6 +28,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -825,7 +826,10 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0].promise
+                        await instrumentFn(
+                            { key: 'consumer_backpressure_wait', timeoutMs: 30_000, sendException: false },
+                            () => this.backgroundTask[0].promise
+                        )
                         stopTimer()
                     }
                 }

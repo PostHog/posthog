@@ -136,8 +136,8 @@ class TestGetModalRegion:
     @pytest.mark.parametrize(
         "cloud_deployment,expected_region",
         [
-            ("EU", "eu-central-1"),
-            ("US", "us-east-1"),
+            ("EU", "eu-west"),
+            ("US", "us-east"),
             ("DEV", DEFAULT_MODAL_REGION),
             (None, DEFAULT_MODAL_REGION),
             ("LOCAL", DEFAULT_MODAL_REGION),

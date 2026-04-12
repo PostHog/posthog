@@ -1,12 +1,15 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { hoverAtIndex } from 'lib/hog-charts/test-helpers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
+import { trendsSeries } from './test-data'
+import { type TooltipAccessor, createTooltipAccessor } from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
 
@@ -99,4 +102,21 @@ export const compare = {
 
 export function getQuerySource(): TrendsQuery {
     return getLogic().values.querySource as TrendsQuery
+}
+
+export const chart = {
+    async hoverTooltip(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<TooltipAccessor> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const wrapper = canvas.parentElement!
+
+        hoverAtIndex(wrapper, index, totalLabels)
+
+        let tooltip!: HTMLElement
+        await waitFor(() => {
+            const el = document.querySelector('[data-hog-charts-tooltip]')
+            expect(el).not.toBeNull()
+            tooltip = el as HTMLElement
+        })
+        return createTooltipAccessor(tooltip)
+    },
 }

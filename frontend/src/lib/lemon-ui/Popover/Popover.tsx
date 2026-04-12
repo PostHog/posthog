@@ -243,14 +243,34 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const floatingContainer = useFloatingContainer()
 
-    const handleExited = (): void => {
+    const cleanupRefs = useCallback((): void => {
         setFloatingElement(null)
         floatingRef.current = null
         if (extraFloatingRef) {
             extraFloatingRef.current = null
         }
         setShouldRenderPortal(false)
+    }, [extraFloatingRef])
+
+    const handleExited = (): void => {
+        cleanupRefs()
     }
+
+    useEffect(() => {
+        if (!visible && shouldRenderPortal) {
+            const timer = setTimeout(cleanupRefs, delayMs + 50)
+            return () => clearTimeout(timer)
+        }
+    }, [visible, shouldRenderPortal, delayMs, cleanupRefs])
+
+    useEffect(() => {
+        return () => {
+            floatingRef.current = null
+            if (extraFloatingRef) {
+                extraFloatingRef.current = null
+            }
+        }
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
