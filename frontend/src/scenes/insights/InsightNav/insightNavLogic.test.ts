@@ -737,6 +737,92 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('preserves interval through round-trip via type with no interval support', async () => {
+                const trendsWithInterval: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        interval: 'week',
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithInterval)
+                })
+
+                // Paths has no interval capability
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.PATHS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.not.objectContaining({ interval: expect.anything() }),
+                })
+
+                // Switch back — interval should be restored
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: expect.objectContaining({
+                        kind: 'TrendsQuery',
+                        interval: 'week',
+                    }),
+                })
+            })
+
+            it('filters breakdowns to person/event types when switching to retention', async () => {
+                const trendsWithGroupBreakdown: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdowns: [
+                                { property: '$browser', type: 'event' },
+                                { property: 'company', type: 'group', group_type_index: 0 },
+                                { property: 'email', type: 'person' },
+                            ],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithGroupBreakdown)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                const retentionQuery = (builtInsightDataLogic.values.query as InsightVizNode).source
+                expect(retentionQuery).toMatchObject({
+                    kind: 'RetentionQuery',
+                    breakdownFilter: {
+                        breakdowns: [
+                            { property: '$browser', type: 'event' },
+                            { property: 'email', type: 'person' },
+                        ],
+                    },
+                })
+            })
+
             it('keeps display when switching from trends to stickiness', async () => {
                 const trendsQueryForStickiness: InsightVizNode = {
                     kind: NodeKind.InsightVizNode,

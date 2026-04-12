@@ -92,6 +92,9 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
+    // Present at runtime (from JSON.parse deep clone) — declared here so
+    // capability adapters can check the source query type safely.
+    kind?: NodeKind
     series?: (AnyEntityNode | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
@@ -238,7 +241,7 @@ interface InsightTypeCapabilities {
 const downgradeMinuteInterval = (interval: string): string => (interval === 'minute' ? 'hour' : interval)
 
 const truncateToSingleBreakdown = (bf: BreakdownFilter, cache: QueryPropertyCache): BreakdownFilter => {
-    if (!('kind' in cache) || cache.kind !== NodeKind.TrendsQuery) {
+    if (cache.kind !== NodeKind.TrendsQuery) {
         return bf
     }
     if (bf.breakdowns?.length) {
@@ -614,7 +617,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     return {
         ...mergedQuery,
         ...buildCachedFields(query, cache),
-        ...buildInsightFilter(query as ProductAnalyticsInsightQueryNode, cache),
+        ...buildInsightFilter(query, cache),
     } as InsightQueryNode
 }
 
@@ -647,7 +650,7 @@ const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): 
 }
 
 const buildInsightFilter = (
-    query: ProductAnalyticsInsightQueryNode,
+    query: InsightQueryNode,
     cache: QueryPropertyCache
 ): Partial<ProductAnalyticsInsightQueryNode> => {
     if (!cache.commonFilter) {
