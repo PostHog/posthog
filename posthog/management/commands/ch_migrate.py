@@ -227,10 +227,9 @@ class Command(BaseCommand):
         all_diffs = []
         for cluster_name, states in by_cluster.items():
             try:
-                cluster_obj = get_cluster_by_name(cluster_name)
+                _cluster_obj = get_cluster_by_name(cluster_name)  # noqa: F841 — validates cluster exists
                 # Use the pre-computed union from the migrations cluster scan
-                # instead of re-scanning each target cluster. Keep cluster_obj
-                # around because later code paths still need it for validation.
+                # instead of re-scanning each target cluster.
                 current = introspect_union
             except Exception as exc:
                 # A satellite cluster named in the YAML may be unreachable from the
