@@ -138,20 +138,24 @@ export class EventSubscriptionsService {
     }
 
     /**
-     * Wake the given jobs and delete only the specific matched subscriptions.
+     * Wake the given jobs and delete all subscriptions of the matched types.
      * Only wakes jobs that are still `available` (never disturbs `running` jobs).
      * Only deletes subscriptions whose jobs were actually woken.
+     *
+     * For OR logic: if any wait_step subscription matches, ALL wait_step
+     * subscriptions for that job are deleted (the remaining events no longer
+     * need to be waited for). Conversion subscriptions are left intact so
+     * the executor can still detect conversion matches independently.
+     *
      * Returns the number of jobs actually woken.
      */
-    async wakeJobs(jobIds: string[], subscriptionIds: string[]): Promise<number> {
+    async wakeJobs(jobIds: string[], matchedSubscriptionTypes: SubscriptionType[]): Promise<number> {
         if (jobIds.length === 0) {
             return 0
         }
 
-        // CTE ensures we only delete subscriptions for jobs that were actually
-        // woken (status was 'available'). We delete only the matched subscription
-        // IDs (not all for the job) so that the handler/executor can inspect
-        // remaining subscriptions to distinguish wait_step vs conversion matches.
+        const uniqueTypes = [...new Set(matchedSubscriptionTypes)]
+
         const result = await this.pool.query(
             `WITH woken AS (
                 UPDATE cyclotron_jobs
@@ -160,9 +164,9 @@ export class EventSubscriptionsService {
                 RETURNING id
             )
             DELETE FROM cyclotron_event_subscriptions
-            WHERE id = ANY($2::uuid[]) AND job_id IN (SELECT id FROM woken)
+            WHERE job_id IN (SELECT id FROM woken) AND type = ANY($2::text[])
             RETURNING job_id`,
-            [jobIds, subscriptionIds]
+            [jobIds, uniqueTypes]
         )
 
         return result.rowCount ?? 0

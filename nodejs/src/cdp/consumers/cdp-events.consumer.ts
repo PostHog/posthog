@@ -137,11 +137,11 @@ export class CdpEventsConsumer<
         }
 
         // Evaluate bytecode filters for each candidate against its event.
-        // Track both job IDs and the specific subscription IDs that matched,
-        // so wakeJobs only deletes the matched subscriptions (preserving
-        // remaining ones for the handler/executor to inspect).
+        // Track matched job IDs and the subscription types that matched,
+        // so wakeJobs deletes all subscriptions of the matched type for each
+        // woken job (OR logic: any match in a type = all of that type are done).
         const matchedJobIds = new Set<string>()
-        const matchedSubscriptionIds: string[] = []
+        const matchedTypes = new Set<string>()
 
         for (const candidate of candidates) {
             const key = `${candidate.teamId}:${candidate.eventName}:${candidate.personId}`
@@ -153,7 +153,7 @@ export class CdpEventsConsumer<
             const matched = await this.evaluateSubscriptionFilters(candidate, filterGlobals)
             if (matched) {
                 matchedJobIds.add(candidate.jobId)
-                matchedSubscriptionIds.push(candidate.id)
+                matchedTypes.add(candidate.type)
             }
         }
 
@@ -161,7 +161,7 @@ export class CdpEventsConsumer<
             return
         }
 
-        const woken = await subscriptionsService.wakeJobs([...matchedJobIds], matchedSubscriptionIds)
+        const woken = await subscriptionsService.wakeJobs([...matchedJobIds], [...matchedTypes] as any)
         logger.info('⚡', 'Woke waiting workflows from event match', {
             matched: matchedJobIds.size,
             woken,
