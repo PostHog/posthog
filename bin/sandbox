@@ -793,7 +793,13 @@ def _populate_workspace_volume(
         # Mirror origin/<branch> so `git push` inside the sandbox updates it
         # and `sandbox destroy` can tell pushed from unpushed commits.
         if [ -n "$ORIGIN_BRANCH_SHA" ]; then
-            $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+            # Only fetch if origin differs from the branch tip — the object
+            # is already local from the main fetch. A redundant --depth=1
+            # fetch of the same SHA adds it to .git/shallow, clobbering the
+            # depth=50 history.
+            if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
+                $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+            fi
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
         git remote add origin "$ORIGIN_URL"
