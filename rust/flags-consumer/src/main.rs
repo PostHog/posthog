@@ -3,9 +3,12 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
+use common_kafka::kafka_consumer::SingleTopicConsumer;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
@@ -15,6 +18,9 @@ use tracing_subscriber::EnvFilter;
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 
 use flags_consumer::config::Config;
+use flags_consumer::consumer::{
+    batch_processor_loop, consume_distinct_id_loop, consume_person_loop,
+};
 use flags_consumer::storage::postgres::PostgresStorage;
 
 common_alloc::used!();
@@ -61,6 +67,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting {SERVICE_NAME} service");
     tracing::info!("Metrics port: {}", config.metrics_port);
+    tracing::info!(
+        person_topic = config.kafka_person_topic,
+        did_topic = config.kafka_person_distinct_id_topic,
+        consumer_group = config.kafka_consumer_group,
+        batch_size = config.batch_size,
+        "CDC consumer configuration"
+    );
+
+    if !config.filtered_team_ids.is_empty() {
+        tracing::info!(
+            teams = config.filtered_team_ids,
+            "Team filter active (only processing listed teams)"
+        );
+    }
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder(SERVICE_NAME).build();
@@ -71,7 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let main_handle = manager.register(
         "main",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_liveness_deadline(Duration::from_secs(30)),
     );
 
     let readiness = manager.readiness_handler();
@@ -138,27 +160,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 
-    // Main component loop. Step 1 is a placeholder — the future CDC consumer
-    // body will live here.
+    // Build Kafka consumers
+    let kafka_config = config.build_kafka_config();
+    let person_consumer =
+        SingleTopicConsumer::new(kafka_config.clone(), config.build_person_consumer_config())
+            .expect("Failed to create person Kafka consumer");
+    tracing::info!(topic = config.kafka_person_topic, "Person consumer created");
+
+    let did_consumer =
+        SingleTopicConsumer::new(kafka_config, config.build_distinct_id_consumer_config())
+            .expect("Failed to create distinct_id Kafka consumer");
+    tracing::info!(
+        topic = config.kafka_person_distinct_id_topic,
+        "Distinct-ID consumer created"
+    );
+
+    let team_filter = config.parsed_team_filter();
+    let config = Arc::new(config);
+
+    // Shared bounded channel: consumers -> batch processor.
+    // Capacity = 4x batch size gives enough headroom for both consumers to
+    // keep pushing while the processor flushes a batch.
+    let (tx, rx) = mpsc::channel(config.batch_size * 4);
+
+    // Shutdown coordination token shared across all consumer tasks.
+    let shutdown = CancellationToken::new();
+
+    // Spawn person consumer task
+    let person_tx = tx.clone();
+    let person_shutdown = shutdown.clone();
+    let person_filter = team_filter.clone();
+    tokio::spawn(async move {
+        consume_person_loop(person_consumer, person_tx, person_filter, person_shutdown).await;
+    });
+
+    // Spawn distinct-ID consumer task
+    let did_shutdown = shutdown.clone();
+    let did_filter = team_filter;
+    tokio::spawn(async move {
+        consume_distinct_id_loop(did_consumer, tx, did_filter, did_shutdown).await;
+    });
+
+    // Run batch processor on the main component task.
+    let processor_storage = storage.clone();
+    let processor_config = config.clone();
+    let processor_shutdown = shutdown.clone();
     tokio::spawn(async move {
         let _guard = main_handle.process_scope();
-        let shutdown = main_handle.shutdown_signal();
-        tokio::pin!(shutdown);
-        let mut tick = tokio::time::interval(Duration::from_secs(30));
-        loop {
-            tokio::select! {
-                _ = &mut shutdown => {
-                    tracing::info!("main loop shutting down");
-                    break;
-                }
-                _ = tick.tick() => {
-                    tracing::debug!("flags-consumer main loop idle (Step 1 skeleton)");
-                }
-            }
-        }
+        batch_processor_loop(
+            rx,
+            processor_storage,
+            processor_config,
+            processor_shutdown,
+            main_handle.clone(),
+        )
+        .await;
     });
 
     monitor.wait().await?;
+
+    // Signal all consumer tasks to stop (they may already be stopped if the
+    // lifecycle manager initiated shutdown, but this is idempotent).
+    shutdown.cancel();
 
     Ok(())
 }
