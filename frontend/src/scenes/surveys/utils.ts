@@ -1,6 +1,5 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,10 +7,10 @@ import { dateStringToDayJs } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
-import { urls } from 'scenes/urls'
 
 import {
     BasicSurveyQuestion,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     LinkSurveyQuestion,
@@ -1025,22 +1024,41 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function newSurveyNotificationUrl(surveyId: string, templateId: string = 'template-webhook'): string {
-    const filters = {
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    onlyCompletedResponses: boolean = true
+): CyclotronJobFiltersType {
+    const properties: EventPropertyFilter[] = [
+        {
+            key: SurveyEventProperties.SURVEY_RESPONSE,
+            type: PropertyFilterType.Event,
+            value: 'is_set',
+            operator: PropertyOperator.IsSet,
+        },
+        {
+            key: SurveyEventProperties.SURVEY_ID,
+            type: PropertyFilterType.Event,
+            value: surveyId,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+
+    if (onlyCompletedResponses) {
+        properties.push({
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: true,
+            operator: PropertyOperator.Exact,
+        })
+    }
+
+    return {
         events: [
             {
                 id: SurveyEventName.SENT,
                 type: 'events',
-                properties: [
-                    {
-                        key: SurveyEventProperties.SURVEY_ID,
-                        type: PropertyFilterType.Event,
-                        value: surveyId,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                properties,
             },
         ],
     }
-    return combineUrl(urls.hogFunctionNew(templateId), {}, { configuration: { filters } }).url
 }

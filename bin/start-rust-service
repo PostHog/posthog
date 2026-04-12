@@ -149,6 +149,14 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
+  hypercache-server)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export REDIS_URL="$DEFAULT_REDIS"
+    export ADDRESS=0.0.0.0:3002
+    export DEBUG=1
+    ;;
+
   batch-import-worker)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
