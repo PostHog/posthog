@@ -161,10 +161,16 @@ def _normalize_default(s: str) -> str:
 
 
 # Kafka virtual columns injected by ClickHouse — not declared in YAML.
-_KAFKA_VIRTUAL_COLUMNS = frozenset({
-    "_topic", "_key", "_offset", "_partition", "_timestamp",
-    "_headers",
-})
+_KAFKA_VIRTUAL_COLUMNS = frozenset(
+    {
+        "_topic",
+        "_key",
+        "_offset",
+        "_partition",
+        "_timestamp",
+        "_headers",
+    }
+)
 
 
 def _is_kafka_virtual_column(name: str) -> bool:
@@ -419,9 +425,7 @@ def diff_state(
         # (person_query_log MVs discovered in 2026-04-11 reverify).
         return "SELECT ..." in select_body or ", ..." in select_body or ",..." in select_body
 
-    skipped_placeholder_mvs = [
-        name for name, t in desired.tables.items() if _has_placeholder_select(t)
-    ]
+    skipped_placeholder_mvs = [name for name, t in desired.tables.items() if _has_placeholder_select(t)]
     if skipped_placeholder_mvs:
         logger.warning(
             "ch_migrate: skipping %d MV(s) with placeholder SELECT body — "
@@ -433,9 +437,7 @@ def diff_state(
     def _should_skip(name: str, t: DesiredTable) -> bool:
         return _is_dictionary(t.engine) or _has_placeholder_select(t)
 
-    desired_without_skipped = {
-        name: t for name, t in desired.tables.items() if not _should_skip(name, t)
-    }
+    desired_without_skipped = {name: t for name, t in desired.tables.items() if not _should_skip(name, t)}
 
     desired_names = set(desired_without_skipped.keys())
     current_names = {n for n in current.keys() if not _is_dictionary(current[n].engine)}
@@ -634,17 +636,13 @@ def diff_state(
         # Filter Kafka virtual columns from live schema — CH injects these
         # automatically (_topic, _key, _offset, etc.) and they aren't in YAML.
         if _is_kafka(desired_table.engine):
-            current_cols = {
-                k: v for k, v in current_cols.items()
-                if not _is_kafka_virtual_column(k)
-            }
+            current_cols = {k: v for k, v in current_cols.items() if not _is_kafka_virtual_column(k)}
 
         # Kafka/Dictionary engines don't support ALTER — recreate instead.
         # Compare by (name, type) tuples because desired_cols has ColumnDef values
         # while current_cols has ColumnSchema values (different dataclass types).
         if desired_table.engine.lower() in ("kafka", "dictionary") and (
-            {(c.name, c.type) for c in desired_cols.values()}
-            != {(c.name, c.type) for c in current_cols.values()}
+            {(c.name, c.type) for c in desired_cols.values()} != {(c.name, c.type) for c in current_cols.values()}
         ):
             drops.append(
                 StateDiff(

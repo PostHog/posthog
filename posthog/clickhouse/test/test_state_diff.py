@@ -118,18 +118,22 @@ class TestDiffConvergenceIntervalDefault:
     @_PATCH_RESOLVE
     @_PATCH_SETTING
     def test_no_spurious_alter_for_interval_default(self, _mock_setting, _mock_cluster):
-        desired = _make_desired({
-            "test_table": DesiredTable(
-                name="test_table",
-                engine="ReplacingMergeTree",
-                columns=[
-                    _col("id", "UInt64"),
-                    _col("expires", "Date", default_kind="DEFAULT", default_expression="today() + toIntervalDay(7)"),
-                ],
-                on_nodes=["all"],
-                order_by=["id"],
-            ),
-        })
+        desired = _make_desired(
+            {
+                "test_table": DesiredTable(
+                    name="test_table",
+                    engine="ReplacingMergeTree",
+                    columns=[
+                        _col("id", "UInt64"),
+                        _col(
+                            "expires", "Date", default_kind="DEFAULT", default_expression="today() + toIntervalDay(7)"
+                        ),
+                    ],
+                    on_nodes=["all"],
+                    order_by=["id"],
+                ),
+            }
+        )
         current = {
             "test_table": TableSchema(
                 name="test_table",
@@ -150,18 +154,20 @@ class TestDiffConvergenceKafkaVirtualColumns:
     @_PATCH_RESOLVE
     @_PATCH_SETTING
     def test_no_recreate_when_only_virtual_columns_differ(self, _mock_setting, _mock_cluster):
-        desired = _make_desired({
-            "kafka_events": DesiredTable(
-                name="kafka_events",
-                engine="Kafka",
-                columns=[
-                    _col("event", "String"),
-                    _col("timestamp", "DateTime"),
-                ],
-                on_nodes=["all"],
-                settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
-            ),
-        })
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[
+                        _col("event", "String"),
+                        _col("timestamp", "DateTime"),
+                    ],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+            }
+        )
         # Live schema includes virtual columns injected by CH
         current = {
             "kafka_events": TableSchema(
@@ -189,15 +195,17 @@ class TestDiffConvergenceDistributedEmptyColumns:
     @_PATCH_RESOLVE
     @_PATCH_SETTING
     def test_no_drop_columns_for_empty_desired(self, _mock_setting, _mock_cluster):
-        desired = _make_desired({
-            "events_dist": DesiredTable(
-                name="events_dist",
-                engine="Distributed",
-                columns=[],  # inherit from source
-                on_nodes=["all"],
-                source="sharded_events",
-            ),
-        })
+        desired = _make_desired(
+            {
+                "events_dist": DesiredTable(
+                    name="events_dist",
+                    engine="Distributed",
+                    columns=[],  # inherit from source
+                    on_nodes=["all"],
+                    source="sharded_events",
+                ),
+            }
+        )
         # Live schema has real columns (inherited from source at creation time)
         current = {
             "events_dist": TableSchema(
@@ -222,25 +230,27 @@ class TestDiffConvergenceKafkaMVStability:
     @_PATCH_RESOLVE
     @_PATCH_SETTING
     def test_kafka_and_mv_stable_on_second_apply(self, _mock_setting, _mock_cluster):
-        desired = _make_desired({
-            "kafka_events": DesiredTable(
-                name="kafka_events",
-                engine="Kafka",
-                columns=[
-                    _col("event", "String"),
-                ],
-                on_nodes=["all"],
-                settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
-            ),
-            "kafka_events_mv": DesiredTable(
-                name="kafka_events_mv",
-                engine="MaterializedView",
-                columns=[],
-                on_nodes=["all"],
-                target="sharded_events",
-                select="SELECT event FROM posthog.kafka_events",
-            ),
-        })
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[
+                        _col("event", "String"),
+                    ],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+                "kafka_events_mv": DesiredTable(
+                    name="kafka_events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event FROM posthog.kafka_events",
+                ),
+            }
+        )
         current = {
             "kafka_events": TableSchema(
                 name="kafka_events",
