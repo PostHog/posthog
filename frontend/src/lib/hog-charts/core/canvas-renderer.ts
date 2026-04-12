@@ -24,41 +24,37 @@ export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
-    const defaultDash = series.dashPattern ?? []
-    const dashedDash = series.dashedPattern ?? [10, 10]
+    const basePattern = series.dashPattern ?? []
+    const partialPattern = series.dashedPattern ?? [10, 10]
     const from = normalizeDashedFrom(series.dashedFromIndex, length)
     const to = normalizeDashedTo(series.dashedToIndex, length)
 
     // Fast path: no partial dashing.
     if (from < 0 && to < 0) {
-        strokeRange(drawCtx, data, 0, length - 1, defaultDash)
+        strokeRange(drawCtx, data, 0, length - 1, basePattern)
         ctx.setLineDash([])
         return
     }
 
-    // Whole line dashed: dashed regions from either end meet or overlap.
-    // - from === 0 → dashed from the very start
-    // - to === length - 1 → dashed through the very end
-    // - both set and dashed ranges meet (to >= from - 1) → no solid middle
+    // The dashed region from either end covers the whole line (or they meet in the middle).
     const wholeDashed = from === 0 || to === length - 1 || (from >= 0 && to >= 0 && to >= from - 1)
     if (wholeDashed) {
-        strokeRange(drawCtx, data, 0, length - 1, dashedDash)
+        strokeRange(drawCtx, data, 0, length - 1, partialPattern)
         ctx.setLineDash([])
         return
     }
 
-    // Up to three subpaths. Adjacent subpaths share their boundary point so strokes stay seamless.
+    // Up to three subpaths; adjacent ones share a boundary point.
     if (to >= 0) {
-        strokeRange(drawCtx, data, 0, to, dashedDash)
+        strokeRange(drawCtx, data, 0, to, partialPattern)
     }
     const solidStart = to >= 0 ? to : 0
     const solidEnd = from >= 0 ? from - 1 : length - 1
-    // Skip a zero-length solid middle so the two dashed subpaths can sit directly adjacent.
     if (solidStart < solidEnd) {
-        strokeRange(drawCtx, data, solidStart, solidEnd, defaultDash)
+        strokeRange(drawCtx, data, solidStart, solidEnd, basePattern)
     }
     if (from >= 0) {
-        strokeRange(drawCtx, data, from - 1, length - 1, dashedDash)
+        strokeRange(drawCtx, data, from - 1, length - 1, partialPattern)
     }
     ctx.setLineDash([])
 }
@@ -84,7 +80,7 @@ function strokeRange(drawCtx: DrawContext, data: number[], start: number, end: n
     ctx.stroke()
 }
 
-/** -1 means "no dashed-from portion" (unset or out of range past the end). Otherwise clamped to [0, length-1]. */
+/** Returns -1 when unset or past the end; otherwise clamps to [0, length-1]. */
 function normalizeDashedFrom(idx: number | undefined, length: number): number {
     if (idx == null) {
         return -1
@@ -96,7 +92,7 @@ function normalizeDashedFrom(idx: number | undefined, length: number): number {
     return Math.max(0, rounded)
 }
 
-/** -1 means "no dashed-to portion" (unset or out of range before the start). Otherwise clamped to [0, length-1]. */
+/** Returns -1 when unset or before the start; otherwise clamps to [0, length-1]. */
 function normalizeDashedTo(idx: number | undefined, length: number): number {
     if (idx == null) {
         return -1

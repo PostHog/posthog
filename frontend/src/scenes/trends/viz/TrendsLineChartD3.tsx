@@ -74,8 +74,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
-    // Mirrors the legacy LineGraph: dash the trailing points that cover the in-progress period.
-    // Disabled for stickiness (indices aren't dates) and for the "previous" comparison series.
+    // Dash the in-progress tail (mirrors LineGraph.tsx). Stickiness indices aren't dates.
     const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
 
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
@@ -84,7 +83,6 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                 .filter((r: IndexedTrendResult) => r.count !== 0)
                 .map((r: IndexedTrendResult) => {
                     const isActiveSeries = !r.compare || r.compare_label !== 'previous'
-                    // Dash the in-progress tail. Matches the legacy LineGraph incompleteStartIndex logic.
                     const dashedFromIndex =
                         isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
                     return {

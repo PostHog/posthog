@@ -16,16 +16,11 @@ export interface Series<Meta = unknown> {
     fillOpacity?: number
     /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit or [] for solid. */
     dashPattern?: number[]
-    /** Index from which the line becomes dashed. The segment ending at this index and every
-     *  segment after it render with `dashedPattern`. Combine with `dashedToIndex` to dash both
-     *  ends. Out-of-bounds indices are clamped; non-integers are rounded. */
+    /** Index from which the line becomes dashed (inclusive). Clamped to data bounds. */
     dashedFromIndex?: number
-    /** Index up to which the line is dashed. Every segment ending at or before this index
-     *  renders with `dashedPattern`. Out-of-bounds indices are clamped; non-integers are
-     *  rounded. */
+    /** Index up to which the line is dashed (inclusive). Clamped to data bounds. */
     dashedToIndex?: number
-    /** Dash pattern used for the dashed portion defined by `dashedFromIndex`/`dashedToIndex`.
-     *  Defaults to [10, 10]. */
+    /** Dash pattern for the `dashedFromIndex`/`dashedToIndex` portions. Defaults to [10, 10]. */
     dashedPattern?: number[]
     /** When true, the series is excluded from rendering, scales, and tooltips. */
     hidden?: boolean
