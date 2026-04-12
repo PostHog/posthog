@@ -37,6 +37,7 @@ from posthog.tasks.exports.csv_exporter import (
     _convert_response_to_csv_data,
     _format_breakdown_value,
     add_query_params,
+    sanitize_formula_injection,
     sanitize_value_for_excel,
 )
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
@@ -1532,6 +1533,24 @@ class TestCSVExporter(APIBaseTest):
         ]
         for input_value, expected in test_cases:
             assert sanitize_value_for_excel(input_value) == expected, f"Failed for input: {repr(input_value)}"
+
+    def test_sanitize_formula_injection(self) -> None:
+        test_cases = [
+            ("=cmd('calc')", "'=cmd('calc')"),
+            ("+cmd('calc')", "'+cmd('calc')"),
+            ("-cmd('calc')", "'-cmd('calc')"),
+            ("@SUM(A1)", "'@SUM(A1)"),
+            ("\tcmd", "'\tcmd"),
+            ("\rcmd", "'\rcmd"),
+            ("normal text", "normal text"),
+            ("", ""),
+            (123, 123),
+            (None, None),
+            (12.34, 12.34),
+            (True, True),
+        ]
+        for input_value, expected in test_cases:
+            assert sanitize_formula_injection(input_value) == expected, f"Failed for input: {repr(input_value)}"
 
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write_from_file")

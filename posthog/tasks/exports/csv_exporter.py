@@ -49,6 +49,24 @@ RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def sanitize_formula_injection(value: Any) -> Any:
+    """Prevent CSV/XLSX formula injection by prefixing dangerous cell values.
+
+    Spreadsheet software interprets cells starting with =, +, -, @, tab, or
+    carriage-return as formulas. Prepending a single-quote neutralises this
+    while remaining human-readable (the quote is hidden by most spreadsheet
+    applications).
+    """
+    if not isinstance(value, str):
+        return value
+    if value and value[0] in _FORMULA_PREFIXES:
+        return "'" + value
+    return value
+
+
 def sanitize_value_for_excel(value: Any) -> Any:
     if not isinstance(value, str):
         return value
@@ -72,7 +90,7 @@ class CsvWriter(TabularWriter):
 
     def write_row(self, row: dict) -> None:
         assert self._writer is not None
-        self._writer.writerow(row)
+        self._writer.writerow({k: sanitize_formula_injection(v) for k, v in row.items()})
 
     def finish(self) -> str:
         self._tmp.close()
@@ -103,6 +121,7 @@ class ExcelWriter(TabularWriter):
             value = row.get(col)
             if value is not None and not isinstance(value, str | int | float | bool):
                 value = str(value)
+            value = sanitize_formula_injection(value)
             values.append(sanitize_value_for_excel(value))
         try:
             self._worksheet.append(values)
