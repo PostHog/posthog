@@ -19,6 +19,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
@@ -259,6 +260,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": ANY,
+                "creation_mode": "new",
             },
         )
         self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
@@ -1243,6 +1245,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Good metrics experiment",
                 "feature_flag_key": "good-metrics-flag",
                 "parameters": {},
@@ -2984,6 +2987,7 @@ class TestExperimentCRUD(APILicensedTest):
         original_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Original Experiment",
                 "description": "Original description",
                 "start_date": "2021-12-01T10:23",
@@ -3104,6 +3108,7 @@ class TestExperimentCRUD(APILicensedTest):
         original_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Original Experiment",
                 "description": "Original description",
                 "start_date": "2021-12-01T10:23",
@@ -3260,6 +3265,62 @@ class TestExperimentCRUD(APILicensedTest):
             0,
         )
 
+    @parameterized.expand(
+        [
+            ("duplicate", "duplicate", False),
+            ("copy_to_project", "copy_to_project", True),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_clone_experiment_reports_creation_mode(
+        self, _name: str, expected_mode: str, needs_target_team: bool, mock_report_user_action: MagicMock
+    ) -> None:
+        target_team = (
+            Team.objects.create(organization=self.organization, name="Target Team") if needs_target_team else None
+        )
+
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Original Experiment", "feature_flag_key": f"{expected_mode}-analytics-flag"},
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_id = original_response.json()["id"]
+        mock_report_user_action.reset_mock()
+
+        if target_team:
+            url = f"/api/projects/{self.team.id}/experiments/{original_id}/copy_to_project/"
+            body: dict = {"target_team_id": target_team.id}
+            expected_team = target_team
+        else:
+            url = f"/api/projects/{self.team.id}/experiments/{original_id}/duplicate/"
+            body = {}
+            expected_team = self.team
+
+        response = self.client.post(url, body)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        result = response.json()
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "experiment created",
+            {
+                "experiment_id": result["id"],
+                "experiment_name": result["name"],
+                "feature_flag_key": result["feature_flag_key"],
+                "type": result["type"],
+                "status": result["status"],
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": ANY,
+                "creation_mode": expected_mode,
+                "allow_unknown_events": True,
+            },
+            team=expected_team,
+            request=ANY,
+        )
+
     def test_copy_experiment_to_project(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
 
@@ -3292,6 +3353,7 @@ class TestExperimentCRUD(APILicensedTest):
                 ],
                 "stats_config": {"method": "bayesian"},
                 "exposure_criteria": {"filterTestAccounts": True},
+                "allow_unknown_events": True,
             },
         )
         self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
@@ -3427,6 +3489,7 @@ class TestExperimentCRUD(APILicensedTest):
                         "source": {"kind": "EventsNode", "event": "$pageview"},
                     }
                 ],
+                "allow_unknown_events": True,
             },
             format="json",
         )
@@ -3552,6 +3615,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Fingerprint Test Experiment",
                 "description": "",
                 "start_date": None,
@@ -3614,6 +3678,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
             {
+                "allow_unknown_events": True,
                 "metrics": [updated_funnel_metric, updated_mean_metric, updated_ratio_metric],
                 "primary_metrics_ordered_uuids": [
                     "964398d7-ec8a-424d-890b-4e6bbc9a5c84",
@@ -3758,6 +3823,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Launch Endpoint Test",
                 "feature_flag_key": "launch-endpoint-flag",
                 "metrics": [
@@ -3796,6 +3862,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Already Running Endpoint",
                 "feature_flag_key": "already-running-endpoint",
                 "start_date": "2024-01-01T10:00",
@@ -3839,6 +3906,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Archive Endpoint Test",
                 "feature_flag_key": "archive-endpoint-flag",
                 "start_date": "2024-01-01T10:00",
@@ -3867,6 +3935,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Archive Running Endpoint",
                 "feature_flag_key": "archive-running-endpoint",
                 "start_date": "2024-01-01T10:00",
@@ -3895,6 +3964,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": name,
                 "feature_flag_key": flag_key,
+                "allow_unknown_events": True,
                 "metrics": [
                     {
                         "kind": "ExperimentMetric",
@@ -4164,6 +4234,102 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         )
         self.assertEqual(ship_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # ------------------------------------------------------------------
+    # Action ID validation & event name warnings in API responses
+    # ------------------------------------------------------------------
+
+    def test_create_with_nonexistent_action_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Bad Action Experiment",
+                "feature_flag_key": "bad-action-api-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "ActionsNode", "id": 999999},
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("999999", response.json()["detail"])
+
+    def test_create_with_unknown_event_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Unknown Event Experiment",
+                "feature_flag_key": "unknown-event-api-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pagevew"},
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("$pagevew", response.json()["detail"])
+
+    def test_create_with_known_event_succeeds(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Known Event Experiment",
+                "feature_flag_key": "known-event-api-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_update_with_unknown_event_returns_400(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Update Event Error Experiment",
+                "feature_flag_key": "update-event-error-api-flag",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "totally_fake_event"},
+                    },
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
@@ -4967,6 +5133,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
+                "allow_unknown_events": True,
                 "metrics": [
                     {
                         "uuid": metric_uuid,
@@ -5064,6 +5231,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
+                "allow_unknown_events": True,
                 "metrics": [
                     {
                         "uuid": inline_metric_uuid,
@@ -5086,6 +5254,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-create-ordering-validation",
                 "parameters": None,
@@ -5125,6 +5294,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
+                "allow_unknown_events": True,
                 "metrics": [
                     {
                         "uuid": metric_uuid,
@@ -5150,6 +5320,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-remove-sync",
                 "parameters": None,
@@ -5178,6 +5349,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
+                "allow_unknown_events": True,
                 "metrics": [
                     {
                         "uuid": metric_uuid_1,
@@ -5215,6 +5387,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
+                "allow_unknown_events": True,
                 "metrics_secondary": [
                     {
                         "uuid": metric_uuid,
@@ -5239,6 +5412,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-unchanged-ordering",
                 "parameters": None,
@@ -5280,6 +5454,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-preserve-order",
                 "parameters": None,
@@ -5308,6 +5483,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
+                "allow_unknown_events": True,
                 "metrics": [
                     {
                         "uuid": metric_uuid_1,
@@ -5500,6 +5676,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-create-no-ordering",
                 "parameters": None,
@@ -5525,6 +5702,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-create-secondary",
                 "parameters": None,
@@ -5603,6 +5781,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Test Experiment",
                 "feature_flag_key": "test-create-mixed",
                 "parameters": None,

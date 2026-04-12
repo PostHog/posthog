@@ -45,6 +45,30 @@ import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from '
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
+// Allowlist of safe content types for webhook responses to prevent XSS
+const SAFE_CONTENT_TYPES = new Set([
+    'text/plain',
+    'text/csv',
+    'application/json',
+    'application/octet-stream',
+    'application/xml',
+    'image/gif',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+])
+
+function sanitizeContentType(contentType: string | undefined, fallback: string): string {
+    if (!contentType) {
+        return fallback
+    }
+    const normalized = contentType.toLowerCase().trim().split(';')[0].trim()
+    if (SAFE_CONTENT_TYPES.has(normalized)) {
+        return normalized
+    }
+    return fallback
+}
+
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
@@ -598,18 +622,21 @@ export class CdpApi {
 
             if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                 const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+
+                // Security headers to prevent XSS via content-type injection
+                res.set('X-Content-Type-Options', 'nosniff')
+                res.set('Content-Security-Policy', "default-src 'none'")
+
                 if (typeof httpResponse.body === 'string') {
+                    const safeContentType = sanitizeContentType(
+                        httpResponse.contentType,
+                        httpResponse.isBase64Encoded ? 'application/octet-stream' : 'text/plain'
+                    )
                     if (httpResponse.isBase64Encoded) {
                         const buffer = Buffer.from(httpResponse.body, 'base64')
-                        return res
-                            .status(httpResponse.status)
-                            .type(httpResponse.contentType ?? 'application/octet-stream')
-                            .send(buffer)
+                        return res.status(httpResponse.status).type(safeContentType).send(buffer)
                     }
-                    return res
-                        .status(httpResponse.status)
-                        .type(httpResponse.contentType ?? 'text/plain')
-                        .send(httpResponse.body)
+                    return res.status(httpResponse.status).type(safeContentType).send(httpResponse.body)
                 } else if (typeof httpResponse.body === 'object') {
                     return res.status(httpResponse.status).json(httpResponse.body)
                 }

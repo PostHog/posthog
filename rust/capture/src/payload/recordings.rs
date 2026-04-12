@@ -16,7 +16,6 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    global_rate_limiter::GlobalRateLimitKey,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -132,8 +131,6 @@ pub async fn handle_recording_payload(
         chatty_debug_enabled,
     };
 
-    check_global_rate_limits(state, &context, &events).await?;
-
     // Apply all billing limit quotas and drop partial or whole
     // payload if any are exceeded for this token (team)
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "evaluating quota limits");
@@ -144,40 +141,6 @@ pub async fn handle_recording_payload(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
     Ok((context, events))
-}
-
-async fn check_global_rate_limits(
-    state: &State<router::State>,
-    context: &ProcessingContext,
-    events: &[RawRecording],
-) -> Result<(), CaptureError> {
-    if let Some(limiter) = &state.global_rate_limiter_token_distinctid {
-        let mut is_rate_limited = false;
-        for event in events {
-            let maybe_distinct_id = event
-                .distinct_id
-                .as_ref()
-                .or(event.properties.distinct_id.as_ref())
-                .and_then(|v| v.as_str());
-            if let Some(distinct_id) = maybe_distinct_id {
-                let cache_key =
-                    GlobalRateLimitKey::TokenDistinctId(&context.token, distinct_id).to_cache_key();
-                if let Some(limited) = limiter.is_limited(&cache_key, 1).await {
-                    debug_or_info!(context.chatty_debug_enabled,
-                        context=?context,
-                        distinct_id,
-                        details=?limited,
-                        "global token+distinct_id rate limit applied");
-                    is_rate_limited = true;
-                }
-            }
-        }
-        if is_rate_limited {
-            return Err(CaptureError::GlobalRateLimitExceeded());
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
