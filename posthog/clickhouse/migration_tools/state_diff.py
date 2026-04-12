@@ -361,6 +361,11 @@ def _generate_create_sql(
         )
 
     if _is_kafka(table.engine):
+        # Kafka engine doesn't support MATERIALIZED or EPHEMERAL columns — they
+        # get silently dropped on CREATE, causing MVs above to fail when their
+        # SELECT references the missing columns. Strip them from the column list.
+        kafka_cols = [c for c in table.columns if not c.default_kind or c.default_kind.upper() in ("DEFAULT", "")]
+        kafka_cols_sql = _columns_sql(kafka_cols)
         settings_lines = []
         if table.settings:
             for k, v in table.settings.items():
@@ -369,7 +374,7 @@ def _generate_create_sql(
         settings_block = ",\n".join(settings_lines)
         return (
             f"CREATE TABLE IF NOT EXISTS {database}.{table.name}\n"
-            f"(\n{cols}\n"
+            f"(\n{kafka_cols_sql}\n"
             f") ENGINE = Kafka()\n"
             f"SETTINGS\n{settings_block}"
         )
