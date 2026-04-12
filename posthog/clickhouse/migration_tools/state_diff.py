@@ -14,6 +14,7 @@ The diff respects ClickHouse ecosystem rules:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from django.conf import settings as django_settings
@@ -121,6 +122,53 @@ def _is_kafka(engine: str) -> bool:
 
 def _is_dictionary(engine: str) -> bool:
     return engine.lower() == "dictionary"
+
+
+# ClickHouse normalizes toIntervalX(N) → INTERVAL N X in system.columns,
+# but YAML may use either form. Map function names to interval units.
+_INTERVAL_FUNCS = {
+    "tointervalday": "DAY",
+    "tointervalhour": "HOUR",
+    "tointervalminute": "MINUTE",
+    "tointervalsecond": "SECOND",
+    "tointervalweek": "WEEK",
+    "tointervalmonth": "MONTH",
+    "tointervalyear": "YEAR",
+}
+
+_INTERVAL_RE = re.compile(r"(toInterval[A-Za-z]+)\s*\(\s*([^)]+?)\s*\)")
+
+
+def _normalize_interval_funcs(s: str) -> str:
+    """Convert toIntervalX(N) → INTERVAL N X for CH canonical form equivalence."""
+
+    def _sub(m: re.Match) -> str:
+        fn = m.group(1).lower()
+        arg = m.group(2).strip()
+        unit = _INTERVAL_FUNCS.get(fn)
+        return f"INTERVAL {arg} {unit}" if unit else m.group(0)
+
+    return _INTERVAL_RE.sub(_sub, s)
+
+
+def _normalize_default(s: str) -> str:
+    """Normalize a default expression for semantic comparison.
+
+    Handles: toIntervalX(N) → INTERVAL N X, case folding, whitespace collapse.
+    """
+    s = _normalize_interval_funcs(s)
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
+# Kafka virtual columns injected by ClickHouse — not declared in YAML.
+_KAFKA_VIRTUAL_COLUMNS = frozenset({
+    "_topic", "_key", "_offset", "_partition", "_timestamp",
+    "_headers",
+})
+
+
+def _is_kafka_virtual_column(name: str) -> bool:
+    return name in _KAFKA_VIRTUAL_COLUMNS or name.startswith("_headers.")
 
 
 def _columns_sql(columns: list[ColumnDef]) -> str:
@@ -578,8 +626,26 @@ def diff_state(
         desired_cols = {c.name: c for c in desired_table.columns}
         current_cols = {c.name: c for c in current_table.columns}
 
-        # Kafka/Dictionary engines don't support ALTER — recreate instead
-        if desired_table.engine.lower() in ("kafka", "dictionary") and desired_cols != current_cols:
+        # Distributed tables with empty columns inherit from their source table —
+        # skip column diff entirely to avoid spurious DROP COLUMN diffs.
+        if _is_distributed(desired_table.engine) and not desired_table.columns:
+            continue
+
+        # Filter Kafka virtual columns from live schema — CH injects these
+        # automatically (_topic, _key, _offset, etc.) and they aren't in YAML.
+        if _is_kafka(desired_table.engine):
+            current_cols = {
+                k: v for k, v in current_cols.items()
+                if not _is_kafka_virtual_column(k)
+            }
+
+        # Kafka/Dictionary engines don't support ALTER — recreate instead.
+        # Compare by (name, type) tuples because desired_cols has ColumnDef values
+        # while current_cols has ColumnSchema values (different dataclass types).
+        if desired_table.engine.lower() in ("kafka", "dictionary") and (
+            {(c.name, c.type) for c in desired_cols.values()}
+            != {(c.name, c.type) for c in current_cols.values()}
+        ):
             drops.append(
                 StateDiff(
                     action="drop",
@@ -660,28 +726,10 @@ def diff_state(
                 continue
 
             # Default kind/expression changes → MODIFY COLUMN.
-            # Comparison must be semantically equivalent, not strict-string, because
-            # ClickHouse normalizes function identifiers to lowercase in `system.columns`
-            # (e.g. `now('UTC')`) while YAML often writes them uppercase (`NOW('UTC')`).
-            # A naive string compare triggers a spurious ALTER MODIFY COLUMN that
-            # rewrites the entire column — catastrophic on large tables.
-            #
-            # Normalize by lowercasing + collapsing whitespace. Kind is always an
-            # uppercase enum (DEFAULT / MATERIALIZED / ALIAS) so that part is case-stable.
+            # Normalize semantically: CH lowercases function names in system.columns
+            # and converts toIntervalX(N) to INTERVAL N X. See _normalize_default().
             desired_default = f"{desired_col.default_kind} {desired_col.default_expression}".strip()
             current_default = f"{current_col.default_kind} {current_col.default_expression}".strip()
-
-            def _normalize_default(s: str) -> str:
-                # Lowercase the whole expression for case-insensitive function name
-                # comparison, then collapse runs of whitespace. String literals
-                # (single-quoted) are lowercased too but that's fine because CH
-                # stores them with their original casing and system.columns returns
-                # them unchanged — so YAML literals need to match CH's casing exactly
-                # anyway. In practice the only function-name casing mismatch is the
-                # NOW/now variant which is what this normalization protects against.
-                import re as _re
-
-                return _re.sub(r"\s+", " ", s.strip().lower())
 
             if desired_default and _normalize_default(desired_default) != _normalize_default(current_default):
                 kind = desired_col.default_kind or "DEFAULT"
