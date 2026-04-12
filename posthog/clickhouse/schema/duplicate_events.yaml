@@ -49,6 +49,13 @@ tables:
               type: "Array(Tuple(field_name String, original_value String, new_value String))"
             - name: inserted_at
               type: "DateTime64(3, 'UTC')"
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
 
     writable_duplicate_events:
         engine: Distributed

@@ -25,6 +25,11 @@ tables:
               type: Bool
             - name: source
               type: String
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime64(6)
+            - name: _offset
+              type: UInt64
 
     writable_precalculated_person_properties:
         engine: Distributed
