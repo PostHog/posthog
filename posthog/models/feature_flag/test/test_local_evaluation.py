@@ -211,33 +211,6 @@ class TestLocalEvaluationCache(BaseTest):
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
 
-    def test_match_property_with_none_value(self):
-        from posthog.queries.base import match_property
-        from posthog.models.property import Property
-
-        prop = Property(key="plan", value="pro", operator="exact")
-
-        # key exists but value is None
-        override = {"plan": None}
-
-        result = match_property(prop, override)
-
-        assert result is False  # should not crash, just False
-
-
-    def test_match_property_missing_key(self):
-        from posthog.queries.base import match_property
-        from posthog.models.property import Property
-
-        prop = Property(key="plan", value="pro", operator="exact")
-
-        # key missing
-        override = {}
-
-        result = match_property(prop, override)
-
-        assert result is False
-
 class TestLocalEvaluationSignals(BaseTest):
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())

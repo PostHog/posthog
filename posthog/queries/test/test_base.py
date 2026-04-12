@@ -441,6 +441,15 @@ class TestMatchProperties(TestCase):
         property_k = Property(key="key", value="2022-05-01", operator="is_date_before")
         self.assertFalse(match_property(property_k, {"key": "random"}))
 
+    def test_match_property_exact_with_none_and_missing_key(self):
+        prop = Property(key="plan", value="pro", operator="exact")
+
+        # key exists but value is None
+        self.assertFalse(match_property(prop, {"plan": None}))
+
+        # key missing should raise ValidationError (as per existing behavior)
+        with self.assertRaises(ValidationError):
+            match_property(prop, {})
 
 @pytest.mark.parametrize(
     "key,expected",
