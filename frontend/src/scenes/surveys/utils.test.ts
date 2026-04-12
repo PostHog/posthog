@@ -139,11 +139,14 @@ describe('survey utils', () => {
     })
 
     describe('supportsSurveyCustomization', () => {
-        it('keeps customization enabled for API surveys', () => {
-            expect(supportsSurveyCustomization(SurveyType.API)).toBe(true)
-            expect(supportsSurveyCustomization(SurveyType.Popover)).toBe(true)
-            expect(supportsSurveyCustomization(SurveyType.Widget)).toBe(true)
-            expect(supportsSurveyCustomization(SurveyType.ExternalSurvey)).toBe(false)
+        it.each([
+            [true, SurveyType.API],
+            [true, SurveyType.ExternalSurvey],
+            [true, SurveyType.FullScreen],
+            [true, SurveyType.Popover],
+            [true, SurveyType.Widget],
+        ])('returns %s for %s', (expected, surveyType) => {
+            expect(supportsSurveyCustomization(surveyType)).toBe(expected)
         })
     })
 

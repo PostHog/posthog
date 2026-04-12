@@ -2,8 +2,9 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
-import { SurveyQuestionType, SurveyType } from '~/types'
+import { SurveyType } from '~/types'
 
+import { type NewSurvey, NEW_SURVEY } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 
 jest.mock('lib/components/CodeSnippet', () => ({
@@ -13,33 +14,26 @@ jest.mock('lib/components/CodeSnippet', () => ({
 
 describe('SurveyAPIEditor', () => {
     it('includes appearance settings in the rendered payload', () => {
+        const survey = {
+            ...NEW_SURVEY,
+            id: 'survey-id',
+            name: 'API survey',
+            type: SurveyType.API,
+            questions: [
+                {
+                    ...NEW_SURVEY.questions[0],
+                    id: 'question-id',
+                    question: 'How did this go?',
+                },
+            ],
+            appearance: {
+                ...NEW_SURVEY.appearance,
+                whiteLabel: true,
+            },
+        } satisfies NewSurvey
+
         render(
-            <SurveyAPIEditor
-                survey={
-                    {
-                        id: 'survey-id',
-                        name: 'API survey',
-                        description: '',
-                        type: SurveyType.API,
-                        linked_flag: null,
-                        targeting_flag: null,
-                        questions: [
-                            {
-                                id: 'question-id',
-                                type: SurveyQuestionType.Open,
-                                question: 'How did this go?',
-                                description: '',
-                            },
-                        ],
-                        conditions: null,
-                        appearance: {
-                            whiteLabel: true,
-                        },
-                        start_date: null,
-                        end_date: null,
-                    } as any
-                }
-            />
+            <SurveyAPIEditor survey={survey} />
         )
 
         expect(screen.getByText(/"appearance": \{/)).toBeInTheDocument()

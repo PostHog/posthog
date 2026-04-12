@@ -441,7 +441,13 @@ export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
 }
 
 export function supportsSurveyCustomization(surveyType: SurveyType): boolean {
-    return surveyType !== SurveyType.ExternalSurvey
+    return [
+        SurveyType.API,
+        SurveyType.ExternalSurvey,
+        SurveyType.FullScreen,
+        SurveyType.Popover,
+        SurveyType.Widget,
+    ].includes(surveyType)
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
