@@ -742,24 +742,13 @@ def _populate_workspace_volume(
     base_branch: str,
     base_sha: str | None,
     origin_branch_sha: str | None = None,
+    branch_ref: str = "",
 ) -> None:
     """Populate volume_name with a fresh workspace checked out to branch_sha.
 
-    branch_sha is fetched from the host .git and set as ``refs/heads/<branch>``
-    inside the workspace. If base_sha is provided (i.e. branch != base_branch),
-    it's fetched separately as ``refs/remotes/origin/<base_branch>`` so the
-    sandbox user can ``git merge origin/<base>`` etc.
-
-    If origin_branch_sha is provided (the host knew origin/<branch> at
-    creation time), it's also injected as ``refs/remotes/origin/<branch>`` so
-    the sandbox's git has a native view of what's on origin. `sandbox destroy`
-    uses this to distinguish pushed from unpushed work — a subsequent push
-    inside the sandbox updates this ref automatically.
-
-    The clone is done by SHA rather than by ref path so we don't depend on the
-    host's ref layout (works whether the branch exists as a local head, a
-    remote-tracking ref, or both). The clone runs as the sandbox user so every
-    file lands owned by that uid — no post-clone chown.
+    Fetches from the host .git by ref name (branch_ref) so ``--depth`` works
+    over file:// transport. The clone runs as the sandbox user so every file
+    lands owned by that uid.
     """
     uid = os.getuid()
     gid = os.getgid()
@@ -783,31 +772,28 @@ def _populate_workspace_volume(
         capture=True,
     )
 
-    # We use file:// transport (not a bare path) to avoid CVE-2022-39253
-    # symlink following.  Server-side config (allowAnySHA1InWant) is passed
-    # via --upload-pack so it reaches the git-upload-pack subprocess that
-    # file:// spawns — plain -c flags only apply to the client.
+    # file:// transport avoids CVE-2022-39253 symlink following.
+    # We fetch by ref name (not bare SHA) because --depth only works with
+    # named refs over file:// transport.
     script = r"""
         set -e
         git init -q -b "$BRANCH" /workspace
         cd /workspace
+        GIT="git -c safe.directory=/host-git -c protocol.file.allow=always"
 
-        CLIENT="-c safe.directory=/host-git -c protocol.file.allow=always"
-        UPLOAD_PACK="git -c safe.directory=/host-git -c uploadpack.allowAnySHA1InWant=true upload-pack"
-
-        git $CLIENT fetch --upload-pack="$UPLOAD_PACK" --depth=50 --no-tags file:///host-git "$BRANCH_SHA"
+        $GIT fetch --depth=50 --no-tags file:///host-git "$BRANCH_REF"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
         git update-ref refs/sandbox/start "$BRANCH_SHA"
         git reset --hard
 
         if [ -n "$BASE_SHA" ]; then
-            git $CLIENT fetch --upload-pack="$UPLOAD_PACK" --depth=1 --no-tags file:///host-git "$BASE_SHA"
+            $GIT fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
         # Mirror origin/<branch> so `git push` inside the sandbox updates it
         # and `sandbox destroy` can tell pushed from unpushed commits.
         if [ -n "$ORIGIN_BRANCH_SHA" ]; then
-            git $CLIENT fetch --upload-pack="$UPLOAD_PACK" --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+            $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
         git remote add origin "$ORIGIN_URL"
@@ -843,6 +829,8 @@ def _populate_workspace_volume(
             f"BASE_BRANCH={base_branch}",
             "-e",
             f"BASE_SHA={base_sha or ''}",
+            "-e",
+            f"BRANCH_REF={branch_ref}",
             "-e",
             f"ORIGIN_BRANCH_SHA={origin_branch_sha or ''}",
             "-e",
@@ -886,12 +874,12 @@ def _is_ancestor(maybe_ancestor: str, of_descendant: str) -> bool:
     ).returncode == 0
 
 
-def _resolve_base_branch_sha(base_branch: str) -> str:
-    """Resolve base_branch to a SHA, preferring the local head over origin."""
+def _resolve_base_branch(base_branch: str) -> tuple[str, str]:
+    """Resolve base_branch to (sha, ref), preferring the local head over origin."""
     for ref in (f"refs/heads/{base_branch}", f"refs/remotes/origin/{base_branch}"):
         sha = _rev_parse(ref)
         if sha:
-            return sha
+            return sha, ref
     fatal(f"Base branch '{base_branch}' not found locally or on origin.")
 
 
@@ -912,46 +900,44 @@ def _prompt_branch_choice(branch: str, local_sha: str, origin_sha: str) -> str:
         print("Please enter l, o, or a.")
 
 
-def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str | None, str | None]:
+def _resolve_branch_for_sandbox(branch: str, base_branch: str) -> tuple[str, str | None, str | None, str]:
     """Decide which commit the sandbox's <branch> should start at.
 
-    Returns (branch_sha, base_sha, origin_branch_sha).
+    Returns (branch_sha, base_sha, origin_branch_sha, branch_ref).
 
-    - base_sha is None when branch == base_branch (no separate origin/<base>
-      ref is needed in the workspace).
+    - base_sha is None when branch == base_branch.
     - origin_branch_sha is whatever ``refs/remotes/origin/<branch>`` resolves
-      to on the host at call time, or None if that ref doesn't exist. It's
-      injected into the sandbox as ``refs/remotes/origin/<branch>`` so that
-      `sandbox destroy` can distinguish pushed from unpushed work natively.
+      to on the host, or None. Injected into the sandbox so `sandbox destroy`
+      can distinguish pushed from unpushed work.
+    - branch_ref is the host ref that branch_sha was resolved from (e.g.
+      ``refs/heads/foo``). Fetching by named ref lets ``--depth`` work over
+      file:// transport; bare-SHA fetches silently ignore depth.
 
-    Policy — fetch has already been attempted so remote-tracking refs are
-    current. Never mutates refs on the host.
-
-    - Local head ahead-or-equal to origin: use local, no prompt.
-    - Local head behind or diverged from origin: prompt (l/o/a).
-    - Only local head exists: use local.
-    - Only origin ref exists: use origin.
-    - Neither exists: start a fresh branch at base_branch.
+    Policy — never mutates refs on the host.
     """
     local_sha = _rev_parse(f"refs/heads/{branch}")
     origin_sha = _rev_parse(f"refs/remotes/origin/{branch}")
+    local_ref = f"refs/heads/{branch}"
+    origin_ref = f"refs/remotes/origin/{branch}"
 
     if local_sha and origin_sha:
         if local_sha == origin_sha or _is_ancestor(origin_sha, local_sha):
-            branch_sha = local_sha
+            branch_sha, branch_ref = local_sha, local_ref
         else:
-            branch_sha = _prompt_branch_choice(branch, local_sha, origin_sha)
+            chosen = _prompt_branch_choice(branch, local_sha, origin_sha)
+            branch_ref = local_ref if chosen == local_sha else origin_ref
+            branch_sha = chosen
     elif local_sha:
-        branch_sha = local_sha
+        branch_sha, branch_ref = local_sha, local_ref
     elif origin_sha:
         info(f"Branch '{branch}' exists only on origin — using origin/{branch}.")
-        branch_sha = origin_sha
+        branch_sha, branch_ref = origin_sha, origin_ref
     else:
         info(f"Creating new branch '{branch}' from '{base_branch}' in the sandbox.")
-        branch_sha = _resolve_base_branch_sha(base_branch)
+        branch_sha, branch_ref = _resolve_base_branch(base_branch)
 
-    base_sha = None if branch == base_branch else _resolve_base_branch_sha(base_branch)
-    return branch_sha, base_sha, origin_sha
+    base_sha = None if branch == base_branch else _resolve_base_branch(base_branch)[0]
+    return branch_sha, base_sha, origin_sha, branch_ref
 
 
 def _warn_if_host_dirty(branch: str) -> None:
@@ -1034,12 +1020,18 @@ def init_cache_from_master() -> None:
 
     try:
         run(["git", "fetch", "origin", "master", "--quiet"], capture=True)
-        master_sha = _rev_parse("refs/remotes/origin/master") or _rev_parse("refs/heads/master")
+        master_ref: str | None = None
+        master_sha: str | None = None
+        for ref in ("refs/remotes/origin/master", "refs/heads/master"):
+            master_sha = _rev_parse(ref)
+            if master_sha:
+                master_ref = ref
+                break
         if not master_sha:
             fatal("Cannot find master locally or on origin — nothing to build cache from.")
 
         info("Populating cache-init workspace with master...")
-        _populate_workspace_volume(init_volume, "master", master_sha, "master", None)
+        _populate_workspace_volume(init_volume, "master", master_sha, "master", None, branch_ref=master_ref)
 
         info("Running cache-init entrypoint...")
         compose(
@@ -1329,7 +1321,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     # Everything up to registry.allocate() is side-effect-free on the sandbox
     # side — abort here costs nothing to clean up.
     _fetch_origin()
-    branch_sha, base_sha, origin_branch_sha = _resolve_branch_for_sandbox(branch, base_branch)
+    branch_sha, base_sha, origin_branch_sha, branch_ref = _resolve_branch_for_sandbox(branch, base_branch)
     _warn_if_host_dirty(branch)
     _check_macos_ssh_agent_launchd()
     _check_ssh_agent_has_keys()
@@ -1361,7 +1353,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
     try:
         volume = workspace_volume_name(project)
         info(f"Populating workspace volume {volume} with branch {branch}...")
-        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha)
+        _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha, branch_ref)
 
         profiles = resolve_docker_profiles(intents)
         if profiles:
