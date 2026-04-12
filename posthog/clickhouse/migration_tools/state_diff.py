@@ -151,19 +151,109 @@ def _normalize_interval_funcs(s: str) -> str:
     return _INTERVAL_RE.sub(_sub, s)
 
 
+def _strip_outer_balanced_parens(s: str, start: int) -> tuple[str, bool]:
+    """If s[start] is '(', find matching ')' and strip if the group is redundant.
+
+    A paren group is redundant when it wraps an AND/OR operand — i.e. the
+    character before '(' or after ')' is adjacent to AND/OR (or -> or start/end).
+    Returns (possibly-modified string, whether a strip happened).
+    """
+    if start >= len(s) or s[start] != "(":
+        return s, False
+    depth = 1
+    i = start + 1
+    while i < len(s) and depth > 0:
+        if s[i] == "(":
+            depth += 1
+        elif s[i] == ")":
+            depth -= 1
+        i += 1
+    if depth != 0:
+        return s, False
+    end = i - 1  # index of closing ')'
+    inner = s[start + 1 : end]
+    # Don't strip if inner is empty or if stripping would remove function-call parens
+    # (function call = identifier immediately before the '(')
+    if start > 0 and re.match(r"\w", s[start - 1]):
+        return s, False
+    s = s[:start] + inner + s[end + 1 :]
+    return s, True
+
+
+def _strip_redundant_parens(s: str) -> str:
+    """Iteratively strip semantically-redundant parentheses in lambda bodies.
+
+    CH wraps lambda conditions at two levels:
+    1. Outer: ``-> (expr)`` → ``-> expr``
+    2. Per-operand: ``(cond1) AND (cond2)`` → ``cond1 AND cond2``
+
+    Since we only need equality comparison (not execution), stripping these
+    redundant wrappers is safe.
+    """
+    prev = None
+    while prev != s:
+        prev = s
+        # Strip outer parens wrapping the full lambda body: -> (...) → -> ...
+        m = re.search(r"->\s*\(", s)
+        if m:
+            paren_start = m.end() - 1
+            s, _ = _strip_outer_balanced_parens(s, paren_start)
+
+        # Strip parens around AND/OR operands by scanning for paren groups
+        # adjacent to boolean operators
+        changed = True
+        while changed:
+            changed = False
+            # Find (expr) followed by AND/OR
+            for m in re.finditer(r"\(", s):
+                pos = m.start()
+                # Skip function-call parens (preceded by word char)
+                if pos > 0 and re.match(r"\w", s[pos - 1]):
+                    continue
+                # Find the matching close paren
+                depth = 1
+                j = pos + 1
+                while j < len(s) and depth > 0:
+                    if s[j] == "(":
+                        depth += 1
+                    elif s[j] == ")":
+                        depth -= 1
+                    j += 1
+                if depth != 0:
+                    continue
+                close = j - 1
+                # Check if followed by AND/OR or preceded by AND/OR (or ->)
+                after = s[close + 1 :].lstrip()
+                before = s[:pos].rstrip()
+                is_bool_context = (
+                    re.match(r"\b(?:and|or)\b", after, re.IGNORECASE)
+                    or re.search(r"\b(?:and|or)\s*$", before, re.IGNORECASE)
+                    or before.endswith("->")
+                )
+                if is_bool_context:
+                    inner = s[pos + 1 : close]
+                    s = s[:pos] + inner + s[close + 1 :]
+                    changed = True
+                    break  # restart scan after mutation
+
+        s = re.sub(r"  +", " ", s)
+    return s
+
+
 def _normalize_default(s: str) -> str:
     """Normalize a default expression for semantic comparison.
 
     Handles: backslash-escaped quotes, toIntervalX(N) → INTERVAL N X,
-    case folding, whitespace collapse, lambda-body paren stripping.
+    case folding, whitespace collapse, lambda-body paren stripping,
+    nested AND/OR operand paren stripping.
     """
     # Fix 3: Normalize backslash-escaped quotes (CH double-escapes in some contexts)
     s = s.replace('\\\\"', '"').replace('\\"', '"')
     s = _normalize_interval_funcs(s)
     s = re.sub(r"\s+", " ", s.strip().lower())
-    # Fix 1: Strip semantically redundant outer parens in lambda bodies.
-    # CH wraps lambda conditions: `-> (key NOT LIKE '$%')` vs `-> key NOT LIKE '$%'`
-    s = re.sub(r"->\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)", r"-> \1", s)
+    # Fix 1+6: Strip semantically redundant parens in lambda bodies,
+    # including nested per-operand parens CH adds around AND/OR clauses.
+    s = _strip_redundant_parens(s)
     return s
 
 
@@ -366,47 +456,24 @@ def _generate_create_sql(
 def _normalize_mv_select(sql: str) -> str:
     """Normalize MV SELECT SQL for semantic comparison.
 
-    Collapses whitespace, lowercases SQL keywords, strips comments.
-    Does NOT parse the SQL — catches the common false-positive cases:
-    indentation changes, trailing newlines, keyword casing.
+    Handles the common false-positive cases that cause spurious MV recreates:
+    - Indentation/whitespace changes
+    - Keyword casing (CH uppercases keywords in stored SELECT)
+    - Database prefix on table names (CH adds ``posthog_test.`` or ``<db>.``)
+    - Trailing ``SETTINGS`` clause (CH may append engine settings)
     """
-    import re
-
     # Remove comments
     s = re.sub(r"--[^\n]*\n", " ", sql)
     s = re.sub(r"/\*.*?\*/", " ", s, flags=re.DOTALL)
+    # Strip trailing SETTINGS clause (not part of the logical query)
+    s = re.sub(r"\bSETTINGS\b\s+.*$", "", s, flags=re.IGNORECASE)
+    # Lowercase everything — simpler and more robust than keyword-by-keyword
+    s = s.lower()
+    # Strip database prefix from qualified table names: `db.table` → `table`
+    # Matches `word.` before an identifier (letter/underscore start).
+    s = re.sub(r"\b\w+\.\b(?=[a-z_])", "", s)
     # Collapse whitespace
     s = re.sub(r"\s+", " ", s)
-    # Normalize keyword case
-    keywords = [
-        "SELECT",
-        "FROM",
-        "WHERE",
-        "GROUP BY",
-        "ORDER BY",
-        "HAVING",
-        "JOIN",
-        "LEFT JOIN",
-        "INNER JOIN",
-        "AS",
-        "AND",
-        "OR",
-        "NOT",
-        "IN",
-        "IS",
-        "NULL",
-        "LIMIT",
-        "OFFSET",
-        "UNION",
-        "ALL",
-        "CASE",
-        "WHEN",
-        "THEN",
-        "ELSE",
-        "END",
-    ]
-    for kw in keywords:
-        s = re.sub(rf"\b{kw}\b", kw.lower(), s, flags=re.IGNORECASE)
     return s.strip()
 
 
