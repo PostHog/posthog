@@ -43,7 +43,7 @@ export function goalLinesToReferenceLines(
                 value: goal.value,
                 orientation: 'horizontal',
                 label: goal.displayLabel === false ? undefined : goal.label,
-                labelPosition: goal.position ?? 'end',
+                labelPosition: goal.position ?? 'start',
                 variant: 'goal',
                 style: goal.borderColor ? { color: goal.borderColor } : undefined,
             })

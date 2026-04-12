@@ -51,25 +51,21 @@ describe('goalLinesAdapter', () => {
                 orientation: 'horizontal',
                 variant: 'goal',
                 label: 'Target',
-                labelPosition: 'end',
+                labelPosition: 'start',
             })
         })
 
-        it('propagates borderColor via style.color', () => {
-            const goals: SchemaGoalLine[] = [{ label: 'Red', value: 50, borderColor: 'var(--danger)' }]
-            const result = goalLinesToReferenceLines(goals, series)
-            expect(result[0].style).toEqual({ color: 'var(--danger)' })
-        })
-
-        it('omits the label when displayLabel is false', () => {
-            const goals: SchemaGoalLine[] = [{ label: 'Hidden', value: 50, displayLabel: false }]
-            const result = goalLinesToReferenceLines(goals, series)
-            expect(result[0].label).toBeUndefined()
-        })
-
-        it('respects explicit label position', () => {
-            const goals: SchemaGoalLine[] = [{ label: 'Start', value: 50, position: 'start' }]
-            expect(goalLinesToReferenceLines(goals, series)[0].labelPosition).toBe('start')
+        it.each([
+            [
+                'propagates borderColor via style.color',
+                { borderColor: 'var(--danger)' },
+                { style: { color: 'var(--danger)' } },
+            ],
+            ['omits label when displayLabel is false', { displayLabel: false }, { label: undefined }],
+            ['respects explicit labelPosition', { position: 'end' }, { labelPosition: 'end' }],
+        ] as const)('%s', (_, goalOverrides, expectedProps) => {
+            const goals: SchemaGoalLine[] = [{ label: 'X', value: 50, ...goalOverrides }]
+            expect(goalLinesToReferenceLines(goals, series)[0]).toMatchObject(expectedProps)
         })
 
         it('drops goals when displayIfCrossed=false and value is below the series peak', () => {
