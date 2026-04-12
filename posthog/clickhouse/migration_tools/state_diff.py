@@ -284,6 +284,8 @@ def _normalize_type(s: str) -> str:
         return m.group(0)
 
     s = re.sub(r"\bDecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", _decimal_alias, s)
+    # Bool and Boolean are aliases in ClickHouse — normalize to Boolean
+    s = re.sub(r"\bBool\b", "Boolean", s)
     return s
 
 
