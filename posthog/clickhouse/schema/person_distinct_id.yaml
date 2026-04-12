@@ -25,6 +25,10 @@ tables:
               default_kind: DEFAULT
             - name: is_deleted
               type: Int8
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
 
     kafka_person_distinct_id:
         engine: Kafka
