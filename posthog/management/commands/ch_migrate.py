@@ -394,13 +394,13 @@ class Command(BaseCommand):
                     failures.append((i, step.comment or "reconcile", str(last_exc)))
 
                     if not continue_on_error:
-                        print("\nApply halted. Review the error and retry, "
-                              "or pass --continue-on-error to surface all failures.")
+                        print(
+                            "\nApply halted. Review the error and retry, "
+                            "or pass --continue-on-error to surface all failures."
+                        )
                         # Raise CommandError so the process exits non-zero.
                         # The finally block still runs and releases the apply lock.
-                        raise CommandError(
-                            f"Apply failed on step {i} ({step.comment or 'reconcile'}): {last_exc}"
-                        )
+                        raise CommandError(f"Apply failed on step {i} ({step.comment or 'reconcile'}): {last_exc}")
                     # continue-on-error: keep going to the next step
                     continue
 
@@ -429,9 +429,7 @@ class Command(BaseCommand):
                 # Truncate very long CH stack traces to the first line of the exception
                 first_line = err.split("\n", 1)[0][:300]
                 print(f"  step {idx} {name}: {first_line}")
-            raise CommandError(
-                f"Apply finished with {len(failures)} failure(s) out of {len(steps)} step(s)"
-            )
+            raise CommandError(f"Apply finished with {len(failures)} failure(s) out of {len(steps)} step(s)")
 
         # Record the git commit hash of the schema that was applied
         try:
@@ -616,9 +614,7 @@ class Command(BaseCommand):
         # `default_client` connects to the `system` database (see its docstring)
         # which always exists, so it can run the CREATE DATABASE statement.
         with default_client() as bootstrap_client:
-            bootstrap_client.execute(
-                f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster_name}"
-            )
+            bootstrap_client.execute(f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster_name}")
 
         # Now that the database exists, build the cluster client and create the
         # tracking table on every migrations node via ON CLUSTER.
