@@ -390,11 +390,13 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
         newCache.series = cache?.series
     }
 
-    // Preserve type-specific fields from the old cache when the current query type
-    // doesn't support them. This way a breakdownFilter set on Trends survives a
-    // round-trip through Stickiness (which has no breakdownFilter) and is restored
-    // when the user switches back to Trends.
+    // Preserve cache values that the current query type doesn't fully support,
+    // so they survive a round-trip when switching back.
     if (cache?.breakdownFilter && !isInsightQueryWithBreakdown(query)) {
+        newCache.breakdownFilter = cache.breakdownFilter
+    }
+    // Only Trends supports multiple breakdowns
+    if (cache?.breakdownFilter?.breakdowns?.length && isInsightQueryWithBreakdown(query) && !isTrendsQuery(query)) {
         newCache.breakdownFilter = cache.breakdownFilter
     }
     if (cache?.compareFilter && !isInsightQueryWithCompare(query)) {
@@ -402,6 +404,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     }
     if (cache?.funnelPathsFilter && !isPathsQuery(query)) {
         newCache.funnelPathsFilter = cache.funnelPathsFilter
+    }
+    if (cache?.interval === 'minute' && !isTrendsQuery(query)) {
+        newCache.interval = cache.interval
     }
 
     if (isWebAnalyticsInsightQuery(query)) {
@@ -532,6 +537,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 breakdowns: cache.breakdownFilter.breakdowns.filter((b) => b.type === 'person' || b.type === 'event'),
             }
         }
+    }
+
+    // compare filter
+    if (isInsightQueryWithCompare(mergedQuery) && cache.compareFilter) {
+        mergedQuery.compareFilter = cache.compareFilter
     }
 
     // funnel paths filter
