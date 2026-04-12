@@ -13,8 +13,8 @@ The diff respects ClickHouse ecosystem rules:
 
 from __future__ import annotations
 
-import logging
 import re
+import logging
 from dataclasses import dataclass, field
 
 from django.conf import settings as django_settings
@@ -411,7 +411,7 @@ def diff_state(
     # `migrate_clickhouse` until the YAML grows real bodies. The trailing
     # `...` in a valid SELECT list is not legal ClickHouse syntax, so this
     # check won't accidentally skip real MVs.
-    def _has_placeholder_select(t: "DesiredTable") -> bool:
+    def _has_placeholder_select(t: DesiredTable) -> bool:
         if not _is_mv(t.engine) or not t.select:
             return False
         select_body = t.select
@@ -430,7 +430,7 @@ def diff_state(
             ", ".join(skipped_placeholder_mvs),
         )
 
-    def _should_skip(name: str, t: "DesiredTable") -> bool:
+    def _should_skip(name: str, t: DesiredTable) -> bool:
         return _is_dictionary(t.engine) or _has_placeholder_select(t)
 
     desired_without_skipped = {
