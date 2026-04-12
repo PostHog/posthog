@@ -231,17 +231,14 @@ type SeriesArray = (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 interface InsightTypeCapabilities {
     series?: ((series: SeriesArray) => SeriesArray) | true
     interval?: ((interval: IntervalType) => IntervalType) | true
-    breakdownFilter?: ((bf: BreakdownFilter, cache: QueryPropertyCache) => BreakdownFilter) | true
+    breakdownFilter?: ((bf: BreakdownFilter) => BreakdownFilter) | true
     compareFilter?: true
     funnelPathsFilter?: true
 }
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
 
-const truncateToSingleBreakdown = (bf: BreakdownFilter, cache: QueryPropertyCache): BreakdownFilter => {
-    if (cache.kind !== NodeKind.TrendsQuery) {
-        return bf
-    }
+const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
     if (bf.breakdowns?.length) {
         const first = bf.breakdowns[0]
         return {
@@ -635,7 +632,7 @@ const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): 
     if (caps.breakdownFilter && cache.breakdownFilter) {
         result.breakdownFilter =
             typeof caps.breakdownFilter === 'function'
-                ? caps.breakdownFilter(cache.breakdownFilter, cache)
+                ? caps.breakdownFilter(cache.breakdownFilter)
                 : cache.breakdownFilter
     }
     if (caps.compareFilter && cache.compareFilter) {

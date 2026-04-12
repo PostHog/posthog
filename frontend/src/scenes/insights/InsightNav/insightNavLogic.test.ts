@@ -696,6 +696,56 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('truncates multi-breakdowns on multi-hop transition through unsupported type back to funnels', async () => {
+                const trendsWithMultipleBreakdowns: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdowns: [
+                                { property: '$browser', type: 'event' },
+                                { property: '$os', type: 'event' },
+                            ],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithMultipleBreakdowns)
+                })
+
+                // Trends → Funnels (truncates to single)
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                const funnelsQuery1 = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                expect(funnelsQuery1.breakdownFilter?.breakdown).toBe('$browser')
+                expect(funnelsQuery1.breakdownFilter?.breakdowns).toBeUndefined()
+
+                // Funnels → Lifecycle (no breakdown support, cached)
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.LIFECYCLE)
+                }).toFinishAllListeners()
+
+                // Lifecycle → Funnels (must still truncate, not leak full breakdowns array)
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                const funnelsQuery2 = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                expect(funnelsQuery2.breakdownFilter?.breakdown).toBe('$browser')
+                expect(funnelsQuery2.breakdownFilter?.breakdowns).toBeUndefined()
+            })
+
             it('preserves compareFilter through round-trip via unsupported type', async () => {
                 const trendsWithCompare: InsightVizNode = {
                     kind: NodeKind.InsightVizNode,
