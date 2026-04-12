@@ -399,6 +399,23 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
+            # Compile bytecode for event-based conversion goals.
+            # Same pattern as wait_until_event: each entry in conversion.events
+            # has its own filters which the cdp-events consumer evaluates.
+            conversion_events = conversion.get("events", [])
+            if isinstance(conversion_events, list):
+                is_draft = self.context.get("is_draft")
+                for event in conversion_events:
+                    event_filters = event.get("filters")
+                    if event_filters:
+                        event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
+                        if is_draft:
+                            if event_serializer.is_valid():
+                                event["filters"] = event_serializer.validated_data
+                        else:
+                            event_serializer.is_valid(raise_exception=True)
+                            event["filters"] = event_serializer.validated_data
+
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:

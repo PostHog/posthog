@@ -1,6 +1,5 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
 import {
@@ -13,6 +12,7 @@ import {
     IconTarget,
     IconWebhooks,
 } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -25,7 +25,6 @@ import {
     LemonTag,
     Spinner,
     Tooltip,
-    lemonToast,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
@@ -830,17 +829,43 @@ function ConversionGoalSection(): JSX.Element {
                     />
                 </div>
 
-                <div className="flex flex-col gap-1 items-start">
-                    <LemonLabel>
-                        Detect conversion from events
-                        <LemonTag>Coming soon</LemonTag>
-                    </LemonLabel>
+                <div className="flex flex-col gap-1 items-start w-full">
+                    <LemonLabel>Detect conversion from events</LemonLabel>
+                    {(workflow.conversion?.events ?? []).map(
+                        (eventConfig: { filters?: any; name?: string }, index: number) => (
+                            <div key={index} className="flex flex-col gap-2 p-2 rounded border w-full">
+                                <div className="flex justify-between items-center">
+                                    <LemonLabel>Conversion event {index + 1}</LemonLabel>
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconX />}
+                                        onClick={() => {
+                                            const events = [...(workflow.conversion?.events ?? [])]
+                                            events.splice(index, 1)
+                                            setWorkflowValue('conversion', { ...workflow.conversion, events })
+                                        }}
+                                    />
+                                </div>
+                                <HogFlowEventFilters
+                                    filtersKey={`conversion-event-${index}`}
+                                    filters={eventConfig.filters ?? {}}
+                                    setFilters={(filters) => {
+                                        const events = [...(workflow.conversion?.events ?? [])]
+                                        events[index] = { ...events[index], filters: filters ?? {} }
+                                        setWorkflowValue('conversion', { ...workflow.conversion, events })
+                                    }}
+                                    typeKey={`workflow-conversion-event-${index}`}
+                                    buttonCopy="Select event"
+                                />
+                            </div>
+                        )
+                    )}
                     <LemonButton
                         type="secondary"
                         icon={<IconPlusSmall />}
                         onClick={() => {
-                            posthog.capture('workflows workflow event conversion clicked')
-                            lemonToast.info('Event targeting coming soon!')
+                            const events = [...(workflow.conversion?.events ?? []), { filters: {} }]
+                            setWorkflowValue('conversion', { ...workflow.conversion, events })
                         }}
                     >
                         Add event conversion
