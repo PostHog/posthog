@@ -292,13 +292,164 @@ tables:
             kafka_group_name: events_json_consumer
             kafka_format: JSONEachRow
             kafka_skip_broken_messages: '100'
-        columns: inherit sharded_events
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: DateTime64(6, 'UTC')
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: DateTime64(6, 'UTC')
+            - name: person_id
+              type: UUID
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_properties
+              type: String
+            - name: group0_properties
+              type: String
+            - name: group1_properties
+              type: String
+            - name: group2_properties
+              type: String
+            - name: group3_properties
+              type: String
+            - name: group4_properties
+              type: String
+            - name: group0_created_at
+              type: DateTime64(3)
+            - name: group1_created_at
+              type: DateTime64(3)
+            - name: group2_created_at
+              type: DateTime64(3)
+            - name: group3_created_at
+              type: DateTime64(3)
+            - name: group4_created_at
+              type: DateTime64(3)
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+            - name: historical_migration
+              type: Bool
+            # Dynamically materialized columns (dmat slots)
+            - name: dmat_string_0
+              type: Nullable(String)
+            - name: dmat_string_1
+              type: Nullable(String)
+            - name: dmat_string_2
+              type: Nullable(String)
+            - name: dmat_string_3
+              type: Nullable(String)
+            - name: dmat_string_4
+              type: Nullable(String)
+            - name: dmat_string_5
+              type: Nullable(String)
+            - name: dmat_string_6
+              type: Nullable(String)
+            - name: dmat_string_7
+              type: Nullable(String)
+            - name: dmat_string_8
+              type: Nullable(String)
+            - name: dmat_string_9
+              type: Nullable(String)
+            - name: dmat_numeric_0
+              type: Nullable(Float64)
+            - name: dmat_numeric_1
+              type: Nullable(Float64)
+            - name: dmat_numeric_2
+              type: Nullable(Float64)
+            - name: dmat_numeric_3
+              type: Nullable(Float64)
+            - name: dmat_numeric_4
+              type: Nullable(Float64)
+            - name: dmat_numeric_5
+              type: Nullable(Float64)
+            - name: dmat_numeric_6
+              type: Nullable(Float64)
+            - name: dmat_numeric_7
+              type: Nullable(Float64)
+            - name: dmat_numeric_8
+              type: Nullable(Float64)
+            - name: dmat_numeric_9
+              type: Nullable(Float64)
+            - name: dmat_bool_0
+              type: Nullable(UInt8)
+            - name: dmat_bool_1
+              type: Nullable(UInt8)
+            - name: dmat_bool_2
+              type: Nullable(UInt8)
+            - name: dmat_bool_3
+              type: Nullable(UInt8)
+            - name: dmat_bool_4
+              type: Nullable(UInt8)
+            - name: dmat_bool_5
+              type: Nullable(UInt8)
+            - name: dmat_bool_6
+              type: Nullable(UInt8)
+            - name: dmat_bool_7
+              type: Nullable(UInt8)
+            - name: dmat_bool_8
+              type: Nullable(UInt8)
+            - name: dmat_bool_9
+              type: Nullable(UInt8)
+            - name: dmat_datetime_0
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_1
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_2
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_3
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_4
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_5
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_6
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_7
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_8
+              type: Nullable(DateTime64(6, 'UTC'))
+            - name: dmat_datetime_9
+              type: Nullable(DateTime64(6, 'UTC'))
 
     events_json_mv:
         engine: MaterializedView
         source: kafka_events_json
         target: writable_events
-        select: 'SELECT * FROM {{ database }}.kafka_events_json'
+        select: >-
+            SELECT
+            uuid, event, properties, timestamp, team_id, distinct_id,
+            elements_chain, created_at, person_id, person_created_at,
+            person_properties,
+            group0_properties, group1_properties, group2_properties,
+            group3_properties, group4_properties,
+            group0_created_at, group1_created_at, group2_created_at,
+            group3_created_at, group4_created_at,
+            person_mode, historical_migration,
+            dmat_string_0, dmat_string_1, dmat_string_2, dmat_string_3,
+            dmat_string_4, dmat_string_5, dmat_string_6, dmat_string_7,
+            dmat_string_8, dmat_string_9,
+            dmat_numeric_0, dmat_numeric_1, dmat_numeric_2, dmat_numeric_3,
+            dmat_numeric_4, dmat_numeric_5, dmat_numeric_6, dmat_numeric_7,
+            dmat_numeric_8, dmat_numeric_9,
+            dmat_bool_0, dmat_bool_1, dmat_bool_2, dmat_bool_3,
+            dmat_bool_4, dmat_bool_5, dmat_bool_6, dmat_bool_7,
+            dmat_bool_8, dmat_bool_9,
+            dmat_datetime_0, dmat_datetime_1, dmat_datetime_2, dmat_datetime_3,
+            dmat_datetime_4, dmat_datetime_5, dmat_datetime_6, dmat_datetime_7,
+            dmat_datetime_8, dmat_datetime_9,
+            _timestamp, _offset,
+            arrayMap(i -> _headers.value[i], arrayFilter(i -> _headers.name[i] = 'kafka-consumer-breadcrumbs', arrayEnumerate(_headers.name))) as consumer_breadcrumbs
+            FROM {{ database }}.kafka_events_json
         on_nodes: INGESTION_EVENTS
         columns: []
 

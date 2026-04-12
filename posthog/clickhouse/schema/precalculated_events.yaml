@@ -30,6 +30,13 @@ tables:
               type: UUID
             - name: source
               type: String
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime64(6)
+            - name: _partition
+              type: UInt64
+            - name: _offset
+              type: UInt64
 
     writable_precalculated_events:
         engine: Distributed
