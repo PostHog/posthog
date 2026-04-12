@@ -129,7 +129,6 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             indexedResults: indexedResults ?? [],
             openPersonsModal,
         }),
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- openPersonsModal is a stable module import
         [
             context,
             hasPersonsModal,
@@ -139,6 +138,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             insightData?.resolved_date_range,
             querySource,
             indexedResults,
+            openPersonsModal,
         ]
     )
 
