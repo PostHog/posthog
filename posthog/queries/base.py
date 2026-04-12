@@ -84,7 +84,9 @@ def match_property(property: Property, override_property_values: dict[str, Any])
     # doesn't support operator is_not_set
 
     if property.key not in override_property_values:
-        raise ValidationError("can't match properties without an override value")
+        return False
+
+    override_value = override_property_values[property.key]
 
     key = property.key
     operator = property.operator or "exact"
