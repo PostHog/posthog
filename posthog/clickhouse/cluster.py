@@ -240,7 +240,20 @@ class ClickhouseCluster:
             ):
                 if host.connection_info not in seen:
                     seen[host.connection_info] = host
-        return set(seen.values())
+        result = set(seen.values())
+
+        # On dev/test stacks, roles like INGESTION_EVENTS don't map to any host
+        # because the single node only has hostClusterRole=data. Fall back to all
+        # available hosts so ch_migrate creates tables on the dev node — matching
+        # legacy migrate_clickhouse behavior which ignores roles entirely.
+        if not result and (settings.DEBUG or settings.TEST):
+            deduped: dict[ConnectionInfo, HostInfo] = {}
+            for host in hosts:
+                if host.connection_info not in deduped:
+                    deduped[host.connection_info] = host
+            result = set(deduped.values())
+
+        return result
 
     @property
     def __hosts(self) -> set[HostInfo]:
