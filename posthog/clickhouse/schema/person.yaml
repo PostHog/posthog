@@ -52,13 +52,29 @@ tables:
             kafka_group_name: person_consumer
             kafka_format: JSONEachRow
             kafka_skip_broken_messages: '100'
-        columns: inherit person
+        columns:
+            - name: id
+              type: UUID
+            - name: created_at
+              type: DateTime64(3)
+            - name: team_id
+              type: Int64
+            - name: properties
+              type: String
+            - name: is_identified
+              type: Int8
+            - name: is_deleted
+              type: Int8
+            - name: version
+              type: UInt64
+            - name: last_seen_at
+              type: Nullable(DateTime64)
 
     person_mv:
         engine: MaterializedView
         source: kafka_person
         target: writable_person
-        select: 'SELECT * FROM {{ database }}.kafka_person'
+        select: "SELECT id, created_at, team_id, properties, is_identified, is_deleted, version, last_seen_at, _timestamp, _offset FROM {{ database }}.kafka_person"
         on_nodes: INGESTION_EVENTS
         columns: []
 
