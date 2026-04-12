@@ -235,6 +235,39 @@ tables:
               default_expression: "NOW64()"
             - name: consumer_breadcrumbs
               type: Array(String)
+            # Soft delete
+            - name: is_deleted
+              type: Boolean
+            # Ephemeral property maps (used by ingestion for fast property access)
+            - name: properties_map_ephemeral
+              type: Map(String, String)
+              default_kind: EPHEMERAL
+              default_expression: "CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')"
+            - name: person_properties_map_ephemeral
+              type: Map(String, String)
+              default_kind: EPHEMERAL
+              default_expression: "CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')"
+            # Materialized AI columns
+            - name: mat_$ai_trace_id
+              type: Nullable(String)
+              default_kind: MATERIALIZED
+              default_expression: "JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')"
+            - name: mat_$ai_session_id
+              type: Nullable(String)
+              default_kind: MATERIALIZED
+              default_expression: "JSONExtract(properties, '$ai_session_id', 'Nullable(String)')"
+            - name: mat_$ai_is_error
+              type: Nullable(String)
+              default_kind: MATERIALIZED
+              default_expression: "JSONExtract(properties, '$ai_is_error', 'Nullable(String)')"
+            - name: mat_$ai_prompt_name
+              type: Nullable(String)
+              default_kind: MATERIALIZED
+              default_expression: "JSONExtract(properties, '$ai_prompt_name', 'Nullable(String)')"
+            - name: mat_$ai_experiment_id
+              type: Nullable(String)
+              default_kind: DEFAULT
+              default_expression: "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
 
     writable_events:
         engine: Distributed
