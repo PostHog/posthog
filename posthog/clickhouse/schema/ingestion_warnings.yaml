@@ -26,6 +26,13 @@ tables:
               type: String
             - name: timestamp
               type: "DateTime64(6, 'UTC')"
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
 
     writable_ingestion_warnings:
         engine: Distributed
@@ -49,7 +56,17 @@ tables:
             kafka_topic_list: clickhouse_ingestion_warnings
             kafka_group_name: clickhouse_ingestion_warnings
             kafka_format: JSONEachRow
-        columns: inherit sharded_ingestion_warnings
+        columns:
+            - name: team_id
+              type: Int64
+            - name: source
+              type: LowCardinality(String)
+            - name: type
+              type: String
+            - name: details
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
 
     ingestion_warnings_mv:
         engine: MaterializedView

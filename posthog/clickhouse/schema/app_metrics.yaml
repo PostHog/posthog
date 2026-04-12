@@ -40,6 +40,13 @@ tables:
               type: String
             - name: error_details
               type: String
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
 
     writable_app_metrics:
         engine: Distributed

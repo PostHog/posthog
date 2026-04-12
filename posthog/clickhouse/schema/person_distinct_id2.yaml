@@ -24,6 +24,13 @@ tables:
               type: Int8
             - name: version
               type: Int64
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
 
     writable_person_distinct_id2:
         engine: Distributed
@@ -40,7 +47,17 @@ tables:
             kafka_topic_list: clickhouse_person_distinct_id
             kafka_group_name: person_distinct_id
             kafka_format: JSONEachRow
-        columns: inherit person_distinct_id2
+        columns:
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: person_id
+              type: UUID
+            - name: is_deleted
+              type: Int8
+            - name: version
+              type: Int64
 
     person_distinct_id2_mv:
         engine: MaterializedView
