@@ -101,7 +101,7 @@ Global override — reskin the entire app:
 }
 ```
 
-Subtree override — theme one section differently. Any valid CSS selector works, and Tailwind v4 arbitrary properties let you do it inline:
+Not recommended! Subtree override — theme one section differently. Any valid CSS selector works, and Tailwind v4 arbitrary properties let you do it inline:
 
 ```tsx
 <aside className="[--theme-hue:300] bg-muted">
