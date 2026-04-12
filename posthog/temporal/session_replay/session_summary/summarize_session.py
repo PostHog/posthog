@@ -1098,6 +1098,7 @@ async def execute_summarize_session_video_stream(
         try:
             status, _final_result = await _check_handle_data(handle)
             if status is None:
+                await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
                 continue
 
             if status == WorkflowExecutionStatus.COMPLETED:
@@ -1149,6 +1150,7 @@ async def execute_summarize_session_video_stream(
                     error_type=type(e).__name__,
                     signals_type="session-summaries",
                 )
+                await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
                 continue
 
             rasterizer_workflow_id = progress_payload.get("rasterizer_workflow_id")
@@ -1168,6 +1170,8 @@ async def execute_summarize_session_video_stream(
                 event_label="session-summary-progress",
                 event_data=json.dumps(progress_payload),
             )
+
+            await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
         except Exception as e:
             capture_exception(e)
             yield serialize_to_sse_event(
@@ -1175,8 +1179,6 @@ async def execute_summarize_session_video_stream(
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
             return
-        finally:
-            await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
 
 
 def execute_summarize_session_stream(
