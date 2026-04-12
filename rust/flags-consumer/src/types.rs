@@ -1,13 +1,37 @@
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::utils::mock::Mock;
 
+/// A Kafka message that can be classified into a [`CdcEvent`].
+///
+/// Implemented by each raw message type (`PersonMessage`,
+/// `DistinctIdMessage`). The generic consumer loop is parameterised over
+/// this trait, so adding a new topic requires only a new struct + impl —
+/// no changes to the consumer machinery.
+///
+/// The `DeserializeOwned + Send` super-traits are required by
+/// `SingleTopicConsumer::json_recv`.
+pub trait KafkaMessage: DeserializeOwned + Send {
+    /// Label used in Prometheus metrics (e.g. `"person"`, `"distinct_id"`).
+    /// Must be a `&'static str` to avoid allocation in the hot path.
+    const SOURCE: &'static str;
+
+    /// Extract the team_id for early filtering before classification.
+    fn team_id(&self) -> i32;
+
+    /// Classify the raw message into the internal [`CdcEvent`] enum.
+    /// Consumes `self` — the raw message is not needed after classification.
+    fn classify(self) -> CdcEvent;
+}
+
 /// Raw message from the `clickhouse_person` Kafka topic.
 ///
-/// The `properties` field arrives as a JSON-encoded string (stringified by the
-/// Plugin Server), not as a nested object. We deserialize it as a raw `String`
-/// and parse it into `serde_json::Value` during classification.
+/// The `properties` field arrives as a JSON-encoded string (stringified by
+/// the Plugin Server), not as a nested object. It's kept as `String` to
+/// mirror the wire format faithfully. The inner JSON is parsed only in
+/// `classify()`, and only for non-deletion messages.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PersonMessage {
     pub id: Uuid,
@@ -16,6 +40,32 @@ pub struct PersonMessage {
     pub version: i64,
     #[serde(default)]
     pub is_deleted: i32,
+}
+
+impl KafkaMessage for PersonMessage {
+    const SOURCE: &'static str = "person";
+
+    fn team_id(&self) -> i32 {
+        self.team_id
+    }
+
+    fn classify(self) -> CdcEvent {
+        if self.is_deleted != 0 {
+            CdcEvent::PersonDeletion {
+                team_id: self.team_id,
+                person_uuid: self.id,
+                version: self.version,
+            }
+        } else {
+            let properties = serde_json::from_str(&self.properties).unwrap_or_default();
+            CdcEvent::PersonUpdate {
+                team_id: self.team_id,
+                person_uuid: self.id,
+                properties,
+                version: self.version,
+            }
+        }
+    }
 }
 
 /// Raw message from the `clickhouse_person_distinct_id` Kafka topic.
@@ -29,12 +79,43 @@ pub struct DistinctIdMessage {
     pub is_deleted: i32,
 }
 
+impl KafkaMessage for DistinctIdMessage {
+    const SOURCE: &'static str = "distinct_id";
+
+    fn team_id(&self) -> i32 {
+        self.team_id
+    }
+
+    fn classify(self) -> CdcEvent {
+        let distinct_id = self.distinct_id.into_boxed_str();
+        if self.is_deleted != 0 {
+            CdcEvent::DistinctIdDeletion {
+                team_id: self.team_id,
+                person_uuid: self.person_id,
+                distinct_id,
+                version: self.version,
+            }
+        } else {
+            CdcEvent::DistinctIdAssignment {
+                team_id: self.team_id,
+                person_uuid: self.person_id,
+                distinct_id,
+                version: self.version,
+            }
+        }
+    }
+}
+
 /// Internal event after deserialization and classification.
+///
+/// Not `Clone` by design — events are moved through the pipeline (consumer →
+/// channel → processor → storage) without copying. This prevents accidental
+/// deep-cloning of `serde_json::Value` property trees.
 ///
 /// String fields that are read-only after construction use `Box<str>` instead
 /// of `String` to save 8 bytes per instance (no capacity field) and to signal
 /// immutability.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum CdcEvent {
     PersonUpdate {
         team_id: i32,
@@ -77,48 +158,6 @@ impl CdcEvent {
             CdcEvent::PersonDeletion { .. } => "person_delete",
             CdcEvent::DistinctIdAssignment { .. } => "did_assign",
             CdcEvent::DistinctIdDeletion { .. } => "did_delete",
-        }
-    }
-}
-
-/// Classify a raw person message into a `CdcEvent`.
-///
-/// Parses the stringified `properties` JSON. Falls back to `{}` on parse
-/// failure so a single malformed properties blob doesn't block the pipeline.
-pub fn classify_person_message(msg: PersonMessage) -> CdcEvent {
-    if msg.is_deleted != 0 {
-        CdcEvent::PersonDeletion {
-            team_id: msg.team_id,
-            person_uuid: msg.id,
-            version: msg.version,
-        }
-    } else {
-        let properties = serde_json::from_str(&msg.properties).unwrap_or_default();
-        CdcEvent::PersonUpdate {
-            team_id: msg.team_id,
-            person_uuid: msg.id,
-            properties,
-            version: msg.version,
-        }
-    }
-}
-
-/// Classify a raw distinct-ID message into a `CdcEvent`.
-pub fn classify_distinct_id_message(msg: DistinctIdMessage) -> CdcEvent {
-    let distinct_id = msg.distinct_id.into_boxed_str();
-    if msg.is_deleted != 0 {
-        CdcEvent::DistinctIdDeletion {
-            team_id: msg.team_id,
-            person_uuid: msg.person_id,
-            distinct_id,
-            version: msg.version,
-        }
-    } else {
-        CdcEvent::DistinctIdAssignment {
-            team_id: msg.team_id,
-            person_uuid: msg.person_id,
-            distinct_id,
-            version: msg.version,
         }
     }
 }
@@ -200,7 +239,7 @@ mod tests {
     #[test]
     fn test_classify_person_update() {
         let msg = mock!(PersonMessage, team_id: 42, version: 5);
-        let event = classify_person_message(msg);
+        let event = msg.classify();
         match event {
             CdcEvent::PersonUpdate {
                 team_id, version, ..
@@ -215,7 +254,7 @@ mod tests {
     #[test]
     fn test_classify_person_deletion() {
         let msg = mock!(PersonMessage, is_deleted: 1, version: 105);
-        let event = classify_person_message(msg);
+        let event = msg.classify();
         match event {
             CdcEvent::PersonDeletion { version, .. } => {
                 assert_eq!(version, 105);
@@ -227,7 +266,7 @@ mod tests {
     #[test]
     fn test_classify_person_malformed_properties() {
         let msg = mock!(PersonMessage, properties: "not valid json".to_string());
-        let event = classify_person_message(msg);
+        let event = msg.classify();
         match event {
             CdcEvent::PersonUpdate { properties, .. } => {
                 assert_eq!(properties, serde_json::Value::Null);
@@ -239,7 +278,7 @@ mod tests {
     #[test]
     fn test_classify_distinct_id_assignment() {
         let msg = mock!(DistinctIdMessage, distinct_id: "user-xyz".to_string(), version: 7);
-        let event = classify_distinct_id_message(msg);
+        let event = msg.classify();
         match event {
             CdcEvent::DistinctIdAssignment {
                 distinct_id,
@@ -256,7 +295,7 @@ mod tests {
     #[test]
     fn test_classify_distinct_id_deletion() {
         let msg = mock!(DistinctIdMessage, is_deleted: 1, version: 3);
-        let event = classify_distinct_id_message(msg);
+        let event = msg.classify();
         match event {
             CdcEvent::DistinctIdDeletion { version, .. } => {
                 assert_eq!(version, 3);

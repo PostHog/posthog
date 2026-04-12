@@ -2,8 +2,10 @@ use std::future::Future;
 use std::time::Duration;
 
 use common_database::is_transient_error;
+use common_kafka::kafka_consumer::Offset;
 
 use crate::config::Config;
+use crate::consumer::EventWithOffset;
 use crate::metric_consts;
 use crate::storage::error::CdcError;
 use crate::storage::postgres::{
@@ -15,25 +17,35 @@ use crate::types::CdcEvent;
 /// Process a batch of CDC events by dispatching them to the appropriate
 /// storage methods.
 ///
+/// Accepts a `drain` iterator over `EventWithOffset` to avoid intermediate
+/// allocations — events are moved directly into storage data types while
+/// offsets are collected for the caller to store after processing.
+///
 /// Events are separated into four categories and executed in order:
 /// 1. Person upserts (UNNEST batch)
 /// 2. Person deletions (UNNEST batch)
 /// 3. Distinct-ID assignments (individual transactions)
 /// 4. Distinct-ID deletions (individual)
+///
+/// Returns all offsets regardless of success/failure — the caller decides
+/// whether to store them (POC: always store for forward progress).
 pub async fn process_batch(
-    events: &[CdcEvent],
+    items: impl Iterator<Item = EventWithOffset>,
+    size_hint: usize,
     storage: &PostgresStorage,
     config: &Config,
-) -> Result<(), CdcError> {
+) -> Vec<Offset> {
     let start = std::time::Instant::now();
 
+    let mut offsets = Vec::with_capacity(size_hint);
     let mut person_updates: Vec<PersonUpdateData> = Vec::new();
     let mut person_deletions: Vec<PersonDeletionData> = Vec::new();
     let mut did_assignments: Vec<DistinctIdAssignmentData> = Vec::new();
     let mut did_deletions: Vec<DistinctIdDeletionData> = Vec::new();
 
-    for event in events {
-        match event {
+    for item in items {
+        offsets.push(item.offset);
+        match item.event {
             CdcEvent::PersonUpdate {
                 team_id,
                 person_uuid,
@@ -41,10 +53,10 @@ pub async fn process_batch(
                 version,
             } => {
                 person_updates.push(PersonUpdateData {
-                    team_id: *team_id,
-                    person_uuid: *person_uuid,
-                    properties: properties.clone(),
-                    version: *version,
+                    team_id,
+                    person_uuid,
+                    properties,
+                    version,
                 });
             }
             CdcEvent::PersonDeletion {
@@ -53,9 +65,9 @@ pub async fn process_batch(
                 version,
             } => {
                 person_deletions.push(PersonDeletionData {
-                    team_id: *team_id,
-                    person_uuid: *person_uuid,
-                    version: *version,
+                    team_id,
+                    person_uuid,
+                    version,
                 });
             }
             CdcEvent::DistinctIdAssignment {
@@ -65,10 +77,10 @@ pub async fn process_batch(
                 version,
             } => {
                 did_assignments.push(DistinctIdAssignmentData {
-                    team_id: *team_id,
-                    person_uuid: *person_uuid,
-                    distinct_id: distinct_id.clone(),
-                    version: *version,
+                    team_id,
+                    person_uuid,
+                    distinct_id,
+                    version,
                 });
             }
             CdcEvent::DistinctIdDeletion {
@@ -78,18 +90,51 @@ pub async fn process_batch(
                 version,
             } => {
                 did_deletions.push(DistinctIdDeletionData {
-                    team_id: *team_id,
-                    person_uuid: *person_uuid,
-                    distinct_id: distinct_id.clone(),
-                    version: *version,
+                    team_id,
+                    person_uuid,
+                    distinct_id,
+                    version,
                 });
             }
         }
     }
 
-    // Execute in order: person upserts, then deletions, then distinct-ID ops.
+    if let Err(e) = execute_writes(
+        storage,
+        config,
+        &person_updates,
+        &person_deletions,
+        &did_assignments,
+        &did_deletions,
+    )
+    .await
+    {
+        tracing::error!(
+            batch_size = offsets.len(),
+            error = %e,
+            "batch processing failed, skipping"
+        );
+    } else {
+        tracing::debug!(batch_size = offsets.len(), "batch processed successfully");
+    }
+
+    let elapsed_ms = start.elapsed().as_millis() as f64;
+    metrics::histogram!(metric_consts::BATCH_PROCESS_DURATION_MS).record(elapsed_ms);
+
+    offsets
+}
+
+/// Execute all storage writes for a classified batch.
+async fn execute_writes(
+    storage: &PostgresStorage,
+    config: &Config,
+    person_updates: &[PersonUpdateData],
+    person_deletions: &[PersonDeletionData],
+    did_assignments: &[DistinctIdAssignmentData],
+    did_deletions: &[DistinctIdDeletionData],
+) -> Result<(), CdcError> {
     if !person_updates.is_empty() {
-        with_retry(config, || storage.batch_upsert_persons(&person_updates)).await?;
+        with_retry(config, || storage.batch_upsert_persons(person_updates)).await?;
         metrics::counter!(
             metric_consts::MESSAGES_PROCESSED,
             "operation" => "person_upsert"
@@ -98,7 +143,7 @@ pub async fn process_batch(
     }
 
     if !person_deletions.is_empty() {
-        with_retry(config, || storage.batch_delete_persons(&person_deletions)).await?;
+        with_retry(config, || storage.batch_delete_persons(person_deletions)).await?;
         metrics::counter!(
             metric_consts::MESSAGES_PROCESSED,
             "operation" => "person_delete"
@@ -109,7 +154,7 @@ pub async fn process_batch(
     // Distinct-ID operations need individual transactions (two-row atomic
     // update), so they can't be batched via UNNEST. At ~750 msg/s for
     // distinct_ids, individual transactions are fine.
-    for assignment in &did_assignments {
+    for assignment in did_assignments {
         with_retry(config, || storage.upsert_distinct_id(assignment)).await?;
     }
     if !did_assignments.is_empty() {
@@ -120,7 +165,7 @@ pub async fn process_batch(
         .increment(did_assignments.len() as u64);
     }
 
-    for deletion in &did_deletions {
+    for deletion in did_deletions {
         with_retry(config, || storage.delete_distinct_id(deletion)).await?;
     }
     if !did_deletions.is_empty() {
@@ -130,9 +175,6 @@ pub async fn process_batch(
         )
         .increment(did_deletions.len() as u64);
     }
-
-    let elapsed_ms = start.elapsed().as_millis() as f64;
-    metrics::histogram!(metric_consts::BATCH_PROCESS_DURATION_MS).record(elapsed_ms);
 
     Ok(())
 }

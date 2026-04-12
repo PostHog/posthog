@@ -18,10 +18,9 @@ use tracing_subscriber::EnvFilter;
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 
 use flags_consumer::config::Config;
-use flags_consumer::consumer::{
-    batch_processor_loop, consume_distinct_id_loop, consume_person_loop,
-};
+use flags_consumer::consumer::{batch_processor_loop, consume_loop};
 use flags_consumer::storage::postgres::PostgresStorage;
+use flags_consumer::types::{DistinctIdMessage, PersonMessage};
 
 common_alloc::used!();
 
@@ -186,19 +185,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shutdown coordination token shared across all consumer tasks.
     let shutdown = CancellationToken::new();
 
-    // Spawn person consumer task
+    // Spawn consumer tasks — one per topic, both using the generic loop
+    // monomorphised over the message type.
     let person_tx = tx.clone();
     let person_shutdown = shutdown.clone();
     let person_filter = team_filter.clone();
     tokio::spawn(async move {
-        consume_person_loop(person_consumer, person_tx, person_filter, person_shutdown).await;
+        consume_loop::<PersonMessage>(person_consumer, person_tx, person_filter, person_shutdown)
+            .await;
     });
 
-    // Spawn distinct-ID consumer task
     let did_shutdown = shutdown.clone();
     let did_filter = team_filter;
     tokio::spawn(async move {
-        consume_distinct_id_loop(did_consumer, tx, did_filter, did_shutdown).await;
+        consume_loop::<DistinctIdMessage>(did_consumer, tx, did_filter, did_shutdown).await;
     });
 
     // Run batch processor on the main component task.
