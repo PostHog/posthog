@@ -284,6 +284,8 @@ def _normalize_type(s: str) -> str:
         return m.group(0)
 
     s = re.sub(r"\bDecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", _decimal_alias, s)
+    # Bool and Boolean are aliases in ClickHouse — normalize to Boolean
+    s = re.sub(r"\bBool\b", "Boolean", s)
     return s
 
 
@@ -479,6 +481,8 @@ def _normalize_mv_select(sql: str) -> str:
     # Strip database prefix from qualified table names: `db.table` → `table`
     # Matches `word.` before an identifier (letter/underscore start).
     s = re.sub(r"\b\w+\.\b(?=[a-z_])", "", s)
+    # Normalize == to = (ClickHouse stores single-equals for comparisons)
+    s = s.replace("==", "=")
     # Collapse whitespace
     s = re.sub(r"\s+", " ", s)
     return s.strip()
@@ -707,7 +711,11 @@ def diff_state(
         # For MVs, compare SELECT if both sides have it
         if _is_mv(desired_table.engine) and desired_table.select:
             current_select = current_table.as_select if hasattr(current_table, "as_select") else ""
-            if current_select and _normalize_mv_select(current_select) != _normalize_mv_select(desired_table.select):
+            # SELECT * expands to explicit columns at creation time — skip comparison
+            # since CH will always store the expanded form, never matching the YAML literally.
+            desired_norm = _normalize_mv_select(desired_table.select)
+            is_select_star = re.match(r"^select \* from\b", desired_norm)
+            if current_select and not is_select_star and desired_norm != _normalize_mv_select(current_select):
                 drops.append(
                     StateDiff(
                         action="drop",
