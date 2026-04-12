@@ -62,7 +62,7 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
+import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
@@ -92,8 +92,6 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
-    // Present at runtime (from JSON.parse deep clone) — declared here so
-    // capability adapters can check the source query type safely.
     kind?: NodeKind
     series?: (AnyEntityNode | GroupNode)[]
     commonFilter: CommonInsightFilter
@@ -232,13 +230,13 @@ type SeriesArray = (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 
 interface InsightTypeCapabilities {
     series?: ((series: SeriesArray) => SeriesArray) | true
-    interval?: ((interval: string) => string) | true
+    interval?: ((interval: IntervalType) => IntervalType) | true
     breakdownFilter?: ((bf: BreakdownFilter, cache: QueryPropertyCache) => BreakdownFilter) | true
     compareFilter?: true
     funnelPathsFilter?: true
 }
 
-const downgradeMinuteInterval = (interval: string): string => (interval === 'minute' ? 'hour' : interval)
+const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
 
 const truncateToSingleBreakdown = (bf: BreakdownFilter, cache: QueryPropertyCache): BreakdownFilter => {
     if (cache.kind !== NodeKind.TrendsQuery) {
