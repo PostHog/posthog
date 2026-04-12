@@ -27,20 +27,8 @@ function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const visibleCount = 3
     const sorted = sortScopesWriteFirst(scopes)
-
-    if (sorted.length <= visibleCount) {
-        return (
-            <div className="flex flex-wrap gap-1">
-                {sorted.map((scope) => (
-                    <LemonTag key={scope} size="small" type={scope.endsWith(':write') ? 'caution' : 'default'}>
-                        {scope}
-                    </LemonTag>
-                ))}
-            </div>
-        )
-    }
-
-    const visible = expanded ? sorted : sorted.slice(0, visibleCount)
+    const needsAccordion = sorted.length > visibleCount
+    const visible = expanded || !needsAccordion ? sorted : sorted.slice(0, visibleCount)
 
     return (
         <div className="flex flex-wrap gap-1">
@@ -49,9 +37,11 @@ function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
                     {scope}
                 </LemonTag>
             ))}
-            <LemonButton size="xsmall" type="secondary" onClick={() => setExpanded(!expanded)}>
-                {expanded ? 'Show less' : `+${sorted.length - visibleCount} more`}
-            </LemonButton>
+            {needsAccordion && (
+                <LemonButton size="xsmall" type="secondary" onClick={() => setExpanded(!expanded)}>
+                    {expanded ? 'Show less' : `+${sorted.length - visibleCount} more`}
+                </LemonButton>
+            )}
         </div>
     )
 }
