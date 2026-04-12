@@ -23,8 +23,8 @@ export const Default: Story = {
                 </ul>
             </nav>
             <main className="flex flex-col gap-4 flex-1 rounded-lg">
-                <h1 className="text-2xl font-bold">Main content</h1>
-                <Card>
+                <h1 className="text-xl font-bold">Main content</h1>
+                <Card size="sm">
                     <CardHeader>
                         <CardTitle>Card Title</CardTitle>
                     </CardHeader>
@@ -36,7 +36,7 @@ export const Default: Story = {
                     </CardFooter>
                 </Card>
             </main>
-            <aside className="bg-muted p-2 rounded-lg w-[200px]">
+            <aside className="bg-muted p-2 rounded-lg w-[200px] [--theme-hue:570]">
                 <ul className="flex flex-col gap-px [&>li]:w-full [&_button]:w-full">
                     <li><MenuLabel>Sidenav</MenuLabel></li>
                     <li><Button left>Help</Button></li>
