@@ -35,6 +35,10 @@ const meta: Meta = {
 
 export default meta
 
+function asErrorEventType(event: unknown): ErrorEventType {
+    return event as unknown as ErrorEventType
+}
+
 ////////////////////// Generic stacktraces
 
 export function ExceptionCardBase(): JSX.Element {
@@ -53,7 +57,7 @@ export function ExceptionCardBase(): JSX.Element {
         </div>
     )
 }
-ExceptionCardBase.parameters = sessionTimelineParameters(TEST_EVENTS['javascript_resolved'] as ErrorEventType)
+ExceptionCardBase.parameters = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
 
 export function ExceptionCardNoInApp(): JSX.Element {
     return (
@@ -67,7 +71,7 @@ export function ExceptionCardNoInApp(): JSX.Element {
         </div>
     )
 }
-ExceptionCardNoInApp.parameters = sessionTimelineParameters(TEST_EVENTS['javascript_no_in_app'] as ErrorEventType)
+ExceptionCardNoInApp.parameters = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_no_in_app']))
 
 export function ExceptionCardLoading(): JSX.Element {
     return (
@@ -261,6 +265,10 @@ type StoryCombinedEventRow = [
 ]
 
 type StoryEventDetailsRow = [uuid: string, eventName: string, timestamp: string, properties: Record<string, unknown>]
+type StoryExceptionRow = [uuid: string, timestamp: string, properties: string]
+type StoryPageRow = [uuid: string, timestamp: string, url: string, lib: string]
+type StoryCustomRow = [uuid: string, eventName: string, timestamp: string, lib: string]
+type StoryLogRow = [timestamp: string, level: string, message: string]
 
 interface TimelineQueryLike {
     after?: string
@@ -273,17 +281,25 @@ interface TimelineQueryLike {
     query?: string
 }
 
+function toTimestampMs(value: unknown): number {
+    if (value instanceof Date || typeof value === 'string' || typeof value === 'number') {
+        return new Date(value).getTime()
+    }
+
+    return Number.NaN
+}
+
 function sessionTimelineParameters(event: ErrorEventType): Record<string, unknown> {
     const center = new Date(event.timestamp).getTime()
     const at = (deltaMs: number): string => new Date(center + deltaMs).toISOString()
 
     const exceptionList = Array.isArray(event.properties?.$exception_list) ? event.properties.$exception_list : []
-    const exceptionRows = [[event.uuid, event.timestamp, JSON.stringify(event.properties)]]
-    const pageRows = [
+    const exceptionRows: StoryExceptionRow[] = [[event.uuid, event.timestamp, JSON.stringify(event.properties)]]
+    const pageRows: StoryPageRow[] = [
         ['page-1', at(-15000), 'https://app.example.com/home', 'web'],
         ['page-2', at(-7000), 'https://app.example.com/demo', 'web'],
     ]
-    const customRows = [
+    const customRows: StoryCustomRow[] = [
         ['custom-1', 'form_opened', at(-11000), 'web'],
         ['custom-2', 'button_clicked', at(-3000), 'web'],
     ]
@@ -314,8 +330,8 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
         ],
     ]
 
-    const eventDetailsRowsByUuid = Object.fromEntries(
-        combinedEventRows.map((row) => {
+    const eventDetailsRowsEntries: Array<[string, StoryEventDetailsRow]> = combinedEventRows.map(
+        (row): [string, StoryEventDetailsRow] => {
             const [uuid, eventName, ts, lib, currentUrl, exceptionListForRow, exceptionFingerprint, exceptionIssueId] =
                 row
             const baseProperties = {
@@ -328,10 +344,12 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
 
             const properties = uuid === event.uuid ? event.properties : baseProperties
             return [String(uuid), [uuid, eventName, ts, properties]]
-        })
-    ) as Record<string, StoryEventDetailsRow>
+        }
+    )
 
-    const logRows = [
+    const eventDetailsRowsByUuid = Object.fromEntries(eventDetailsRowsEntries) as Record<string, StoryEventDetailsRow>
+
+    const logRows: StoryLogRow[] = [
         [at(-13000), 'info', 'App initialized'],
         [at(-6000), 'warn', 'Slow network detected'],
         [at(-3500), 'info', 'Form submitted'],
@@ -345,13 +363,16 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
         const limit = typeof query.limit === 'number' ? query.limit : rows.length
 
         const filtered = rows.filter((row) => {
-            const timestamp = new Date(row[timestampIndex]).getTime()
-            return timestamp >= after && timestamp <= before
+            const timestamp = toTimestampMs(row[timestampIndex])
+            return Number.isFinite(timestamp) && timestamp >= after && timestamp <= before
         })
 
         return filtered
             .sort((a, b) => {
-                const diff = new Date(a[timestampIndex]).getTime() - new Date(b[timestampIndex]).getTime()
+                const aTimestamp = toTimestampMs(a[timestampIndex])
+                const bTimestamp = toTimestampMs(b[timestampIndex])
+                const diff =
+                    (Number.isFinite(aTimestamp) ? aTimestamp : 0) - (Number.isFinite(bTimestamp) ? bTimestamp : 0)
                 return descending ? -diff : diff
             })
             .slice(0, limit)
@@ -485,8 +506,8 @@ function buildSessionTimelineEvent(
     exceptionSteps?: any[],
     { sessionId = 'session-with-steps' }: { sessionId?: string | null } = {}
 ): ErrorEventType {
-    const { $session_id: _dropped, ...baseWithoutSession } = (TEST_EVENTS['javascript_resolved'] as ErrorEventType)
-        .properties as any
+    const baseEvent = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+    const { $session_id: _dropped, ...baseWithoutSession } = baseEvent.properties as Record<string, unknown>
 
     const baseProperties = {
         ...baseWithoutSession,
@@ -497,7 +518,7 @@ function buildSessionTimelineEvent(
     const normalizedExceptionSteps = exceptionSteps?.map(normalizeExceptionStepForStory)
 
     return {
-        ...(TEST_EVENTS['javascript_resolved'] as ErrorEventType),
+        ...baseEvent,
         uuid: 'current-exception-uuid',
         timestamp: '2024-07-09T12:00:05.000Z',
         properties:

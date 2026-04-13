@@ -123,21 +123,13 @@ function buildStepItem({
     }
 
     const rawStep = step as RawExceptionStep
-    const type =
-        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE] === 'string' &&
-        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE].trim()
-            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE]
-            : undefined
-    const message =
-        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE] === 'string' &&
-        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE].trim()
-            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE]
-            : ''
-    const level =
-        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL] === 'string' &&
-        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL].trim()
-            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL]
-            : undefined
+    const rawType = rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE]
+    const rawMessage = rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE]
+    const rawLevel = rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL]
+
+    const type = typeof rawType === 'string' && rawType.trim() ? rawType : undefined
+    const message = typeof rawMessage === 'string' && rawMessage.trim() ? rawMessage : ''
+    const level = typeof rawLevel === 'string' && rawLevel.trim() ? rawLevel : undefined
     const timestamp = parseStepTimestamp(rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP])
     if (!timestamp) {
         return null

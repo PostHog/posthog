@@ -126,6 +126,10 @@ function parseCombinedEventRow(row: unknown): ParsedCombinedEventRow | null {
         return null
     }
 
+    if (typeof timestamp !== 'string' && typeof timestamp !== 'number' && !(timestamp instanceof Date)) {
+        return null
+    }
+
     const timestampValue = dayjs.utc(timestamp)
     if (!timestampValue.isValid()) {
         return null

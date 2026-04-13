@@ -20,11 +20,8 @@ export function getExceptionStepMalformedReason(step: unknown): string | null {
     }
 
     const rawStep = step as RawExceptionStep
-    const message =
-        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE] === 'string' &&
-        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE].trim()
-            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE]
-            : null
+    const messageValue = rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE]
+    const message = typeof messageValue === 'string' && messageValue.trim() ? messageValue : null
 
     const timestamp = rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP]
     const hasValidTimestamp =

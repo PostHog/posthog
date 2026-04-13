@@ -63,20 +63,22 @@ export class ConsoleLogLoader implements ItemLoader<ConsoleLogItem> {
     async loadBefore(cursor: Dayjs, limit: number): Promise<{ items: ConsoleLogItem[]; hasMoreBefore: boolean }> {
         const windowStart = this.centerTimestamp.subtract(WINDOW_HOURS, 'hours')
         const query = hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = 'session_replay' AND log_source_id = ${this.sessionId} AND timestamp >= ${windowStart} AND timestamp < ${cursor} ORDER BY timestamp DESC LIMIT ${limit}`
-        return this.execute(query, limit, 'before')
+        const { items, hasMoreBefore } = await this.execute(query, limit, 'before')
+        return { items, hasMoreBefore }
     }
 
     async loadAfter(cursor: Dayjs, limit: number): Promise<{ items: ConsoleLogItem[]; hasMoreAfter: boolean }> {
         const windowEnd = this.centerTimestamp.add(WINDOW_HOURS, 'hours')
         const query = hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = 'session_replay' AND log_source_id = ${this.sessionId} AND timestamp > ${cursor} AND timestamp <= ${windowEnd} ORDER BY timestamp ASC LIMIT ${limit}`
-        return this.execute(query, limit, 'after')
+        const { items, hasMoreAfter } = await this.execute(query, limit, 'after')
+        return { items, hasMoreAfter }
     }
 
     private async execute(
         query: ReturnType<typeof hogql>,
         limit: number,
         direction: 'before' | 'after'
-    ): Promise<{ items: ConsoleLogItem[]; hasMoreBefore?: boolean; hasMoreAfter?: boolean }> {
+    ): Promise<{ items: ConsoleLogItem[]; hasMoreBefore: boolean; hasMoreAfter: boolean }> {
         const response = await api.queryHogQL(query, { scene: 'ReplaySingle', productKey: 'session_replay' })
         const items = response.results.map(
             (row) =>
@@ -91,8 +93,10 @@ export class ConsoleLogLoader implements ItemLoader<ConsoleLogItem> {
                 }) as ConsoleLogItem
         )
 
+        const hasMore = items.length === limit
+
         return direction === 'before'
-            ? { items, hasMoreBefore: items.length === limit }
-            : { items, hasMoreAfter: items.length === limit }
+            ? { items, hasMoreBefore: hasMore, hasMoreAfter: false }
+            : { items, hasMoreBefore: false, hasMoreAfter: hasMore }
     }
 }

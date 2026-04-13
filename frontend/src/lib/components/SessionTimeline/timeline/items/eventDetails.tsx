@@ -45,14 +45,29 @@ function buildEventFromRow(row: unknown): RecordingEventType | null {
     const [uuid, eventName, timestamp, properties] = row as EventDetailsRow
     const parsedProperties = parseProperties(properties)
 
-    return {
+    const event: RecordingEventType & { uuid: string } = {
         id: String(uuid),
         uuid: String(uuid),
         event: String(eventName),
         timestamp: String(timestamp),
         properties: parsedProperties,
+        elements: [],
+        playerTime: null,
         fullyLoaded: true,
-    } as RecordingEventType
+    }
+
+    return event
+}
+
+function parseEventDetailsQueryResponse(response: unknown): EventDetailsQueryResponse {
+    if (!response || typeof response !== 'object' || Array.isArray(response)) {
+        return {}
+    }
+
+    const results = (response as { results?: unknown }).results
+    return {
+        results: Array.isArray(results) ? results : [],
+    }
 }
 
 function setCachedEvent(itemId: string, event: RecordingEventType | null): void {
@@ -90,7 +105,10 @@ async function fetchEventDetails(itemId: string): Promise<RecordingEventType | n
             where: [`equals(uuid, '${escapeHogQLString(itemId)}')`],
             limit: 1,
         })
-        .then((response: EventDetailsQueryResponse) => buildEventFromRow(response.results?.[0]))
+        .then((response) => {
+            const parsedResponse = parseEventDetailsQueryResponse(response)
+            return buildEventFromRow(parsedResponse.results?.[0])
+        })
         .catch(() => null)
         .then((event) => {
             setCachedEvent(itemId, event)
