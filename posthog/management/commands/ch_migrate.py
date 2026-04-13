@@ -287,10 +287,35 @@ class Command(BaseCommand):
                 else:
                     raise
 
+            # A cluster may host several ecosystems (events, heatmaps,
+            # document_embeddings all live on `main`). Without the cross-
+            # ecosystem guard below, diff_state computes
+            # `current_names - desired_names` per ecosystem and emits spurious
+            # DROPs for every other ecosystem's tables. Passing the full
+            # `current` dict is required so that removing a table from its
+            # YAML produces a real drop — but we must suppress diffs whose
+            # target belongs to a different ecosystem on the same cluster.
+            all_cluster_desired_names: set[str] = set()
             for desired in states:
-                ecosystem_current = {name: table for name, table in current.items() if name in desired.tables}
-                diffs = diff_state(desired, ecosystem_current, database=database)
-                all_diffs.extend(diffs)
+                all_cluster_desired_names.update(desired.tables.keys())
+
+            seen_drop_tables: set[str] = set()
+            for desired in states:
+                diffs = diff_state(desired, current, database=database)
+                for d in diffs:
+                    d.cluster = cluster_name
+                    if d.action == "drop":
+                        # Drop is only real when no ecosystem on this cluster
+                        # still claims the table. Otherwise it's just missing
+                        # from this ecosystem's slice of desired.
+                        if d.table in all_cluster_desired_names:
+                            continue
+                        # An orphan in cluster `main` appears in every
+                        # ecosystem's diff — emit it once.
+                        if d.table in seen_drop_tables:
+                            continue
+                        seen_drop_tables.add(d.table)
+                    all_diffs.append(d)
 
         return all_diffs, None
 
@@ -376,6 +401,23 @@ class Command(BaseCommand):
         continue_on_error: bool = options.get("continue_on_error", False)
         failures: list[tuple[int, str, str]] = []  # (step_index, step_name, error)
 
+        # Per-step cluster resolution cache — avoid rebuilding the same
+        # ClickhouseCluster object on every step. Keyed by logical cluster name.
+        cluster_cache: dict[str, Any] = {"": cluster_obj}
+
+        def _resolve_step_cluster(step_cluster_name: str) -> Any:
+            if step_cluster_name in cluster_cache:
+                return cluster_cache[step_cluster_name]
+            try:
+                resolved = get_cluster_by_name(step_cluster_name)
+            except Exception:
+                # If the cluster isn't reachable from this runtime (dev stack
+                # missing a satellite) we fall back to the migrations cluster —
+                # the same policy _compute_diffs applies when introspecting.
+                resolved = cluster_obj
+            cluster_cache[step_cluster_name] = resolved
+            return resolved
+
         try:
             steps = generate_manifest_steps(all_diffs)
             print(f"Applying {len(steps)} step(s)...\n")
@@ -384,11 +426,12 @@ class Command(BaseCommand):
             for i, (step, rendered_sql) in enumerate(steps):
                 print(f"  Step {i}: {step.comment}...", end=" ", flush=True)
                 checksum = hashlib.sha256(rendered_sql.encode()).hexdigest()
+                step_cluster = _resolve_step_cluster(step.cluster)
                 success = False
                 last_exc: Exception | None = None
                 for attempt in range(max_retries):
                     try:
-                        execute_migration_step(cluster_obj, step, rendered_sql)
+                        execute_migration_step(step_cluster, step, rendered_sql)
                         success = True
                         break
                     except Exception as exc:

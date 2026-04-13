@@ -79,6 +79,10 @@ class StateDiff:
     sharded: bool = False
     is_alter_on_replicated_table: bool = False
     depends_on: list[str] = field(default_factory=list)
+    # Logical cluster this diff targets (e.g. "main", "logs", "sessions").
+    # Set by _compute_diffs so handle_apply can route each step to the right
+    # cluster instead of running everything against the migrations cluster.
+    cluster: str = ""
 
 
 # Engine tier determines creation order and helps classify table types
@@ -664,6 +668,11 @@ def diff_state(
 
     desired_names = set(desired_without_skipped.keys())
     current_names = set(current.keys())
+
+    # Placeholder MVs are managed by legacy `migrate_clickhouse`, not ch_migrate.
+    # They're stripped from desired_names above — also strip from current_names
+    # so current - desired doesn't emit a spurious DROP for them.
+    current_names -= set(skipped_placeholder_mvs)
 
     # Tables to drop (in current but not in desired)
     for table_name in sorted(current_names - desired_names):
