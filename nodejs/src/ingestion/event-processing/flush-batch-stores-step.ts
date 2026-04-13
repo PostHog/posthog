@@ -4,8 +4,8 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
-import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
-import { PipelineResult, ok } from '../pipelines/results'
+import { AfterBatchStep } from '../pipelines/batching-pipeline'
+import { ok } from '../pipelines/results'
 
 export interface FlushBatchStoresStepConfig {
     personsStore: PersonsStore
@@ -14,11 +14,10 @@ export interface FlushBatchStoresStepConfig {
 }
 
 /**
- * Batch processing step that flushes person and group stores and returns
+ * AfterBatch hook that flushes person and group stores and returns
  * Kafka produce promises as side effects.
  *
- * This step should be added at the end of the pipeline after all events
- * have been processed but before handleResults/handleSideEffects.
+ * Called once per batch after all events have been processed.
  *
  * The step:
  * 1. Flushes both person and group stores (blocking DB operations)
@@ -32,24 +31,22 @@ export interface FlushBatchStoresStepConfig {
  * @param config - Configuration containing the stores and Kafka producer
  * @param config.personsStore - The person store (singleton per consumer)
  * @param config.groupStore - The group store (singleton per consumer)
- * @param config.kafkaProducer - Kafka producer for sending store updates
+ * @param config.outputs - Output producer for sending store updates
  *
- * @returns A batch processing step that flushes both stores
+ * @returns An afterBatch step that flushes both stores
  */
-export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig): BatchProcessingStep<T, void> {
+export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends string = never>(
+    config: FlushBatchStoresStepConfig
+): AfterBatchStep<TOutput, COutput, CBatch, R> {
     const { personsStore, groupStore, outputs } = config
 
-    return async function flushBatchStoresStep(batch: T[]): Promise<PipelineResult<void>[]> {
-        if (batch.length === 0) {
-            return []
-        }
-
+    return async function flushBatchStoresStep(input) {
         try {
             // Flush both stores in parallel (DB operations, still blocking)
             const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
 
             logger.info('🔄', 'flushBatchStoresStep: Flushed stores', {
-                batchSize: batch.length,
+                batchSize: input.elements.length,
                 personStoreMessageCount: personsStoreMessages.length,
             })
 
@@ -64,17 +61,13 @@ export function createFlushBatchStoresStep<T>(config: FlushBatchStoresStepConfig
             personsStore.reset()
             groupStore.reset()
 
-            // Return same number of results as input (cardinality requirement)
-            // Attach all side effects to the first result only to avoid duplication
-            // The pipeline framework will accumulate them into the first item's context
-            // We return undefined because this is a terminal step (BatchProcessingStep<T, void>)
-            return batch.map((_, index) => ok(undefined, index === 0 ? producePromises : []))
+            return ok({ elements: input.elements, batchContext: input.batchContext }, producePromises)
         } catch (error) {
             // If flush fails, the error will bubble up and fail the entire batch
             // This maintains the existing behavior where flush errors are fatal
             logger.error('❌', 'flushBatchStoresStep: Failed to flush stores', {
                 error,
-                batchSize: batch.length,
+                batchSize: input.elements.length,
             })
             throw error
         }

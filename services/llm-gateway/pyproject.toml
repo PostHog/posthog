@@ -24,6 +24,7 @@ dependencies = [
     "posthoganalytics>=3.0.0",
     "cachetools>=5.5.0",
     "python-multipart>=0.0.9",
+    "boto3>=1.42.65",
 ]
 
 [dependency-groups]

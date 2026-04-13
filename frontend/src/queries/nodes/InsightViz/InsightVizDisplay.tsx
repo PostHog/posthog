@@ -11,6 +11,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     BoxPlotMissingPropertyState,
+    FunnelDataWarehouseStepIncompleteState,
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
@@ -130,7 +131,6 @@ export function InsightVizDisplay({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
@@ -149,10 +149,17 @@ export function InsightVizDisplay({
         display,
         series,
         insightData,
+        isFunnelWithEnoughSteps,
+        isFunnelWithIncompleteDataWarehouseStep,
+        validationError,
+        theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
+
+    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -170,6 +177,15 @@ export function InsightVizDisplay({
         // Insight specific empty states - note order is important here
         if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
             return <BoxPlotMissingPropertyState />
+        }
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (isFunnelWithIncompleteDataWarehouseStep) {
+                return <FunnelDataWarehouseStepIncompleteState />
+            }
+
+            if (!isFunnelWithEnoughSteps) {
+                return <FunnelSingleStepState actionable={actionable} />
+            }
         }
 
         if (validationError) {
@@ -228,12 +244,8 @@ export function InsightVizDisplay({
             return <InsightRefreshDataHint onRetry={onRetry} />
         }
 
-        if (activeView === InsightType.FUNNELS) {
-            const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
-            if (!isFunnelWithEnoughSteps && !isFlowViz) {
-                return <FunnelSingleStepState actionable={!embedded && editMode} />
-            }
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading && !isFlowViz) {
+        if (activeView === InsightType.FUNNELS && !isFlowViz) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
@@ -351,6 +363,7 @@ export function InsightVizDisplay({
                     <InsightsTable
                         // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
                         isLegend={display !== ChartDisplayType.WorldMap}
+                        embedded={embedded}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}
@@ -440,7 +453,7 @@ export function InsightVizDisplay({
                             ) : supportsDisplay && showLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right">
+                                    <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>

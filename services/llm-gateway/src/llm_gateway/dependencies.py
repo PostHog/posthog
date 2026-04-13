@@ -13,7 +13,11 @@ from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, 
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.request_context import get_request_id, set_throttle_context
+from llm_gateway.request_context import (
+    extract_posthog_provider_from_headers,
+    get_request_id,
+    set_throttle_context,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -58,16 +62,34 @@ async def get_cached_body(request: Request) -> bytes | None:
     return request.state._cached_body
 
 
-async def get_model_from_request(request: Request) -> str | None:
-    """Extract model name from request body if present."""
+async def get_request_json(request: Request) -> dict[str, Any] | None:
     body = await get_cached_body(request)
     if not body:
         return None
     try:
-        data: dict[str, Any] = json.loads(body)
-        return data.get("model")
+        data = json.loads(body)
+        return data if isinstance(data, dict) else None
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+async def get_model_from_request(request: Request) -> str | None:
+    """Extract model name from request body if present."""
+    data = await get_request_json(request)
+    if data is None:
+        return None
+    model = data.get("model")
+    return model if isinstance(model, str) else None
+
+
+async def get_provider_from_request(request: Request) -> str | None:
+    try:
+        return extract_posthog_provider_from_headers(request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": {"message": str(exc), "type": "invalid_request_error"}},
+        ) from exc
 
 
 async def enforce_product_access(
@@ -77,12 +99,14 @@ async def enforce_product_access(
     """Check if user has access to the product."""
     product = get_product_from_request(request)
     model = await get_model_from_request(request)
+    provider = await get_provider_from_request(request)
 
     allowed, error = check_product_access(
         product=product,
         auth_method=user.auth_method,
         application_id=user.application_id,
         model=model,
+        provider=provider,
     )
 
     if not allowed:

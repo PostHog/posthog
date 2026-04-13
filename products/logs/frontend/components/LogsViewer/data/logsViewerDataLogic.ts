@@ -1,6 +1,8 @@
 import colors from 'ansi-colors'
+import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -12,9 +14,15 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LogMessage, LogsQuery, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
+import {
+    LogMessage,
+    LogsQuery,
+    LogsSparklineBreakdownBy,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { JsonType, PropertyGroupFilter } from '~/types'
+import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
@@ -69,6 +77,41 @@ export interface LogsViewerDataLogicProps {
     autoLoad?: boolean
 }
 
+/** Returns true if the filterGroup change should be skipped (no real change or new empty filter added). */
+export function shouldSkipFilterGroupChange(
+    filterGroup: UniversalFiltersGroup,
+    oldFilterGroup: UniversalFiltersGroup | undefined
+): boolean {
+    if (!oldFilterGroup || equal(filterGroup, oldFilterGroup)) {
+        return true
+    }
+    const oldCount = (oldFilterGroup.values?.[0] as UniversalFiltersGroup | undefined)?.values?.length ?? 0
+    const newCount = (filterGroup.values?.[0] as UniversalFiltersGroup | undefined)?.values?.length ?? 0
+    if (newCount <= oldCount) {
+        return false
+    }
+    const hasIncompleteValue = (filterValue: UniversalFiltersGroupValue): boolean => {
+        if (!filterValue || typeof filterValue !== 'object') {
+            return false
+        }
+        if ('type' in filterValue && 'values' in filterValue) {
+            const groupValues = (filterValue as UniversalFiltersGroup).values ?? []
+            return groupValues.some((child) => hasIncompleteValue(child))
+        }
+        if ('id' in filterValue) {
+            return (filterValue as { id: unknown }).id == null
+        }
+        if ('value' in filterValue) {
+            const val = (filterValue as { value: unknown }).value
+            return val == null || (Array.isArray(val) && val.length === 0)
+        }
+        return false
+    }
+    const rootGroup = filterGroup.values?.[0] as UniversalFiltersGroup | undefined
+    const lastFilter = rootGroup?.values?.[rootGroup.values.length - 1]
+    return lastFilter ? hasIncompleteValue(lastFilter) : false
+}
+
 export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     props({ id: 'default', autoLoad: true } as LogsViewerDataLogicProps),
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'data', 'logsViewerDataLogic']),
@@ -80,17 +123,21 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             logsViewerFiltersLogic({ id }),
             ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
             logsViewerConfigLogic({ id }),
-            ['setSparklineBreakdownBy'],
+            ['setSparklineBreakdownBy', 'setOrderBy'],
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange'],
+            ['filters', 'utcDateRange', 'filterGroup'],
             logsViewerConfigLogic({ id }),
             ['sparklineBreakdownBy', 'orderBy'],
         ],
     })),
 
     actions({
+        handleQueryChange: (filterType: string, extraProps?: Record<string, unknown>) => ({
+            filterType,
+            extraProps,
+        }),
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
@@ -440,7 +487,49 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
     }),
 
+    subscriptions(({ actions }) => ({
+        filterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
+            if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {
+                return
+            }
+            actions.handleQueryChange('attributes')
+        },
+    })),
+
     listeners(({ actions, values, cache }) => ({
+        handleQueryChange: ({ filterType, extraProps }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: filterType, ...extraProps })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+            }
+            actions.runQuery()
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            actions.handleQueryChange('search', { search_term_length: searchTerm?.length ?? 0 })
+        },
+        setDateRange: () => {
+            actions.handleQueryChange('date_range')
+        },
+        setSeverityLevels: ({ severityLevels }) => {
+            actions.handleQueryChange('severity', { severity_levels: severityLevels ?? [] })
+        },
+        setServiceNames: ({ serviceNames }) => {
+            actions.handleQueryChange('service', { service_count: serviceNames?.length ?? 0 })
+        },
+        setFilters: ({ pushToHistory }) => {
+            if (pushToHistory) {
+                actions.handleQueryChange('bulk')
+            } else {
+                actions.runQuery()
+            }
+        },
+        setOrderBy: ({ orderBy, source }) => {
+            posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
+            actions.runQuery()
+        },
         setSparklineBreakdownBy: () => {
             actions.fetchSparkline()
         },

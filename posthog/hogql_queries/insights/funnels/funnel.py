@@ -111,7 +111,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     def _should_apply_pre_filter(self) -> bool:
         funnelOrderType = self.context.funnelsFilter.funnelOrderType
-        if funnelOrderType is not None and funnelOrderType != StepOrderValue.ORDERED:
+        if funnelOrderType == StepOrderValue.UNORDERED:
             return False
         if getattr(self.context.query.series[1], "optionalInFunnel", False):
             return False

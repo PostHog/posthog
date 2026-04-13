@@ -39,7 +39,7 @@ import type {
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
     PaginatedEvaluationListApi,
-    PaginatedLLMPromptListApi,
+    PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
@@ -560,6 +560,27 @@ export const llmAnalyticsProviderKeysDestroy = async (
 }
 
 /**
+ * Assign this key to evaluations and optionally re-enable them.
+ */
+export const getLlmAnalyticsProviderKeysAssignCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/assign/`
+}
+
+export const llmAnalyticsProviderKeysAssignCreate = async (
+    projectId: string,
+    id: string,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysAssignCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+/**
  * Get evaluations using this key and alternative keys for replacement.
  */
 export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
@@ -592,6 +613,23 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+/**
+ * List enabled evaluations currently using trial credits for a given provider.
+ */
+export const getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/trial_evaluations/`
+}
+
+export const llmAnalyticsProviderKeysTrialEvaluationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysTrialEvaluationsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -904,18 +942,21 @@ Generate an AI-powered summary of an LLM trace or event.
 This endpoint analyzes the provided trace/event, generates a line-numbered text
 representation, and uses an LLM to create a concise summary with line references.
 
+**Two ways to use this endpoint:**
+
+1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
+   The backend fetches the data automatically. `summarize_type` is inferred.
+2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
+   This is how the frontend uses it.
+
 **Summary Format:**
-- 5-10 bullet points covering main flow and key decisions
+- Title (concise, max 10 words)
+- Mermaid flow diagram showing the main flow
+- 3-10 summary bullets with line references
 - "Interesting Notes" section for failures, successes, or unusual patterns
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
-**Use Cases:**
-- Quick understanding of complex traces
-- Identifying key events and patterns
-- Debugging with AI-assisted analysis
-- Documentation and reporting
-
-The response includes the summary text and optional metadata.
+The response includes the structured summary, the text representation, and metadata.
         
  */
 export const getLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {
@@ -1145,8 +1186,8 @@ export const llmPromptsList = async (
     projectId: string,
     params?: LlmPromptsListParams,
     options?: RequestInit
-): Promise<PaginatedLLMPromptListApi> => {
-    return apiMutator<PaginatedLLMPromptListApi>(getLlmPromptsListUrl(projectId, params), {
+): Promise<PaginatedLLMPromptListListApi> => {
+    return apiMutator<PaginatedLLMPromptListListApi>(getLlmPromptsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

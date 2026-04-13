@@ -28,6 +28,9 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
         return True, None
 
     region = get_instance_region()
+    if region == "E2E":
+        return True, None
+
     if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
         return True, None
 

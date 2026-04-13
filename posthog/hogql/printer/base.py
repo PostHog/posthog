@@ -414,10 +414,13 @@ class HogQLPrinter(Visitor[str]):
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
-        if isinstance(node.type, ast.TableAliasType) or isinstance(node.type, ast.TableType):
-            table_type: ast.TableType | ast.LazyTableType | ast.TableAliasType = node.type
-            while isinstance(table_type, ast.TableAliasType):
-                table_type = cast(ast.TableType | ast.LazyTableType | ast.TableAliasType, table_type.table_type)
+        if isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.TableType)):
+            table_type: ast.TableType | ast.LazyTableType | ast.TableAliasType | ast.ColumnAliasedTableType = node.type
+            while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                table_type = cast(
+                    ast.TableType | ast.LazyTableType | ast.TableAliasType | ast.ColumnAliasedTableType,
+                    table_type.table_type,
+                )
 
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
@@ -472,7 +475,11 @@ class HogQLPrinter(Visitor[str]):
 
             join_strings.append(sql)
 
-            if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
+            if (
+                isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType))
+                and node.alias is not None
+                and node.alias != sql
+            ):
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.SelectQueryType):
@@ -516,10 +523,9 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if node.column_aliases and not isinstance(node.type, ast.SelectQueryAliasType):
-            if self.dialect != "postgres":
-                raise QueryError(f"Table column aliases are not allowed in {self.dialect} dialect")
-            col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
-            join_strings.append(f"({col_aliases})")
+            if self.dialect == "postgres":
+                col_aliases = ", ".join(self._print_identifier(ca) for ca in node.column_aliases)
+                join_strings.append(f"({col_aliases})")
 
         if node.table_final:
             raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
@@ -1139,6 +1145,9 @@ class HogQLPrinter(Visitor[str]):
     def visit_table_alias_type(self, type: ast.TableAliasType):
         return self._print_identifier(type.alias)
 
+    def visit_column_aliased_table_type(self, type: ast.ColumnAliasedTableType):
+        return self._print_identifier(type.alias)
+
     def visit_lambda_argument_type(self, type: ast.LambdaArgumentType):
         return self._print_identifier(type.name)
 
@@ -1156,6 +1165,7 @@ class HogQLPrinter(Visitor[str]):
         if (
             isinstance(type.table_type, ast.TableType)
             or isinstance(type.table_type, ast.TableAliasType)
+            or isinstance(type.table_type, ast.ColumnAliasedTableType)
             or isinstance(type.table_type, ast.VirtualTableType)
         ):
             resolved_field = type.resolve_database_field(self.context)
@@ -1187,8 +1197,14 @@ class HogQLPrinter(Visitor[str]):
                 else:
                     field_sql = "person_props"
             else:
-                # this errors because resolved_field is of type ast.Alias and not a field - what's the best way to solve?
-                field_sql = self._print_identifier(resolved_field.name)
+                # For column-aliased tables in postgres, use the aliased name
+                # (the DB handles renaming via the (a,b,c) syntax). For other
+                # dialects, use the real DB column name.
+                if isinstance(type.table_type, ast.ColumnAliasedTableType) and self.dialect == "postgres":
+                    field_sql = self._print_identifier(type.name)
+                else:
+                    # resolved_field may be an ast.Alias; in both cases .name is the physical column name to emit
+                    field_sql = self._print_identifier(resolved_field.name)
                 if self.context.within_non_hogql_query and type_with_name_in_scope == type:
                     # Do not prepend table name in non-hogql context. We don't know what it actually is.
                     return field_sql
@@ -1254,7 +1270,7 @@ class HogQLPrinter(Visitor[str]):
 
         # check for a materialised column
         table = field_type.table_type
-        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table = table.table_type
 
         if isinstance(table, ast.TableType):

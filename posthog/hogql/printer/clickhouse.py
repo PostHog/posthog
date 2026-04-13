@@ -237,7 +237,7 @@ class ClickHousePrinter(HogQLPrinter):
 
         field = field_type.resolve_database_field(self.context)
         table = field_type.table_type
-        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
             table = table.table_type
 
         if not isinstance(table, ast.TableType):
@@ -756,7 +756,7 @@ class ClickHousePrinter(HogQLPrinter):
                         break
                     elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
                         table_type = table_type.table_type
-                    elif isinstance(table_type, ast.TableAliasType):
+                    elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                         table_type = table_type.table_type
                     else:
                         break

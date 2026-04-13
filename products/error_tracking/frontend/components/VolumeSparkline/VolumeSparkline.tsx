@@ -25,6 +25,7 @@ export type VolumeSparklineProps = {
     xAxis?: VolumeSparklineXAxisMode
     className?: string
     events?: SparklineEvent<string>[]
+    onRangeSelect?: (startDate: Date, endDate: Date) => void
 }
 
 export function VolumeSparkline({
@@ -34,6 +35,7 @@ export function VolumeSparkline({
     xAxis = 'none',
     className,
     events = [],
+    onRangeSelect,
 }: VolumeSparklineProps): JSX.Element {
     const { setHoveredBin, setHoveredEvent } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const svgRef = useRef<SVGSVGElement>(null)
@@ -77,7 +79,8 @@ export function VolumeSparkline({
             return
         }
 
-        renderVolumeSparkline(svg, {
+        const cleanup = renderVolumeSparkline(svg, {
+            sparklineKey,
             data,
             width,
             height,
@@ -95,7 +98,10 @@ export function VolumeSparkline({
             eventLabelPaddingX: chartStyle.eventLabelPaddingX,
             eventLabelPaddingY: chartStyle.eventLabelPaddingY,
             eventMinSpace: chartStyle.eventMinSpace,
+            onRangeSelect,
         })
+
+        return cleanup
     }, [
         data,
         width,
@@ -114,6 +120,8 @@ export function VolumeSparkline({
         onHoverChange,
         events,
         onEventHoverChange,
+        onRangeSelect,
+        sparklineKey,
     ])
 
     const paddingClass = match(layout)

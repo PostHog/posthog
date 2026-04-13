@@ -6,9 +6,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
+from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_runner import OutputFn
@@ -26,31 +29,26 @@ class RepoSelectionResult(BaseModel):
     reason: str = Field(description="Why this repository was selected, or why none of the candidates matched.")
 
 
-_GITHUB_REPOS_PER_PAGE = 100
 _MAX_GITHUB_REPOS = 500
 
 
 def _list_candidate_repos(team_id: int) -> list[str]:
     """Fetch all repositories accessible via the team's GitHub integrations."""
-    from posthog.models.integration import GitHubIntegration, Integration
-
+    # Not cached: it's instant if 1 repo attached (should happen often). Caching the list of repos
+    # doesn't make much sense (as we would need to provide these tokens inside the prompt anyway).
+    # If >1 repo -> the research per-signal can't be cached, as we need to pick one.
     integrations = Integration.objects.filter(team_id=team_id, kind="github")
     repos: set[str] = set()
     for integration in integrations:
         github = GitHubIntegration(integration)
-        page = 1
-        while True:
-            repo_entries = github.list_repositories(page=page)
-            for repo in repo_entries:
-                full_name = repo.get("full_name")
-                if full_name:
-                    repos.add(full_name.lower())
-                    if len(repos) >= _MAX_GITHUB_REPOS:
-                        logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
-                        return sorted(repos)
-            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
-                break
-            page += 1
+        repo_entries = github.list_all_repositories(max_repos=_MAX_GITHUB_REPOS)
+        for repo in repo_entries:
+            full_name = repo.get("full_name")
+            if full_name:
+                repos.add(full_name.lower())
+                if len(repos) >= _MAX_GITHUB_REPOS:
+                    logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
+                    return sorted(repos)
     return sorted(repos)
 
 
@@ -101,13 +99,11 @@ async def select_repository_for_report(
     user_id: int,
     signals: list[SignalData],
     *,
+    sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals."""
-    from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
-    from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
-
     candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(team_id)
     if len(candidate_repos) == 0:
         return RepoSelectionResult(
@@ -126,6 +122,8 @@ async def select_repository_for_report(
         team_id=team_id,
         user_id=user_id,
         repository=REPO_SELECTION_DUMMY_REPOSITORY,
+        sandbox_environment_id=sandbox_environment_id,
+        posthog_mcp_scopes=[],  # Only uses gh CLI — no PostHog MCP tools, only internal scopes (task:write, llm_gateway:read)
     )
     result = await run_sandbox_agent_get_structured_output(
         prompt=prompt,

@@ -8,11 +8,12 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Lemon
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { NotificationSettings, TeamBasicType } from '~/types'
+import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
 
 enum NotificationBlock {
     Security = 'security',
     WeeklyDigest = 'weekly-digest',
+    MemberJoin = 'member-join',
     DataPipelineErrors = 'data-pipeline-errors',
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
@@ -25,7 +26,9 @@ const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
 
 type BooleanNotificationSettings = Omit<
     NotificationSettings,
-    'project_weekly_digest_disabled' | 'error_tracking_weekly_digest_project_enabled'
+    | 'project_weekly_digest_disabled'
+    | 'error_tracking_weekly_digest_project_enabled'
+    | 'organization_member_join_email_disabled'
 >
 
 const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
@@ -123,6 +126,80 @@ function ProjectDigestSelector({
     )
 }
 
+function OrganizationMemberJoinSelector(): JSX.Element {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateMemberJoinEmailForOrganization, updateMemberJoinEmailForAllOrganizations } = useActions(userLogic)
+    const [expanded, setExpanded] = useState(true)
+
+    const organizations = [...(user?.organizations || [])].sort((a, b) => a.name.localeCompare(b.name))
+
+    const isOrgDisabled = (orgId: string): boolean =>
+        !!user?.notification_settings?.organization_member_join_email_disabled?.[orgId]
+
+    return (
+        <div>
+            <LemonButton
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+                size="small"
+                type="tertiary"
+                className="p-0"
+            >
+                Select organizations ({organizations.length} available)
+            </LemonButton>
+
+            {expanded && (
+                <div className="mt-3 ml-6 space-y-2">
+                    <span className="text-muted text-xs">
+                        You receive these emails by default for every organization you belong to. Turn off any
+                        organization you do not want them for.
+                    </span>
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-row items-center gap-4">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() =>
+                                    updateMemberJoinEmailForAllOrganizations(
+                                        organizations.map((o: OrganizationBasicType) => o.id),
+                                        true
+                                    )
+                                }
+                            >
+                                Enable for all organizations
+                            </LemonButton>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() =>
+                                    updateMemberJoinEmailForAllOrganizations(
+                                        organizations.map((o: OrganizationBasicType) => o.id),
+                                        false
+                                    )
+                                }
+                            >
+                                Disable for all organizations
+                            </LemonButton>
+                        </div>
+
+                        {organizations.map((org) => (
+                            <LemonCheckbox
+                                key={`member-join-org-${org.id}`}
+                                id={`member-join-org-${org.id}`}
+                                data-attr={`member_join_email_org_${org.id}`}
+                                onChange={(checked) => updateMemberJoinEmailForOrganization(org.id, checked)}
+                                checked={!isOrgDisabled(org.id)}
+                                disabled={userLoading}
+                                label={<span>{org.name}</span>}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const {
@@ -189,6 +266,18 @@ export function UpdateEmailPreferences(): JSX.Element {
                         onToggleAllTeams={updateWeeklyDigestForAllTeams}
                     />
                 )}
+            </div>
+        ),
+        [NotificationBlock.MemberJoin]: (
+            <div className="border rounded p-4 space-y-3">
+                <div className="space-y-2">
+                    <span className="font-medium">New member joined</span>
+                    <span className="text-muted text-sm block">
+                        When someone joins an organization you belong to, we email existing members. Choose which
+                        organizations you want these notifications for.
+                    </span>
+                </div>
+                <OrganizationMemberJoinSelector />
             </div>
         ),
         [NotificationBlock.DataPipelineErrors]: (

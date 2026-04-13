@@ -110,7 +110,7 @@ Users need to create a Personal API Key with these scopes:
 
 ```bash
 # Run backend tests
-python -m pytest products/desktop_recordings/backend/tests/ -v
+pytest products/desktop_recordings/backend/tests/ -v
 
 # Test API endpoint
 curl -X POST 'http://localhost:8010/api/environments/1/desktop_recordings/' \

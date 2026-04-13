@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from django.conf import settings
 
+import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
@@ -20,6 +21,37 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_l
 
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+
+
+def _first_per_pk_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
+    """Return a table containing only the first row per PK tuple (in original row order).
+
+    Used when closing existing "current" rows during SCD2 append: we pass a
+    deduplicated table to the merge so that only one source row matches each
+    target row, avoiding ambiguous multi-match merge semantics.
+    """
+    if not pk_columns or pa_table.num_rows == 0:
+        return pa_table
+
+    # Strategy: tag every row with its position, group by PK, and for each PK
+    # take the smallest position. That position is the first time we saw that PK.
+    # Sorting those positions at the end restores the original row order.
+    #
+    # We use numpy for the final sort because pyarrow's type stubs for
+    # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
+    idx_col_name = "__ph_cdc_row_idx"
+
+    # 1. Add a row-position column: [0, 1, 2, ..., n-1]
+    indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
+
+    # 2. Group by PK, keeping only the smallest position per PK (= first occurrence)
+    grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, "min")])
+
+    # 3. Sort those positions ascending so the output mirrors the input row order
+    first_indices = np.sort(grouped.column(f"{idx_col_name}_min").to_numpy())
+
+    # 4. Materialize the rows at those positions from the original table
+    return pa_table.take(first_indices)
 
 
 class DeltaTableHelper:
@@ -170,9 +202,11 @@ class DeltaTableHelper:
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
-            normalized_primary_keys = [
-                normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
-            ]
+            normalized_primary_keys: list[str] = []
+            for x in primary_keys:
+                n = normalize_column_name(x)
+                if n in py_table_column_names:
+                    normalized_primary_keys.append(n)
 
             predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
             if use_partitioning:
@@ -298,6 +332,83 @@ class DeltaTableHelper:
         delta_table = await self.get_delta_table()
         assert delta_table is not None
 
+        return delta_table
+
+    async def write_scd2_to_deltalake(
+        self,
+        data: pa.Table,
+        primary_keys: Sequence[Any],
+    ) -> deltalake.DeltaTable:
+        """Write CDC SCD Type 2 data: close existing current rows, then append new rows.
+
+        For each PK that appears in `data`:
+        1. Find the existing row in the target with matching PK and valid_to IS NULL
+           (the current row) and update its valid_to to the earliest valid_from of the
+           new events for that PK.
+        2. Append all rows from `data` as new history entries.
+
+        `data` is expected to already have valid_from / valid_to columns as produced
+        by batcher.build_scd2_table().
+        """
+        delta_table = await self.get_delta_table()
+
+        if delta_table:
+            delta_table = await self._evolve_delta_schema(data.schema)
+
+        # Step 1: Close existing current rows for PKs in this batch
+        if delta_table is not None and primary_keys and "valid_from" in data.column_names:
+            py_column_names = data.column_names
+            normalized_pks: list[str] = []
+            for x in primary_keys:
+                n = normalize_column_name(x)
+                if n in py_column_names:
+                    normalized_pks.append(n)
+
+            if normalized_pks:
+                # Use only the first row per PK to avoid ambiguous multi-match merge
+                first_per_pk = _first_per_pk_table(data, normalized_pks)
+
+                predicate_parts = [f"source.{col} = target.{col}" for col in normalized_pks]
+                predicate_parts.append("target.valid_to IS NULL")
+                predicate = " AND ".join(predicate_parts)
+
+                def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
+                    return (
+                        delta_table.merge(
+                            source=first_per_pk,
+                            source_alias="source",
+                            target_alias="target",
+                            predicate=predicate,
+                            streamed_exec=False,
+                        )
+                        .when_matched_update(updates={"valid_to": "source.valid_from"})
+                        .execute()
+                    )
+
+                close_stats = await asyncio.to_thread(_do_scd2_close, first_per_pk, predicate)
+                await self._logger.adebug(f"SCD2 close stats: {json.dumps(close_stats)}")
+
+        # Step 2: Append all new rows
+        if delta_table is None:
+            storage_options = self._get_credentials()
+            delta_uri = await self._get_delta_table_uri()
+            delta_table = await asyncio.to_thread(
+                deltalake.DeltaTable.create,
+                table_uri=delta_uri,
+                schema=data.schema,
+                storage_options=storage_options,
+            )
+
+        await asyncio.to_thread(
+            deltalake.write_deltalake,
+            table_or_uri=delta_table,
+            data=data,
+            mode="append",
+            schema_mode="merge",
+        )
+
+        delta_table = await self.get_delta_table()
+        assert delta_table is not None
         return delta_table
 
     async def compact_table(self) -> None:

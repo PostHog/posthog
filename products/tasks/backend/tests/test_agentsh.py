@@ -68,6 +68,12 @@ class TestGeneratePolicyYaml(TestCase):
         for domain in INFRASTRUCTURE_DOMAINS:
             self.assertIn(domain, allow_rule["domains"])
 
+    def test_always_includes_gateway_domains(self):
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("gateway.us.posthog.com", allow_rule["domains"])
+        self.assertIn("gateway.eu.posthog.com", allow_rule["domains"])
+
     def test_default_deny_at_end(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
         last_rule = policy["network_rules"][-1]

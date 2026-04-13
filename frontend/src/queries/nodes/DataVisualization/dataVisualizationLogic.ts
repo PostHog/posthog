@@ -324,6 +324,20 @@ const applyAutoHeatmapSettings = (
     })
 }
 
+const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): ChartSettings => {
+    return {
+        ...state,
+        ...settings,
+        heatmap:
+            state.heatmap || settings.heatmap
+                ? {
+                      ...state.heatmap,
+                      ...settings.heatmap,
+                  }
+                : undefined,
+    }
+}
+
 const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
     columns: Column[],
     numericalColumns: Column[],
@@ -503,7 +517,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[index]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -516,7 +530,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[seriesIndex]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -583,7 +597,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[seriesIndex]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -601,7 +615,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[index]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -633,7 +647,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             {
                 _setQuery: (state, { node }) => node.chartSettings ?? state,
                 updateChartSettings: (state, { settings }) => {
-                    return { ...state, ...settings }
+                    return mergeChartSettings(state, settings)
                 },
             },
         ],
@@ -1199,7 +1213,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: ({ settings }) => {
             actions.setQuery((query) => ({
                 ...query,
-                chartSettings: { ...query.chartSettings, ...settings },
+                chartSettings: mergeChartSettings(query.chartSettings ?? ({} as ChartSettings), settings),
             }))
         },
         setQuery: ({ setter }) => {

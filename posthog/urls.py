@@ -32,6 +32,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -201,6 +202,10 @@ urlpatterns = [
     path("api/alerts/github", github.SecretAlert.as_view()),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path(
+        "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -263,6 +268,14 @@ urlpatterns = [
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+    opt_slash_path(
+        "api/oauth/connected-apps",
+        ConnectedAppsViewSet.as_view({"get": "list"}),
+    ),
+    path(
+        "api/oauth/connected-apps/<uuid:pk>/revoke/",
+        ConnectedAppsViewSet.as_view({"post": "revoke"}),
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path(

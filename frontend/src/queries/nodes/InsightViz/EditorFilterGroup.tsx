@@ -17,15 +17,27 @@ export interface EditorFilterGroupProps {
     insightProps: InsightLogicProps
     query: InsightQueryNode
     asTile?: boolean
+    queryKind?: string
 }
 
-export function EditorFilterGroup({ insightProps, editorFilterGroup, asTile }: EditorFilterGroupProps): JSX.Element {
+export function EditorFilterGroup({
+    insightProps,
+    editorFilterGroup,
+    asTile,
+    queryKind,
+}: EditorFilterGroupProps): JSX.Element {
     const { title, defaultExpanded, editorFilters, collapsedSummary } = editorFilterGroup
     const hasContent = !!collapsedSummary
     const [isRowExpanded, setIsRowExpanded, isExpandable] = useEditorGroupExpansion(defaultExpanded, hasContent)
 
     if (asTile) {
-        return <EditorFilterGroupTile insightProps={insightProps} editorFilterGroup={editorFilterGroup} />
+        return (
+            <EditorFilterGroupTile
+                insightProps={insightProps}
+                editorFilterGroup={editorFilterGroup}
+                queryKind={queryKind}
+            />
+        )
     }
 
     return (

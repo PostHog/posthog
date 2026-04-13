@@ -1,6 +1,8 @@
 import json
 import time
 import uuid
+import asyncio
+import threading
 from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
@@ -19,6 +21,12 @@ from posthog.storage import object_storage
 
 from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.stream.redis_stream import (
+    TaskRunRedisStream,
+    get_task_run_stream_key,
+    publish_task_run_stream_event,
+)
+from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 # Test RSA private key for JWT tests (RS256)
 TEST_RSA_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
@@ -215,6 +223,40 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
 
+    def test_create_task_with_signal_report_same_team(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Signal Task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["signal_report"], str(report.id))
+
+    def test_create_task_with_signal_report_different_team_rejected(self):
+        from products.signals.backend.models import SignalReport
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        report = SignalReport.objects.create(team=other_team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Cross-team Task",
+                "description": "Should be rejected",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 
@@ -285,6 +327,125 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
         mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"pending_user_message": "Read the attached file first"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(
+            task_run.state["pending_user_message"],
+            "Read the attached file first",
+        )
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
+        task = self.create_task()
+        github_user_token = "ghu_test_token"
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "branch": "main",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+                "github_user_token": github_user_token,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "user"
+        assert task_run.state["run_source"] == "manual"
+        assert task_run.state["pr_base_branch"] == "main"
+        assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "github_user_token is required for user-authored cloud runs"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_allows_user_authorship_without_token_when_no_repo(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_resume_carries_forward_pr_authorship_metadata(self, mock_workflow):
+        task = self.create_task()
+        github_user_token = "ghu_resume_token"
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "pr_authorship_mode": "bot",
+                "run_source": "signal_report",
+                "signal_report_id": "report-123",
+                "pr_base_branch": "main",
+                "snapshot_external_id": "snap-1",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "resume_from_run_id": str(previous_run.id),
+                "pending_user_message": "Please continue",
+                "github_user_token": github_user_token,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "bot"
+        assert task_run.state["run_source"] == "signal_report"
+        assert task_run.state["signal_report_id"] == "report-123"
+        assert task_run.state["snapshot_external_id"] == "snap-1"
+        assert task_run.state["pr_base_branch"] == "main"
+        # Token not cached for bot-authored runs even if the client sends one
+        assert get_cached_github_user_token(str(task_run.id)) is None
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
         task = self.create_task()
@@ -488,6 +649,22 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    def test_update_run_status_publishes_stream_state_event(self, mock_signal, mock_publish_stream_state_event):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "completed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_signal.assert_called_once()
+        mock_publish_stream_state_event.assert_called_once()
+
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
         task = self.create_task()
@@ -712,6 +889,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(input_arg.slack_thread_context["channel"], "C123")
         self.assertEqual(input_arg.slack_thread_context["thread_ts"], "1234.5678")
 
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_set_output_publishes_stream_state_event(self, mock_publish_stream_state_event):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_publish_stream_state_event.assert_called_once()
+
     @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
     def test_partial_update_with_pr_url_posts_slack_update_when_mapping_exists(self, mock_post_slack_update):
         from posthog.models.integration import Integration
@@ -746,6 +937,31 @@ class TestTaskRunAPI(BaseTaskAPITest):
         input_arg = mock_post_slack_update.call_args[0][0]
         self.assertEqual(input_arg.run_id, str(run.id))
         self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
+
+    def test_partial_update_merges_output_dict(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"head_branch": "posthog-code/update-readme"},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"output": {"pr_url": "https://github.com/org/repo/pull/2"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(
+            run.output,
+            {
+                "head_branch": "posthog-code/update-readme",
+                "pr_url": "https://github.com/org/repo/pull/2",
+            },
+        )
 
     @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
@@ -1281,7 +1497,28 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(len(data), 3)
         self.assertEqual(response["X-Total-Count"], "10")
-        self.assertEqual(response["X-Filtered-Count"], "3")
+        self.assertEqual(response["X-Filtered-Count"], "10")
+        self.assertEqual(response["X-Matching-Count"], "10")
+        self.assertEqual(response["X-Has-More"], "true")
+
+    def test_session_logs_offset(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [self._make_session_update_entry("user_message", f"2026-01-01T00:00:{i:02d}Z") for i in range(6)]
+        self._seed_log(task, run, entries)
+
+        response = self.client.get(self._events_url(task, run) + "?limit=2&offset=2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertEqual(data[0]["timestamp"], "2026-01-01T00:00:02Z")
+        self.assertEqual(data[1]["timestamp"], "2026-01-01T00:00:03Z")
+        self.assertEqual(response["X-Total-Count"], "6")
+        self.assertEqual(response["X-Filtered-Count"], "6")
+        self.assertEqual(response["X-Matching-Count"], "6")
+        self.assertEqual(response["X-Has-More"], "true")
 
     def test_session_logs_combined_filters(self):
         """Test after + event_types + limit together."""
@@ -1343,6 +1580,111 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertIn("Server-Timing", response)
         self.assertIn("s3_read", response["Server-Timing"])
         self.assertIn("filter", response["Server-Timing"])
+
+
+class TestTaskRunStreamAPI(BaseTaskAPITest):
+    def _stream_url(self, task: Task, run: TaskRun, suffix: str = "") -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/{suffix}"
+
+    def _mark_stream_complete(self, run: TaskRun) -> None:
+        async def _mark() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            await redis_stream.mark_complete()
+
+        asyncio.run(_mark())
+
+    def _read_stream_ids(self, run: TaskRun) -> list[str]:
+        async def _read() -> list[str]:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            messages = await redis_stream._redis_client.xrange(get_task_run_stream_key(str(run.id)))
+            return [msg_id.decode("utf-8") if isinstance(msg_id, bytes) else msg_id for msg_id, _ in messages]
+
+        return asyncio.run(_read())
+
+    def _collect_sse_events(self, response) -> list[dict]:
+        content = b"".join(response.streaming_content).decode("utf-8")
+        events: list[dict] = []
+        for block in [part.strip() for part in content.split("\n\n") if part.strip()]:
+            event_name = None
+            event_id = None
+            data = None
+            for line in block.splitlines():
+                if line.startswith("event: "):
+                    event_name = line[7:]
+                elif line.startswith("id: "):
+                    event_id = line[4:]
+                elif line.startswith("data: "):
+                    data = json.loads(line[6:])
+            events.append({"event": event_name, "id": event_id, "data": data})
+        return events
+
+    def test_stream_replays_events_with_ids(self):
+        task = self.create_task()
+        run = task.create_run()
+        run.emit_console_event("info", "hello")
+        self._mark_stream_complete(run)
+
+        response = self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        events = self._collect_sse_events(response)
+        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(events[0]["data"]["type"], "task_run_state")
+        self.assertIsNotNone(events[0]["id"])
+        self.assertEqual(events[1]["data"]["notification"]["method"], "_posthog/console")
+
+    def test_stream_resumes_from_last_event_id(self):
+        task = self.create_task()
+        run = task.create_run()
+        run.emit_console_event("info", "first")
+        run.emit_sandbox_output("stdout", "stderr", 0)
+        stream_ids = self._read_stream_ids(run)
+        self._mark_stream_complete(run)
+
+        response = self.client.get(
+            self._stream_url(task, run),
+            HTTP_LAST_EVENT_ID=stream_ids[1],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        events = self._collect_sse_events(response)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["data"]["notification"]["method"], "_posthog/sandbox_output")
+
+    def test_stream_start_latest_only_yields_new_events(self):
+        task = self.create_task()
+        run = task.create_run()
+
+        def publish_future_events() -> None:
+            time.sleep(0.05)
+            publish_task_run_stream_event(
+                str(run.id),
+                {
+                    "type": "notification",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "notification": {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/console",
+                        "params": {
+                            "sessionId": str(run.id),
+                            "level": "info",
+                            "message": "late hello",
+                        },
+                    },
+                },
+            )
+            self._mark_stream_complete(run)
+
+        publisher = threading.Thread(target=publish_future_events)
+        publisher.start()
+        response = self.client.get(self._stream_url(task, run) + "?start=latest")
+        events = self._collect_sse_events(response)
+        publisher.join()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(events), 1)
+        self.assertTrue(all(event["data"]["notification"]["method"] == "_posthog/console" for event in events), events)
+        self.assertEqual(events[-1]["data"]["notification"]["params"]["message"], "late hello")
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):

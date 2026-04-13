@@ -54,10 +54,7 @@ Available domains (the list is incomplete):
 - projects
 - docs
 - llm
-Typical action names:
-- create
-- update
-- delete
+Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
 
 {group_types}

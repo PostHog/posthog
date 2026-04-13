@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -24,19 +25,20 @@ type SessionRecordingKafkaConsumer struct {
 }
 
 func NewSessionRecordingKafkaConsumer(
-	brokers string, securityProtocol string, groupID string, topic string,
+	consumerConfig configs.ConsumerConfig,
 	statsChan chan SessionRecordingEvent) (*SessionRecordingKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":          brokers,
-		"group.id":                   groupID + "-session-recordings",
+		"bootstrap.servers":          consumerConfig.Brokers,
+		"group.id":                   consumerConfig.GroupID,
 		"auto.offset.reset":          "latest",
 		"enable.auto.commit":         false,
-		"security.protocol":          securityProtocol,
+		"security.protocol":          consumerConfig.SecurityProtocol,
 		"fetch.message.max.bytes":    10_000_000,  // 10MB - we only read headers
 		"fetch.max.bytes":            50_000_000,  // 50MB - reduced from 1GB
 		"queued.max.messages.kbytes": 100_000,     // 100MB - reduced from 2GB
 	}
+	applyKafkaConfigOverrides(config, consumerConfig)
 
 	consumer, err := kafka.NewConsumer(config)
 	if err != nil {
@@ -45,7 +47,7 @@ func NewSessionRecordingKafkaConsumer(
 
 	return &SessionRecordingKafkaConsumer{
 		consumer:  consumer,
-		topic:     topic,
+		topic:     consumerConfig.Topic,
 		statsChan: statsChan,
 	}, nil
 }

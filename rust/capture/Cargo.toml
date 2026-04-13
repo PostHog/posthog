@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+async-compression = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
@@ -58,6 +59,8 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
+brotli = "8"
+zstd = "0.13"
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }

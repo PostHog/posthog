@@ -1,17 +1,13 @@
 use crate::{
-    api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
         flag_group_type_mapping::{
             GroupTypeCacheManager, GroupTypeFetchError, GroupTypeMapping, GroupTypeMappingFetcher,
         },
-        flag_models::{
-            EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters,
-            FlagPropertyGroup,
-        },
+        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow},
     },
-    properties::property_models::{OperatorType, PropertyFilter, PropertyType},
+    properties::property_models::PropertyType,
     team::team_models::Team,
 };
 use anyhow::Error;
@@ -20,7 +16,7 @@ use chrono::{DateTime, Utc};
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{Person, PersonId, TeamId};
+use common_types::{Person, PersonId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
@@ -866,47 +862,6 @@ pub async fn create_group_in_pg(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn create_test_flag(
-    id: Option<i32>,
-    team_id: Option<TeamId>,
-    name: Option<String>,
-    key: Option<String>,
-    filters: Option<FlagFilters>,
-    deleted: Option<bool>,
-    active: Option<bool>,
-    ensure_experience_continuity: Option<bool>,
-) -> FeatureFlag {
-    FeatureFlag {
-        id: id.unwrap_or(1),
-        team_id: team_id.unwrap_or(1),
-        name: name.or(Some("Test Flag".to_string())),
-        key: key.unwrap_or_else(|| "test_flag".to_string()),
-        filters: filters.unwrap_or_else(|| FlagFilters {
-            groups: vec![FlagPropertyGroup {
-                properties: Some(vec![]),
-                rollout_percentage: Some(100.0),
-                variant: None,
-                ..Default::default()
-            }],
-            multivariate: None,
-            aggregation_group_type_index: None,
-            payloads: None,
-            super_groups: None,
-            feature_enrollment: None,
-
-            holdout: None,
-        }),
-        deleted: deleted.unwrap_or(false),
-        active: active.unwrap_or(true),
-        ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
-        version: Some(1),
-        evaluation_runtime: Some("all".to_string()),
-        evaluation_tags: None,
-        bucketing_identifier: None,
-    }
-}
-
 /// Insert a suppression rule for error tracking into the database
 pub async fn insert_suppression_rule_in_pg(
     client: Arc<dyn Client + Send + Sync>,
@@ -941,73 +896,6 @@ pub async fn update_team_autocapture_exceptions(
         .execute(&mut *conn)
         .await?;
     Ok(())
-}
-
-/// Create a test flag with multiple property filters
-pub fn create_test_flag_with_properties(
-    id: i32,
-    team_id: TeamId,
-    key: &str,
-    filters: Vec<PropertyFilter>,
-) -> FeatureFlag {
-    create_test_flag(
-        Some(id),
-        Some(team_id),
-        None,
-        Some(key.to_string()),
-        Some(FlagFilters {
-            groups: vec![FlagPropertyGroup {
-                properties: Some(filters),
-                rollout_percentage: Some(100.0),
-                variant: None,
-                ..Default::default()
-            }],
-            multivariate: None,
-            aggregation_group_type_index: None,
-            payloads: None,
-            super_groups: None,
-            feature_enrollment: None,
-
-            holdout: None,
-        }),
-        None,
-        None,
-        None,
-    )
-}
-
-/// Create a test flag with a single property filter
-pub fn create_test_flag_with_property(
-    id: i32,
-    team_id: TeamId,
-    key: &str,
-    filter: PropertyFilter,
-) -> FeatureFlag {
-    create_test_flag_with_properties(id, team_id, key, vec![filter])
-}
-
-/// Create a test flag that depends on another flag
-pub fn create_test_flag_that_depends_on_flag(
-    id: i32,
-    team_id: TeamId,
-    key: &str,
-    depends_on_flag_id: i32,
-    depends_on_flag_value: FlagValue,
-) -> FeatureFlag {
-    create_test_flag_with_property(
-        id,
-        team_id,
-        key,
-        PropertyFilter {
-            key: depends_on_flag_id.to_string(),
-            value: Some(json!(depends_on_flag_value)),
-            operator: Some(OperatorType::FlagEvaluatesTo),
-            prop_type: PropertyType::Flag,
-            group_type_index: None,
-            negation: None,
-            compiled_regex: None,
-        },
-    )
 }
 
 /// Build a `FeatureFlagList` with proper `EvaluationMetadata` from a list of flags.

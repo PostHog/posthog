@@ -1,7 +1,15 @@
-import cronstrue from 'cronstrue'
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconInfo, IconList, IconPause, IconPlay, IconToggle, IconTrash } from '@posthog/icons'
+import {
+    IconCalendar,
+    IconInfo,
+    IconList,
+    IconPause,
+    IconPencil,
+    IconPlay,
+    IconToggle,
+    IconTrash,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,6 +18,7 @@ import {
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonModal,
     LemonSelect,
     LemonSwitch,
     LemonTable,
@@ -28,7 +37,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors } from 'lib/utils'
+import { hasFormErrors, shortTimeZone } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -40,13 +50,44 @@ import {
     ScheduledChangeType,
 } from '~/types'
 
-import { featureFlagLogic, validateFeatureFlagKey, variantKeyToIndexFeatureFlagPayloads } from './featureFlagLogic'
+import {
+    describeCron,
+    featureFlagLogic,
+    PAIRED_PRESETS,
+    validateFeatureFlagKey,
+    variantKeyToIndexFeatureFlagPayloads,
+} from './featureFlagLogic'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { groupFilters } from './FeatureFlags'
+import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
+
+/** Shows the project timezone abbreviation (e.g. "PST") with a tooltip linking to settings. */
+function ScheduleTimezoneHint(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    if (!currentTeam) {
+        return null
+    }
+    const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
+    return (
+        <Tooltip
+            title={
+                <>
+                    Times are in the{' '}
+                    <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
+                        project's timezone
+                    </Link>{' '}
+                    ({currentTeam.timezone})
+                </>
+            }
+        >
+            <span className="text-muted font-normal">({tz})</span>
+        </Tooltip>
+    )
+}
 
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
@@ -214,19 +255,6 @@ function ChangeDescription({
     return <span className="text-muted">{JSON.stringify(payload)}</span>
 }
 
-/** Try to produce a human-readable description from a cron expression, falling back to the raw string on error. */
-function describeCron(expr: string): string {
-    const fields = expr.trim().split(/\s+/)
-    if (fields.length !== 5) {
-        return 'Invalid cron expression'
-    }
-    try {
-        return cronstrue.toString(expr)
-    } catch {
-        return 'Invalid cron expression'
-    }
-}
-
 function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
     const scheduledAt = dayjs(scheduledChange.scheduled_at)
     const formattedDate = scheduledAt.format(DAYJS_FORMAT)
@@ -288,6 +316,7 @@ function ScheduleCard({
     onDelete,
     onPause,
     onResume,
+    onEdit,
 }: {
     scheduledChange: ScheduledChangeType
     aggregationLabel: AggregationLabel
@@ -295,6 +324,7 @@ function ScheduleCard({
     onDelete: (id: number) => void
     onPause: (id: number) => void
     onResume: (id: number) => void
+    onEdit: (schedule: ScheduledChangeType) => void
 }): JSX.Element {
     const paused = isSchedulePaused(scheduledChange)
     const isCompleted = !!scheduledChange.executed_at
@@ -328,6 +358,12 @@ function ScheduleCard({
             </div>
             {!isCompleted && canEdit && (
                 <div className="flex items-center gap-1 shrink-0">
+                    <LemonButton
+                        size="small"
+                        icon={<IconPencil />}
+                        tooltip="Edit"
+                        onClick={() => onEdit(scheduledChange)}
+                    />
                     {scheduledChange.is_recurring && (
                         <LemonButton
                             size="small"
@@ -374,6 +410,12 @@ function FeatureFlagScheduleV2(): JSX.Element {
         cronPreview,
         activeSchedules,
         completedSchedules,
+        schedulePreset,
+        customPairEnableCron,
+        customPairDisableCron,
+        customPairEnableCronPreview,
+        customPairDisableCronPreview,
+        canCreatePairedSchedule,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -386,7 +428,35 @@ function FeatureFlagScheduleV2(): JSX.Element {
         setEndDate,
         stopRecurringScheduledChange,
         resumeRecurringScheduledChange,
+        setSchedulePreset,
+        setCustomPairCron,
+        createPairedSchedule,
     } = useActions(featureFlagLogic)
+    const {
+        isEditOpen,
+        editingSchedule,
+        editScheduledAt,
+        editCronExpression,
+        editEndDate,
+        editIsRecurring,
+        editPayloadValue,
+        editRepeatsValue,
+        editCronPreview,
+        editOperationType,
+        hasEditChanges,
+        editValidationErrors,
+        editSaving,
+    } = useValues(featureFlagScheduleEditLogic({ id: featureFlag.id ?? 'new' }))
+    const {
+        openEdit,
+        closeEdit,
+        setEditScheduledAt,
+        setEditCronExpression,
+        setEditEndDate,
+        setEditPayloadValue,
+        setEditRepeatsValue,
+        saveEdit,
+    } = useActions(featureFlagScheduleEditLogic({ id: featureFlag.id ?? 'new' }))
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
@@ -438,51 +508,135 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                 }))}
                             />
                         </div>
-                        <div className="flex flex-col gap-1">
-                            <label className="text-xs font-medium text-muted">
-                                {repeatsValue === 'cron' ? (
-                                    <Tooltip title="Time is computed from the cron expression">
-                                        <span>Next run</span>
-                                    </Tooltip>
-                                ) : (
-                                    'Date and time'
-                                )}
-                            </label>
-                            <LemonCalendarSelectInput
-                                value={scheduleDateMarker}
-                                onChange={(value) => {
-                                    setScheduleDateMarker(value)
-                                    if (repeatsValue === 'cron' && cronExpression && value) {
-                                        // Re-snap to the next cron match from the newly picked date
-                                        setCronExpression(cronExpression)
-                                    }
-                                }}
-                                placeholder="Select date"
-                                selectionPeriod="upcoming"
-                                granularity={repeatsValue === 'cron' ? 'day' : 'minute'}
-                                format={repeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
-                                clearable
-                            />
-                        </div>
+                        {!schedulePreset && (
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-medium text-muted">
+                                    {repeatsValue === 'cron' ? (
+                                        <Tooltip title="Time is computed from the cron expression">
+                                            <span>Next run</span>
+                                        </Tooltip>
+                                    ) : (
+                                        <>
+                                            Date and time <ScheduleTimezoneHint />
+                                        </>
+                                    )}
+                                </label>
+                                <LemonCalendarSelectInput
+                                    value={scheduleDateMarker}
+                                    onChange={(value) => {
+                                        setScheduleDateMarker(value)
+                                        if (repeatsValue === 'cron' && cronExpression && value) {
+                                            // Re-snap to the next cron match from the newly picked date
+                                            setCronExpression(cronExpression)
+                                        }
+                                    }}
+                                    placeholder="Select date"
+                                    selectionPeriod="upcoming"
+                                    granularity={repeatsValue === 'cron' ? 'day' : 'minute'}
+                                    format={repeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
+                                    clearable
+                                />
+                            </div>
+                        )}
                         {supportsRecurring && (
                             <>
                                 <div className="flex flex-col gap-1">
                                     <label className="text-xs font-medium text-muted">Repeats</label>
                                     <LemonSelect
                                         className="min-w-36"
-                                        value={repeatsValue}
-                                        onChange={setRepeatsValue}
-                                        options={[
-                                            { value: 'none' as const, label: 'Does not repeat' },
-                                            { value: RecurrenceInterval.Daily, label: 'Daily' },
-                                            { value: RecurrenceInterval.Weekly, label: 'Weekly' },
-                                            { value: RecurrenceInterval.Monthly, label: 'Monthly' },
-                                            { value: RecurrenceInterval.Yearly, label: 'Yearly' },
-                                            { value: 'cron' as const, label: 'Custom (cron)' },
-                                        ]}
+                                        value={schedulePreset ?? repeatsValue}
+                                        onChange={(value) => {
+                                            if (
+                                                value === 'business_hours' ||
+                                                value === 'weekdays_only' ||
+                                                value === 'custom_pair'
+                                            ) {
+                                                setSchedulePreset(value)
+                                            } else {
+                                                setSchedulePreset(null)
+                                                setRepeatsValue(value)
+                                            }
+                                        }}
+                                        options={
+                                            scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus
+                                                ? [
+                                                      {
+                                                          title: 'Single schedule',
+                                                          options: [
+                                                              {
+                                                                  value: 'none' as const,
+                                                                  label: 'Does not repeat',
+                                                              },
+                                                              {
+                                                                  value: RecurrenceInterval.Daily,
+                                                                  label: 'Daily',
+                                                              },
+                                                              {
+                                                                  value: RecurrenceInterval.Weekly,
+                                                                  label: 'Weekly',
+                                                              },
+                                                              {
+                                                                  value: RecurrenceInterval.Monthly,
+                                                                  label: 'Monthly',
+                                                              },
+                                                              {
+                                                                  value: RecurrenceInterval.Yearly,
+                                                                  label: 'Yearly',
+                                                              },
+                                                              {
+                                                                  value: 'cron' as const,
+                                                                  label: 'Custom (cron)',
+                                                              },
+                                                          ],
+                                                      },
+                                                      {
+                                                          title: 'Paired schedules',
+                                                          options: [
+                                                              {
+                                                                  value: 'business_hours' as const,
+                                                                  label: 'Business hours',
+                                                              },
+                                                              {
+                                                                  value: 'weekdays_only' as const,
+                                                                  label: 'Weekdays only',
+                                                              },
+                                                              {
+                                                                  value: 'custom_pair' as const,
+                                                                  label: 'Custom pair',
+                                                              },
+                                                          ],
+                                                      },
+                                                  ]
+                                                : [
+                                                      {
+                                                          value: 'none' as const,
+                                                          label: 'Does not repeat',
+                                                      },
+                                                      {
+                                                          value: RecurrenceInterval.Daily,
+                                                          label: 'Daily',
+                                                      },
+                                                      {
+                                                          value: RecurrenceInterval.Weekly,
+                                                          label: 'Weekly',
+                                                      },
+                                                      {
+                                                          value: RecurrenceInterval.Monthly,
+                                                          label: 'Monthly',
+                                                      },
+                                                      {
+                                                          value: RecurrenceInterval.Yearly,
+                                                          label: 'Yearly',
+                                                      },
+                                                      {
+                                                          value: 'cron' as const,
+                                                          label: 'Custom (cron)',
+                                                      },
+                                                  ]
+                                        }
                                     />
                                 </div>
-                                {repeatsValue === 'cron' && (
+                                {!schedulePreset && repeatsValue === 'cron' && (
                                     <div className="flex flex-col gap-1 min-w-48">
                                         <label className="text-xs font-medium text-muted">Cron expression</label>
                                         <LemonInput
@@ -494,7 +648,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                         {cronPreview && <span className="text-xs text-muted">{cronPreview}</span>}
                                     </div>
                                 )}
-                                {isRecurring && (
+                                {(isRecurring || !!schedulePreset) && (
                                     <div className="flex flex-col gap-1">
                                         <label className="text-xs font-medium text-muted flex items-center gap-1">
                                             Ends
@@ -531,8 +685,88 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         )}
                     </div>
 
+                    {/* Paired preset summary */}
+                    {schedulePreset && schedulePreset !== 'custom_pair' && (
+                        <div className="rounded border p-4 flex flex-col gap-2">
+                            <p className="text-sm font-medium m-0">
+                                {PAIRED_PRESETS[schedulePreset as 'business_hours' | 'weekdays_only'].label}
+                            </p>
+                            <p className="text-muted text-sm m-0">
+                                {PAIRED_PRESETS[schedulePreset as 'business_hours' | 'weekdays_only'].description}
+                            </p>
+                            <div className="flex gap-4">
+                                <div className="flex flex-col gap-0.5">
+                                    <span className="text-xs font-medium text-success">Enable</span>
+                                    <span className="text-xs text-muted font-mono">
+                                        {
+                                            PAIRED_PRESETS[schedulePreset as 'business_hours' | 'weekdays_only']
+                                                .enableCron
+                                        }
+                                    </span>
+                                    <span className="text-xs text-muted">
+                                        {describeCron(
+                                            PAIRED_PRESETS[schedulePreset as 'business_hours' | 'weekdays_only']
+                                                .enableCron
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                    <span className="text-xs font-medium text-danger">Disable</span>
+                                    <span className="text-xs text-muted font-mono">
+                                        {
+                                            PAIRED_PRESETS[schedulePreset as 'business_hours' | 'weekdays_only']
+                                                .disableCron
+                                        }
+                                    </span>
+                                    <span className="text-xs text-muted">
+                                        {describeCron(
+                                            PAIRED_PRESETS[schedulePreset as 'business_hours' | 'weekdays_only']
+                                                .disableCron
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Custom pair cron inputs */}
+                    {schedulePreset === 'custom_pair' && (
+                        <div className="rounded border p-4 flex flex-col gap-3">
+                            <p className="text-sm font-medium m-0">Custom paired schedule</p>
+                            <p className="text-muted text-sm m-0">
+                                Enter two cron expressions: one to enable the flag and one to disable it.
+                            </p>
+                            <div className="flex gap-4">
+                                <div className="flex flex-col gap-1 flex-1">
+                                    <label className="text-xs font-medium text-success">Enable cron</label>
+                                    <LemonInput
+                                        className="font-mono"
+                                        value={customPairEnableCron}
+                                        onChange={(value) => setCustomPairCron('enable', value)}
+                                        placeholder="0 9 * * 1-5"
+                                    />
+                                    {customPairEnableCronPreview && (
+                                        <span className="text-xs text-muted">{customPairEnableCronPreview}</span>
+                                    )}
+                                </div>
+                                <div className="flex flex-col gap-1 flex-1">
+                                    <label className="text-xs font-medium text-danger">Disable cron</label>
+                                    <LemonInput
+                                        className="font-mono"
+                                        value={customPairDisableCron}
+                                        onChange={(value) => setCustomPairCron('disable', value)}
+                                        placeholder="0 17 * * 1-5"
+                                    />
+                                    {customPairDisableCronPreview && (
+                                        <span className="text-xs text-muted">{customPairDisableCronPreview}</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Row 2: Configuration panel */}
-                    {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
+                    {!schedulePreset && scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                         <div className="rounded border p-4 flex flex-col gap-2">
                             <p className="text-muted text-sm m-0">
                                 The flag will be <strong>{schedulePayload.active ? 'enabled' : 'disabled'}</strong>
@@ -630,38 +864,55 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         </LemonBanner>
                     )}
 
-                    {/* Hint when creating a recurring schedule on a flag with no other active schedules */}
-                    {isRecurring && activeSchedules.length === 0 && (
+                    {/* Hint when creating a single recurring schedule with no other active schedules */}
+                    {isRecurring && !schedulePreset && activeSchedules.length === 0 && (
                         <LemonBanner type="info">
                             Recurring schedules work best when paired with a complementary schedule. For example, enable
-                            the flag on weekday mornings and disable it on Friday evenings.
+                            the flag on weekday mornings and disable it on Friday evenings. Try the "Paired schedules"
+                            presets in the Repeats dropdown above.
                         </LemonBanner>
                     )}
 
                     <div className="flex items-center justify-end">
-                        <LemonButton
-                            type="primary"
-                            onClick={createScheduledChange}
-                            disabledReason={
-                                !scheduleDateMarker
-                                    ? 'Select the scheduled date and time'
-                                    : isRecurring && repeatsValue === 'none'
-                                      ? 'Select a repeat interval'
-                                      : isRecurring && cronExpression !== null && cronExpression.trim() === ''
-                                        ? 'Enter a cron expression'
-                                        : repeatsValue === 'cron' && cronPreview === 'Invalid cron expression'
-                                          ? 'Enter a valid cron expression'
-                                          : hasFormErrors(schedulePayloadErrors)
-                                            ? 'Fix release condition errors'
-                                            : scheduledChangeOperation ===
-                                                    ScheduledChangeOperationType.UpdateVariants &&
-                                                variantErrors.some((error) => error.key != null)
-                                              ? 'Fix schedule variant changes errors'
-                                              : undefined
-                            }
-                        >
-                            Schedule
-                        </LemonButton>
+                        {schedulePreset ? (
+                            <LemonButton
+                                type="primary"
+                                onClick={createPairedSchedule}
+                                disabledReason={
+                                    !canCreatePairedSchedule
+                                        ? schedulePreset === 'custom_pair'
+                                            ? 'Enter valid enable and disable cron expressions'
+                                            : undefined
+                                        : undefined
+                                }
+                            >
+                                Schedule pair
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={createScheduledChange}
+                                disabledReason={
+                                    !scheduleDateMarker
+                                        ? 'Select the scheduled date and time'
+                                        : isRecurring && repeatsValue === 'none'
+                                          ? 'Select a repeat interval'
+                                          : isRecurring && cronExpression !== null && cronExpression.trim() === ''
+                                            ? 'Enter a cron expression'
+                                            : repeatsValue === 'cron' && cronPreview === 'Invalid cron expression'
+                                              ? 'Enter a valid cron expression'
+                                              : hasFormErrors(schedulePayloadErrors)
+                                                ? 'Fix release condition errors'
+                                                : scheduledChangeOperation ===
+                                                        ScheduledChangeOperationType.UpdateVariants &&
+                                                    variantErrors.some((error) => error.key != null)
+                                                  ? 'Fix schedule variant changes errors'
+                                                  : undefined
+                                }
+                            >
+                                Schedule
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             ) : (
@@ -688,6 +939,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                 onDelete={deleteScheduledChange}
                                 onPause={stopRecurringScheduledChange}
                                 onResume={resumeRecurringScheduledChange}
+                                onEdit={openEdit}
                             />
                         ))}
                     </div>
@@ -712,6 +964,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                             onDelete={deleteScheduledChange}
                                             onPause={stopRecurringScheduledChange}
                                             onResume={resumeRecurringScheduledChange}
+                                            onEdit={openEdit}
                                         />
                                     ))}
                                 </div>
@@ -731,6 +984,139 @@ function FeatureFlagScheduleV2(): JSX.Element {
                     )}
                 </div>
             )}
+
+            {/* Edit modal */}
+            <LemonModal
+                isOpen={isEditOpen}
+                onClose={closeEdit}
+                title="Edit scheduled change"
+                footer={
+                    <>
+                        <LemonButton onClick={closeEdit}>Cancel</LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={saveEdit}
+                            loading={editSaving}
+                            disabledReason={
+                                !hasEditChanges
+                                    ? 'No changes to save'
+                                    : Object.keys(editValidationErrors).length > 0
+                                      ? String(Object.values(editValidationErrors)[0])
+                                      : undefined
+                            }
+                        >
+                            Save changes
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="flex flex-col gap-4">
+                    {editOperationType === ScheduledChangeOperationType.UpdateStatus && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-muted">Status</label>
+                            <LemonSwitch
+                                checked={editPayloadValue}
+                                onChange={(checked) => setEditPayloadValue(checked)}
+                                label={editPayloadValue ? 'Flag will be enabled' : 'Flag will be disabled'}
+                                bordered
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-medium text-muted">
+                            {editRepeatsValue === 'cron' ? (
+                                'Next run'
+                            ) : (
+                                <>
+                                    Date and time <ScheduleTimezoneHint />
+                                </>
+                            )}
+                        </label>
+                        <LemonCalendarSelectInput
+                            value={editScheduledAt}
+                            onChange={(value) => {
+                                setEditScheduledAt(value)
+                                if (editRepeatsValue === 'cron' && editCronExpression && value) {
+                                    // Re-snap to the next cron match from the newly picked date
+                                    setEditCronExpression(editCronExpression)
+                                }
+                            }}
+                            placeholder="Select date"
+                            selectionPeriod="upcoming"
+                            granularity={editRepeatsValue === 'cron' ? 'day' : 'minute'}
+                            format={editRepeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
+                            clearable
+                        />
+                        {editValidationErrors.scheduledAt && (
+                            <span className="text-xs text-danger">{editValidationErrors.scheduledAt}</span>
+                        )}
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                        <label className="text-xs font-medium text-muted">Repeats</label>
+                        <LemonSelect
+                            className="min-w-36"
+                            value={editRepeatsValue}
+                            onChange={setEditRepeatsValue}
+                            options={[
+                                { value: 'none' as const, label: 'Does not repeat' },
+                                { value: RecurrenceInterval.Daily, label: 'Daily' },
+                                { value: RecurrenceInterval.Weekly, label: 'Weekly' },
+                                { value: RecurrenceInterval.Monthly, label: 'Monthly' },
+                                { value: RecurrenceInterval.Yearly, label: 'Yearly' },
+                                { value: 'cron' as const, label: 'Custom (cron)' },
+                            ]}
+                        />
+                    </div>
+
+                    {editRepeatsValue === 'cron' && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-muted">Cron expression</label>
+                            <LemonInput
+                                className="font-mono"
+                                value={editCronExpression ?? ''}
+                                onChange={(value) => setEditCronExpression(value)}
+                                placeholder="0 9 * * 1-5"
+                            />
+                            {editValidationErrors.cronExpression ? (
+                                <span className="text-xs text-danger">{editValidationErrors.cronExpression}</span>
+                            ) : (
+                                editCronPreview && <span className="text-xs text-muted">{editCronPreview}</span>
+                            )}
+                        </div>
+                    )}
+
+                    {editIsRecurring && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-muted">Ends</label>
+                            <LemonCalendarSelectInput
+                                value={editEndDate}
+                                onChange={(value) => setEditEndDate(value)}
+                                placeholder="Never"
+                                selectionPeriod="upcoming"
+                                granularity="day"
+                                clearable
+                            />
+                            {editValidationErrors.endDate && (
+                                <span className="text-xs text-danger">{editValidationErrors.endDate}</span>
+                            )}
+                        </div>
+                    )}
+
+                    {editingSchedule?.payload.operation === ScheduledChangeOperationType.AddReleaseCondition && (
+                        <div className="flex flex-col gap-1">
+                            <label className="text-xs font-medium text-muted">Release condition</label>
+                            <div className="rounded border p-2 bg-bg-light text-sm">
+                                {groupFilters(editingSchedule.payload.value, undefined, aggregationLabel)}
+                            </div>
+                            <span className="text-xs text-muted">
+                                To change the release condition, delete this schedule and create a new one.
+                            </span>
+                        </div>
+                    )}
+                </div>
+            </LemonModal>
         </div>
     )
 }
@@ -999,7 +1385,9 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                             />
                         </div>
                         <div className="w-50">
-                            <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
+                            <div className="font-semibold leading-6 h-6 mb-1">
+                                Date and time <ScheduleTimezoneHint />
+                            </div>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
                                 onChange={(value) => setScheduleDateMarker(value)}

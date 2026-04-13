@@ -232,6 +232,12 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ) || true
 fi
 
+# ── Step 1b: Build phrocs from source ─────────────────────────────
+run_step "Build phrocs" make -C "$FLOX_ENV_PROJECT/tools/phrocs" build
+if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+  ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
+fi
+
 # ── Step 2: Node packages ──────────────────────────────────────────
 run_step "Node packages" pnpm install
 

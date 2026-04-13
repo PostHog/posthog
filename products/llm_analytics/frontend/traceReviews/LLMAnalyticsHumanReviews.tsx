@@ -31,6 +31,7 @@ export function LLMAnalyticsHumanReviews({ tabId }: { tabId?: string }): JSX.Ele
                 ...searchParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: undefined,
             }).url,
+            'data-attr': 'llma-review-queues-tab',
         },
         {
             key: 'reviews',
@@ -40,6 +41,7 @@ export function LLMAnalyticsHumanReviews({ tabId }: { tabId?: string }): JSX.Ele
                 ...searchParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: 'reviews',
             }).url,
+            'data-attr': 'llma-trace-reviews-tab',
         },
         {
             key: 'scorers',
@@ -49,12 +51,14 @@ export function LLMAnalyticsHumanReviews({ tabId }: { tabId?: string }): JSX.Ele
                 ...searchParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: 'scorers',
             }).url,
+            'data-attr': 'llma-scorers-tab',
         },
     ]
 
     return (
         <LemonTabs
             activeKey={activeHumanReviewsTab}
+            data-attr="llma-reviews-tabs"
             tabs={tabs}
             onChange={(tab) =>
                 push(

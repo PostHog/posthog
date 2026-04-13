@@ -21,6 +21,20 @@ def add_vary_headers(response):
     return response
 
 
+def add_config_cache_headers(response):
+    """Add Cache-Control header for config and config.js responses.
+
+    These endpoints are served through multiple origins (assets CDN,
+    proxy-direct, and the main ingestion endpoint). Only the assets CDN
+    adds cache-control headers at the proxy layer. Without this header,
+    browsers fall back to heuristic caching and may hold stale config
+    for hours or days, causing SDK settings (recording conditions,
+    feature flags, sampling rates) to stop updating.
+    """
+    response["Cache-Control"] = "public, max-age=300"
+    return add_vary_headers(response)
+
+
 def add_cache_headers(response, token: str, etag: str, snippet_version: str = DEFAULT_SNIPPET_VERSION):
     """Add caching and Vary headers for CDN-served array.js responses.
 
@@ -81,7 +95,7 @@ class RemoteConfigAPIView(BaseRemoteConfigAPIView):
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
-        return add_vary_headers(JsonResponse(resource))
+        return add_config_cache_headers(JsonResponse(resource))
 
 
 class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
@@ -92,7 +106,7 @@ class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
-        return add_vary_headers(HttpResponse(script_content, content_type="application/javascript"))
+        return add_config_cache_headers(HttpResponse(script_content, content_type="application/javascript"))
 
 
 class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):

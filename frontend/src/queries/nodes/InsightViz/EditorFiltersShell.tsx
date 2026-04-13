@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -64,13 +63,6 @@ export function EditorFiltersShell({
         []
     )
     const { desiredSize: panelWidth, isResizeInProgress: isResizing } = useValues(resizerLogic(resizerProps))
-
-    useEffect(() => {
-        if (asPanels && showing) {
-            posthog.capture('editor panel shown', { panel_width: panelWidth })
-        }
-    }, [asPanels, showing]) // oxlint-disable-line react-hooks/exhaustive-deps
-
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)
     const maxToolActive = !embedded
 

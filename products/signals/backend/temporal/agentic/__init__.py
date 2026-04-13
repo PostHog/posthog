@@ -1,10 +1,43 @@
-import structlog  # noqa: trigger redeploy
+import structlog
 
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.tasks.backend.models import SandboxEnvironment
+
 logger = structlog.get_logger(__name__)
+
+SIGNALS_REPO_DISCOVERY_ENV_NAME = "SIGNALS_REPO_DISCOVERY"
+SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
+
+
+def get_or_create_signals_sandbox_env(
+    team_id: int,
+    name: str,
+    network_access_level: SandboxEnvironment.NetworkAccessLevel,
+    *,
+    allowed_domains: list[str] | None = None,
+    include_default_domains: bool = False,
+) -> str:
+    """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
+
+    Uses update_or_create to reassert the expected policy on every call,
+    so manual edits via the API are corrected on next run.
+    """
+    defaults: dict = {
+        "network_access_level": network_access_level,
+        "private": False,
+    }
+    if allowed_domains is not None:
+        defaults["allowed_domains"] = allowed_domains
+        defaults["include_default_domains"] = include_default_domains
+    env, _ = SandboxEnvironment.objects.update_or_create(
+        team_id=team_id,
+        name=name,
+        defaults=defaults,
+    )
+    return str(env.id)
 
 
 def resolve_user_id_for_team(team_id: int) -> int:
