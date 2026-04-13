@@ -60,6 +60,7 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     Survey,
+    SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
 
