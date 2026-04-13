@@ -960,9 +960,6 @@ mod tests {
             .expect("Failed to fetch flags from Postgres");
         let pg_duration = start.elapsed();
 
-        tracing::info!("Redis fetch time: {:?}", redis_duration);
-        tracing::info!("Postgres fetch time: {:?}", pg_duration);
-
         assert_eq!(redis_flags.flags.len(), num_flags);
         assert_eq!(pg_flags.len(), num_flags);
 

@@ -683,23 +683,47 @@ impl FlagDetails {
                 }
             }
 
-            // Determine rollout status
+            // Determine rollout status and properties match status
             let rollout_percentage = group.rollout_percentage.unwrap_or(100.0);
-            let rollout_excluded =
+            let is_zero_rollout = rollout_percentage == 0.0;
+
+            // Check if this condition has properties that would need to be evaluated
+            let has_properties = group
+                .properties
+                .as_ref()
+                .map(|props| !props.is_empty())
+                .unwrap_or(false);
+
+            // Key insight: Use the overall match reason to determine what happened
+            // If reason is OutOfRolloutBound, it means properties matched but rollout failed
+            let properties_matched_but_rollout_failed =
                 matches!(flag_match.reason, FeatureFlagMatchReason::OutOfRolloutBound);
 
-            let explanation = if condition_matched {
-                if rollout_excluded {
-                    format!(
-                        "Condition {} matched properties but was excluded by {}% rollout",
-                        index, rollout_percentage
-                    )
+            // Determine if this specific condition was the one that got excluded by rollout
+            let this_condition_rollout_excluded = if properties_matched_but_rollout_failed {
+                // If overall reason is OutOfRolloutBound, check if this condition has matching index
+                if let Some(match_condition_index) = flag_match.condition_index {
+                    // This condition was the one that matched properties but failed rollout
+                    index == match_condition_index && is_zero_rollout
                 } else {
-                    format!(
-                        "Condition {} matched and passed {}% rollout",
-                        index, rollout_percentage
-                    )
+                    // No specific condition index, so could be this one if it has zero rollout
+                    is_zero_rollout
                 }
+            } else {
+                // Overall reason is not OutOfRolloutBound, so use simple zero rollout check
+                is_zero_rollout && has_properties
+            };
+
+            let explanation = if this_condition_rollout_excluded {
+                format!(
+                    "Condition {} matched properties but was excluded by {}% rollout",
+                    index, rollout_percentage
+                )
+            } else if condition_matched {
+                format!(
+                    "Condition {} matched and passed {}% rollout",
+                    index, rollout_percentage
+                )
             } else {
                 format!("Condition {} did not match properties", index)
             };
@@ -709,8 +733,8 @@ impl FlagDetails {
                 properties: property_analyses,
                 rollout_percentage,
                 variant: group.variant.clone(),
-                matched: condition_matched && !rollout_excluded,
-                rollout_excluded,
+                matched: condition_matched && !this_condition_rollout_excluded,
+                rollout_excluded: this_condition_rollout_excluded,
                 explanation,
             };
 
