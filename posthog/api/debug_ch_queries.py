@@ -17,6 +17,8 @@ from rest_framework.response import Response
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.cloud_utils import is_cloud
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.utils import generate_short_id
@@ -222,27 +224,68 @@ class DebugCHQueries(viewsets.ViewSet):
             response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
 
-    @action(detail=False, methods=["GET"], url_path="precomputation_teams")
+    def _serialize_precomputation_team(self, team: Team, enabled: bool) -> dict:
+        return {
+            "team_id": team.id,
+            "team_name": team.name,
+            "organization_id": str(team.organization.id) if team.organization else None,
+            "organization_name": team.organization.name if team.organization else None,
+            "experiment_precomputation_enabled": enabled,
+        }
+
+    @action(detail=False, methods=["GET", "POST"], url_path="precomputation_teams")
     def precomputation_teams(self, request):
         if not request.user.is_staff:
-            raise exceptions.PermissionDenied("Only staff users can view precomputation teams.")
+            raise exceptions.PermissionDenied("Only staff users can manage precomputation teams.")
 
+        if request.method == "POST":
+            return self._update_precomputation(request)
+
+        search = request.query_params.get("search", "").strip()
+
+        if search:
+            # Search by org name — return all teams in matching orgs
+            teams = (
+                Team.objects.filter(organization__name__icontains=search)
+                .select_related("organization")
+                .order_by("organization__name", "name")
+            )
+            # Batch-fetch precomputation configs for matched teams
+            configs_by_team = dict(
+                TeamExperimentsConfig.objects.filter(
+                    team__in=teams,
+                    experiment_precomputation_enabled=True,
+                ).values_list("team_id", "experiment_precomputation_enabled")
+            )
+            return Response(
+                [self._serialize_precomputation_team(team, configs_by_team.get(team.id, False)) for team in teams]
+            )
+
+        # Default: only teams with precomputation enabled
         configs = (
             TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
             .select_related("team", "team__organization")
             .order_by("team__name")
         )
+        return Response([self._serialize_precomputation_team(config.team, True) for config in configs])
 
-        return Response(
-            [
-                {
-                    "team_id": config.team_id,
-                    "team_name": config.team.name,
-                    "organization_name": config.team.organization.name if config.team.organization else None,
-                }
-                for config in configs
-            ]
-        )
+    def _update_precomputation(self, request) -> Response:
+        team_id = request.data.get("team_id")
+        enabled = request.data.get("experiment_precomputation_enabled")
+
+        if team_id is None or enabled is None:
+            raise exceptions.ValidationError("team_id and experiment_precomputation_enabled are required.")
+
+        try:
+            team = Team.objects.select_related("organization").get(id=int(team_id))
+        except (Team.DoesNotExist, TypeError, ValueError):
+            raise exceptions.NotFound(f"Team {team_id} not found.")
+
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = enabled
+        config.save(update_fields=["experiment_precomputation_enabled"])
+
+        return Response(self._serialize_precomputation_team(team, enabled))
 
     @action(detail=False, methods=["POST"])
     def profile(self, request):

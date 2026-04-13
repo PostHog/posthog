@@ -1,7 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconDatabase } from '@posthog/icons'
 
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -16,25 +18,10 @@ export const scene: SceneExport = {
     logic: queryPerformanceLogic,
 }
 
-const precomputationColumns: LemonTableColumns<PrecomputationTeam> = [
-    {
-        title: 'Team ID',
-        dataIndex: 'team_id',
-        width: 100,
-    },
-    {
-        title: 'Team name',
-        dataIndex: 'team_name',
-    },
-    {
-        title: 'Organization',
-        dataIndex: 'organization_name',
-    },
-]
-
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { precomputationTeams, precomputationTeamsLoading } = useValues(queryPerformanceLogic)
+    const { precomputationTeams, precomputationTeamsLoading, search } = useValues(queryPerformanceLogic)
+    const { setSearch, setPrecomputation } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -58,6 +45,38 @@ export function QueryPerformance(): JSX.Element {
         )
     }
 
+    const columns: LemonTableColumns<PrecomputationTeam> = [
+        {
+            title: 'Team ID',
+            dataIndex: 'team_id',
+            width: 100,
+        },
+        {
+            title: 'Team name',
+            dataIndex: 'team_name',
+        },
+        {
+            title: 'Organization',
+            dataIndex: 'organization_name',
+        },
+        {
+            title: 'Organization ID',
+            dataIndex: 'organization_id',
+        },
+        {
+            title: 'Precomputation',
+            width: 140,
+            render: function PrecomputationToggle(_, team) {
+                return (
+                    <LemonSwitch
+                        checked={team.experiment_precomputation_enabled}
+                        onChange={(enabled) => setPrecomputation(team.team_id, enabled)}
+                    />
+                )
+            },
+        },
+    ]
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -68,12 +87,19 @@ export function QueryPerformance(): JSX.Element {
                     forceIcon: <IconDatabase />,
                 }}
             />
-            <h2 className="mt-4">Teams with precomputation enabled</h2>
+            <h2 className="mt-4">Experiment precomputation</h2>
+            <LemonInput
+                type="search"
+                placeholder="Search by organization name..."
+                value={search}
+                onChange={setSearch}
+                className="mb-4 max-w-md"
+            />
             <LemonTable
-                columns={precomputationColumns}
+                columns={columns}
                 dataSource={precomputationTeams}
                 loading={precomputationTeamsLoading}
-                emptyState="No teams have precomputation enabled"
+                emptyState={search ? 'No teams found' : 'No teams have precomputation enabled'}
             />
         </SceneContent>
     )
