@@ -214,55 +214,42 @@ describe('adjust template', () => {
         expect(fetchResponse.error).toContain('Error from s2s.adjust.com (status 400)')
     })
 
-    it.each([['missing app token', { environment: 'production', deviceIdentifiers: { idfa: 'test' } }]])(
-        'handles %s',
-        async (_, settings) => {
-            const response = await tester.invokeMapping('Order Completed', settings, createAdDestinationPayload(), {
-                eventToken: 'evt123',
-            })
-
-            expect(response.error).toMatchInlineSnapshot(`"Adjust app token is required"`)
-            expect(response.finished).toEqual(true)
-        }
-    )
-
-    it('handles missing event token', async () => {
-        const response = await tester.invokeMapping(
-            'Order Completed',
+    it.each([
+        [
+            'missing app token',
+            { environment: 'production', deviceIdentifiers: { idfa: 'test' } },
+            { eventToken: 'evt123' },
+            'Adjust app token is required',
+        ],
+        [
+            'missing event token',
             {
                 appToken: 'test-app-token',
                 environment: 'production',
-                deviceIdentifiers: {
-                    idfa: 'test-idfa',
-                },
+                deviceIdentifiers: { idfa: 'test-idfa' },
             },
-            createAdDestinationPayload(),
-            {
-                eventToken: '',
-            }
-        )
-
-        expect(response.error).toMatchInlineSnapshot(`"Adjust event token is required"`)
-        expect(response.finished).toEqual(true)
-    })
-
-    it('handles missing device identifiers', async () => {
-        const response = await tester.invokeMapping(
-            'Order Completed',
+            { eventToken: '' },
+            'Adjust event token is required',
+        ],
+        [
+            'missing device identifiers',
             {
                 appToken: 'test-app-token',
                 environment: 'production',
                 deviceIdentifiers: {},
             },
+            { eventToken: 'evt123' },
+            'At least one device identifier is required (idfa, gps_adid, android_id, idfv, or adid)',
+        ],
+    ])('handles %s', async (_, settings, mappingInputs, expectedError) => {
+        const response = await tester.invokeMapping(
+            'Order Completed',
+            settings,
             createAdDestinationPayload(),
-            {
-                eventToken: 'evt123',
-            }
+            mappingInputs
         )
 
-        expect(response.error).toMatchInlineSnapshot(
-            `"At least one device identifier is required (idfa, gps_adid, android_id, idfv, or adid)"`
-        )
+        expect(response.error).toEqual(expectedError)
         expect(response.finished).toEqual(true)
     })
 

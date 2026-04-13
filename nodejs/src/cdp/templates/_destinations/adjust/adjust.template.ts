@@ -1,5 +1,4 @@
-import { HogFunctionInputSchemaType } from '~/cdp/types'
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
 /**
  * Adjust S2S Event Destination
@@ -101,7 +100,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
  *   Then set `adid` -> `{person.properties.adjust_device_id}` in the device identifiers config.
  */
 
-const build_inputs = (): HogFunctionInputSchemaType[] => {
+const buildInputs = (): HogFunctionInputSchemaType[] => {
     return [
         {
             key: 'eventToken',
@@ -197,23 +196,11 @@ if (not empty(inputs.revenue)) {
     }
 }
 
-let hasCallbackParams := false
-for (let key, value in inputs.callbackParams) {
-    if (not empty(value)) {
-        hasCallbackParams := true
-    }
-}
-if (hasCallbackParams) {
+if (not empty(inputs.callbackParams)) {
     body := f'{body}&callback_params={encodeURLComponent(jsonStringify(inputs.callbackParams))}'
 }
 
-let hasPartnerParams := false
-for (let key, value in inputs.partnerParams) {
-    if (not empty(value)) {
-        hasPartnerParams := true
-    }
-}
-if (hasPartnerParams) {
+if (not empty(inputs.partnerParams)) {
     body := f'{body}&partner_params={encodeURLComponent(jsonStringify(inputs.partnerParams))}'
 }
 
@@ -282,7 +269,7 @@ if (res.status >= 400) {
             filters: {
                 events: [{ id: 'Application Installed', type: 'events' }],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: [...buildInputs()],
         },
         {
             name: 'Application Opened',
@@ -290,7 +277,7 @@ if (res.status >= 400) {
             filters: {
                 events: [{ id: 'Application Opened', type: 'events' }],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: [...buildInputs()],
         },
         {
             name: 'Signed Up',
@@ -298,7 +285,7 @@ if (res.status >= 400) {
             filters: {
                 events: [{ id: 'Signed Up', type: 'events' }],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: [...buildInputs()],
         },
         {
             name: 'Order Completed',
@@ -306,7 +293,7 @@ if (res.status >= 400) {
             filters: {
                 events: [{ id: 'Order Completed', type: 'events' }],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: [...buildInputs()],
         },
         {
             name: 'Product Added',
@@ -314,7 +301,7 @@ if (res.status >= 400) {
             filters: {
                 events: [{ id: 'Product Added', type: 'events' }],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: [...buildInputs()],
         },
         {
             name: 'Checkout Started',
@@ -322,7 +309,7 @@ if (res.status >= 400) {
             filters: {
                 events: [{ id: 'Checkout Started', type: 'events' }],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: [...buildInputs()],
         },
     ],
 }
