@@ -18,6 +18,10 @@ type ErrorTrackingIssueListResult = {
     results?: Array<{ id?: string | null }>
 }
 
+type ErrorTrackingFingerprintListResult = {
+    results?: Array<{ fingerprint?: string | null }>
+}
+
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
     const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
@@ -61,6 +65,22 @@ describe('Error Tracking', { concurrent: false }, () => {
     async function getFirstIssueId(): Promise<string | undefined> {
         const [issueId] = await getIssueIds(1)
         return issueId
+    }
+
+    async function getIssueFingerprints(issueId: string): Promise<string[]> {
+        const result = await context.api.request<ErrorTrackingFingerprintListResult>({
+            method: 'GET',
+            path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/fingerprints/`,
+            query: { issue_id: issueId },
+        })
+
+        if (!Array.isArray(result.results)) {
+            return []
+        }
+
+        return result.results
+            .map((fingerprint: { fingerprint?: string | null }) => fingerprint.fingerprint)
+            .filter((fingerprint: string | null | undefined): fingerprint is string => typeof fingerprint === 'string')
     }
 
     describe('query-error-tracking-issues tool', () => {
@@ -184,6 +204,34 @@ describe('Error Tracking', { concurrent: false }, () => {
 
             expect(result).toBeTruthy()
             expect(result.success).toBe(true)
+        })
+    })
+
+    describe('split-issue tool', () => {
+        const splitTool = GENERATED_TOOLS['error-tracking-issues-split-create']!()
+
+        it('should split a fingerprint into a new issue', async () => {
+            for (const issueId of await getIssueIds(10)) {
+                const [fingerprint] = await getIssueFingerprints(issueId)
+                if (!fingerprint) {
+                    continue
+                }
+
+                const result = (await splitTool.handler(context, {
+                    id: issueId,
+                    fingerprints: [{ fingerprint, name: 'Split from MCP integration test' }],
+                })) as { success: boolean; new_issue_ids: string[] }
+
+                expect(result).toBeTruthy()
+                expect(result.success).toBe(true)
+                expect(Array.isArray(result.new_issue_ids)).toBe(true)
+                expect(result.new_issue_ids.length).toBeGreaterThan(0)
+                return
+            }
+
+            throw new Error(
+                'Split integration test requires at least one error tracking issue with an associated fingerprint in the shared test project.'
+            )
         })
     })
 

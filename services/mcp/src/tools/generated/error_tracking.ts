@@ -9,6 +9,8 @@ import {
     ErrorTrackingIssuesPartialUpdateBody,
     ErrorTrackingIssuesPartialUpdateParams,
     ErrorTrackingIssuesRetrieveParams,
+    ErrorTrackingIssuesSplitCreateBody,
+    ErrorTrackingIssuesSplitCreateParams,
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -134,6 +136,31 @@ const errorTrackingIssuesMergeCreate = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingIssueMergeResponse>({
             method: 'POST',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/merge/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingIssuesSplitCreateSchema = ErrorTrackingIssuesSplitCreateParams.omit({ project_id: true }).extend(
+    ErrorTrackingIssuesSplitCreateBody.shape
+)
+
+const errorTrackingIssuesSplitCreate = (): ToolBase<
+    typeof ErrorTrackingIssuesSplitCreateSchema,
+    Schemas.ErrorTrackingIssueSplitResponse
+> => ({
+    name: 'error-tracking-issues-split-create',
+    schema: ErrorTrackingIssuesSplitCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesSplitCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.fingerprints !== undefined) {
+            body['fingerprints'] = params.fingerprints
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingIssueSplitResponse>({
+            method: 'POST',
+            path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/split/`,
             body,
         })
         return result
@@ -469,6 +496,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
+    'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
         schema: QueryErrorTrackingIssuesSchema,
