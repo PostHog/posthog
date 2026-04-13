@@ -12,6 +12,7 @@ import structlog
 import posthoganalytics
 from dateutil import parser
 from drf_spectacular.utils import extend_schema, inline_serializer
+from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -39,6 +40,7 @@ from products.data_warehouse.backend.models.util import get_view_or_table_by_nam
 from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -50,10 +52,18 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="data_warehouse").time():
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="data_warehouse").time(),
+            tracer.start_as_current_span("data_warehouse_api_property_values") as span,
+        ):
             key = request.GET.get("key")
             table_name = request.GET.get("table_name")
             value = request.GET.get("value")
+
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("table_name", table_name or "")
+            span.set_attribute("has_value_filter", value is not None)
 
             if not key:
                 raise serializers.ValidationError("You must provide a key")
@@ -108,6 +118,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             result = execute_hogql_query(query, team=self.team)
 
             values = [row[0] for row in result.results]
+            span.set_attribute("result_count", len(values))
             resp = Response(
                 {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
             )

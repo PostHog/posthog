@@ -7,6 +7,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
+from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -46,6 +47,7 @@ from products.logs.backend.views_api import LogsViewViewSet
 
 __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
 
+tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
 
@@ -423,11 +425,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time():
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time(),
+            tracer.start_as_current_span("logs_api_property_values") as span,
+        ):
             search = request.GET.get("value", "")
             limit = request.GET.get("limit", 100)
             offset = request.GET.get("offset", 0)
             attributeKey = request.GET.get("key", "")
+
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", attributeKey)
+            span.set_attribute("has_value_filter", bool(search))
 
             if not attributeKey:
                 return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
@@ -453,6 +462,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             if attributeType not in ["log", "resource"]:
                 attributeType = "log"
 
+            span.set_attribute("attribute_type", attributeType)
+
             try:
                 limit = int(limit)
             except ValueError:
@@ -477,6 +488,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             runner = LogValuesQueryRunner(team=self.team, query=query)
 
             result = runner.calculate()
+            span.set_attribute("result_count", len(result.results))
             return Response(
                 {"results": [r.model_dump() for r in result.results], "refreshing": False},
                 status=status.HTTP_200_OK,
