@@ -9,7 +9,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from requests import HTTPError
@@ -824,6 +824,14 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
         return data
 
 
+@extend_schema_view(
+    list=extend_schema(tags=["customer_analytics"]),
+    create=extend_schema(tags=["customer_analytics"]),
+    retrieve=extend_schema(tags=["customer_analytics"]),
+    update=extend_schema(tags=["customer_analytics"]),
+    partial_update=extend_schema(tags=["customer_analytics"]),
+    destroy=extend_schema(tags=["customer_analytics"]),
+)
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "group"
     queryset = GroupUsageMetric.objects.all()
