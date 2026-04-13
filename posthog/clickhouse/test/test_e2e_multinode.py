@@ -23,11 +23,21 @@ Or directly:
 """
 
 import os
+import uuid
 import subprocess
 
 import pytest
 
 pytestmark = pytest.mark.multinode
+
+# Per-run suffix for ReplicatedMergeTree ZK paths. The `test_db` fixture
+# drops tables between runs, but if a run is interrupted (SIGINT, OOM,
+# docker restart) stale znodes under `/clickhouse/tables/<shard>/...`
+# outlive the DB and cause the next `CREATE TABLE` to fail with
+# "replica path already exists". Embedding a per-run UUID keeps ZK paths
+# unique even when cleanup didn't run.
+TEST_RUN_SUFFIX = uuid.uuid4().hex[:8]
+ZK_PATH_PREFIX = f"/clickhouse/tables/{{shard}}/test_{TEST_RUN_SUFFIX}"
 
 
 def _try_connect(host_env, host_default, port_env, port_default):
@@ -187,19 +197,16 @@ class TestKeeperConnectivity:
         tbl = f"{test_db}.isolation_probe"
         ch_main.execute(
             f"CREATE TABLE {tbl} (id UInt64) "
-            f"ENGINE = ReplicatedMergeTree('/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"ENGINE = ReplicatedMergeTree('{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
             # Both nodes query the same keeper, so both see the znode.
-            main_zk = ch_main.execute(
-                f"SELECT count() FROM system.zookeeper WHERE path = '/clickhouse/tables/01/{tbl}'"
-            )
+            zk_path_resolved = f"/clickhouse/tables/01/test_{TEST_RUN_SUFFIX}/{tbl}"
+            main_zk = ch_main.execute(f"SELECT count() FROM system.zookeeper WHERE path = '{zk_path_resolved}'")
             assert main_zk[0][0] > 0, "znode not visible on main node"
 
-            logs_zk = ch_logs.execute(
-                f"SELECT count() FROM system.zookeeper WHERE path = '/clickhouse/tables/01/{tbl}'"
-            )
+            logs_zk = ch_logs.execute(f"SELECT count() FROM system.zookeeper WHERE path = '{zk_path_resolved}'")
             assert logs_zk[0][0] > 0, "znode not visible on logs node — keeper sharing broken"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} SYNC")
@@ -236,7 +243,7 @@ class TestShardedDistributed:
             f"CREATE TABLE {local} ON CLUSTER posthog_migrations "
             f"(id UInt64, team_id Int64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{local}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{local}', '{{replica}}') "
             f"ORDER BY (team_id, id)"
         )
         try:
@@ -266,7 +273,7 @@ class TestShardedDistributed:
             f"CREATE TABLE {tbl} ON CLUSTER posthog_migrations "
             f"(id UInt64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
@@ -335,7 +342,7 @@ class TestReplicatedMergeTree:
         ch_main.execute(
             f"CREATE TABLE {tbl} (id UInt64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
@@ -360,7 +367,7 @@ class TestReplicatedMergeTree:
             f"CREATE TABLE {tbl} ON CLUSTER posthog_migrations "
             f"(id UInt64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
