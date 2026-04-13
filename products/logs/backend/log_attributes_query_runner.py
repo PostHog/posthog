@@ -54,15 +54,16 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
                 WHERE time_bucket >= {date_from_start_of_interval}
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
                 AND attribute_type = {attributeType}
-                AND attribute_key LIKE {search}
+                AND attribute_key ILIKE {search}
                 AND {where}
                 GROUP BY team_id, attribute_key
-                ORDER BY sum(attribute_count) desc, attribute_key asc
+                ORDER BY lower(attribute_key) = lower({exact}) DESC, has(splitByNonAlpha(lower(attribute_key)), lower({exact})) DESC, sum(attribute_count) desc, attribute_key asc
                 OFFSET {offset}
             )
             """,
             placeholders={
                 "search": ast.Constant(value=f"%{self.query.search}%"),
+                "exact": ast.Constant(value=self.query.search),
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "limit": ast.Constant(value=self.query.limit),
                 "offset": ast.Constant(value=self.query.offset),

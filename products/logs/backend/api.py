@@ -25,9 +25,11 @@ from posthog.schema import (
 )
 
 from posthog.api.mixins import PydanticModelMixin
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
@@ -227,115 +229,26 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = LogsQuery(**logs_query_params)
         analytics_props = get_request_analytics_properties(request)
 
-        def results_generator(query: LogsQuery, logs_query_params: dict):
-            """
-            A generator that yields results by splitting the query into time slices
+        def make_runner(date_range: DateRange) -> LogsQueryRunner:
+            return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
 
-            We fetch the first:
-                - 3 minutes
-                - 1 hour
-                - 6 hours
-
-            Of logs at a time, stopping if we hit the limit first (most queries hit it in the first 3 minutes)
-            """
-            runner = LogsQueryRunner(query, self.team)
-
-            qdr = runner.query_date_range
-            date_range_length = qdr.date_to() - qdr.date_from()
-            limit = logs_query_params["limit"]
-
-            def runner_slice(
-                runner: LogsQueryRunner, slice_length: dt.timedelta, orderBy: LogsOrderBy | None
-            ) -> tuple[LogsQueryRunner, LogsQueryRunner]:
-                """
-                Slices a LogsQueryRunner into two query runners
-                The first one returns just the `slice_length` most recent logs
-                The second one returns the rest of the logs
-                """
-                if orderBy == LogsOrderBy.LATEST or orderBy is None:
-                    slice_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_from=(runner.query_date_range.date_to() - slice_length).isoformat(),
-                                date_to=runner.query_date_range.date_to().isoformat(),
-                            ),
-                        }
-                    )
-                    remainder_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_from=runner.query_date_range.date_from().isoformat(),
-                                date_to=(runner.query_date_range.date_to() - slice_length).isoformat(),
-                            ),
-                        }
-                    )
-                else:
-                    # invert the logic as we're looking at earliest logs not latest
-                    slice_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_from=runner.query_date_range.date_from().isoformat(),
-                                date_to=(runner.query_date_range.date_from() + slice_length).isoformat(),
-                            ),
-                        }
-                    )
-                    remainder_query = LogsQuery(
-                        **{
-                            **query.model_dump(),
-                            "dateRange": DateRange(
-                                date_to=runner.query_date_range.date_to().isoformat(),
-                                date_from=(runner.query_date_range.date_from() + slice_length).isoformat(),
-                            ),
-                        }
-                    )
-
-                return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
-
-            # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
-            # Note: cursor pagination no longer skips time-slicing because we narrow the date range
-            # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
-            if live_logs_checkpoint:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                yield from response.results
-                return
-
-            # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
-            if date_range_length > dt.timedelta(minutes=20):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                limit -= len(response.results)
-                yield from response.results
-                if limit <= 0:
-                    return
-                runner.query.limit = limit
-
-            # otherwise if we're searching more than 4 hours search the next hour
-            if date_range_length > dt.timedelta(hours=4):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                limit -= len(response.results)
-                yield from response.results
-                if limit <= 0:
-                    return
-                runner.query.limit = limit
-
-            # otherwise if we're searching more than 24 hours search the next 6 hours
-            if date_range_length > dt.timedelta(hours=24):
-                recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-                limit -= len(response.results)
-                yield from response.results
-                if limit <= 0:
-                    return
-                runner.query.limit = limit
-
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
-            yield from response.results
-
-        results = list(results_generator(query, logs_query_params))
+        # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
+        # Note: cursor pagination no longer skips time-slicing because we narrow the date range
+        # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
+        if live_logs_checkpoint:
+            response = LogsQueryRunner(query, self.team).run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
+            )
+            results = list(response.results)
+        else:
+            results = list(
+                time_sliced_results(
+                    runner=LogsQueryRunner(query, self.team),
+                    order_by_earliest=order_by == LogsOrderBy.EARLIEST,
+                    make_runner=make_runner,
+                    analytics_props=analytics_props,
+                )
+            )
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
@@ -510,63 +423,64 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("value", "")
-        limit = request.GET.get("limit", 100)
-        offset = request.GET.get("offset", 0)
-        attributeKey = request.GET.get("key", "")
+        with PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time():
+            search = request.GET.get("value", "")
+            limit = request.GET.get("limit", 100)
+            offset = request.GET.get("offset", 0)
+            attributeKey = request.GET.get("key", "")
 
-        if not attributeKey:
-            return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
+            if not attributeKey:
+                return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            # Default to last hour if dateRange is malformed
-            dateRange = DateRange(date_from="-1h")
+            try:
+                dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
+            except (json.JSONDecodeError, ValidationError, ValueError):
+                # Default to last hour if dateRange is malformed
+                dateRange = DateRange(date_from="-1h")
 
-        try:
-            serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
-        except json.JSONDecodeError:
-            serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+            try:
+                serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
+            except json.JSONDecodeError:
+                serviceNames = []
+            try:
+                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
+            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
+                filterGroup = None
 
-        attributeType = request.GET.get("attribute_type", "log")
-        # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
-        # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
-        if attributeType not in ["log", "resource"]:
-            attributeType = "log"
+            attributeType = request.GET.get("attribute_type", "log")
+            # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
+            # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
+            if attributeType not in ["log", "resource"]:
+                attributeType = "log"
 
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 100
+            try:
+                limit = int(limit)
+            except ValueError:
+                limit = 100
 
-        try:
-            offset = int(offset)
-        except ValueError:
-            offset = 0
+            try:
+                offset = int(offset)
+            except ValueError:
+                offset = 0
 
-        query = LogValuesQuery(
-            dateRange=dateRange,
-            attributeKey=attributeKey,
-            attributeType=attributeType,
-            search=search,
-            limit=limit,
-            offset=offset,
-            serviceNames=serviceNames,
-            filterGroup=filterGroup,
-        )
+            query = LogValuesQuery(
+                dateRange=dateRange,
+                attributeKey=attributeKey,
+                attributeType=attributeType,
+                search=search,
+                limit=limit,
+                offset=offset,
+                serviceNames=serviceNames,
+                filterGroup=filterGroup,
+            )
 
-        runner = LogValuesQueryRunner(team=self.team, query=query)
+            runner = LogValuesQueryRunner(team=self.team, query=query)
 
-        result = runner.calculate()
-        return Response(
-            {"results": [r.model_dump() for r in result.results], "refreshing": False},
-            status=status.HTTP_200_OK,
-        )
+            result = runner.calculate()
+            return Response(
+                {"results": [r.model_dump() for r in result.results], "refreshing": False},
+                status=status.HTTP_200_OK,
+            )
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:

@@ -346,7 +346,7 @@ def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
     except GroupTypeMapping.DoesNotExist:
         return f"group type {group_type_index}"
 
-
+## Events
 def _generate_events_query_metadata(query: EventsQuery, team: Team) -> InsightMetadata:
     query_summary = _summarize_events_query(query)
     type_guidance = _NAMING_GUIDANCE.get("EventsQuery", "")
@@ -354,7 +354,6 @@ def _generate_events_query_metadata(query: EventsQuery, team: Team) -> InsightMe
     return _request_metadata_from_llm(query_summary, type_guidance, team)
 
 
-## Events
 def _summarize_events_query(query: EventsQuery) -> str:
     """Extract a human-readable summary from an EventsQuery."""
     lines: list[str] = ["Type: EventsQuery"]
