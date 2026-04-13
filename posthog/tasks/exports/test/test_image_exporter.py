@@ -488,6 +488,94 @@ class TestImageExporter(APIBaseTest):
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
 @patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")
+class TestHeatmapExportURLEncoding(APIBaseTest):
+    def test_heatmap_urls_with_query_params_are_encoded_in_exporter_url(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.com/page?tab=home",
+                "heatmap_data_url": data_url,
+            },
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(exported_asset)
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+
+        # Verify the browser can parse the encoded URL and recover the full values
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto("data:text/html,<h1>test</h1>")
+
+            result = page.evaluate(
+                """(url) => {
+                const u = new URL(url);
+                return {
+                    pageURL: u.searchParams.get('pageURL'),
+                    dataURL: u.searchParams.get('dataURL'),
+                    allKeys: Array.from(u.searchParams.keys()),
+                };
+            }""",
+                url_to_render,
+            )
+            browser.close()
+
+        assert result["pageURL"] == "https://example.com/page?tab=home"
+        assert result["dataURL"] == data_url
+        assert set(result["allKeys"]) == {"token", "pageURL", "dataURL"}
+
+    def test_without_encoding_inner_ampersands_corrupt_query_string(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        # Data URLs with multiple query params (e.g. `?width=1024&format=jpeg`)
+        # contain `&` which, without encoding, splits into separate top-level params
+        # and truncates the dataURL value the exporter receives.
+        data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
+        unencoded = f"https://example.com/exporter?token=fake&pageURL=https://example.com&dataURL={data_url}"
+
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto("data:text/html,<h1>test</h1>")
+
+            result = page.evaluate(
+                """(url) => {
+                const u = new URL(url);
+                return {
+                    dataURL: u.searchParams.get('dataURL'),
+                    allKeys: Array.from(u.searchParams.keys()),
+                };
+            }""",
+                unencoded,
+            )
+            browser.close()
+
+        # The inner `&format=jpeg` leaks as a top-level param
+        assert "format" in result["allKeys"], "Inner &format leaked as top-level param"
+        # And the dataURL is truncated — missing `&format=jpeg`
+        assert result["dataURL"] == "/api/environments/1/heatmap_screenshots/abc/content/?width=1024"
+        assert result["dataURL"] != data_url
+
+
+@patch("posthog.tasks.exports.image_exporter._screenshot_asset")
+@patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+@patch("os.remove")
 class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
     def test_query_override_produces_different_results_than_saved_query(
         self,
