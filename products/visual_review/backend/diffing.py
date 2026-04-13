@@ -77,6 +77,8 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     from . import logic
 
     repo_id = snapshot.run.repo_id
+    assert snapshot.baseline_artifact is not None
+    assert snapshot.current_artifact is not None
 
     baseline_bytes = logic.read_artifact_bytes(repo_id, snapshot.baseline_artifact.content_hash)
     current_bytes = logic.read_artifact_bytes(repo_id, snapshot.current_artifact.content_hash)
