@@ -652,17 +652,18 @@ const buildInsightFilter = (
         return {}
     }
 
-    const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
     const sharedResultCustomizations = cache.commonFilterTrendsStickiness?.resultCustomizations
         ? { resultCustomizations: cache.commonFilterTrendsStickiness.resultCustomizations }
         : {}
 
     if (isTrendsQuery(query)) {
+        const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return {
             trendsFilter: { ...query.trendsFilter, ...cache.trendsFilter, ...vizProps, ...sharedResultCustomizations },
         }
     }
     if (isStickinessQuery(query)) {
+        const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return {
             stickinessFilter: {
                 ...query.stickinessFilter,
@@ -673,15 +674,19 @@ const buildInsightFilter = (
         }
     }
     if (isFunnelsQuery(query)) {
+        const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return { funnelsFilter: { ...query.funnelsFilter, ...cache.funnelsFilter, ...vizProps } }
     }
     if (isRetentionQuery(query)) {
+        const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return { retentionFilter: { ...query.retentionFilter, ...cache.retentionFilter, ...vizProps } }
     }
     if (isPathsQuery(query)) {
+        const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return { pathsFilter: { ...query.pathsFilter, ...cache.pathsFilter, ...vizProps } }
     }
     if (isLifecycleQuery(query)) {
+        const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return { lifecycleFilter: { ...query.lifecycleFilter, ...cache.lifecycleFilter, ...vizProps } }
     }
     return {}
