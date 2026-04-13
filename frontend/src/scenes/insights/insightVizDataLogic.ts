@@ -32,6 +32,7 @@ import {
     CompareFilter,
     DatabaseSchemaField,
     DateRange,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     GroupNode,
@@ -43,6 +44,7 @@ import {
     NodeKind,
     ProductAnalyticsInsightQueryNode,
     RetentionQuery,
+    StickinessQuery,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -731,7 +733,7 @@ const handleQuerySourceUpdateSideEffects = (
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
 
-    const maybeChangedSeries = (update as TrendsQuery).series || null
+    const maybeChangedSeries = (update as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
     const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
     const insightFilter = filterForQuery(currentState as ProductAnalyticsInsightQueryNode) as Partial<InsightFilter>
@@ -777,8 +779,8 @@ const handleQuerySourceUpdateSideEffects = (
             (insightFilter as FunnelsFilter)?.funnelToStep != null)
     ) {
         // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode => node.kind !== NodeKind.GroupNode
+        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
         )
         ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
             ...(insightFilter as FunnelsFilter),
