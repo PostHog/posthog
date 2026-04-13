@@ -7066,7 +7066,7 @@ export interface SessionsQueryApi {
      */
     event?: string | null
     /**
-     * Event property filters - only applies when event or actionId is set
+     * Event property filters - filters sessions that contain events matching these properties
      * @nullable
      */
     eventProperties?:
