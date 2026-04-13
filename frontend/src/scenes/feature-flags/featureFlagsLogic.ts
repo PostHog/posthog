@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiError, CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
@@ -22,7 +22,7 @@ import type { featureFlagsLogicType } from './featureFlagsLogicType'
 export const FLAGS_PER_PAGE = 100
 
 // Testing tab types
-interface PropertyAnalysis {
+export interface PropertyAnalysis {
     key: string
     operator: string
     value: any
@@ -31,7 +31,7 @@ interface PropertyAnalysis {
     explanation: string
 }
 
-interface ConditionAnalysis {
+export interface ConditionAnalysis {
     index: number
     matched: boolean
     rollout_excluded?: boolean
@@ -42,7 +42,7 @@ interface ConditionAnalysis {
     properties: PropertyAnalysis[]
 }
 
-interface TestResult {
+export interface TestResult {
     flag_key: string
     result: boolean | string
     reason: string
@@ -52,7 +52,7 @@ interface TestResult {
     conditions?: ConditionAnalysis[]
 }
 
-interface TestFormData {
+export interface TestFormData {
     distinct_id: string
     person_id: string
     timestamp: string
@@ -375,56 +375,31 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             {
                 setTestError: (_, { error }) => error,
                 testFlagEvaluation: () => null,
-                testFlagEvaluationFailure: (_, { error }) => {
+                testFlagEvaluationFailure: (_, { error }: { error: ApiError }) => {
                     // Extract meaningful error messages from server responses
-                    if (error?.response?.data) {
-                        const responseData = error.response.data
+                    if (error?.detail) {
+                        const errorDetail = error.detail
 
-                        // Handle specific error cases
-                        if (responseData.detail && typeof responseData.detail === 'string') {
-                            // Check for person properties build failures at timestamp
-                            if (
-                                responseData.detail.includes('Failed to build person properties at specified timestamp')
-                            ) {
-                                return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-                            }
-                            // Check for person-not-found errors
-                            if (responseData.detail.includes('person') && responseData.detail.includes('not found')) {
-                                return 'Person not found. This person may not have existed at the selected timestamp.'
-                            }
-                            // Check for timestamp-related errors
-                            if (responseData.detail.includes('timestamp') || responseData.detail.includes('time')) {
-                                return 'Invalid timestamp. Please select a valid date and time.'
-                            }
-                            return responseData.detail
+                        // Check for person properties build failures at timestamp
+                        if (errorDetail.includes('Failed to build person properties at specified timestamp')) {
+                            return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
                         }
 
-                        // Handle validation errors
-                        if (responseData.errors || responseData.error) {
-                            const errorMsg = responseData.errors || responseData.error
-                            if (typeof errorMsg === 'string') {
-                                // Check for specific error patterns in the error field
-                                if (errorMsg.includes('Failed to build person properties at specified timestamp')) {
-                                    return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-                                }
-                                return errorMsg
-                            }
+                        // Check for person-not-found errors
+                        if (errorDetail.includes('person') && errorDetail.includes('not found')) {
+                            return 'Person not found. This person may not have existed at the selected timestamp.'
                         }
-                    }
 
-                    // Handle common HTTP error codes
-                    if (error?.status === 404) {
-                        return 'Person not found. This person may not exist or may not have existed at the selected timestamp.'
-                    }
-                    if (error?.status === 400) {
-                        return 'Invalid request. Please check your input parameters.'
-                    }
-                    if (error?.status === 500) {
-                        return 'Server error occurred while evaluating the flag. Please try again or contact support if the issue persists.'
+                        // Check for timestamp-related errors
+                        if (errorDetail.includes('timestamp') || errorDetail.includes('time')) {
+                            return 'Invalid timestamp. Please select a valid date and time.'
+                        }
+
+                        return errorDetail
                     }
 
                     // Check error message for specific patterns
-                    const errorMessage = error?.message || ''
+                    const errorMessage = error.message || ''
                     if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
                         return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
                     }

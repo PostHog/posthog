@@ -10,7 +10,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType, PersonType } from '~/types'
 
-import { featureFlagsLogic } from './featureFlagsLogic'
+import { featureFlagsLogic, ConditionAnalysis, PropertyAnalysis } from './featureFlagsLogic'
 
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const {
@@ -77,8 +77,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
     const getUsedProperties = (): Set<string> => {
         const used = new Set<string>()
         if (result?.conditions) {
-            result.conditions.forEach((condition) => {
-                condition.properties.forEach((prop) => {
+            result.conditions.forEach((condition: ConditionAnalysis) => {
+                condition.properties.forEach((prop: PropertyAnalysis) => {
                     used.add(prop.key)
                 })
             })
@@ -95,7 +95,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
         try {
             // Use person_id as the identifier since it's more stable than distinct_id
-            await testFlagEvaluation({ flagId: featureFlag.id, formData })
+            await testFlagEvaluation({ flagId: featureFlag.id!, formData })
         } catch {
             // Error handling is done in the kea logic
         }
@@ -336,7 +336,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         <LemonLabel>Condition Analysis</LemonLabel>
 
                                         <div className="space-y-3 max-h-96 overflow-auto">
-                                            {result.conditions.map((condition) => (
+                                            {result.conditions.map((condition: ConditionAnalysis) => (
                                                 <div
                                                     key={condition.index}
                                                     className={`border rounded-lg p-3 ${
@@ -379,14 +379,16 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                                                     {condition.properties.length > 0 && (
                                                         <div className="space-y-1">
-                                                            {condition.properties.map((property, idx) => (
-                                                                <div
-                                                                    key={`${property.key}-${idx}`}
-                                                                    className="text-xs text-muted pl-2"
-                                                                >
-                                                                    • {property.explanation}
-                                                                </div>
-                                                            ))}
+                                                            {condition.properties.map(
+                                                                (property: PropertyAnalysis, idx: number) => (
+                                                                    <div
+                                                                        key={`${property.key}-${idx}`}
+                                                                        className="text-xs text-muted pl-2"
+                                                                    >
+                                                                        • {property.explanation}
+                                                                    </div>
+                                                                )
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

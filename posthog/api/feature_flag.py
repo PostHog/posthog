@@ -3334,7 +3334,7 @@ class FeatureFlagViewSet(
             # Initialize defaults
             condition_index = None
             payload = None
-            detailed_conditions = []
+            detailed_conditions: list[dict] = []
             result: bool | str = False
 
             if flag_result is None:
