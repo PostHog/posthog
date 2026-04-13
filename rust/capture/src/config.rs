@@ -316,7 +316,7 @@ pub struct KafkaConfig {
     #[envconfig(default = "1000")] // librdkafka default
     pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms
     #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
-    pub kafka_socket_send_buffer_bytes: i32, // socket.send.buffer.bytes
+    pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
     #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
-    pub kafka_socket_receive_buffer_bytes: i32, // socket.receive.buffer.bytes
+    pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
 }
