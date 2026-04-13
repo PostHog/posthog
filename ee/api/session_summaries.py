@@ -1,5 +1,6 @@
 import os
 import asyncio
+import dataclasses
 from datetime import datetime
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
@@ -43,6 +45,7 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.models.session_summaries import SessionGroupSummary
+from ee.models.team_session_summaries_config import PRODUCT_CONTEXT_MAX_LENGTH, TeamSessionSummariesConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +60,23 @@ class SessionSummariesSerializer(serializers.Serializer):
     focus_area = serializers.CharField(
         required=False, allow_blank=True, max_length=500, help_text="Optional focus area for the summarization"
     )
+
+
+class SessionSummariesConfigSerializer(serializers.ModelSerializer):
+    product_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=PRODUCT_CONTEXT_MAX_LENGTH,
+        help_text=(
+            "Free-form description of the team's product, used to tailor AI-generated single-session replay "
+            "summaries. Injected into the system prompt of every summary generated for this team via the "
+            "replay page."
+        ),
+    )
+
+    class Meta:
+        model = TeamSessionSummariesConfig
+        fields = ["product_context"]
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -89,6 +109,23 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if focus_area:
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         return session_ids, min_timestamp, max_timestamp, extra_summary_context
+
+    def _merge_team_product_context(
+        self, extra_summary_context: ExtraSummaryContext | None
+    ) -> ExtraSummaryContext | None:
+        """
+        Merge the team's stored product_context into the per-request ExtraSummaryContext.
+
+        Only called from the single-session replay page flow. Group summaries and other
+        entry points (Max tool, CLI) intentionally do not pick up team-level product context.
+        """
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        product_context = (team_config.product_context or "").strip()
+        if not product_context:
+            return extra_summary_context
+        if extra_summary_context is None:
+            return ExtraSummaryContext(product_context=product_context)
+        return dataclasses.replace(extra_summary_context, product_context=product_context)
 
     @staticmethod
     async def _get_summary_from_progress_stream(
@@ -256,6 +293,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, _, _, extra_summary_context = self._validate_input(request)
+        # Layer the team's stored product_context on top of any per-request context.
+        # Only applied to the single-session replay page flow — group summaries stay untouched.
+        extra_summary_context = self._merge_team_product_context(extra_summary_context)
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,
@@ -304,6 +344,37 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
+
+    @extend_schema(
+        operation_id="retrieve_session_summaries_config",
+        description=(
+            "Retrieve the team's session summaries configuration "
+            "(product context used to tailor single-session replay summaries)."
+        ),
+        responses=SessionSummariesConfigSerializer,
+    )
+    @extend_schema(
+        operation_id="update_session_summaries_config",
+        description=(
+            "Update the team's session summaries configuration "
+            "(product context used to tailor single-session replay summaries)."
+        ),
+        request=SessionSummariesConfigSerializer,
+        responses=SessionSummariesConfigSerializer,
+        methods=["PATCH"],
+    )
+    @action(methods=["GET", "PATCH"], detail=False, serializer_class=SessionSummariesConfigSerializer)
+    def config(self, request: Request, **kwargs) -> Response:
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        if request.method == "PATCH":
+            serializer = SessionSummariesConfigSerializer(team_config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        else:
+            serializer = SessionSummariesConfigSerializer(team_config)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):

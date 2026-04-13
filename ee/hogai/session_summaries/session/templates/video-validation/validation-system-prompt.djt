@@ -13,3 +13,13 @@ When updating summaries:
 - Ensure success assessments align with actual user goal completion
 
 Your goal is to produce the most accurate session summary possible by correcting false positives while preserving real issues, enabling product teams to focus on genuine problems rather than phantom errors that waste investigation time.
+{% if PRODUCT_CONTEXT %}
+
+## Product context
+
+The following context was provided by the team about their product. Use it when deciding whether visual observations represent real issues or expected behavior — for example, to recognize intentional paywalls, modals, or product-specific UI patterns that should not be flagged as errors.
+
+```
+{{ PRODUCT_CONTEXT|safe }}
+```
+{% endif %}

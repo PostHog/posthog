@@ -61,7 +61,7 @@ class TestSingleSessionSummary(BaseTest):
         self.assertIn("segment_outcomes", summary.summary)
         self.assertIn("session_outcome", summary.summary)
         self.assertEqual(summary.exception_event_ids, self.exception_event_ids)
-        self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
+        self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication", "product_context": None})
         self.assertEqual(
             summary.run_metadata,
             {"model_used": "gpt-4", "visual_confirmation": False, "visual_confirmation_results": None},
@@ -93,7 +93,7 @@ class TestSingleSessionSummary(BaseTest):
             team_id=self.team.id, session_id=self.session_id, extra_summary_context=self.extra_context
         )
         assert retrieved is not None
-        self.assertEqual(retrieved.extra_summary_context, {"focus_area": "authentication"})
+        self.assertEqual(retrieved.extra_summary_context, {"focus_area": "authentication", "product_context": None})
 
         # Get the latest one (which has no context)
         retrieved_any: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
@@ -297,7 +297,7 @@ class TestSingleSessionSummaryBulk(BaseTest):
         self.assertEqual(result_session_ids, expected_session_ids)
 
         for summary in result.results:
-            self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
+            self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication", "product_context": None})
 
     def test_get_bulk_summaries_pagination(self) -> None:
         result_offset_0: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
