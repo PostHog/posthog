@@ -126,6 +126,7 @@ def _diff_snapshot(snapshot) -> None:
         # that decided this snapshot is changed, so it's more meaningful
         # than the diluted pixel ratio.
         result.diff_percentage = round(ssim_dissimilarity * 100, 4)
+        result.diff_pixel_count = 0
         _store_diff(snapshot, result, ssim_score=ssim_score)
         logger.info(
             "visual_review.diff_caught_by_ssim",

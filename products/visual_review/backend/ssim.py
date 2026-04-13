@@ -7,7 +7,7 @@ screenshot can fall below the pixel threshold. SSIM evaluates structural
 similarity in local windows, catching changes that affect few pixels but
 produce a measurable perceptual shift.
 
-Only called when pixelmatch classifies a snapshot as below-threshold.
+Only called when the pixel-based diff classifies a snapshot as below-threshold.
 
 Uses pixelhog (Rust) for fast 11x11 windowed SSIM with reflect padding.
 """
