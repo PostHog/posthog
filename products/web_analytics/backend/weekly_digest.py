@@ -65,7 +65,7 @@ def get_overview_for_team(team: Team) -> dict:
         item = items_by_key.get(key)
         if item:
             current = item.value or 0
-            previous = item.previous
+            previous = item.previous or None
             result[output_key] = {
                 "current": current,
                 "previous": previous,
@@ -75,7 +75,7 @@ def get_overview_for_team(team: Team) -> dict:
     bounce_item = items_by_key.get("bounce rate")
     if bounce_item:
         current_bounce = bounce_item.value if bounce_item.value is not None else 0
-        prev_bounce = bounce_item.previous
+        prev_bounce = bounce_item.previous or None
         result["bounce_rate"] = {
             "current": round(current_bounce, 1),
             "previous": round(prev_bounce, 1) if prev_bounce is not None else None,
