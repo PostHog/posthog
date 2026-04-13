@@ -14,7 +14,7 @@
 // Durations come from .test_durations (maintained by pytest-split).
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
-// Output: JSON on stdout: { matrix, run_legacy }
+// Output: JSON on stdout: { matrix, run_legacy, django_shards }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
@@ -31,6 +31,17 @@ const DURATION_SAFETY_FACTOR = 2
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+
+// --- Django shard auto-sizing (Amdahl's law) ---
+// wall_clock = overhead + (total_from_durations_file / shards)
+// .test_durations includes migration costs baked into first-test timings, so
+// the raw sum IS the work pytest-split distributes. Overhead is only the
+// non-pytest per-shard cost: job setup (~2m) + pytest collection/splitting (~1.5m).
+const DJANGO_OVERHEAD_SECONDS = 3.5 * 60
+const DJANGO_TARGET_WALL_SECONDS = 20 * 60
+const DJANGO_SAFETY_FACTOR = 1.3
+const DJANGO_MIN_SHARDS = 3
+const DJANGO_MAX_SHARDS = 50
 
 const TURBO_EXEC_OPTS = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 }
 const TURBO_BIN = './node_modules/.bin/turbo'
@@ -126,6 +137,62 @@ function packSmallProducts(products, durations) {
         buckets.push(current)
     }
     return buckets
+}
+
+// Path filters matching the Django workflow pytest invocations.
+// Core: posthog/ + ee/ minus temporal, dags, hogvm
+// Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
+// Temporal: posthog/temporal + products/batch_exports/backend/tests/temporal + products/tasks/backend/temporal
+const DJANGO_SEGMENTS = {
+    Core: {
+        include: ['posthog/', 'ee/'],
+        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/'],
+    },
+    CorePOE: {
+        include: ['posthog/clickhouse/', 'posthog/queries/', 'posthog/api/test/test_insight', 'posthog/api/test/dashboards/test_dashboard.py', 'ee/clickhouse/'],
+        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/', 'posthog/hogql_queries/', 'posthog/hogql/'],
+    },
+    Temporal: {
+        include: ['posthog/temporal/', 'products/batch_exports/backend/tests/temporal/', 'products/tasks/backend/temporal/'],
+        exclude: [],
+    },
+}
+
+function getSegmentDuration(segment, durations) {
+    if (!durations) return 0
+    const { include, exclude } = DJANGO_SEGMENTS[segment]
+    let total = 0
+    for (const [test, dur] of Object.entries(durations)) {
+        if (!include.some((p) => test.startsWith(p))) continue
+        if (exclude.some((p) => test.startsWith(p))) continue
+        total += dur
+    }
+    return total
+}
+
+// Fallback shard counts used when .test_durations is missing.
+const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
+
+function calculateShards(totalWorkSeconds) {
+    const testBudget = DJANGO_TARGET_WALL_SECONDS - DJANGO_OVERHEAD_SECONDS
+    if (testBudget <= 0) return DJANGO_MAX_SHARDS
+    const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
+    return Math.max(DJANGO_MIN_SHARDS, Math.min(DJANGO_MAX_SHARDS, shards))
+}
+
+function buildDjangoShards(durations) {
+    const result = {}
+    for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
+        const duration = getSegmentDuration(segment, durations)
+        const shards = durations ? calculateShards(duration) : DJANGO_FALLBACK_SHARDS[segment]
+        const wall = DJANGO_OVERHEAD_SECONDS + duration / shards
+        result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
+        const source = durations ? 'auto' : 'fallback'
+        console.error(
+            `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${source}), ~${(wall / 60).toFixed(1)} min est. wall`
+        )
+    }
+    return result
 }
 
 function buildMatrix(products, durations) {
@@ -235,9 +302,14 @@ console.error(`Products to test: ${JSON.stringify(products)}`)
 console.error(`Run legacy (Django): ${runLegacy}`)
 
 const durations = loadTestDurations()
+
+console.error('\nDjango shard calculation:')
+const djangoShards = buildDjangoShards(durations)
+
 const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
+    django_shards: djangoShards,
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')
