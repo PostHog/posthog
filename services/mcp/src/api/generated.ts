@@ -22154,6 +22154,31 @@ export namespace Schemas {
       results: Ticket[];
     }
 
+    /**
+     * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+     */
+    export type TicketViewFilters = {[key: string]: unknown};
+
+    export interface TicketView {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 400 */
+      name: string;
+      /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+      filters?: TicketViewFilters;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedTicketViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketView[];
+    }
+
     export interface TraceReviewScore {
       readonly id: string;
       /** Stable scorer definition ID. */
@@ -32966,6 +32991,17 @@ export namespace Schemas {
     };
 
     export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ConversationsViewsListParams = {
     /**
      * Number of results to return per page.
      */

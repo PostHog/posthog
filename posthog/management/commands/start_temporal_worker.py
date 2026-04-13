@@ -495,7 +495,7 @@ class Command(BaseCommand):
         enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
-            initialize_otel(settings.OTEL_SERVICE_NAME)  # type: ignore
+            initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore
 
         async def shutdown_all(
             worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals

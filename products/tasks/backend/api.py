@@ -67,6 +67,9 @@ from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_
 from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
 
 logger = logging.getLogger(__name__)
+TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
+TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
+TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 
 
 class TasksAccessPermission(BasePermission):
@@ -1127,7 +1130,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not last_event_id and start_latest:
                 start_id = await redis_stream.get_latest_stream_id() or "0"
             try:
-                async for event_id, event in redis_stream.read_stream_entries(start_id=start_id):
+                async for stream_item in redis_stream.read_stream_entries(
+                    start_id=start_id,
+                    keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
+                ):
+                    if stream_item is None:
+                        yield format_sse_event(
+                            TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                            event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                        )
+                        continue
+                    event_id, event = stream_item
                     yield format_sse_event(event, event_id=event_id)
             except TaskRunStreamError as e:
                 logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)

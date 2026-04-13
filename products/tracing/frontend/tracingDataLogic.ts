@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { getSeriesColor } from 'lib/colors'
+import { dataColorVars } from 'lib/colors'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { PropertyGroupFilter } from '~/types'
@@ -224,7 +224,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     .map(([name, values], index) => ({
                         name,
                         values: values as number[],
-                        color: getSeriesColor(index),
+                        color: dataColorVars[index % dataColorVars.length],
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 

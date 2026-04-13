@@ -335,3 +335,44 @@ class TestGenerateInsightMetadata(APIBaseTest):
         prompt_content = mock_openai.call_args[0][0][1]["content"]
         assert "cohort 'Real persons'" in prompt_content
         assert "$browser" in prompt_content
+
+    @parameterized.expand(
+        [
+            (
+                "basic",
+                {
+                    "kind": "GroupsQuery",
+                    "group_type_index": 0,
+                    "select": ["group_key", "group_name"],
+                },
+                ["GROUPS list"],
+            ),
+            (
+                "with_property_filter",
+                {
+                    "kind": "GroupsQuery",
+                    "group_type_index": 3,
+                    "select": ["group_name", "created_at"],
+                    "properties": [
+                        {
+                            "key": "$virt_revenue",
+                            "value": ["5555"],
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 3,
+                        },
+                    ],
+                },
+                ["GROUPS list", "$virt_revenue", "5555"],
+            ),
+        ]
+    )
+    @patch(MOCK_PATH)
+    def test_groups_query_prompt_content(self, _name, groups_query, expected_in_prompt, mock_openai):
+        mock_openai.return_value = ('{"name": "Groups", "description": "A list of groups."}', 10, 20)
+        response = self.client.post(self.url, {"query": groups_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        for expected in expected_in_prompt:
+            assert expected in prompt_content
