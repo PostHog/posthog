@@ -1430,7 +1430,7 @@ class TestDriftComparesKeyFields(unittest.TestCase):
     def _base(self, **overrides):
         from posthog.clickhouse.migration_tools.schema_introspect import TableSchema
 
-        defaults = {
+        kwargs: dict[str, object] = {
             "name": "sharded_events",
             "engine": "ReplicatedMergeTree",
             "engine_full": "ReplicatedMergeTree('/clickhouse/tables/{shard}/events', '{replica}')",
@@ -1438,8 +1438,8 @@ class TestDriftComparesKeyFields(unittest.TestCase):
             "partition_key": "toStartOfMonth(timestamp)",
             "primary_key": "team_id, id",
         }
-        defaults.update(overrides)
-        return TableSchema(**defaults)
+        kwargs.update(overrides)
+        return TableSchema(**kwargs)  # type: ignore[arg-type]
 
     def test_partition_key_drift_detected(self) -> None:
         from posthog.clickhouse.migration_tools.schema_introspect import compare_schemas

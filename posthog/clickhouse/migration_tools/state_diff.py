@@ -1131,8 +1131,8 @@ def diff_state(
             if rec.action == "recreate_mv":
                 recreated_mv_names.add(rec.table)
         for name in drop_create_pairs:
-            desired_table = desired_without_skipped.get(name)
-            if desired_table and _is_mv(desired_table.engine):
+            maybe_desired: DesiredTable | None = desired_without_skipped.get(name)
+            if maybe_desired and _is_mv(maybe_desired.engine):
                 recreated_mv_names.add(name)
 
         for mv_name in recreated_mv_names:
