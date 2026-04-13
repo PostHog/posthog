@@ -1117,8 +1117,101 @@ class TestDictionaryRecreateExtended:
 
     @_PATCH_RESOLVE
     @_PATCH_SETTING
-    def test_recreate_on_source_param_change(self, _mock_setting, _mock_cluster):
-        """Changing a SOURCE param (e.g. table) triggers recreate via substring match."""
+    def test_complex_key_layout_normalization(self, _mock_setting, _mock_cluster):
+        """YAML `HASHED` and live `COMPLEX_KEY_HASHED` are semantically equal.
+
+        CH auto-upgrades HASHED → COMPLEX_KEY_HASHED when the primary key is
+        a String or composite. Without normalization the diff would re-create
+        the dict every apply.
+        """
+        desired_table = _dict_table()
+        desired_table.dict_layout = {"type": "HASHED"}
+        desired = _make_desired({"channel_definition_dict": desired_table})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "CREATE DICTIONARY posthog.channel_definition_dict "
+                    "(`domain` String, `kind` String, `domain_type` Nullable(String)) "
+                    "PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'channel_definition' PASSWORD '[HIDDEN]')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) "
+                    "LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                dict_source_type="ClickHouse",
+                dict_layout_type="COMPLEX_KEY_HASHED",
+                dict_lifetime_min=3000,
+                dict_lifetime_max=3600,
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        recreates = [d for d in diffs if d.action == "recreate"]
+        assert recreates == []
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_not_loaded_dict_uses_engine_full_fallback(self, _mock_setting, _mock_cluster):
+        """NOT_LOADED dicts return empty system.dictionaries rows — diff reads from engine_full.
+
+        schema_introspect populates engine_full from create_table_query for
+        Dictionary engines, which is always available regardless of load state.
+        """
+        desired_table = _dict_table()
+        desired_table.primary_key = "domain"
+        desired_table.dict_layout = {"type": "RANGE_HASHED", "params": {"range_lookup_strategy": "max"}}
+        desired_table.dict_range = {"min": "start_date", "max": "end_date"}
+        desired_table.columns = [
+            ColumnDef(name="domain", type="String"),
+            ColumnDef(name="start_date", type="Date"),
+            ColumnDef(name="end_date", type="Nullable(Date)"),
+            ColumnDef(name="rate", type="Decimal64(10)"),
+        ]
+        desired = _make_desired({"channel_definition_dict": desired_table})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                # Dictionary not loaded yet — system.dictionaries columns empty/0.
+                engine_full=(
+                    "CREATE DICTIONARY posthog.channel_definition_dict "
+                    "(`domain` String, `start_date` Date, `end_date` Nullable(Date), `rate` Decimal64(10)) "
+                    "PRIMARY KEY domain "
+                    "SOURCE(CLICKHOUSE(QUERY 'SELECT ...' USER 'default' PASSWORD '[HIDDEN]')) "
+                    "LIFETIME(MIN 3000 MAX 3600) "
+                    "LAYOUT(COMPLEX_KEY_RANGE_HASHED(RANGE_LOOKUP_STRATEGY 'max')) "
+                    "RANGE(MIN start_date MAX end_date)"
+                ),
+                dict_source_type="",
+                dict_layout_type="",
+                dict_lifetime_min=0,
+                dict_lifetime_max=0,
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("start_date", "Date"),
+                    _live_col("end_date", "Nullable(Date)"),
+                    _live_col("rate", "Decimal64(10)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_source_param_change_does_not_trigger_recreate(self, _mock_setting, _mock_cluster):
+        """SOURCE param diffs (table, URL, query text) do NOT trigger recreate.
+
+        CH stores DDL with password masked as [HIDDEN], uppercases param keys,
+        and reformats query text — substring matching false-positives on these
+        normalizations. Users who truly need to rewrite the SOURCE change the
+        dict name or force-drop manually.
+        """
         desired = _make_desired({"channel_definition_dict": _dict_table()})
         current = {
             "channel_definition_dict": TableSchema(
@@ -1142,13 +1235,17 @@ class TestDictionaryRecreateExtended:
         }
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         recreates = [d for d in diffs if d.action == "recreate"]
-        assert len(recreates) == 1
-        assert "SOURCE param 'table'" in recreates[0].detail
+        assert recreates == []
 
     @_PATCH_RESOLVE
     @_PATCH_SETTING
-    def test_recreate_on_layout_param_change(self, _mock_setting, _mock_cluster):
-        """Changing LAYOUT params (e.g. PREALLOCATE) triggers recreate."""
+    def test_layout_param_change_does_not_trigger_recreate(self, _mock_setting, _mock_cluster):
+        """LAYOUT param diffs (PREALLOCATE, SHARDS, size_in_cells) do NOT trigger recreate.
+
+        CH normalizes param casing and ordering; substring comparison false-
+        positives on formatting. Only the LAYOUT type (HASHED vs
+        COMPLEX_KEY_HASHED vs RANGE_HASHED etc.) is checked.
+        """
         desired_table = _dict_table()
         desired_table.dict_layout = {"type": "COMPLEX_KEY_HASHED", "params": {"PREALLOCATE": 1}}
         desired = _make_desired({"channel_definition_dict": desired_table})
@@ -1174,8 +1271,7 @@ class TestDictionaryRecreateExtended:
         }
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         recreates = [d for d in diffs if d.action == "recreate"]
-        assert len(recreates) == 1
-        assert "LAYOUT param 'PREALLOCATE'" in recreates[0].detail
+        assert recreates == []
 
     @_PATCH_RESOLVE
     @_PATCH_SETTING
