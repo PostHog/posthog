@@ -353,6 +353,10 @@
                 "holdout_id": {
                     "description": "Holdout group ID if this experiment should exclude users from other experiments",
                     "type": "number"
+                },
+                "allow_unknown_events": {
+                    "description": "Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.",
+                    "type": "boolean"
                 }
             },
             "required": ["name", "feature_flag_key"]

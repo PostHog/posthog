@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = z.object({
-    evaluationId: z.string().uuid().describe('The UUID of the evaluation to retrieve.'),
+    evaluationId: z.string().describe('The UUID of the evaluation to retrieve.'),
 })
 
 type Params = z.infer<typeof schema>

@@ -334,3 +334,66 @@ async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, t
     assert run is not None
     assert run.status == "Failed"
     assert run.latest_error == "Oh No a NUL byte: !"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_persists_records_failed(activity_environment, team, batch_export):
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    run_id = await activity_environment.run(
+        start_batch_export_run,
+        StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        ),
+    )
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=team.id,
+        records_completed=97,
+        records_failed=3,
+    )
+    await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    run = await sync_to_async(BatchExportRun.objects.get)(id=run_id)
+    assert run.status == "Completed"
+    assert run.records_completed == 97
+    assert run.records_failed == 3
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_records_failed_none_when_not_set(activity_environment, team, batch_export):
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    run_id = await activity_environment.run(
+        start_batch_export_run,
+        StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        ),
+    )
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=team.id,
+        records_completed=100,
+    )
+    await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    run = await sync_to_async(BatchExportRun.objects.get)(id=run_id)
+    assert run.status == "Completed"
+    assert run.records_completed == 100
+    assert run.records_failed is None

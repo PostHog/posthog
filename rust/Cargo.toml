@@ -29,6 +29,7 @@ members = [
     "common/compression",
     "common/hypercache",
     "feature-flags",
+    "hypercache-server",
     "cyclotron-core",
     "cyclotron-node",
     "cyclotron-janitor",
