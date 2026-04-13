@@ -1,16 +1,37 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 
 class TestChatAgentGatewayRouting(BaseTest):
-    @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
-    @patch(
-        "ee.hogai.core.agent_modes.executables.has_llm_gateway_feature_flag",
-        return_value=True,
+    @parameterized.expand(
+        [
+            (
+                "gateway_bedrock",
+                "gateway-bedrock",
+                {
+                    "X-PostHog-Provider": "bedrock",
+                    "X-POSTHOG-FLAG-phai-llm-gateway": "gateway-bedrock",
+                },
+            ),
+            (
+                "gateway_anthropic",
+                "gateway-anthropic",
+                {
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                    "X-POSTHOG-FLAG-phai-llm-gateway": "gateway-anthropic",
+                },
+            ),
+        ]
     )
-    def test_get_model_routes_to_llm_gateway_when_feature_flag_enabled(self, _mock_flag, mock_model_init):
+    @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
+    @patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant")
+    def test_get_model_routes_to_gateway(self, _name, variant, expected_headers, mock_get_variant, mock_model_init):
         from ee.hogai.chat_agent.executables import ChatAgentExecutable
         from ee.hogai.utils.types.base import AssistantState
+
+        mock_get_variant.return_value = variant
 
         test_cases = [
             ("http://gateway:3308", "http://gateway:3308/django"),
@@ -37,15 +58,42 @@ class TestChatAgentGatewayRouting(BaseTest):
                     call_kwargs = mock_model_init.call_args.kwargs
                     self.assertEqual(call_kwargs["anthropic_api_url"], expected_gateway_url)
                     self.assertEqual(call_kwargs["anthropic_api_key"], "test-key")
-                    self.assertEqual(call_kwargs["default_headers"], {"X-PostHog-Provider": "bedrock"})
+                    self.assertEqual(call_kwargs["default_headers"], expected_headers)
                     self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
     @patch(
-        "ee.hogai.core.agent_modes.executables.has_llm_gateway_feature_flag",
-        return_value=False,
+        "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
+        return_value="gateway-anthropic",
     )
-    def test_get_model_does_not_route_when_feature_flag_disabled(self, _mock_flag, mock_model_init):
+    def test_get_model_gateway_anthropic_excludes_provider_header(self, _mock_variant, mock_model_init):
+        from ee.hogai.chat_agent.executables import ChatAgentExecutable
+        from ee.hogai.utils.types.base import AssistantState
+
+        with patch("ee.hogai.core.agent_modes.executables.settings") as mock_settings:
+            mock_settings.LLM_GATEWAY_URL = "http://gateway:3308"
+            mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+            executable = ChatAgentExecutable(
+                team=self.team,
+                user=self.user,
+                toolkit_manager_class=MagicMock(),
+                prompt_builder_class=MagicMock(),
+                node_path=(),
+            )
+
+            state = AssistantState(messages=[])
+            executable._get_model(state, [])
+
+            call_kwargs = mock_model_init.call_args.kwargs
+            self.assertNotIn("X-PostHog-Provider", call_kwargs["default_headers"])
+
+    @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
+    @patch(
+        "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
+        return_value="control",
+    )
+    def test_get_model_does_not_route_when_control_variant(self, _mock_variant, mock_model_init):
         from ee.hogai.chat_agent.executables import ChatAgentExecutable
         from ee.hogai.utils.types.base import AssistantState
 
@@ -68,10 +116,10 @@ class TestChatAgentGatewayRouting(BaseTest):
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
     @patch(
-        "ee.hogai.core.agent_modes.executables.has_llm_gateway_feature_flag",
-        return_value=True,
+        "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
+        return_value="gateway-bedrock",
     )
-    def test_get_model_falls_back_when_gateway_not_configured(self, _mock_flag, mock_model_init):
+    def test_get_model_falls_back_when_gateway_not_configured(self, _mock_variant, mock_model_init):
         from ee.hogai.chat_agent.executables import ChatAgentExecutable
         from ee.hogai.utils.types.base import AssistantState
 
