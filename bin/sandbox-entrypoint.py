@@ -628,15 +628,13 @@ def run_setup() -> None:
         lock = WORKSPACE / "bin/start.lock"
         lock.unlink(missing_ok=True)
 
-        _write_status("sandbox ready")
+        _write_status("C-b 1 claude  C-b 2 setup  C-b 3 phrocs  C-b d detach  mouse enabled")
 
         # Spawn phrocs in its own tmux window.
         run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
 
         print(  # noqa: T201
-            "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 1 (Ctrl-b 1).\n"
-            "Tip: mouse is enabled — click tabs, scroll, drag pane borders."
-            " Split panes with Ctrl-b | or Ctrl-b -.\n",
+            "\nSetup complete — see status bar for keybinding hints.\n",
             flush=True,
         )
     except Exception:
