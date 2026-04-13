@@ -73,45 +73,6 @@ const consumedBatchBackpressureDuration = new Histogram({
     labelNames: ['topic', 'groupId'],
 })
 
-const counterBackgroundTaskTimeout = new Counter({
-    name: 'consumer_background_task_timeout_total',
-    help: 'Count of background tasks that hit the timeout',
-    labelNames: ['topic', 'groupId'],
-})
-
-/**
- * Wraps a background task promise with a timeout. When the timeout fires:
- * - Always logs an error and increments a counter (probe phase)
- * - Optionally force-resolves the wrapper to unblock the offset commit chain
- *
- * If both the timeout and the real task resolve, the second resolve() is a no-op
- * (standard Promise behavior - a promise can only be resolved once).
- */
-export function withBackgroundTaskTimeout(
-    task: Promise<any>,
-    timeoutMs: number,
-    forceResolve: boolean,
-    labels: { topic: string; groupId: string }
-): Promise<void> {
-    return new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-            logger.error('🔥', 'background_task_timeout', {
-                ...labels,
-                timeoutMs,
-                forceResolve,
-            })
-            counterBackgroundTaskTimeout.inc(labels)
-            if (forceResolve) {
-                resolve()
-            }
-        }, timeoutMs)
-        void task.finally(() => {
-            clearTimeout(timer)
-            resolve()
-        })
-    })
-}
-
 const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
@@ -768,11 +729,13 @@ export class KafkaConsumer {
                     // So we just create pretend work to simplify the rest of the logic
                     const rawBackgroundTask = result?.backgroundTask
                     const backgroundTask = rawBackgroundTask
-                        ? withBackgroundTaskTimeout(
-                              rawBackgroundTask,
-                              defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
-                              defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE,
-                              { topic, groupId }
+                        ? instrumentFn(
+                              {
+                                  key: 'consumer_background_task',
+                                  timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                  sendException: false,
+                              },
+                              () => rawBackgroundTask
                           )
                         : Promise.resolve()
                     const stopBackgroundTaskTimer = rawBackgroundTask

@@ -755,6 +755,10 @@ environment:
     sandbox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
+        hidden: true
+    sandybox:
+        bin_script: sandbox
+        description: Manage isolated dev sandboxes
     start:stripe:mock:
         bin_script: start-stripe-mock
         description: 'Start the local Stripe mock API server'
