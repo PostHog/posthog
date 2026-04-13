@@ -243,7 +243,7 @@
         "simple-statistics": "^7.8.8",
         "snappy-wasm": "^0.3.0",
         "tailwind-merge": "^2.2.2",
-        "torph": "^0.0.5",
+        "torph": "^0.0.9",
         "ts-pattern": "catalog:",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
