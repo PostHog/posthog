@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from posthog.clickhouse.migration_tools.desired_state import DesiredState
 from posthog.clickhouse.migration_tools.schema_graph import TableEcosystem, lookup_ecosystem
+from posthog.clickhouse.migration_tools.state_diff import _is_distributed, _is_kafka, _is_mergetree, _is_mv
 
 # Expected node roles by engine type
 _EXPECTED_ROLES: dict[str, set[str]] = {
@@ -11,22 +12,6 @@ _EXPECTED_ROLES: dict[str, set[str]] = {
     "kafka": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL"},
     "materializedview": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL"},
 }
-
-
-def _is_mergetree_engine(engine: str) -> bool:
-    return "mergetree" in engine.lower()
-
-
-def _is_distributed_engine(engine: str) -> bool:
-    return engine.lower() == "distributed"
-
-
-def _is_kafka_engine(engine: str) -> bool:
-    return engine.lower() == "kafka"
-
-
-def _is_mv_engine(engine: str) -> bool:
-    return engine.lower() == "materializedview"
 
 
 def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[TableEcosystem]:
@@ -40,10 +25,10 @@ def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[Table
     for state in desired_states:
         tables = state.tables
 
-        local_tables = {n: t for n, t in tables.items() if _is_mergetree_engine(t.engine)}
-        distributed = {n: t for n, t in tables.items() if _is_distributed_engine(t.engine)}
-        kafka = {n: t for n, t in tables.items() if _is_kafka_engine(t.engine)}
-        mvs = {n: t for n, t in tables.items() if _is_mv_engine(t.engine)}
+        local_tables = {n: t for n, t in tables.items() if _is_mergetree(t.engine)}
+        distributed = {n: t for n, t in tables.items() if _is_distributed(t.engine)}
+        kafka = {n: t for n, t in tables.items() if _is_kafka(t.engine)}
+        mvs = {n: t for n, t in tables.items() if _is_mv(t.engine)}
 
         for local_name in local_tables:
             writable = next(
@@ -168,7 +153,7 @@ def _check_mergetree_order_by(state: DesiredState) -> list[str]:
     """
     errors: list[str] = []
     for table_name, table in state.tables.items():
-        if _is_mergetree_engine(table.engine) and not table.order_by:
+        if _is_mergetree(table.engine) and not table.order_by:
             errors.append(
                 f"[{state.ecosystem}] Table '{table_name}' (engine={table.engine}) "
                 f"is missing ORDER BY \u2014 ClickHouse will reject this CREATE"
