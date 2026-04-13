@@ -345,7 +345,7 @@ func TestSearch_matchesHighlighted(t *testing.T) {
 	}
 }
 
-func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
+func TestSearch_enterCommitsToFilter(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"foo", "bar", "foo again"} {
@@ -356,40 +356,47 @@ func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
 	m = update(m, keypress('f'))
 	m = update(m, keypress('o'))
 	m = update(m, keypress('o'))
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchQuery != "foo" {
-		t.Errorf("query should be preserved after enter, got %q", m.searchQuery)
+	m = update(m, specialKey(tea.KeyEnter))
+	if m.searchMode {
+		t.Error("search mode should be off after enter (committed)")
 	}
-	if len(m.searchMatches) != 2 {
-		t.Errorf("matches should persist after enter, want 2 got %d", len(m.searchMatches))
+	if !m.filterMode {
+		t.Error("filter mode should be on after enter")
+	}
+	if m.searchQuery != "foo" {
+		t.Errorf("query should be preserved after commit, got %q", m.searchQuery)
+	}
+	if m.viewport.TotalLineCount() != 2 {
+		t.Errorf("filter should show 2 matching lines, got %d", m.viewport.TotalLineCount())
 	}
 }
 
-func TestSearch_navigateWithEnter(t *testing.T) {
+func TestSearch_navigateWithArrows(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
-	for _, line := range []string{"match one", "no match", "match two"} {
+	for _, line := range []string{"match one", "nothing here", "match two"} {
 		p.AppendLine(line)
 		m = update(m, process.OutputMsg{Name: "backend"})
 	}
-	// Enter search and confirm
 	m = update(m, keypress('/'))
 	for _, ch := range "match" {
 		m = update(m, keypress(ch))
 	}
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchCursor != 1 {
-		t.Fatalf("after enter cursor should be 1, got %d", m.searchCursor)
+	if len(m.searchMatches) != 2 {
+		t.Fatalf("want 2 matches, got %d", len(m.searchMatches))
 	}
-	// ↵ → next match
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchCursor != 2 {
-		t.Errorf("enter: want cursor 2, got %d", m.searchCursor)
+	if m.searchCursor != 0 {
+		t.Fatalf("initial cursor should be 0, got %d", m.searchCursor)
 	}
-	// ⇧↵ → prev match
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift, Text: "shift+enter"})
+	// ↓ → next match
+	m = update(m, specialKey(tea.KeyDown))
 	if m.searchCursor != 1 {
-		t.Errorf("shift+enter: want cursor 1, got %d", m.searchCursor)
+		t.Errorf("down: want cursor 1, got %d", m.searchCursor)
+	}
+	// ↑ → prev match
+	m = update(m, specialKey(tea.KeyUp))
+	if m.searchCursor != 0 {
+		t.Errorf("up: want cursor 0, got %d", m.searchCursor)
 	}
 }
 
@@ -406,7 +413,6 @@ func TestSearch_incrementalUpdate(t *testing.T) {
 	for _, ch := range "error" {
 		m = update(m, keypress(ch))
 	}
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if len(m.searchMatches) != 1 {
 		t.Fatalf("want 1 match for 'error', got %d", len(m.searchMatches))
 	}
@@ -442,7 +448,6 @@ func TestSearch_eviction(t *testing.T) {
 	m = update(m, keypress('e'))
 	m = update(m, keypress('r'))
 	m = update(m, keypress('r'))
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if len(m.searchMatches) != 2 {
 		t.Fatalf("want 2 matches, got %d", len(m.searchMatches))
 	}
@@ -465,17 +470,15 @@ func TestSearch_escClearsActiveSearch(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("something")
 	m = update(m, process.OutputMsg{Name: "backend"})
-	// Build a search result, then exit typing mode
+	// Build a search result, then exit via esc
 	m = update(m, keypress('/'))
 	m = update(m, keypress('s'))
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if m.searchQuery == "" {
 		t.Fatal("search query should be set")
 	}
-	// Esc in normal mode should clear the search
 	m = update(m, specialKey(tea.KeyEscape))
 	if m.searchQuery != "" {
-		t.Error("esc in normal mode should clear search query")
+		t.Error("esc should clear search query")
 	}
 	if len(m.searchMatches) != 0 {
 		t.Error("esc should clear search matches")
@@ -533,40 +536,47 @@ func TestSearch_dockerIncrementalLogLineUpdatesMatches(t *testing.T) {
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 
+// enterFilterMode opens search via / and commits to filter via enter.
+func enterFilterMode(m Model) Model {
+	m = update(m, keypress('/'))
+	m = update(m, specialKey(tea.KeyEnter))
+	return m
+}
+
 func TestFilter_enterAndExit(t *testing.T) {
 	m := readyModel(t, "backend")
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	if !m.filterMode {
-		t.Error("f should enter filter mode")
+		t.Error("/ then tab should enter filter mode")
 	}
 	m = update(m, specialKey(tea.KeyEscape))
 	if m.filterMode {
 		t.Error("esc should exit filter mode")
 	}
-	if m.filterQuery != "" {
-		t.Error("esc should clear filter query")
+	if m.searchQuery != "" {
+		t.Error("esc should clear query")
 	}
 }
 
 func TestFilter_typeQuery(t *testing.T) {
 	m := readyModel(t, "backend")
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	m = update(m, keypress('e'))
 	m = update(m, keypress('r'))
 	m = update(m, keypress('r'))
-	if m.filterQuery != "err" {
-		t.Errorf("typed 'err', got %q", m.filterQuery)
+	if m.searchQuery != "err" {
+		t.Errorf("typed 'err', got %q", m.searchQuery)
 	}
 }
 
 func TestFilter_backspace(t *testing.T) {
 	m := readyModel(t, "backend")
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	m = update(m, keypress('e'))
 	m = update(m, keypress('r'))
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyBackspace, Text: "backspace"})
-	if m.filterQuery != "e" {
-		t.Errorf("after backspace want %q, got %q", "e", m.filterQuery)
+	if m.searchQuery != "e" {
+		t.Errorf("after backspace want %q, got %q", "e", m.searchQuery)
 	}
 }
 
@@ -577,7 +587,7 @@ func TestFilter_showsOnlyMatchingLines(t *testing.T) {
 		p.AppendLine(line)
 		m = update(m, process.OutputMsg{Name: "backend"})
 	}
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	for _, ch := range "error" {
 		m = update(m, keypress(ch))
 	}
@@ -592,7 +602,7 @@ func TestFilter_noMatchShowsEmpty(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("hello world")
 	m = update(m, process.OutputMsg{Name: "backend"})
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	for _, ch := range "zzz" {
 		m = update(m, keypress(ch))
 	}
@@ -609,7 +619,7 @@ func TestFilter_emptyQueryShowsAllLines(t *testing.T) {
 		m = update(m, process.OutputMsg{Name: "backend"})
 	}
 	before := m.viewport.TotalLineCount()
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	// With empty filter query, all lines should be visible
 	if m.viewport.TotalLineCount() != before {
 		t.Errorf("empty filter should show all lines: want %d, got %d", before, m.viewport.TotalLineCount())
@@ -618,7 +628,7 @@ func TestFilter_emptyQueryShowsAllLines(t *testing.T) {
 
 func TestFilter_isFullScreen(t *testing.T) {
 	m := readyModel(t, "backend")
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	if !m.isFullScreen() {
 		t.Error("filter mode should be full screen")
 	}
@@ -629,7 +639,7 @@ func TestFilter_liveUpdate(t *testing.T) {
 	p, _ := m.mgr.Get("backend")
 	p.AppendLine("error one")
 	m = update(m, process.OutputMsg{Name: "backend"})
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	for _, ch := range "error" {
 		m = update(m, keypress(ch))
 	}
@@ -653,7 +663,7 @@ func TestFilter_exitRestoresAllLines(t *testing.T) {
 	}
 	before := m.viewport.TotalLineCount()
 	// Enter filter, type query
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	for _, ch := range "error" {
 		m = update(m, keypress(ch))
 	}
@@ -674,7 +684,7 @@ func TestFilter_negativeExcludesLines(t *testing.T) {
 		p.AppendLine(line)
 		m = update(m, process.OutputMsg{Name: "backend"})
 	}
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	// Type "!debug"
 	m = update(m, tea.KeyPressMsg{Code: '!', Mod: tea.ModShift, Text: "!"})
 	for _, ch := range "debug" {
@@ -693,7 +703,7 @@ func TestFilter_multipleNegatives(t *testing.T) {
 		p.AppendLine(line)
 		m = update(m, process.OutputMsg{Name: "backend"})
 	}
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	// Type "!debug !warning" (two negative tokens separated by space)
 	for _, ch := range "!debug" {
 		if ch == '!' {
@@ -718,30 +728,124 @@ func TestFilter_multipleNegatives(t *testing.T) {
 
 func TestFilter_spaceInQuery(t *testing.T) {
 	m := readyModel(t, "backend")
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	m = update(m, keypress('h'))
 	m = update(m, tea.KeyPressMsg{Code: tea.KeySpace, Text: "space"})
 	m = update(m, keypress('w'))
-	if m.filterQuery != "h w" {
-		t.Errorf("space in filter query: want %q, got %q", "h w", m.filterQuery)
+	if m.searchQuery != "h w" {
+		t.Errorf("space in filter query: want %q, got %q", "h w", m.searchQuery)
 	}
 }
 
 func TestFilter_clearedOnProcSwitch(t *testing.T) {
 	m := readyModel(t, "alpha", "beta")
-	m = update(m, keypress('f'))
+	m = enterFilterMode(m)
 	m = update(m, keypress('x'))
-	if m.filterQuery != "x" {
-		t.Fatal("filter query should be set")
+	if m.searchQuery != "x" {
+		t.Fatal("query should be set")
 	}
 	// Switch to next proc
-	m = update(m, specialKey(tea.KeyEscape)) // exit filter first
+	m = update(m, specialKey(tea.KeyEscape)) // exit filter first (clears query)
 	m = update(m, keypress('j'))             // move to beta
-	if m.filterQuery != "" {
-		t.Error("filter query should be cleared on proc switch")
+	if m.searchQuery != "" {
+		t.Error("query should be cleared on proc switch")
 	}
 	if m.filterMode {
 		t.Error("filter mode should be cleared on proc switch")
+	}
+}
+
+func TestSearch_homeEndScrollsViewport(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for i := 0; i < 100; i++ {
+		p.AppendLine(fmt.Sprintf("line %d", i))
+	}
+	m = update(m, process.OutputMsg{Name: "backend"})
+	m = update(m, keypress('/'))
+	m.viewport.GotoBottom()
+	m = update(m, specialKey(tea.KeyHome))
+	if m.viewport.YOffset() != 0 {
+		t.Errorf("home in search mode: want YOffset 0, got %d", m.viewport.YOffset())
+	}
+	m = update(m, specialKey(tea.KeyEnd))
+	if !m.viewport.AtBottom() {
+		t.Error("end in search mode: viewport should be at bottom")
+	}
+}
+
+func TestFilter_homeEndScrollsViewport(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for i := 0; i < 100; i++ {
+		p.AppendLine(fmt.Sprintf("line %d", i))
+	}
+	m = update(m, process.OutputMsg{Name: "backend"})
+	m = enterFilterMode(m)
+	m.viewport.GotoBottom()
+	m = update(m, specialKey(tea.KeyHome))
+	if m.viewport.YOffset() != 0 {
+		t.Errorf("home in filter mode: want YOffset 0, got %d", m.viewport.YOffset())
+	}
+	m = update(m, specialKey(tea.KeyEnd))
+	if !m.viewport.AtBottom() {
+		t.Error("end in filter mode: viewport should be at bottom")
+	}
+}
+
+func TestFilter_backspaceOnEmptyGoesBackToSearch(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	p.AppendLine("hello")
+	m = update(m, process.OutputMsg{Name: "backend"})
+	m = enterFilterMode(m)
+	if !m.filterMode || m.searchQuery != "" {
+		t.Fatalf("setup: filterMode=%v query=%q", m.filterMode, m.searchQuery)
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyBackspace, Text: "backspace"})
+	if m.filterMode {
+		t.Error("filter mode should be off after backspace on empty query")
+	}
+	if !m.searchMode {
+		t.Error("search mode should be on after backspace on empty query")
+	}
+}
+
+func TestFilter_tabGoesBackToSearch(t *testing.T) {
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+	for _, line := range []string{"error here", "info ok", "another error"} {
+		p.AppendLine(line)
+		m = update(m, process.OutputMsg{Name: "backend"})
+	}
+	m = enterFilterMode(m)
+	for _, ch := range "error" {
+		m = update(m, keypress(ch))
+	}
+	// Tab → back to search mode
+	m = update(m, specialKey(tea.KeyTab))
+	if m.filterMode {
+		t.Error("filter mode should be off after toggle")
+	}
+	if !m.searchMode {
+		t.Error("search mode should be on after toggle")
+	}
+	if m.searchQuery != "error" {
+		t.Errorf("query should carry over, got %q", m.searchQuery)
+	}
+	if len(m.searchMatches) != 2 {
+		t.Errorf("want 2 search matches, got %d", len(m.searchMatches))
+	}
+}
+
+func TestNormal_fDoesNotEnterFilterMode(t *testing.T) {
+	m := readyModel(t, "backend")
+	m = update(m, keypress('f'))
+	if m.filterMode {
+		t.Error("f in normal mode should not enter filter mode")
+	}
+	if m.searchMode {
+		t.Error("f in normal mode should not enter search mode")
 	}
 }
 

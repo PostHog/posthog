@@ -4,14 +4,14 @@ import (
 	"strings"
 )
 
-// recomputeFilter rebuilds the viewport with only lines matching filterQuery.
+// recomputeFilter rebuilds the viewport with only lines matching searchQuery.
 func (m *Model) recomputeFilter() {
 	lines := m.searchableLines()
-	if m.filterQuery == "" || len(lines) == 0 {
+	if m.searchQuery == "" || len(lines) == 0 {
 		m.viewport.SetContent(strings.Join(lines, "\n"))
 		return
 	}
-	tokens := parseMatchTokens(m.filterQuery)
+	tokens := parseMatchTokens(m.searchQuery)
 	if len(tokens) == 0 {
 		m.viewport.SetContent(strings.Join(lines, "\n"))
 		return

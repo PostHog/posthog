@@ -63,15 +63,13 @@ type Model struct {
 	copyAnchor int
 	copyCursor int
 
-	// Search mode: output line filtering
+	// Search / filter query — shared between searchMode (highlights matches)
+	// and filterMode (shows only matching lines)
 	searchMode    bool
+	filterMode    bool
 	searchQuery   string
 	searchMatches []int // line indices that contain the match
 	searchCursor  int   // index into searchMatches (current highlighted match)
-
-	// Filter mode: shows only matching lines in the viewport
-	filterMode  bool
-	filterQuery string
 
 	// Sidebar with list of processes, always visible (when not in copy mode)
 	services       []*process.Process
@@ -210,8 +208,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.reloadActiveLines()
 			if m.filterMode {
 				m.recomputeFilter()
-			}
-			if m.searchQuery != "" {
+			} else if m.searchQuery != "" {
 				m.recomputeSearch()
 			}
 			// Don't auto-scroll while the user is selecting text in copy mode
@@ -297,7 +294,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.viewportAtBottom && !m.copyMode && !m.searchMode && !m.filterMode {
 				m.viewport.GotoBottom()
 			}
-			if m.searchQuery != "" {
+			if !m.filterMode && m.searchQuery != "" {
 				m.updateSearchForLine(msg.Line, lineIndex, evicted)
 			}
 		}
@@ -491,7 +488,6 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	m.copyMode = false
 	m.searchMode = false
 	m.filterMode = false
-	m.filterQuery = ""
 	m.inputBuffer = ""
 	m.viewport.StyleLineFunc = nil
 

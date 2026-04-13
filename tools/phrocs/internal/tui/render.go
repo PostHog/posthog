@@ -233,30 +233,29 @@ func (m Model) renderFooter() string {
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
 	} else if m.filterMode {
-		var matchInfo string
-		if m.filterQuery == "" {
-			matchInfo = ""
-		} else {
-			count := m.viewport.TotalLineCount()
-			if count == 0 {
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if count := m.viewport.TotalLineCount(); count == 0 {
 				matchInfo = "  [no matches]"
 			} else {
 				matchInfo = fmt.Sprintf("  [%d lines]", count)
 			}
 		}
-		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("filter: %s▌%s", m.filterQuery, matchInfo))
-		return footerStyle.Width(m.width - 2).Render(prompt)
+		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("| %s▌%s", m.searchQuery, matchInfo))
+		helpBar := m.help.ShortHelpView(m.keys.FilterModeHelp())
+		return footerStyle.Width(m.width - 2).Render(lipgloss.JoinVertical(lipgloss.Left, prompt, helpBar))
 	} else if m.searchMode {
-		var matchInfo string
-		if m.searchQuery == "" {
-			matchInfo = ""
-		} else if len(m.searchMatches) == 0 {
-			matchInfo = "  [no matches]"
-		} else {
-			matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if len(m.searchMatches) == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+			}
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
-		return footerStyle.Width(m.width - 2).Render(prompt)
+		helpBar := m.help.ShortHelpView(m.keys.SearchModeHelp())
+		return footerStyle.Width(m.width - 2).Render(lipgloss.JoinVertical(lipgloss.Left, prompt, helpBar))
 	} else if m.setupMode {
 		var hint string
 		if m.setupError != "" {
