@@ -1,6 +1,6 @@
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
+import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
-import { UserBasicType } from '~/types'
+import type { UserBasicType } from '~/types'
 
 export interface MessageTemplate {
     id: string

@@ -15,7 +15,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
-import { EmailTemplate } from './types'
+import type { EmailTemplate } from './types'
 
 export type { EmailTemplate }
 
