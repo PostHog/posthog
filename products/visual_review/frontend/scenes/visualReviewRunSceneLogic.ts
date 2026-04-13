@@ -8,12 +8,19 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Breadcrumb } from '~/types'
 
 import {
+    visualReviewReposList,
     visualReviewRunsApproveCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
 } from '../generated/api'
-import type { ApproveSnapshotInputApi, RunApi, SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import type {
+    ApproveSnapshotInputApi,
+    RepoApi,
+    RunApi,
+    SnapshotApi,
+    SnapshotHistoryEntryApi,
+} from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -58,6 +65,15 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        repo: [
+            null as RepoApi | null,
+            {
+                loadRepo: async () => {
+                    const response = await visualReviewReposList(String(values.currentProjectId))
+                    return response.results[0] || null
+                },
+            },
+        ],
         snapshotHistory: [
             [] as SnapshotHistoryEntryApi[],
             {
@@ -93,6 +109,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             (s) => [s.changedSnapshots],
             (changedSnapshots): number => changedSnapshots.filter((s) => s.review_state !== 'approved').length,
         ],
+        repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -195,5 +212,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     afterMount(({ actions }) => {
         actions.loadRun()
         actions.loadSnapshots()
+        actions.loadRepo()
     }),
 ])
