@@ -212,7 +212,7 @@ export const propertyTaxonomicGroupProps = (
 ): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
     getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
         const coreGroup = coreDefinitionsGroup ?? CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
-        if (!!coreGroup[propertyDefinition.name]) {
+        if (coreGroup[propertyDefinition.name]) {
             return 'PostHog property'
         }
         return 'Property'
