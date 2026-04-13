@@ -361,17 +361,7 @@ function MessageContainer({
     children: React.ReactNode
     className?: string
 }): JSX.Element {
-    return (
-        <div
-            className={cn(
-                'relative flex',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
-                className
-            )}
-        >
-            {children}
-        </div>
-    )
+    return <div className={cn('relative flex', groupType === 'human' && 'flex-row-reverse', className)}>{children}</div>
 }
 
 export interface EnhancedToolCall extends AssistantToolCall {
