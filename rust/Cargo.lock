@@ -3474,6 +3474,7 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 name = "flags-consumer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
@@ -3488,7 +3489,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",

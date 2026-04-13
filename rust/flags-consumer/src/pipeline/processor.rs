@@ -1,13 +1,13 @@
 use std::future::Future;
 use std::time::Duration;
 
+use anyhow::Context;
 use common_database::is_transient_error;
 use common_kafka::kafka_consumer::Offset;
 
 use crate::config::Config;
 use crate::metric_consts;
 use crate::pipeline::batch::EventWithOffset;
-use crate::storage::error::CdcError;
 use crate::storage::postgres::PostgresStorage;
 use crate::storage::types::{
     DistinctIdAssignmentData, DistinctIdDeletionData, PersonDeletionData, PersonUpdateData,
@@ -16,14 +16,15 @@ use crate::types::CdcEvent;
 
 /// Classify events into operation types, execute DB writes, return offsets.
 ///
-/// Returns all offsets regardless of success/failure — the caller decides
-/// whether to store them.
+/// Returns offsets only on success — the caller stores them to advance
+/// the consumer group. On failure, offsets are dropped so Kafka redelivers
+/// the batch on restart.
 pub async fn process_batch(
     items: impl Iterator<Item = EventWithOffset>,
     size_hint: usize,
     storage: &PostgresStorage,
     config: &Config,
-) -> Vec<Offset> {
+) -> anyhow::Result<Vec<Offset>> {
     let start = std::time::Instant::now();
 
     let mut offsets = Vec::with_capacity(size_hint);
@@ -88,7 +89,7 @@ pub async fn process_batch(
         }
     }
 
-    if let Err(e) = execute_writes(
+    let result = execute_writes(
         storage,
         config,
         &person_updates,
@@ -96,21 +97,15 @@ pub async fn process_batch(
         &did_assignments,
         &did_deletions,
     )
-    .await
-    {
-        tracing::error!(
-            batch_size = offsets.len(),
-            error = %e,
-            "batch processing failed, skipping"
-        );
-    } else {
-        tracing::debug!(batch_size = offsets.len(), "batch processed successfully");
-    }
+    .await;
 
     let elapsed_ms = start.elapsed().as_millis() as f64;
     metrics::histogram!(metric_consts::BATCH_PROCESS_DURATION_MS).record(elapsed_ms);
 
-    offsets
+    result?;
+
+    tracing::debug!(batch_size = offsets.len(), "batch processed successfully");
+    Ok(offsets)
 }
 
 /// Execute storage writes: person upserts/deletes (batched via UNNEST),
@@ -122,7 +117,7 @@ async fn execute_writes(
     person_deletions: &[PersonDeletionData],
     did_assignments: &[DistinctIdAssignmentData],
     did_deletions: &[DistinctIdDeletionData],
-) -> Result<(), CdcError> {
+) -> anyhow::Result<()> {
     if !person_updates.is_empty() {
         with_retry(config, || storage.batch_upsert_persons(person_updates)).await?;
         metrics::counter!(
@@ -167,7 +162,7 @@ async fn execute_writes(
 }
 
 /// Retry with exponential backoff on transient DB errors (SQLSTATE-classified).
-async fn with_retry<F, Fut, T>(config: &Config, f: F) -> Result<T, CdcError>
+async fn with_retry<F, Fut, T>(config: &Config, f: F) -> anyhow::Result<T>
 where
     F: Fn() -> Fut,
     Fut: Future<Output = Result<T, sqlx::Error>>,
@@ -199,12 +194,11 @@ where
                 .increment(1);
 
                 if transient {
-                    return Err(CdcError::RetriesExhausted {
-                        attempts: attempt + 1,
-                        source: e,
+                    return Err(e).with_context(|| {
+                        format!("retries exhausted after {} attempts", attempt + 1)
                     });
                 }
-                return Err(CdcError::Database(e));
+                return Err(e.into());
             }
         }
     }

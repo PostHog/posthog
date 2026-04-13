@@ -94,7 +94,11 @@ pub async fn batch_processor_loop(
                         }
                     }
                     None => {
-                        tracing::info!("channel closed, batch processor exiting");
+                        tracing::info!("channel closed, flushing remaining batch");
+                        if !batch.is_empty() {
+                            flush_batch(&mut batch, &storage, &config, &mut heartbeat_state, &mut topic_interns).await;
+                        }
+                        flush_heartbeats(&storage, &heartbeat_state).await;
                         break;
                     }
                 }
@@ -120,6 +124,9 @@ fn track_heartbeat(offset: &Offset, state: &mut HeartbeatState, interns: &mut To
 
 /// Flush the batch: drain events into the processor, then store offsets.
 /// `drain(..)` preserves the vec's allocation for the next batch.
+///
+/// Offsets are only stored when the batch writes succeed. On failure the
+/// offsets are dropped, so Kafka will redeliver those messages on restart.
 async fn flush_batch(
     batch: &mut Vec<EventWithOffset>,
     storage: &PostgresStorage,
@@ -130,13 +137,22 @@ async fn flush_batch(
     let batch_len = batch.len();
     metrics::histogram!(metric_consts::BATCH_SIZE).record(batch_len as f64);
 
-    let offsets = processor::process_batch(batch.drain(..), batch_len, storage, config).await;
+    match processor::process_batch(batch.drain(..), batch_len, storage, config).await {
+        Ok(offsets) => {
+            for offset in offsets {
+                track_heartbeat(&offset, heartbeat_state, topic_interns);
 
-    for offset in offsets {
-        track_heartbeat(&offset, heartbeat_state, topic_interns);
-
-        if let Err(e) = offset.store() {
-            tracing::warn!(error = %e, "failed to store offset");
+                if let Err(e) = offset.store() {
+                    tracing::warn!(error = %e, "failed to store offset");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                batch_size = batch_len,
+                error = %e,
+                "batch write failed, offsets not committed — will reprocess on restart"
+            );
         }
     }
 }

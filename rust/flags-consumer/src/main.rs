@@ -29,7 +29,7 @@ const POOL_NAME: &str = "flags_read_store";
 const SERVICE_NAME: &str = "flags-consumer";
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     let config = Config::init_from_env().expect("Invalid configuration");
 
     init_tracing();

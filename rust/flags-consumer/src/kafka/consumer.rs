@@ -31,7 +31,9 @@ pub async fn consume_loop<M: KafkaMessage>(
 
                         if let Some(ref filter) = team_filter {
                             if !filter.contains(&msg.team_id()) {
-                                offset.store().expect("failed to store filtered offset");
+                                if let Err(e) = offset.store() {
+                                    tracing::warn!(error = %e, "{} failed to store filtered offset", M::SOURCE);
+                                }
                                 metrics::counter!(metric_consts::MESSAGES_FILTERED, "source" => M::SOURCE)
                                     .increment(1);
                                 continue;
