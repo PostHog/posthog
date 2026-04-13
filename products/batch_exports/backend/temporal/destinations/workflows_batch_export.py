@@ -154,8 +154,12 @@ class WorkflowsConsumer(Consumer):
         async with self._requests_semaphore:
             async with self.session.post(
                 self.url,
-                # Data is already JSON encoded, so we can't use json=data.
+                # Data is already JSON encoded, so we can't use json=data and must set
+                # the header ourselves.
                 data=b'{"clickhouse_event":' + data + b"}",
+                headers={
+                    "Content-Type": "application/json",
+                },
             ) as response:
                 try:
                     response.raise_for_status()
@@ -252,7 +256,6 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             trust_env=False,
             connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
             headers={
-                "Content-Type": "application/json",
                 "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
             },
         ) as session:
