@@ -447,7 +447,19 @@ const AssistantPropertyFilter = z.union([
 const AssistantRecordingPropertyFilter = z.union([
     z.object({
         key: z
-            .string()
+            .enum([
+                'duration',
+                'active_seconds',
+                'inactive_seconds',
+                'console_error_count',
+                'console_log_count',
+                'console_warn_count',
+                'click_count',
+                'keypress_count',
+                'activity_score',
+                'visited_page',
+                'snapshot_source',
+            ])
             .describe(
                 'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
             ),
@@ -463,7 +475,19 @@ const AssistantRecordingPropertyFilter = z.union([
     }),
     z.object({
         key: z
-            .string()
+            .enum([
+                'duration',
+                'active_seconds',
+                'inactive_seconds',
+                'console_error_count',
+                'console_log_count',
+                'console_warn_count',
+                'click_count',
+                'keypress_count',
+                'activity_score',
+                'visited_page',
+                'snapshot_source',
+            ])
             .describe(
                 'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
             ),
@@ -473,7 +497,19 @@ const AssistantRecordingPropertyFilter = z.union([
     }),
     z.object({
         key: z
-            .string()
+            .enum([
+                'duration',
+                'active_seconds',
+                'inactive_seconds',
+                'console_error_count',
+                'console_log_count',
+                'console_warn_count',
+                'click_count',
+                'keypress_count',
+                'activity_score',
+                'visited_page',
+                'snapshot_source',
+            ])
             .describe(
                 'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
             ),
@@ -489,7 +525,19 @@ const AssistantRecordingPropertyFilter = z.union([
     }),
     z.object({
         key: z
-            .string()
+            .enum([
+                'duration',
+                'active_seconds',
+                'inactive_seconds',
+                'console_error_count',
+                'console_log_count',
+                'console_warn_count',
+                'click_count',
+                'keypress_count',
+                'activity_score',
+                'visited_page',
+                'snapshot_source',
+            ])
             .describe(
                 'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
             ),
@@ -499,7 +547,19 @@ const AssistantRecordingPropertyFilter = z.union([
     }),
     z.object({
         key: z
-            .string()
+            .enum([
+                'duration',
+                'active_seconds',
+                'inactive_seconds',
+                'console_error_count',
+                'console_log_count',
+                'console_warn_count',
+                'click_count',
+                'keypress_count',
+                'activity_score',
+                'visited_page',
+                'snapshot_source',
+            ])
             .describe(
                 'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
             ),

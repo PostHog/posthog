@@ -245,7 +245,18 @@ export type AssistantRecordingPropertyFilter = AssistantBasePropertyFilter & {
      * - `visited_page` — URL visited during the session.
      * - `snapshot_source` — the recording source (e.g. "web", "mobile").
      */
-    key: string
+    key:
+        | 'duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'console_log_count'
+        | 'console_warn_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'activity_score'
+        | 'visited_page'
+        | 'snapshot_source'
 }
 
 export type AssistantPropertyFilter =

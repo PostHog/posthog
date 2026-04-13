@@ -454,11 +454,25 @@ class AssistantPathCleaningFilter(BaseModel):
     )
 
 
+class Key5(StrEnum):
+    DURATION = "duration"
+    ACTIVE_SECONDS = "active_seconds"
+    INACTIVE_SECONDS = "inactive_seconds"
+    CONSOLE_ERROR_COUNT = "console_error_count"
+    CONSOLE_LOG_COUNT = "console_log_count"
+    CONSOLE_WARN_COUNT = "console_warn_count"
+    CLICK_COUNT = "click_count"
+    KEYPRESS_COUNT = "keypress_count"
+    ACTIVITY_SCORE = "activity_score"
+    VISITED_PAGE = "visited_page"
+    SNAPSHOT_SOURCE = "snapshot_source"
+
+
 class AssistantRecordingPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(
+    key: Key5 = Field(
         ...,
         description=(
             "Recording metric to filter on.\n- `duration` — total recording duration in"
@@ -482,7 +496,7 @@ class AssistantRecordingPropertyFilter3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(
+    key: Key5 = Field(
         ...,
         description=(
             "Recording metric to filter on.\n- `duration` — total recording duration in"
@@ -516,7 +530,7 @@ class AssistantRecordingPropertyFilter4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(
+    key: Key5 = Field(
         ...,
         description=(
             "Recording metric to filter on.\n- `duration` — total recording duration in"
@@ -1377,6 +1391,13 @@ class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
+
+
+class Key10(StrEnum):
+    TAG_NAME = "tag_name"
+    TEXT = "text"
+    HREF = "href"
+    SELECTOR = "selector"
 
 
 class ElementType(BaseModel):
@@ -5527,7 +5548,7 @@ class AssistantRecordingPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(
+    key: Key5 = Field(
         ...,
         description=(
             "Recording metric to filter on.\n- `duration` — total recording duration in"
@@ -5567,7 +5588,7 @@ class AssistantRecordingPropertyFilter5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: str = Field(
+    key: Key5 = Field(
         ...,
         description=(
             "Recording metric to filter on.\n- `duration` — total recording duration in"
@@ -6169,7 +6190,7 @@ class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key10
     label: str | None = None
     operator: PropertyOperator
     type: Literal["element"] = "element"

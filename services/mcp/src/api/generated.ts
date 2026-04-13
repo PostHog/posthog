@@ -795,10 +795,10 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
-    export type Key = typeof Key[keyof typeof Key];
+    export type Key10 = typeof Key10[keyof typeof Key10];
 
 
-    export const Key = {
+    export const Key10 = {
       TagName: 'tag_name',
       Text: 'text',
       Href: 'href',
@@ -813,7 +813,7 @@ export namespace Schemas {
     } as const;
 
     export interface ElementPropertyFilter {
-      key: Key;
+      key: Key10;
       /** @nullable */
       label?: string | null;
       operator: PropertyOperator;
