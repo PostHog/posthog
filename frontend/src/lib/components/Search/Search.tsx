@@ -446,10 +446,43 @@ function SearchRoot({
         return groups
     }, [filteredItems, allCategories, searchValue])
 
-    // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
+    // Lock category display order during an active search so new async categories
+    // don't shift items the user has already highlighted. Without this, Base UI's
+    // index-based highlight tracking gets misaligned when groups come in above the
+    // currently-highlighted item — effectively preserving highlight by id (by keeping
+    // the underlying index stable) rather than letting it drift with the list order.
+    const lockedCategoryOrderRef = useRef<string[]>([])
+    const stableGroupedItems = useMemo(() => {
+        if (!searchValue.trim()) {
+            // Reset lock whenever the search is cleared so the next search starts fresh
+            lockedCategoryOrderRef.current = []
+            return groupedItems
+        }
+
+        const currentCategories = groupedItems.map((g) => g.category)
+        const locked = lockedCategoryOrderRef.current
+        // Keep previously-seen categories in their locked position; append new ones
+        const kept = locked.filter((cat) => currentCategories.includes(cat))
+        const newOnes = currentCategories.filter((cat) => !kept.includes(cat))
+        const newOrder = [...kept, ...newOnes]
+        lockedCategoryOrderRef.current = newOrder
+
+        if (newOrder.length === 0) {
+            return groupedItems
+        }
+
+        const orderMap = new Map(newOrder.map((cat, i) => [cat, i] as const))
+        return [...groupedItems].sort((a, b) => {
+            const aIdx = orderMap.get(a.category) ?? Infinity
+            const bIdx = orderMap.get(b.category) ?? Infinity
+            return aIdx - bIdx
+        })
+    }, [groupedItems, searchValue])
+
+    // Derive a flat item list from stableGroupedItems so the order passed to Autocomplete.Root
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
     // breaks at group boundaries where the two orderings diverge.
-    const orderedItems = useMemo(() => groupedItems.flatMap((g) => g.items), [groupedItems])
+    const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
@@ -457,7 +490,7 @@ function SearchRoot({
             searchValue,
             setSearchValue,
             filteredItems: orderedItems,
-            groupedItems,
+            groupedItems: stableGroupedItems,
             isSearching,
             isActive,
             inputRef,
@@ -470,7 +503,7 @@ function SearchRoot({
             logicKey,
             searchValue,
             orderedItems,
-            groupedItems,
+            stableGroupedItems,
             isSearching,
             isActive,
             handleItemClick,
@@ -490,7 +523,6 @@ function SearchRoot({
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
                     inline
-                    autoHighlight
                     openOnInputClick={false}
                     defaultOpen
                 >
