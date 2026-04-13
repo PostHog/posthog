@@ -138,7 +138,6 @@ class WorkflowsConsumer(Consumer):
 
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
-        self.internal_api_secret = settings.INTERNAL_API_SECRET
         self.request_task_group = request_task_group
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
@@ -157,10 +156,6 @@ class WorkflowsConsumer(Consumer):
                 self.url,
                 # Data is already JSON encoded, so we can't use json=data.
                 data=b'{"clickhouse_event":' + data + b"}",
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Internal-Api-Secret": self.internal_api_secret,
-                },
             ) as response:
                 try:
                     response.raise_for_status()
@@ -252,9 +247,13 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         tg = asyncio.TaskGroup()
         async with aiohttp.ClientSession(
             # The batch exports API resolves to a local address which our proxy blocks,
-            # so we disable it.
+            # so we have to disable it by not reading the environment configuration.
             trust_env=False,  # nosemgrep: aiohttp-missing-trust-env
             connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
+            },
         ) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
