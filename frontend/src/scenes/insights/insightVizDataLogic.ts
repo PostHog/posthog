@@ -15,7 +15,11 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
+import {
+    getClampedFunnelStepRange,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
+} from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
@@ -75,7 +79,6 @@ import {
     isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
-    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -511,21 +514,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         /*
          * Funnels
          */
-        isFunnelWithEnoughSteps: [
-            (s) => [s.series],
-            (series) => {
-                return (series?.length || 0) > 1
-            },
-        ],
+        isFunnelWithEnoughSteps: [(s) => [s.series], (series) => isFunnelWithEnoughSteps(series)],
         isFunnelWithIncompleteDataWarehouseStep: [
             (s) => [s.series],
-            (series) => {
-                return (series || []).some(
-                    (step) =>
-                        isFunnelsDataWarehouseNode(step) &&
-                        (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
-                )
-            },
+            (series) => isFunnelWithIncompleteDataWarehouseStep(series),
         ],
 
         // Exclusion filters

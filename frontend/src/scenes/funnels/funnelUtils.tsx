@@ -12,8 +12,15 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { AnyEntityNode, BreakdownFilter, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
+import {
+    AnyEntityNode,
+    BreakdownFilter,
+    FunnelExclusionSteps,
+    FunnelsFilter,
+    FunnelsQuery,
+} from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
+import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     Breakdown,
@@ -676,4 +683,16 @@ export function getStepBreakdownSeries(
     }
 
     return single
+}
+
+export function isFunnelWithEnoughSteps(series: FunnelsQuery['series']): boolean {
+    return (series?.length || 0) > 1
+}
+
+export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series']): boolean {
+    return (series || []).some(
+        (step) =>
+            isFunnelsDataWarehouseNode(step) &&
+            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
+    )
 }
