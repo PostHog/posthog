@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
     type CreatedResources,
     SAMPLE_HOGQL_QUERIES,
+    SAMPLE_TREND_QUERIES,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
     cleanupResources,
@@ -63,6 +64,25 @@ describe('Insights', { concurrent: false }, () => {
         return result
     }
 
+    async function createTestTrendsInsight(name: string): Promise<{ id: number; short_id: string; name: string }> {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<{
+            id: number
+            short_id: string
+            name: string
+        }>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/insights/`,
+            body: {
+                name,
+                query: SAMPLE_TREND_QUERIES.basicPageviews,
+                saved: true,
+            },
+        })
+        createdResources.insights.push(result.id)
+        return result
+    }
+
     describe('insight-query tool', () => {
         const queryTool = queryInsightTool()
 
@@ -106,6 +126,67 @@ describe('Insights', { concurrent: false }, () => {
 
             expect(response).toHaveProperty('insight')
             expect(response).toHaveProperty('results')
+        })
+
+        describe('result shapes by format and query type', () => {
+            it('HogQL query with format=json returns table shape with columns and results arrays', async () => {
+                const insight = await createTestInsight(generateUniqueKey('HogQL JSON Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'json',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(response.results).toHaveProperty('columns')
+                expect(response.results).toHaveProperty('results')
+                expect(Array.isArray(response.results.columns)).toBe(true)
+                expect(Array.isArray(response.results.results)).toBe(true)
+            })
+
+            it('HogQL query with format=optimized returns a formatted string', async () => {
+                // The API client always sends X-PostHog-Client: mcp, so the backend
+                // runs the SQLResultsFormatter and returns formatted_results as a string.
+                const insight = await createTestInsight(generateUniqueKey('HogQL Optimized Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'optimized',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(typeof response.results).toBe('string')
+            })
+
+            it('TrendsQuery with format=json returns an array of series', async () => {
+                const insight = await createTestTrendsInsight(generateUniqueKey('Trends JSON Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'json',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(Array.isArray(response.results)).toBe(true)
+            })
+
+            it('TrendsQuery with format=optimized returns a formatted string', async () => {
+                // The API client always sends X-PostHog-Client: mcp, so the backend
+                // runs the TrendsResultsFormatter and returns formatted_results as a string.
+                const insight = await createTestTrendsInsight(generateUniqueKey('Trends Optimized Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'optimized',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(typeof response.results).toBe('string')
+            })
         })
     })
 
