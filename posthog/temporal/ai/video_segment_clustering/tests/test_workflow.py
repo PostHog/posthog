@@ -22,7 +22,6 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.ai.video_segment_clustering.activities import cluster_segments_activity
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.models import (
     ClusteringWorkflowInputs,
@@ -108,50 +107,41 @@ async def _mock_load_fetch_result(key: str) -> tuple[list[VideoSegment], list[st
     return _test_segments, distinct_ids
 
 
-async def test_video_segment_clustering_workflow_emits_signals(ateam, test_segments_and_embeddings):
-    """Test that the workflow clusters segments and emits signals."""
+async def test_video_segment_clustering_workflow_returns_none_when_skipping_priming(
+    ateam, test_segments_and_embeddings
+):
+    """Test that the workflow returns None when skip_priming is True.
+
+    Signal emission now happens inside each session's summarization workflow
+    (Activity 6a), so the clustering workflow only orchestrates priming.
+    """
     team_id = ateam.id
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-video-clustering-{uuid.uuid4()}"
 
-        with (
-            patch(
-                "posthog.temporal.ai.video_segment_clustering.activities.a3_cluster_segments.load_fetch_result",
-                side_effect=_mock_load_fetch_result,
-            ),
-            patch(
-                "posthog.temporal.ai.video_segment_clustering.activities.a4_emit_signals_from_clusters.load_fetch_result",
-                side_effect=_mock_load_fetch_result,
-            ),
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[VideoSegmentClusteringWorkflow],
+            activities=[],
+            workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            async with Worker(
-                env.client,
+            workflow_inputs = ClusteringWorkflowInputs(
+                team_id=team_id,
+                lookback_hours=24,
+                min_segments=3,
+                skip_priming=True,
+            )
+
+            result = await env.client.execute_workflow(
+                VideoSegmentClusteringWorkflow.run,
+                workflow_inputs,
+                id=f"test-video-clustering-{uuid.uuid4()}",
                 task_queue=task_queue,
-                workflows=[VideoSegmentClusteringWorkflow],
-                activities=[
-                    mock_fetch_segments_activity,
-                    cluster_segments_activity,
-                    mock_emit_signals_activity,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                workflow_inputs = ClusteringWorkflowInputs(
-                    team_id=team_id,
-                    lookback_hours=24,
-                    min_segments=3,
-                    skip_priming=True,
-                )
+            )
 
-                result = await env.client.execute_workflow(
-                    VideoSegmentClusteringWorkflow.run,
-                    workflow_inputs,
-                    id=f"test-video-clustering-{uuid.uuid4()}",
-                    task_queue=task_queue,
-                )
-
-                assert result is not None
-                assert result.signals_emitted > 0
+            assert result is None
 
 
 async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_embeddings):

@@ -133,6 +133,7 @@ class TestSessionSummaryTemporalModuleIntegrity:
             "upload_video_to_gemini_activity",
             "analyze_video_segment_activity",
             "embed_and_store_segments_activity",
+            "emit_session_problem_signals_activity",
             "store_video_session_summary_activity",
             "cleanup_gemini_file_activity",
             "consolidate_video_segments_activity",

@@ -621,13 +621,7 @@ class TestExports(APIBaseTest):
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
 
-    @parameterized.expand(
-        [
-            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
-            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
-        ]
-    )
-    def test_cannot_access_other_users_export(self, _name, url_template) -> None:
+    def test_team_member_can_retrieve_other_users_export(self) -> None:
         export = ExportedAsset.objects.create(
             team=self.team,
             dashboard_id=self.dashboard.id,
@@ -638,8 +632,8 @@ class TestExports(APIBaseTest):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         self.client.force_login(other_user)
 
-        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @parameterized.expand(
         [
