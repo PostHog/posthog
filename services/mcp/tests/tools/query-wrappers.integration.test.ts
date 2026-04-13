@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
-import type { Context } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
 import {
     TEST_ORG_ID,
@@ -35,8 +35,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(typeof result.results).toBe('string')
             expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
+
+            // Formatted results should contain pipe-separated values (the formatter output)
+            expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
         })
 
         it('should include pipe-separated table in formatted results', async () => {
@@ -48,8 +51,9 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             })) as any
 
             // Formatted results should contain pipe-separated values (the formatter output)
-            expect(typeof result.results).toBe('string')
-            expect(result.results).toContain('|')
+            expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
 
         it('should execute trends with breakdown', async () => {
@@ -62,7 +66,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 },
             })) as any
 
-            expect(typeof result.results).toBe('string')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
         })
     })
 
@@ -79,7 +83,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
-            expect(typeof result.results).toBe('string')
+
+            // Formatted results should contain pipe-separated values (the formatter output)
+            expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
     })
 
@@ -96,8 +104,12 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 dateRange: { date_from: '-7d' },
             })) as any
 
-            expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
+
+            // Formatted results should contain pipe-separated values (the formatter output)
+            expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
     })
 
@@ -111,6 +123,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
+
+            // Formatted results should contain pipe-separated values (the formatter output)
+            expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
 
         it('should generate a valid PostHog URL with StickinessQuery kind', async () => {
@@ -143,6 +160,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('results')
             expect(result).toHaveProperty('_posthogUrl')
             expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
+
+            // Formatted results should contain pipe-separated values (the formatter output)
+            expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
 
         it('should execute a paths query with start point', async () => {
