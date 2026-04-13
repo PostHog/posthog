@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# Tear down the multi-node ClickHouse dev stack and remove its volumes.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+docker compose \
+    -f docker-compose.dev-coordinator.yml \
+    down -v
