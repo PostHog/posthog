@@ -380,10 +380,16 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                     # Attach diagnostics to the original exception so the outer handler
                     # can include them in the user-visible SavedHeatmap.exception field.
                     # This preserves the original exception class for Sentry/classification.
-                    e.heatmap_diagnostics = diagnostics  # type: ignore[attr-defined]
+                    try:
+                        e.heatmap_diagnostics = diagnostics  # type: ignore[attr-defined]
+                    except AttributeError:
+                        pass
                     raise
                 finally:
-                    ctx.close()
+                    try:
+                        ctx.close()
+                    except Exception:
+                        pass
         finally:
             browser.close()
 
