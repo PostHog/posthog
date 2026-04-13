@@ -23,6 +23,7 @@ export function StreamlitAppZipUpload({
         return (
             <LemonFileInput
                 accept=".zip"
+                multiple={false}
                 onChange={(files) => {
                     if (files.length > 0) {
                         onFileChange(files[0])

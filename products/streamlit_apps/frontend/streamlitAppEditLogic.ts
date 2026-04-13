@@ -29,6 +29,10 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
         setMemoryGb: (memoryGb: number) => ({ memoryGb }),
         setZipFile: (file: File | null) => ({ file }),
         setActiveVersionNumber: (versionNumber: number) => ({ versionNumber }),
+        // Narrow state update after a successful version switch. Does NOT go
+        // through loadStreamlitAppSuccess — that would clobber unsaved edits
+        // to name/description/cpu/memory via the reducers below.
+        setActiveVersionInState: (activeVersion: StreamlitAppVersion) => ({ activeVersion }),
     }),
 
     loaders(({ props, values }) => ({
@@ -112,6 +116,14 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
     })),
 
     reducers({
+        // Extend the loader-managed streamlitApp reducer with a narrow
+        // handler. kea-loaders defines its own handlers for loadStreamlitApp*,
+        // and this block merges in an additional one for the version-switch
+        // path — kea reducers() merges handlers when the key already exists.
+        streamlitApp: {
+            setActiveVersionInState: (state: StreamlitAppType | null, { activeVersion }) =>
+                state ? { ...state, active_version: activeVersion } : state,
+        },
         name: [
             '',
             {
@@ -173,16 +185,17 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
             try {
                 const response = await api.streamlitApps.activateVersion(props.shortId, versionNumber)
                 lemonToast.success(`Switched to v${versionNumber}. Restart the app to apply.`)
-                // Patch the active_version in local state instead of reloading
-                // the whole app — reloading clobbers any in-progress edits to
-                // name/description/cpu/memory.
-                if (values.streamlitApp) {
-                    const updated = {
+                const nextActiveVersion = response?.active_version ?? values.streamlitApp?.active_version ?? null
+                if (values.streamlitApp && nextActiveVersion) {
+                    // Narrow reducer update — dispatching loadStreamlitAppSuccess
+                    // here used to re-seed name/description/cpu/memory from the
+                    // latest server payload, silently clobbering any unsaved
+                    // edits the user had typed into the form.
+                    actions.setActiveVersionInState(nextActiveVersion)
+                    streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp({
                         ...values.streamlitApp,
-                        active_version: response?.active_version ?? values.streamlitApp.active_version,
-                    }
-                    actions.loadStreamlitAppSuccess(updated)
-                    streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(updated)
+                        active_version: nextActiveVersion,
+                    })
                 }
             } catch (error: any) {
                 lemonToast.error(

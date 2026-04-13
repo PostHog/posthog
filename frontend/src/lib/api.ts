@@ -227,6 +227,7 @@ import type {
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
 import {
+    ActivateVersionResponse,
     StreamlitAppMinimalType,
     StreamlitAppSandbox,
     StreamlitAppType,
@@ -4622,7 +4623,7 @@ const api = {
         async versions(shortId: string): Promise<{ results: StreamlitAppVersion[] }> {
             return await new ApiRequest().streamlitApp(shortId).withAction('versions').get()
         },
-        async activateVersion(shortId: string, versionNumber: number): Promise<StreamlitAppType> {
+        async activateVersion(shortId: string, versionNumber: number): Promise<ActivateVersionResponse> {
             return await new ApiRequest()
                 .streamlitApp(shortId)
                 .withAction('activate_version')

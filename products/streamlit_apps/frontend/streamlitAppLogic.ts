@@ -141,9 +141,11 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
             if (!streamlitApp) {
                 return
             }
-            // Seed sandboxStatus from app data so appStatus is correct immediately
+            // Seed sandboxStatus from app data so appStatus is correct
+            // immediately — kea-loaders success actions take the value
+            // directly, not an object wrapper.
             if (streamlitApp.sandbox) {
-                actions.loadSandboxStatusSuccess({ sandboxStatus: streamlitApp.sandbox })
+                actions.loadSandboxStatusSuccess(streamlitApp.sandbox)
             }
             const status = streamlitApp.sandbox?.status ?? 'stopped'
             if (status === 'starting') {

@@ -18,6 +18,16 @@ export interface StreamlitAppSandbox {
     last_error: string
     started_at: string | null
     last_activity_at: string | null
+    // Version_number the sandbox is actually serving (may lag the app's
+    // active_version if the user activated a new version without restarting).
+    version_number: number | null
+}
+
+export interface ActivateVersionResponse {
+    active_version: StreamlitAppVersion
+    // Currently always true, but the backend reserves the right to skip
+    // restarts for hot-reloadable changes in the future.
+    requires_restart: boolean
 }
 
 export interface StreamlitAppType {

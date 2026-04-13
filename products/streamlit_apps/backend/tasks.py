@@ -53,7 +53,7 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
     from posthog.storage import object_storage
 
     from products.streamlit_apps.backend.models import StreamlitApp
-    from products.streamlit_apps.backend.services.app_runtime import AppRuntimeService
+    from products.streamlit_apps.backend.services.app_runtime import AppRuntimeConcurrencyError, AppRuntimeService
 
     try:
         app = StreamlitApp.objects.get(id=app_id, deleted=False)
@@ -75,6 +75,12 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
             runtime.start_app(app, zip_content=zip_content)
         else:
             runtime.restart_app(app, zip_content=zip_content)
+    except AppRuntimeConcurrencyError:
+        # Benign: another worker is already doing this work. Log at info and
+        # return without stamping the sandbox ERROR — the in-flight operation
+        # will settle on its own.
+        logger.info("streamlit_app_lifecycle_concurrent_noop", app_id=app_id, action=action)
+        return
     except SoftTimeLimitExceeded:
         logger.exception("streamlit_app_lifecycle_timeout", app_id=app_id, action=action)
         _mark_sandbox_error(app_id, f"{action.title()} exceeded time limit.")
@@ -83,6 +89,36 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
         logger.exception("streamlit_app_lifecycle_failed", app_id=app_id, action=action)
         _mark_sandbox_error(app_id, f"{action.title()} failed: {exc}")
         raise
+
+
+@shared_task(ignore_result=True, max_retries=0)
+def reset_streamlit_app_restart_count_if_stable(app_id: str) -> None:
+    """Reset StreamlitApp.restart_count to 0 if the sandbox has been stable.
+
+    Enqueued with a countdown at the end of a successful start_app. Defers the
+    reset so a crash-loop that briefly reaches RUNNING before dying doesn't
+    wipe the counter and let the app bypass MAX_RESTART_COUNT forever.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox
+    from products.streamlit_apps.backend.services.app_runtime import RESTART_COUNT_STABILITY_SECONDS
+
+    try:
+        app = StreamlitApp.objects.get(id=app_id, deleted=False)
+    except StreamlitApp.DoesNotExist:
+        return
+
+    sandbox = StreamlitAppSandbox.objects.filter(app=app).first()
+    if sandbox is None or sandbox.status != StreamlitAppSandbox.Status.RUNNING or sandbox.started_at is None:
+        return
+
+    if timezone.now() - sandbox.started_at < timedelta(seconds=RESTART_COUNT_STABILITY_SECONDS):
+        return
+
+    StreamlitApp.objects.filter(id=app_id).update(restart_count=0)
 
 
 @shared_task(ignore_result=True)

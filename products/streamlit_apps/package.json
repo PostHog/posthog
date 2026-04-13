@@ -4,7 +4,9 @@
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
-        "react": "*",
-        "kea": "*"
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "react": "*"
     }
 }

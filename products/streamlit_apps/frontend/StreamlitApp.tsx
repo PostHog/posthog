@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -91,6 +91,25 @@ export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
                     </LemonButton>
                 }
             />
+            {/* Version mismatch between the activated version and the
+                version the sandbox is currently serving — activated via the
+                edit page without a restart. The banner nudges the user to
+                restart now rather than next cold start. */}
+            {appStatus === 'running' &&
+                streamlitApp.active_version &&
+                sandboxStatus?.version_number != null &&
+                streamlitApp.active_version.version_number !== sandboxStatus.version_number && (
+                    <LemonBanner
+                        type="info"
+                        className="mb-2"
+                        action={{
+                            children: 'Restart now',
+                            onClick: () => restartApp(),
+                        }}
+                    >
+                        New version available — restart to apply the changes.
+                    </LemonBanner>
+                )}
             <div className="flex-1 min-h-0">
                 {appStatus === 'starting' && <StreamlitAppLoading />}
 

@@ -22,9 +22,23 @@ STREAMLIT_APP_PATH = "/app"
 BRIDGE_TOKEN_PATH = "/run/bridge_token"
 MAX_RESTART_COUNT = 3
 STARTING_TIMEOUT_SECONDS = 600
+# How long the sandbox must stay RUNNING before restart_count is eligible
+# for reset. A shorter-than-this life cycle is treated as part of the same
+# crash loop that incremented the counter in the first place.
+RESTART_COUNT_STABILITY_SECONDS = 5 * 60
 
 
 class AppRuntimeError(Exception):
+    pass
+
+
+class AppRuntimeConcurrencyError(AppRuntimeError):
+    """Raised when a lifecycle action collides with one already in flight.
+
+    Callers (Celery task, viewset) should treat this as a benign "another
+    worker is handling it" signal rather than stamping the sandbox ERROR.
+    """
+
     pass
 
 
@@ -213,6 +227,41 @@ def _wait_for_proxy_ready(sandbox: SandboxProtocol, max_attempts: int = 20, dela
     return False
 
 
+def _wait_for_streamlit_ready(sandbox: SandboxProtocol, max_attempts: int = 30, delay_seconds: float = 1.0) -> bool:
+    """Poll Streamlit's /_stcore/health until it returns 200.
+
+    The auth proxy being ready doesn't imply the upstream Streamlit process is
+    — Streamlit takes a few extra seconds after its Python interpreter starts
+    to open the HTTP port. Without this second gate, `start_app` promotes the
+    record to RUNNING while the iframe still 502s against the upstream.
+    """
+    health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{STREAMLIT_PORT}/_stcore/health"
+    for attempt in range(max_attempts):
+        result = sandbox.execute(health_cmd, timeout_seconds=5)
+        if result.stdout.strip() == "200":
+            logger.info(f"Streamlit health check passed on attempt {attempt + 1}")
+            return True
+        time.sleep(delay_seconds)
+    return False
+
+
+def _schedule_restart_count_reset(app_id: str) -> None:
+    """Defer the restart_count reset by RESTART_COUNT_STABILITY_SECONDS.
+
+    The reset used to fire inline at the end of start_app, which meant a single
+    RUNNING promotion followed by an immediate crash reset the counter and let
+    a crash loop ignore the cap. Scheduling via Celery with a countdown gives
+    us a stability window: the task only resets when the sandbox is still
+    RUNNING and has been up long enough at fire time.
+    """
+    from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
+
+    reset_streamlit_app_restart_count_if_stable.apply_async(
+        args=[app_id],
+        countdown=RESTART_COUNT_STABILITY_SECONDS,
+    )
+
+
 def _tail_proxy_log(sandbox: SandboxProtocol) -> str:
     """Best-effort tail of /tmp/auth_proxy.log for surfacing in last_error."""
     try:
@@ -260,9 +309,14 @@ def _clear_sync_failures(sandbox_record: StreamlitAppSandbox) -> None:
 def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
     """Sync the DB sandbox status with the actual Modal sandbox state.
 
-    Handles two cases:
+    Handles only two transitions:
     - RUNNING sandbox that has died → update to STOPPED
-    - STARTING sandbox that is actually running → update to RUNNING
+    - STARTING sandbox older than the startup timeout → update to ERROR
+
+    Deliberately does NOT promote STARTING → RUNNING: that path implies the
+    Modal sandbox is alive, but says nothing about whether the auth proxy or
+    Streamlit inside it are serving. The only legitimate RUNNING promotion
+    happens in `start_app` after both readiness probes pass.
 
     Tracks consecutive failures via Django cache; after 3 strikes the record
     is marked ERROR so the UI reflects the broken state instead of spinning.
@@ -270,16 +324,15 @@ def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSan
     if sandbox_record.status not in (StreamlitAppSandbox.Status.RUNNING, StreamlitAppSandbox.Status.STARTING):
         return sandbox_record
 
-    # Catch stale STARTING records (Celery task crashed before completion).
-    # Use the sandbox row's own created_at — app.updated_at moves whenever any
-    # field on the app changes, so we used to incorrectly extend this window.
-    if sandbox_record.status == StreamlitAppSandbox.Status.STARTING and not sandbox_record.sandbox_id:
+    # Expire stale STARTING records (Celery task crashed before completion, or
+    # startup genuinely ran past the budget). Use the sandbox row's own
+    # created_at — app.updated_at moves whenever any field on the app changes.
+    if sandbox_record.status == StreamlitAppSandbox.Status.STARTING:
         age = (timezone.now() - sandbox_record.created_at).total_seconds()
         if age > STARTING_TIMEOUT_SECONDS:
             sandbox_record.status = StreamlitAppSandbox.Status.ERROR
             sandbox_record.last_error = "Startup timed out"
             sandbox_record.save(update_fields=["status", "last_error"])
-            return sandbox_record
         return sandbox_record
 
     try:
@@ -291,11 +344,6 @@ def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSan
             sandbox_record.status = StreamlitAppSandbox.Status.STOPPED
             sandbox_record.last_error = "Sandbox terminated (TTL timeout)"
             sandbox_record.save(update_fields=["status", "last_error"])
-        elif sandbox_record.status == StreamlitAppSandbox.Status.STARTING and is_running:
-            sandbox_record.status = StreamlitAppSandbox.Status.RUNNING
-            sandbox_record.started_at = timezone.now()
-            sandbox_record.last_activity_at = timezone.now()
-            sandbox_record.save(update_fields=["status", "started_at", "last_activity_at"])
 
         _clear_sync_failures(sandbox_record)
     except Exception:
@@ -394,6 +442,12 @@ class AppRuntimeService:
                 tail = _tail_proxy_log(sandbox)
                 raise AppRuntimeError("Auth proxy failed to become ready" + (f": {tail}" if tail else ""))
 
+            # The proxy being ready only tells us the proxy is alive — we also
+            # need Streamlit itself to be serving before we flip the record to
+            # RUNNING, otherwise the iframe will 502 against the upstream.
+            if not _wait_for_streamlit_ready(sandbox):
+                raise AppRuntimeError("Streamlit failed to become ready")
+
             now = timezone.now()
             updated = StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
                 status=StreamlitAppSandbox.Status.RUNNING,
@@ -406,9 +460,10 @@ class AppRuntimeService:
             else:
                 logger.warning("sandbox_record_deleted_during_start", app_id=str(app.id))
 
-            # On a confirmed-stable run, reset the per-app restart_count so a
-            # later transient hiccup doesn't permanently ratchet the counter.
-            StreamlitApp.objects.filter(id=app.id).update(restart_count=0)
+            # The restart_count reset runs in a deferred Celery task so a boot
+            # that reaches RUNNING briefly and then crashes doesn't wipe the
+            # counter and allow an infinite crash loop.
+            _schedule_restart_count_reset(str(app.id))
 
             return sandbox_record
 
@@ -500,22 +555,22 @@ class AppRuntimeService:
             return None
 
     def restart_app(self, app: StreamlitApp, zip_content: bytes | None = None) -> StreamlitAppSandbox:
+        # Lock the StreamlitApp row (not the sandbox row) so the restart_count
+        # check+increment is atomic and concurrent callers serialize on the
+        # cap boundary instead of racing through their own read of the count.
         with transaction.atomic():
-            sandbox_record = StreamlitAppSandbox.objects.select_for_update().filter(app=app).first()
+            StreamlitApp.objects.select_for_update().get(id=app.id)
 
-            # If another restart is already in flight (we see STOPPING or a fresh
-            # STARTING record), bail rather than stacking a second stop/start pair.
-            # We can't just hold the row lock across stop_app + start_app — those
-            # involve Modal network calls and would hold the Postgres row lock
-            # for the full restart window, risking long lock waits elsewhere.
+            sandbox_record = StreamlitAppSandbox.objects.filter(app=app).first()
             if sandbox_record and sandbox_record.status in (
                 StreamlitAppSandbox.Status.STOPPING,
                 StreamlitAppSandbox.Status.STARTING,
             ):
-                raise AppRuntimeError("Another restart is already in progress.")
+                # Benign race: another worker is already tearing down or
+                # spinning up. Raise a concurrency-specific exception so the
+                # task wrapper doesn't stamp the sandbox ERROR on our behalf.
+                raise AppRuntimeConcurrencyError("Another restart is already in progress.")
 
-            # restart_count now lives on the app row, so the cap survives across
-            # sandbox lifecycles.
             current_count = StreamlitApp.objects.filter(id=app.id).values_list("restart_count", flat=True).first() or 0
             if current_count >= MAX_RESTART_COUNT:
                 if sandbox_record:
@@ -524,9 +579,18 @@ class AppRuntimeService:
                     sandbox_record.save(update_fields=["status", "last_error"])
                 raise AppRuntimeError(f"Max restart count ({MAX_RESTART_COUNT}) exceeded")
 
-            # Atomically increment so concurrent Celery tasks can't both read
-            # the same count and bypass the cap.
             StreamlitApp.objects.filter(id=app.id).update(restart_count=F("restart_count") + 1)
 
-        self.stop_app(app)
-        return self.start_app(app, zip_content=zip_content)
+        # Stop+start happens outside the app row lock — they each take their
+        # own sandbox-row locks and hit Modal over the network, which we must
+        # not do while holding an app-level row lock (would serialize every
+        # reader/writer on the app for the full restart window).
+        try:
+            self.stop_app(app)
+            return self.start_app(app, zip_content=zip_content)
+        except Exception:
+            # Roll the counter back so a transient Modal flap doesn't
+            # permanently eat into the cap. The reset task that start_app
+            # schedules on its happy path won't have fired in this case.
+            StreamlitApp.objects.filter(id=app.id).update(restart_count=F("restart_count") - 1)
+            raise

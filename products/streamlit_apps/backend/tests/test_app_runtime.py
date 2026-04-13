@@ -1,13 +1,22 @@
 import zipfile
+from datetime import timedelta
 from io import BytesIO
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
-from products.streamlit_apps.backend.services.app_runtime import MAX_RESTART_COUNT, AppRuntimeError, AppRuntimeService
+from products.streamlit_apps.backend.services.app_runtime import (
+    MAX_RESTART_COUNT,
+    RESTART_COUNT_STABILITY_SECONDS,
+    AppRuntimeConcurrencyError,
+    AppRuntimeError,
+    AppRuntimeService,
+)
 
 
 def _make_zip_bytes(files: dict[str, str]) -> bytes:
@@ -294,14 +303,8 @@ class TestAppRuntimeGetStatus(BaseTest):
 @patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeRestartApp(BaseTest):
-    def test_restart_increments_count_then_resets_on_success(self, mock_get_sandbox_class, _mock_wait):
-        """restart_count lives on the StreamlitApp row now. The increment
-        happens before stop_app, and a successful start_app resets it back
-        to zero so transient failures don't permanently ratchet the cap."""
-        mock_sandbox = _make_mock_sandbox()
-        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
-
-        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+    def _make_restartable_app(self, restart_count: int = 0, sandbox_status=None):
+        app = StreamlitApp.objects.create(team=self.team, name="Test App", restart_count=restart_count)
         version = StreamlitAppVersion.objects.create(
             app=app,
             version_number=1,
@@ -311,41 +314,220 @@ class TestAppRuntimeRestartApp(BaseTest):
         )
         app.active_version = version
         app.save(update_fields=["active_version"])
-        StreamlitAppSandbox.objects.create(
-            app=app,
-            version=version,
-            sandbox_id="old",
-            status=StreamlitAppSandbox.Status.ERROR,
-        )
+        if sandbox_status is not None:
+            StreamlitAppSandbox.objects.create(
+                app=app,
+                version=version,
+                sandbox_id="old",
+                status=sandbox_status,
+            )
+        return app, version
+
+    def test_restart_increments_count_and_defers_reset(self, mock_get_sandbox_class, _mock_wait):
+        """A successful restart increments restart_count but does NOT reset
+        it inline. The reset is handed to a Celery task scheduled with a
+        stability countdown, so a crash-loop that briefly reaches RUNNING
+        before dying can't wipe the counter."""
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._make_restartable_app(sandbox_status=StreamlitAppSandbox.Status.ERROR)
 
         service = AppRuntimeService()
-        record = service.restart_app(app)
+        with patch(
+            "products.streamlit_apps.backend.services.app_runtime._schedule_restart_count_reset"
+        ) as mock_schedule:
+            record = service.restart_app(app)
+
         assert record.status == StreamlitAppSandbox.Status.RUNNING
-        # restart_count was bumped to 1 inside restart_app and then reset to 0
-        # by start_app once the run reached RUNNING.
+        app.refresh_from_db()
+        assert app.restart_count == 1
+        mock_schedule.assert_called_once_with(str(app.id))
+
+    def test_restart_count_rolls_back_on_failure(self, mock_get_sandbox_class, _mock_wait):
+        """When start_app raises mid-restart, restart_count decrements so a
+        transient Modal flap doesn't permanently ratchet the cap."""
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._make_restartable_app(restart_count=1, sandbox_status=StreamlitAppSandbox.Status.ERROR)
+
+        service = AppRuntimeService()
+        with patch.object(service, "start_app", side_effect=AppRuntimeError("boom")):
+            with self.assertRaises(AppRuntimeError):
+                service.restart_app(app)
+
+        app.refresh_from_db()
+        # Bumped from 1 → 2 inside restart_app, then rolled back to 1 on the
+        # start_app failure. The cap survives the blip.
+        assert app.restart_count == 1
+
+    def test_restart_count_race_does_not_exceed_cap(self, mock_get_sandbox_class, _mock_wait):
+        """Sequential restart_app calls serialize on the StreamlitApp row
+        lock, so N+1 restarts where the first N succeed must cap out on the
+        (N+1)-th without allowing more than MAX_RESTART_COUNT increments."""
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._make_restartable_app()
+
+        service = AppRuntimeService()
+        with patch("products.streamlit_apps.backend.services.app_runtime._schedule_restart_count_reset"):
+            for _ in range(MAX_RESTART_COUNT):
+                service.restart_app(app)
+
+        app.refresh_from_db()
+        assert app.restart_count == MAX_RESTART_COUNT
+
+        with self.assertRaises(AppRuntimeError):
+            service.restart_app(app)
+
+    def test_restart_concurrency_raises_concurrency_error(self, mock_get_sandbox_class, _mock_wait):
+        """A second restart while a previous lifecycle is still STARTING or
+        STOPPING raises AppRuntimeConcurrencyError, not the generic runtime
+        error — the task wrapper uses the specific subclass to pass through
+        without stamping the sandbox ERROR."""
+        app, _version = self._make_restartable_app(sandbox_status=StreamlitAppSandbox.Status.STARTING)
+
+        service = AppRuntimeService()
+        with self.assertRaises(AppRuntimeConcurrencyError):
+            service.restart_app(app)
+
+        # Cap was untouched — the concurrent-restart path never entered the
+        # increment block.
         app.refresh_from_db()
         assert app.restart_count == 0
 
     def test_restart_exceeds_max_raises(self, mock_get_sandbox_class, _mock_wait):
-        app = StreamlitApp.objects.create(team=self.team, name="Test App", restart_count=MAX_RESTART_COUNT)
-        version = StreamlitAppVersion.objects.create(
-            app=app,
-            version_number=1,
-            zip_file="a.zip",
-            zip_hash="a",
-        )
-        app.active_version = version
-        app.save(update_fields=["active_version"])
-        StreamlitAppSandbox.objects.create(
-            app=app,
-            version=version,
-            sandbox_id="old",
-            status=StreamlitAppSandbox.Status.ERROR,
+        app, _version = self._make_restartable_app(
+            restart_count=MAX_RESTART_COUNT, sandbox_status=StreamlitAppSandbox.Status.ERROR
         )
 
         service = AppRuntimeService()
         with self.assertRaises(AppRuntimeError, msg="Max restart count"):
             service.restart_app(app)
+
+    def test_start_app_fails_when_streamlit_not_ready(self, mock_get_sandbox_class, _mock_wait):
+        """Even after the auth proxy is ready, the sandbox must not be
+        promoted to RUNNING until Streamlit itself passes its readiness
+        probe — otherwise the iframe opens on a 502."""
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._make_restartable_app()
+
+        service = AppRuntimeService()
+        with patch(
+            "products.streamlit_apps.backend.services.app_runtime._wait_for_streamlit_ready",
+            return_value=False,
+        ):
+            with self.assertRaises(AppRuntimeError, msg="Streamlit failed to become ready"):
+                service.start_app(app)
+
+
+class TestResetRestartCountIfStable(BaseTest):
+    """The deferred reset task fires after a stability window and only resets
+    restart_count if the sandbox is still RUNNING at fire time."""
+
+    def _make_sandbox(self, *, restart_count: int, status, started_at):
+        app = StreamlitApp.objects.create(team=self.team, name="T", restart_count=restart_count)
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        StreamlitAppSandbox.objects.create(
+            app=app,
+            version=version,
+            sandbox_id="sb",
+            status=status,
+            started_at=started_at,
+        )
+        return app
+
+    def test_reset_when_running_and_stable(self):
+        app = self._make_sandbox(
+            restart_count=2,
+            status=StreamlitAppSandbox.Status.RUNNING,
+            started_at=timezone.now() - timedelta(seconds=RESTART_COUNT_STABILITY_SECONDS + 10),
+        )
+
+        from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
+
+        reset_streamlit_app_restart_count_if_stable(str(app.id))
+
+        app.refresh_from_db()
+        assert app.restart_count == 0
+
+    def test_skip_when_not_running(self):
+        app = self._make_sandbox(
+            restart_count=2,
+            status=StreamlitAppSandbox.Status.ERROR,
+            started_at=timezone.now() - timedelta(seconds=RESTART_COUNT_STABILITY_SECONDS + 10),
+        )
+
+        from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
+
+        reset_streamlit_app_restart_count_if_stable(str(app.id))
+
+        app.refresh_from_db()
+        assert app.restart_count == 2
+
+    def test_skip_when_too_recent(self):
+        app = self._make_sandbox(
+            restart_count=2,
+            status=StreamlitAppSandbox.Status.RUNNING,
+            started_at=timezone.now() - timedelta(seconds=60),
+        )
+
+        from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
+
+        reset_streamlit_app_restart_count_if_stable(str(app.id))
+
+        app.refresh_from_db()
+        assert app.restart_count == 2
+
+
+class TestSyncSandboxStatus(BaseTest):
+    """_sync_sandbox_status must never promote STARTING → RUNNING — that
+    path is reserved for start_app after both readiness probes pass."""
+
+    def test_sync_does_not_promote_starting_to_running(self):
+        from products.streamlit_apps.backend.services.app_runtime import _sync_sandbox_status
+
+        app = StreamlitApp.objects.create(team=self.team, name="T")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        sandbox_record = StreamlitAppSandbox.objects.create(
+            app=app,
+            version=version,
+            sandbox_id="modal-123",
+            status=StreamlitAppSandbox.Status.STARTING,
+        )
+
+        with patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class") as mock_cls:
+            mock_sandbox = MagicMock()
+            mock_sandbox.is_running.return_value = True
+            mock_cls.return_value.get_by_id.return_value = mock_sandbox
+            result = _sync_sandbox_status(sandbox_record)
+
+        assert result.status == StreamlitAppSandbox.Status.STARTING
+
+    def test_sync_expires_stuck_starting_to_error(self):
+        from products.streamlit_apps.backend.services.app_runtime import STARTING_TIMEOUT_SECONDS, _sync_sandbox_status
+
+        app = StreamlitApp.objects.create(team=self.team, name="T")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        sandbox_record = StreamlitAppSandbox.objects.create(
+            app=app,
+            version=version,
+            sandbox_id="",
+            status=StreamlitAppSandbox.Status.STARTING,
+        )
+        # Backdate created_at past the startup budget.
+        StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
+            created_at=timezone.now() - timedelta(seconds=STARTING_TIMEOUT_SECONDS + 10)
+        )
+        sandbox_record.refresh_from_db()
+
+        result = _sync_sandbox_status(sandbox_record)
+        assert result.status == StreamlitAppSandbox.Status.ERROR
+        assert "timed out" in result.last_error.lower()
 
 
 class TestBuildSandboxConfig(BaseTest):

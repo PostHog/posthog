@@ -56,6 +56,7 @@ class StreamlitAppVersionSerializer(serializers.ModelSerializer):
 
 class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
     restart_count = serializers.SerializerMethodField()
+    version_number = serializers.SerializerMethodField()
 
     class Meta:
         model = StreamlitAppSandbox
@@ -65,6 +66,7 @@ class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
             "last_error",
             "started_at",
             "last_activity_at",
+            "version_number",
         ]
         read_only_fields = fields
 
@@ -72,6 +74,11 @@ class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
         # restart_count lives on the app row now, but we surface it under the
         # sandbox object for frontend continuity.
         return obj.app.restart_count
+
+    def get_version_number(self, obj: StreamlitAppSandbox) -> int | None:
+        # Lets the viewer compare against the app's active_version.version_number
+        # to decide whether a restart is needed after a version switch.
+        return obj.version.version_number if obj.version else None
 
 
 class StreamlitAppMinimalSerializer(serializers.ModelSerializer):
@@ -479,6 +486,22 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True, url_path="restart", throttle_classes=[ClickHouseBurstRateThrottle])
     def restart(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
+
+        # Mirror the start action: if a lifecycle transition is already in
+        # flight, return 202 as an idempotent no-op instead of enqueuing a
+        # second task whose runtime will raise AppRuntimeConcurrencyError.
+        try:
+            sandbox = app.sandbox
+            if sandbox.status in (
+                StreamlitAppSandbox.Status.STARTING,
+                StreamlitAppSandbox.Status.STOPPING,
+            ):
+                return Response(
+                    StreamlitAppSerializer(app, context=self.get_serializer_context()).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
+        except StreamlitAppSandbox.DoesNotExist:
+            pass
 
         from products.streamlit_apps.backend.tasks import run_streamlit_app_lifecycle
 
