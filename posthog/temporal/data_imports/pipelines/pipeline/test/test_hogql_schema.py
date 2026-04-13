@@ -22,6 +22,79 @@ class TestHogQLSchemaJsonDetection:
         assert schema.schema["col"] == expected_type
 
 
+class TestAddPyarrowSchema:
+    def test_maps_all_arrow_types(self):
+        arrow_schema = pa.schema(
+            [
+                pa.field("str_col", pa.string()),
+                pa.field("int_col", pa.int64()),
+                pa.field("float_col", pa.float64()),
+                pa.field("bool_col", pa.bool_()),
+                pa.field("ts_col", pa.timestamp("us")),
+                pa.field("date_col", pa.date32()),
+                pa.field("decimal_col", pa.decimal128(10, 2)),
+            ]
+        )
+        schema = HogQLSchema()
+        schema.add_pyarrow_schema(arrow_schema)
+
+        assert schema.schema["str_col"] == "StringDatabaseField"
+        assert schema.schema["int_col"] == "IntegerDatabaseField"
+        assert schema.schema["float_col"] == "FloatDatabaseField"
+        assert schema.schema["bool_col"] == "BooleanDatabaseField"
+        assert schema.schema["ts_col"] == "DateTimeDatabaseField"
+        assert schema.schema["date_col"] == "DateDatabaseField"
+        assert schema.schema["decimal_col"] == "FloatDatabaseField"
+
+    def test_skips_binary_fields(self):
+        arrow_schema = pa.schema([pa.field("bin_col", pa.binary())])
+        schema = HogQLSchema()
+        schema.add_pyarrow_schema(arrow_schema)
+
+        assert "bin_col" not in schema.schema
+
+    def test_does_not_overwrite_non_string_types(self):
+        schema = HogQLSchema()
+        table = pa.table({"col": pa.array([1, 2], type=pa.int64())})
+        schema.add_pyarrow_table(table)
+
+        # Schema from a different batch has the same column as string
+        arrow_schema = pa.schema([pa.field("col", pa.string())])
+        schema.add_pyarrow_schema(arrow_schema)
+
+        assert schema.schema["col"] == "IntegerDatabaseField"
+
+    def test_add_pyarrow_table_upgrades_string_to_json(self):
+        arrow_schema = pa.schema([pa.field("col", pa.string())])
+        schema = HogQLSchema()
+        schema.add_pyarrow_schema(arrow_schema)
+        assert schema.schema["col"] == "StringDatabaseField"
+
+        table = pa.table({"col": pa.array(['{"key": "value"}'], type=pa.string())})
+        schema.add_pyarrow_table(table)
+        assert schema.schema["col"] == "StringJSONDatabaseField"
+
+    def test_covers_columns_missing_from_batch(self):
+        arrow_schema = pa.schema(
+            [
+                pa.field("col_a", pa.string()),
+                pa.field("col_b", pa.int64()),
+                pa.field("col_c", pa.float64()),
+            ]
+        )
+        table = pa.table({"col_a": pa.array(["hello"], type=pa.string())})
+
+        schema = HogQLSchema()
+        schema.add_pyarrow_schema(arrow_schema)
+        schema.add_pyarrow_table(table)
+
+        assert "col_a" in schema.schema
+        assert "col_b" in schema.schema
+        assert "col_c" in schema.schema
+        assert schema.schema["col_b"] == "IntegerDatabaseField"
+        assert schema.schema["col_c"] == "FloatDatabaseField"
+
+
 class TestMergeColumnsJsonPreservation:
     @parameterized.expand(
         [

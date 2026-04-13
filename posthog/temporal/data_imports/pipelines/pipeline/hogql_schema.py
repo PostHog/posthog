@@ -23,6 +23,42 @@ class HogQLSchema:
         for field in table.schema:
             self.add_field(field, table.column(field.name))
 
+    def add_pyarrow_schema(self, schema: pa.Schema) -> None:
+        """Register fields from a PyArrow schema without column data.
+
+        Unlike add_pyarrow_table, this cannot inspect values to distinguish
+        StringJSONDatabaseField from StringDatabaseField.  Call this before
+        add_pyarrow_table so the data-informed pass can upgrade string types.
+        """
+        for field in schema:
+            existing_type = self.schema.get(field.name)
+            if existing_type is not None and existing_type != StringDatabaseField.__name__:
+                continue
+
+            if pa.types.is_binary(field.type):
+                continue
+
+            hogql_type: type[DatabaseField] = DatabaseField
+
+            if pa.types.is_time(field.type):
+                hogql_type = DateTimeDatabaseField
+            elif pa.types.is_timestamp(field.type):
+                hogql_type = DateTimeDatabaseField
+            elif pa.types.is_date(field.type):
+                hogql_type = DateDatabaseField
+            elif pa.types.is_decimal(field.type):
+                hogql_type = FloatDatabaseField
+            elif pa.types.is_floating(field.type):
+                hogql_type = FloatDatabaseField
+            elif pa.types.is_boolean(field.type):
+                hogql_type = BooleanDatabaseField
+            elif pa.types.is_integer(field.type):
+                hogql_type = IntegerDatabaseField
+            elif pa.types.is_string(field.type):
+                hogql_type = StringDatabaseField
+
+            self.schema[field.name] = hogql_type.__name__
+
     def add_field(self, field: pa.Field, column: pa.ChunkedArray) -> None:
         existing_type = self.schema.get(field.name)
         if existing_type is not None and existing_type != StringDatabaseField.__name__:
