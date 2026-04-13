@@ -513,6 +513,89 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
+        it('handles Vercel AI SDK toolName variant with string input', () => {
+            const message = { type: 'tool-call', toolCallId: 'tc_1', toolName: 'run_code', input: 'print("hi")' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_1',
+                            function: { name: 'run_code', arguments: 'print("hi")' },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK toolName variant with missing input', () => {
+            const message = { type: 'tool-call', toolCallId: 'tc_2', toolName: 'no_args_tool' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_2',
+                            function: { name: 'no_args_tool', arguments: {} },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('prefers function variant when both function and toolName are present', () => {
+            const message = {
+                type: 'tool-call',
+                id: 'func_id',
+                function: { name: 'from_function', arguments: '{"a":1}' },
+                toolCallId: 'tool_id',
+                toolName: 'from_toolName',
+                input: { b: 2 },
+            }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'func_id',
+                            function: { name: 'from_function', arguments: { a: 1 } },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with undefined output', () => {
+            const message = { type: 'tool-result', toolCallId: 'tc_empty', toolName: 'void_tool' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '',
+                    tool_call_id: 'tc_empty',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with non-serializable output', () => {
+            const circular: Record<string, unknown> = { key: 'value' }
+            circular.self = circular
+            const message = { type: 'tool-result', toolCallId: 'tc_circ', toolName: 'bad_tool', output: circular }
+            const result = normalizeMessage(message, 'assistant')
+            expect(result).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '[object Object]',
+                    tool_call_id: 'tc_circ',
+                },
+            ])
+        })
+
         it('handles Vercel AI SDK mixed content array with reasoning + text + tool-call', () => {
             const message = {
                 role: 'assistant',

@@ -38,7 +38,9 @@ import {
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
+    VercelSDKToolCallFunctionMessage,
     VercelSDKToolCallMessage,
+    VercelSDKToolCallToolNameMessage,
     VercelSDKToolResultMessage,
     MultiModalContentItem,
 } from './types'
@@ -444,20 +446,42 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
     )
 }
 
-export function isVercelSDKToolCallMessage(input: unknown): input is VercelSDKToolCallMessage {
+function isVercelSDKToolCallFunctionMessage(input: unknown): input is VercelSDKToolCallFunctionMessage {
     return (
         !!input &&
         typeof input === 'object' &&
         'type' in input &&
         input.type === 'tool-call' &&
-        (('function' in input && typeof input.function === 'object' && input.function !== null) ||
-            ('toolName' in input && typeof input.toolName === 'string'))
+        'function' in input &&
+        typeof input.function === 'object' &&
+        input.function !== null
     )
+}
+
+function isVercelSDKToolCallToolNameMessage(input: unknown): input is VercelSDKToolCallToolNameMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-call' &&
+        'toolName' in input &&
+        typeof input.toolName === 'string' &&
+        !('function' in input && typeof input.function === 'object' && input.function !== null)
+    )
+}
+
+export function isVercelSDKToolCallMessage(input: unknown): input is VercelSDKToolCallMessage {
+    return isVercelSDKToolCallFunctionMessage(input) || isVercelSDKToolCallToolNameMessage(input)
 }
 
 export function isVercelSDKToolResultMessage(input: unknown): input is VercelSDKToolResultMessage {
     return (
-        !!input && typeof input === 'object' && 'type' in input && input.type === 'tool-result' && 'toolName' in input
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-result' &&
+        'toolName' in input &&
+        typeof input.toolName === 'string'
     )
 }
 
@@ -1007,22 +1031,8 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             },
         ]
     }
-    // Vercel AI SDK tool call
-    if (isVercelSDKToolCallMessage(rawMessage)) {
-        let toolName: string
-        let toolArgs: Record<string, unknown> | string = {}
-        let toolId: string | undefined
-
-        if (rawMessage.function) {
-            toolName = rawMessage.function.name
-            toolArgs = rawMessage.function.arguments
-            toolId = rawMessage.id
-        } else {
-            toolName = rawMessage.toolName!
-            toolArgs = (rawMessage.input ?? {}) as Record<string, unknown> | string
-            toolId = rawMessage.toolCallId
-        }
-
+    // Vercel AI SDK tool call (function variant)
+    if (isVercelSDKToolCallFunctionMessage(rawMessage)) {
         return [
             {
                 role: roleToUse,
@@ -1030,10 +1040,29 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                 tool_calls: [
                     {
                         type: 'function',
-                        id: toolId,
+                        id: rawMessage.id,
                         function: {
-                            name: toolName,
-                            arguments: parseToolArguments(toolArgs),
+                            name: rawMessage.function.name,
+                            arguments: parseToolArguments(rawMessage.function.arguments),
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Vercel AI SDK tool call (toolName variant)
+    if (isVercelSDKToolCallToolNameMessage(rawMessage)) {
+        return [
+            {
+                role: roleToUse,
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.toolCallId,
+                        function: {
+                            name: rawMessage.toolName,
+                            arguments: parseToolArguments(rawMessage.input ?? {}),
                         },
                     },
                 ],
@@ -1046,7 +1075,11 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         if (typeof rawMessage.output === 'string') {
             content = rawMessage.output
         } else if (rawMessage.output !== undefined) {
-            content = JSON.stringify(rawMessage.output)
+            try {
+                content = JSON.stringify(rawMessage.output)
+            } catch {
+                content = String(rawMessage.output)
+            }
         }
         return [
             {
