@@ -73,9 +73,14 @@ describe('TrendsLineChartD3', () => {
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
-            const tooltip = await chart.hoverTooltip(2)
+            // Breakdown data produces multiple series, so the chart requires a
+            // click to pin the tooltip (hover alone won't render it).
+            await chart.clickAtIndex(2)
 
-            expect(tooltip.row('Spike')).toContain('3')
+            const tooltipEl = chart.getTooltip()
+            expect(tooltipEl).not.toBeNull()
+            expect(tooltipEl!.textContent).toContain('Spike')
+            expect(tooltipEl!.textContent).toContain('3')
         })
 
         it('shows current and previous period rows in compare mode', async () => {
