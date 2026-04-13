@@ -12,7 +12,7 @@ import { projectNoticeLogic } from './projectNoticeLogic'
 const LAYOUT_WITH_HORIZONTAL_MARGIN: SceneConfig['layout'][] = ['app-raw', 'app-raw-no-header']
 
 export function ProjectNotice({ className }: { className?: string }): JSX.Element | null {
-    const { projectNotice } = useValues(projectNoticeLogic)
+    const { projectNotice, projectNoticeVariant } = useValues(projectNoticeLogic)
     const { reportNoticeShown } = useActions(projectNoticeLogic)
     const { sceneConfig } = useValues(sceneLogic)
 
@@ -21,10 +21,10 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     // KLUDGE: We can't really depend on `projectNotice` being set inside the logic
     // to trigger the action from inside the logic, so let's do it here.
     useEffect(() => {
-        if (projectNotice) {
+        if (projectNoticeVariant) {
             reportNoticeShown()
         }
-    }, [projectNotice, reportNoticeShown])
+    }, [projectNoticeVariant, reportNoticeShown])
 
     if (!projectNotice) {
         return null
