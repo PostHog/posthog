@@ -18,13 +18,16 @@ import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -140,6 +143,75 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     shouldRematerialize?: boolean
     sync_frequency?: string
     types: string[][]
+}
+
+interface SaveCandidates {
+    queries: string[]
+    initialIndex: number
+    selectionLabel: string | null
+}
+
+/**
+ * Pager used inside save-as dialogs. Shows the label, a prev/next cycle pair when there's more
+ * than one candidate, and the SQL snippet of the currently-selected query. Calls `onChange`
+ * whenever the active index changes so the submit handler has the chosen query ready.
+ */
+function SaveTargetCycler({
+    candidates,
+    onChange,
+    children,
+}: {
+    candidates: SaveCandidates
+    onChange: (query: string, index: number) => void
+    children?: (query: string, index: number) => JSX.Element
+}): JSX.Element | null {
+    const [index, setIndex] = useState(candidates.initialIndex)
+
+    useEffect(() => {
+        onChange(candidates.queries[index], index)
+    }, [index, candidates, onChange])
+
+    if (candidates.queries.length === 0) {
+        return null
+    }
+
+    const multi = candidates.queries.length > 1
+    const label = candidates.selectionLabel ?? (multi ? `Query ${index + 1} of ${candidates.queries.length}` : null)
+
+    if (!label && !children) {
+        return null
+    }
+
+    return (
+        <div className="mt-2 mb-3">
+            <div className="flex items-center justify-between mb-1">
+                <div className="text-muted text-xs">{label ? `Saving: ${label}` : ''}</div>
+                {multi && (
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconChevronLeft />}
+                            disabledReason={index === 0 ? 'First query' : undefined}
+                            onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconChevronRight />}
+                            disabledReason={index === candidates.queries.length - 1 ? 'Last query' : undefined}
+                            onClick={() => setIndex((i) => Math.min(candidates.queries.length - 1, i + 1))}
+                        />
+                    </div>
+                )}
+            </div>
+            {children ? (
+                children(candidates.queries[index], index)
+            ) : (
+                <CodeSnippet language={Language.SQL} wrap compact maxLinesWithoutExpansion={8}>
+                    {candidates.queries[index]}
+                </CodeSnippet>
+            )}
+        </div>
+    )
 }
 
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
@@ -513,7 +585,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
          *
          * Returns the text to save and an optional human-readable label for the save dialog.
          */
-        const resolveQueryToSave = (): { query: string; label: string | null } => {
+        const resolveSaveCandidates = (): SaveCandidates => {
             const fullText = values.queryInput ?? ''
             const editorInstance = props.editor
 
@@ -523,48 +595,38 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (model && selection && !selection.isEmpty()) {
                     const selectedText = model.getValueInRange(selection).trim()
                     if (selectedText) {
-                        return { query: selectedText, label: 'Selection' }
+                        return { queries: [selectedText], initialIndex: 0, selectionLabel: 'Selection' }
                     }
                 }
             }
 
-            const queries = splitQueries(fullText)
-            if (queries.length <= 1) {
-                return { query: fullText, label: null }
+            const split = splitQueries(fullText)
+            if (split.length <= 1) {
+                return {
+                    queries: [split[0]?.query ?? fullText],
+                    initialIndex: 0,
+                    selectionLabel: null,
+                }
             }
 
+            let initialIndex = split.length - 1
             if (editorInstance) {
                 const model = editorInstance.getModel()
                 const position = editorInstance.getPosition()
                 if (model && position) {
                     const cursorOffset = model.getOffsetAt(position)
-                    const match = findQueryAtCursor(queries, cursorOffset)
+                    const match = findQueryAtCursor(split, cursorOffset)
                     if (match) {
-                        const index = queries.findIndex((q) => q.start === match.start)
-                        return {
-                            query: match.query,
-                            label: `Query ${index + 1} of ${queries.length}`,
-                        }
+                        initialIndex = split.findIndex((q) => q.start === match.start)
                     }
                 }
             }
 
-            const last = queries[queries.length - 1]
-            return { query: last.query, label: `Query ${queries.length} of ${queries.length}` }
-        }
-
-        const renderSaveTargetPreview = (resolved: { query: string; label: string | null }): JSX.Element | null => {
-            if (!resolved.label) {
-                return null
+            return {
+                queries: split.map((q) => q.query),
+                initialIndex,
+                selectionLabel: null,
             }
-            return (
-                <div className="mt-2 mb-3">
-                    <div className="text-muted text-xs mb-1">Saving: {resolved.label}</div>
-                    <CodeSnippet language={Language.SQL} wrap compact maxLinesWithoutExpansion={8}>
-                        {resolved.query}
-                    </CodeSnippet>
-                </div>
-            )
         }
 
         return {
@@ -968,7 +1030,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const isStaff = values.user?.is_staff ?? false
-                const resolved = resolveQueryToSave()
+                const candidates = resolveSaveCandidates()
+                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 LemonDialog.openForm({
                     title: 'Save as view',
                     initialValues: { viewName: values.activeTab?.name || '', isTest: false },
@@ -1005,7 +1068,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         )}
                                     </LemonField>
                                 )}
-                                {renderSaveTargetPreview(resolved)}
+                                <SaveTargetCycler
+                                    candidates={candidates}
+                                    onChange={(q) => {
+                                        selectedRef.current = q
+                                    }}
+                                />
                             </>
                         ),
                     errors: {
@@ -1022,7 +1090,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             materializeAfterSave,
                             fromDraft,
                             isTest,
-                            resolved.query
+                            selectedRef.current
                         )
                     },
                     shouldAwaitSubmit: true,
@@ -1100,15 +1168,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     effectiveVisualizationType
                 )
 
-                const resolved = resolveQueryToSave()
-                const sourceQueryForPreview: DataVisualizationNode = {
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        query: resolved.query,
-                    },
-                    display: defaultDisplay,
-                }
+                const candidates = resolveSaveCandidates()
+                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+                const baseSourceQuery = values.sourceQuery
 
                 LemonDialog.openForm({
                     title: 'Save as new insight',
@@ -1124,20 +1186,32 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     autoFocus
                                 />
                             </LemonField>
-                            <div className="mt-3">
-                                <div className="text-muted text-xs mb-1">
-                                    Preview{resolved.label ? ` — ${resolved.label}` : ''}
-                                </div>
-                                <div className="bg-bg-light max-h-[60vh] overflow-auto">
-                                    <Query readOnly embedded query={sourceQueryForPreview} />
-                                </div>
-                            </div>
+                            <SaveTargetCycler
+                                candidates={candidates}
+                                onChange={(q) => {
+                                    selectedRef.current = q
+                                }}
+                            >
+                                {(query) => (
+                                    <div className="bg-bg-light max-h-[60vh] overflow-auto">
+                                        <Query
+                                            readOnly
+                                            embedded
+                                            query={{
+                                                ...baseSourceQuery,
+                                                source: { ...baseSourceQuery.source, query },
+                                                display: defaultDisplay,
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </SaveTargetCycler>
                         </>
                     ),
                     errors: {
                         name: (name) => (!name ? 'You must enter a name' : undefined),
                     },
-                    onSubmit: async ({ name }) => actions.saveAsInsightSubmit(name, resolved.query),
+                    onSubmit: async ({ name }) => actions.saveAsInsightSubmit(name, selectedRef.current),
                 })
             },
             saveAsInsightSubmit: async ({ name, queryOverride }) => {
@@ -1183,7 +1257,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 router.actions.push(urls.insightView(insight.short_id))
             },
             saveAsEndpoint: async () => {
-                const resolved = resolveQueryToSave()
+                const candidates = resolveSaveCandidates()
+                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 LemonDialog.openForm({
                     title: 'Save as endpoint',
                     initialValues: {
@@ -1205,14 +1280,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     placeholder="Please enter a description (optional)"
                                 />
                             </LemonField>
-                            {renderSaveTargetPreview(resolved)}
+                            <SaveTargetCycler
+                                candidates={candidates}
+                                onChange={(q) => {
+                                    selectedRef.current = q
+                                }}
+                            />
                         </>
                     ),
                     errors: {
                         name: (name) => validateEndpointName(name?.trim() || ''),
                     },
                     onSubmit: async ({ name, description }) =>
-                        actions.saveAsEndpointSubmit(name, description, resolved.query),
+                        actions.saveAsEndpointSubmit(name, description, selectedRef.current),
                 })
             },
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
