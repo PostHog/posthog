@@ -1307,7 +1307,11 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         user = self.request.user
-        return queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+        qs = queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+        # Exclude internal environments from list views by default
+        if self.action == "list":
+            qs = qs.filter(internal=False)
+        return qs
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

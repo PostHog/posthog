@@ -194,6 +194,36 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     is_synthetic = serializers.SerializerMethodField()
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Human-readable name for the playlist.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional description of the playlist's purpose or contents.",
+    )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="Whether this playlist is pinned to the top of the list.",
+    )
+    deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true to soft-delete the playlist.",
+    )
+    filters = serializers.JSONField(
+        required=False,
+        help_text="JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them.",
+    )
+    type = serializers.ChoiceField(
+        choices=SessionRecordingPlaylist.PlaylistType.choices,
+        required=False,
+        allow_null=True,
+        help_text="Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.",
+    )
 
     class Meta:
         model = SessionRecordingPlaylist
@@ -224,7 +254,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
-            "type",
             "is_synthetic",
         ]
 
@@ -274,9 +303,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
-        # because 'type' is in read_only_fields, it won't be in validated_data.
-        # Get it from initial_data to allow setting it on creation.
-        playlist_type = self.initial_data.get("type", None)
+        playlist_type = validated_data.pop("type", None)
         if not playlist_type or playlist_type not in ["collection", "filters"]:
             raise ValidationError("Must provide a valid playlist type: either filters or collection")
 
@@ -290,8 +317,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             team=team,
             created_by=created_by,
             last_modified_by=request.user,
-            type=playlist_type,  # Explicitly set the type using the value from initial_data
-            **validated_data,  # Pass remaining validated data (which won't include 'type')
+            type=playlist_type,
+            **validated_data,
         )
 
         log_playlist_activity(
@@ -311,6 +338,9 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         # Prevent updates to synthetic playlists
         if getattr(instance, "_is_synthetic", False):
             raise ValidationError("Cannot update synthetic playlists")
+
+        # type cannot be changed after creation
+        validated_data.pop("type", None)
 
         try:
             before_update = SessionRecordingPlaylist.objects.get(pk=instance.id)
@@ -409,6 +439,11 @@ class SessionRecordingPlaylistViewSet(
 
         # Apply ordering to the combined list
         combined = self._order_playlists(request, combined)
+
+        # Enforce page size on the combined result so synthetic playlists
+        # don't cause the response to exceed the requested limit.
+        limit = int(request.GET.get("limit", 100))
+        combined = combined[:limit]
 
         serializer = self.get_serializer(combined, many=True)
 
