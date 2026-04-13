@@ -52,6 +52,16 @@ class TestConversationsTicketFetcherEligibility(BaseTest):
         assert len(result) == 1
         assert result[0]["id"] == ticket.id
 
+    def test_already_emitted_ticket_not_fetched_again(self):
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=2)
+
+        first = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+        assert len(first) == 1
+
+        second = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+        assert second == []
+
 
 @pytest.mark.django_db
 class TestConversationsTicketFetcherMessages(BaseTest):
