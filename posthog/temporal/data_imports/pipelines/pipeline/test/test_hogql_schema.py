@@ -23,28 +23,22 @@ class TestHogQLSchemaJsonDetection:
 
 
 class TestAddPyarrowSchema:
-    def test_maps_all_arrow_types(self):
-        arrow_schema = pa.schema(
-            [
-                pa.field("str_col", pa.string()),
-                pa.field("int_col", pa.int64()),
-                pa.field("float_col", pa.float64()),
-                pa.field("bool_col", pa.bool_()),
-                pa.field("ts_col", pa.timestamp("us")),
-                pa.field("date_col", pa.date32()),
-                pa.field("decimal_col", pa.decimal128(10, 2)),
-            ]
-        )
+    @parameterized.expand(
+        [
+            ("string", pa.string(), "StringDatabaseField"),
+            ("int64", pa.int64(), "IntegerDatabaseField"),
+            ("float64", pa.float64(), "FloatDatabaseField"),
+            ("bool", pa.bool_(), "BooleanDatabaseField"),
+            ("timestamp_us", pa.timestamp("us"), "DateTimeDatabaseField"),
+            ("date32", pa.date32(), "DateDatabaseField"),
+            ("decimal128", pa.decimal128(10, 2), "FloatDatabaseField"),
+        ]
+    )
+    def test_maps_arrow_type(self, _name: str, arrow_type: pa.DataType, expected: str):
         schema = HogQLSchema()
-        schema.add_pyarrow_schema(arrow_schema)
-
-        assert schema.schema["str_col"] == "StringDatabaseField"
-        assert schema.schema["int_col"] == "IntegerDatabaseField"
-        assert schema.schema["float_col"] == "FloatDatabaseField"
-        assert schema.schema["bool_col"] == "BooleanDatabaseField"
-        assert schema.schema["ts_col"] == "DateTimeDatabaseField"
-        assert schema.schema["date_col"] == "DateDatabaseField"
-        assert schema.schema["decimal_col"] == "FloatDatabaseField"
+        fields: list[pa.Field] = [pa.field("col", arrow_type)]
+        schema.add_pyarrow_schema(pa.schema(fields))
+        assert schema.schema["col"] == expected
 
     def test_skips_binary_fields(self):
         arrow_schema = pa.schema([pa.field("bin_col", pa.binary())])
@@ -75,13 +69,12 @@ class TestAddPyarrowSchema:
         assert schema.schema["col"] == "StringJSONDatabaseField"
 
     def test_covers_columns_missing_from_batch(self):
-        arrow_schema = pa.schema(
-            [
-                pa.field("col_a", pa.string()),
-                pa.field("col_b", pa.int64()),
-                pa.field("col_c", pa.float64()),
-            ]
-        )
+        fields: list[pa.Field] = [
+            pa.field("col_a", pa.string()),
+            pa.field("col_b", pa.int64()),
+            pa.field("col_c", pa.float64()),
+        ]
+        arrow_schema = pa.schema(fields)
         table = pa.table({"col_a": pa.array(["hello"], type=pa.string())})
 
         schema = HogQLSchema()
