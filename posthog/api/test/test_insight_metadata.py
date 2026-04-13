@@ -365,7 +365,6 @@ class TestGenerateInsightMetadata(APIBaseTest):
                 },
                 ["GROUPS list", "$virt_revenue", "5555"],
             ),
-<<<<<<< HEAD
             (
                 "standalone_actors_with_search",
                 {
@@ -381,14 +380,6 @@ class TestGenerateInsightMetadata(APIBaseTest):
     def test_query_prompt_content(self, _name, query, expected_in_prompt, mock_openai):
         mock_openai.return_value = ('{"name": "Test name", "description": "Test description."}', 10, 20)
         response = self.client.post(self.url, {"query": query}, format="json")
-=======
-        ]
-    )
-    @patch(MOCK_PATH)
-    def test_groups_query_prompt_content(self, _name, groups_query, expected_in_prompt, mock_openai):
-        mock_openai.return_value = ('{"name": "Groups", "description": "A list of groups."}', 10, 20)
-        response = self.client.post(self.url, {"query": groups_query}, format="json")
->>>>>>> master
 
         assert response.status_code == status.HTTP_200_OK
         prompt_content = mock_openai.call_args[0][0][1]["content"]
