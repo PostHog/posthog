@@ -54,7 +54,7 @@ from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .authentication import ProvisioningAuthentication
-from .region_proxy import stripe_region_proxy
+from .region_proxy import region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
@@ -256,7 +256,7 @@ def provisioning_services(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="body_region")
+@region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
     if error := verify_api_version(request):
         return error
@@ -704,7 +704,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
-@stripe_region_proxy(strategy="token_lookup")
+@region_proxy(strategy="token_lookup")
 def oauth_token(request: Request) -> Response:
     grant_type = request.data.get("grant_type", "")
 
@@ -937,7 +937,7 @@ def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
             )
             return False
 
-        logger.info("stripe_app.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
+        logger.info("provisioning.spt_billing_activated", team_id=team.id, org_id=str(team.organization_id))
         return True
     except Exception:
         capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
@@ -1599,7 +1599,7 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
 
 
 def _error_response(code: str, message: str, resource_id: str = "", status: int = 400) -> Response:
-    logger.warning("stripe_app.error_response", code=code, message=message, resource_id=resource_id, status=status)
+    logger.warning("provisioning.error_response", code=code, message=message, resource_id=resource_id, status=status)
     return Response({"status": "error", "id": resource_id, "error": {"code": code, "message": message}}, status=status)
 
 
@@ -1651,7 +1651,7 @@ def _get_stripe_oauth_app():
             return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
         except OAuthApplication.DoesNotExist:
             logger.warning(
-                "stripe_app.oauth_app.client_id_not_found",
+                "provisioning.oauth_app.client_id_not_found",
                 client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
             )
 
