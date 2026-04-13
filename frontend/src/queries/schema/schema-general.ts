@@ -5855,6 +5855,10 @@ export interface UsageMetric {
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer
+    /** Daily values over the current interval period. Only populated when display is 'sparkline'. */
+    timeseries?: number[]
+    /** ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'. */
+    timeseries_labels?: string[]
 }
 
 export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {

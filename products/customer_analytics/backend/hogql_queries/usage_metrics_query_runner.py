@@ -252,6 +252,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             total_previous = sum(previous_daily)
             change_pct = ((total_value - total_previous) / total_previous * 100) if total_previous > 0 else None
 
+            is_sparkline = metric.display == GroupUsageMetric.Display.SPARKLINE
+
             results.append(
                 UsageMetric(
                     id=str(metric.id),
@@ -262,6 +264,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                     value=total_value,
                     previous=total_previous,
                     change_from_previous_pct=change_pct,
+                    timeseries=current_daily if is_sparkline else None,
+                    timeseries_labels=[d.isoformat() for d in current_dates] if is_sparkline else None,
                 )
             )
 
