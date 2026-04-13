@@ -15,11 +15,7 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import {
-    getClampedFunnelStepRange,
-    isFunnelWithEnoughSteps,
-    isFunnelWithIncompleteDataWarehouseStep,
-} from 'scenes/funnels/funnelUtils'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
@@ -28,7 +24,6 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     AnyDataWarehouseNode,
@@ -37,7 +32,6 @@ import {
     CompareFilter,
     DatabaseSchemaField,
     DateRange,
-    FunnelExclusionSteps,
     FunnelsFilter,
     FunnelsQuery,
     GroupNode,
@@ -95,14 +89,7 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    FilterType,
-    InsightLogicProps,
-    LabelGroupType,
-    SlowQueryPossibilities,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -510,35 +497,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
-
-        /*
-         * Funnels
-         */
-        isFunnelWithEnoughSteps: [(s) => [s.series], (series) => isFunnelWithEnoughSteps(series)],
-        isFunnelWithIncompleteDataWarehouseStep: [
-            (s) => [s.series],
-            (series) => isFunnelWithIncompleteDataWarehouseStep(series),
-        ],
-
-        // Exclusion filters
-        exclusionDefaultStepRange: [
-            (s) => [s.querySource],
-            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
-                funnelFromStep: 0,
-                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
-            }),
-        ],
-        exclusionFilters: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
-                    funnel_from_step: funnelFromStep,
-                    funnel_to_step: funnelToStep,
-                    order: index,
-                    ...seriesNodeToFilter(rest),
-                })),
-            }),
-        ],
 
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [

@@ -4,10 +4,10 @@ import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
 
@@ -24,9 +24,9 @@ export function ExclusionRowSuffix({
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
-        insightVizDataLogic(insightProps)
+        funnelDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     // Get the entity filter logic that was created by the parent ActionFilter component
     const mountedLogic = entityFilterLogic.findMounted({ typeKey })
