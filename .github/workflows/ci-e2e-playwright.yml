@@ -282,18 +282,8 @@ jobs:
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  set -euo pipefail
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  for url in \
-                      "https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip" \
-                      "https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip"
-                  do
-                      if curl --silent --show-error --fail --location --retry 5 --retry-all-errors "$url" --output antlr4-source.zip && unzip -t antlr4-source.zip >/dev/null; then
-                          break
-                      fi
-                      rm -f antlr4-source.zip
-                  done
-                  test -f antlr4-source.zip
+                  curl https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
