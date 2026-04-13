@@ -2,7 +2,7 @@ import time
 import base64
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 from django.conf import settings
 
@@ -524,7 +524,7 @@ def _raise_failure(
     *,
     sub_chunk_i: int | None = None,
     total_sub_chunks: int | None = None,
-) -> None:
+) -> NoReturn:
     """Re-raise an exception as dagster.Failure with progress metadata."""
     if sub_chunk_i is not None:
         description = (
