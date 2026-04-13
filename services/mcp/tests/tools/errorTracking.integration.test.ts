@@ -154,6 +154,21 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('assignment-rules list tool', () => {
+        const assignmentRulesListTool = GENERATED_TOOLS['error-tracking-assignment-rules-list']!()
+
+        it('should list assignment rules', async () => {
+            const result = (await assignmentRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
     describe('update-issue-status tool', () => {
         const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 

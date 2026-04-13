@@ -21,7 +21,17 @@ ui_apps:
 tools:
     error-tracking-assignment-rules-list:
         operation: error_tracking_assignment_rules_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking assignment rules
+        description: >
+            List error tracking assignment rules for the current project. Returns rules in evaluation order with
+            their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: false

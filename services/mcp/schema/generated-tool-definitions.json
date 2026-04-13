@@ -1019,6 +1019,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-assignment-rules-list": {
+        "description": "List error tracking assignment rules for the current project. Returns rules in evaluation order with their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking assignment rules",
+        "title": "List error tracking assignment rules",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
