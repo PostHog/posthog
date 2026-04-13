@@ -161,6 +161,20 @@ export const SyncTypeEnumApi = {
     Incremental: 'incremental',
     Append: 'append',
     Webhook: 'webhook',
+    Cdc: 'cdc',
+} as const
+
+/**
+ * * `consolidated` - consolidated
+ * `cdc_only` - cdc_only
+ * `both` - both
+ */
+export type CdcTableModeEnumApi = (typeof CdcTableModeEnumApi)[keyof typeof CdcTableModeEnumApi]
+
+export const CdcTableModeEnumApi = {
+    Consolidated: 'consolidated',
+    CdcOnly: 'cdc_only',
+    Both: 'both',
 } as const
 
 /**
@@ -197,6 +211,7 @@ export interface ExternalDataSchemaApi {
     readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
+    readonly cdc_table_mode: CdcTableModeEnumApi
 }
 
 export interface PaginatedExternalDataSchemaListApi {

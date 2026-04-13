@@ -39,6 +39,8 @@ class TelemetryConfig(TypedDict, total=False):
     enabled: bool
     anonymous_id: str
     first_run_notice_shown: bool
+    is_posthog_org_member: bool
+    org_check_timestamp: float
 
 
 def get_config_path() -> Path:

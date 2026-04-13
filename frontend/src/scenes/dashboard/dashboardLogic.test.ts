@@ -1081,6 +1081,41 @@ describe('dashboardLogic', () => {
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
+        it('refreshing a shared insight on one dashboard does not change its date range on another dashboard', async () => {
+            const nineLogic = dashboardLogic({ id: 9 })
+            const tenLogic = dashboardLogic({ id: 10 })
+            nineLogic.mount()
+            tenLogic.mount()
+            await expectLogic(nineLogic).toFinishAllListeners()
+            await expectLogic(tenLogic).toFinishAllListeners()
+
+            const copiedInsight = insight800()
+            const insightQuery = copiedInsight.query as InsightVizNode<TrendsQuery> | undefined
+            const payload = {
+                ...copiedInsight,
+                query: {
+                    ...insightQuery,
+                    source: {
+                        ...insightQuery?.source,
+                        dateRange: { ...insightQuery?.source?.dateRange, date_from: '-1d' },
+                        interval: 'hour',
+                    },
+                } as InsightVizNode<TrendsQuery>,
+                last_refresh: '2012-04-01T00:00:00Z',
+            }
+
+            dashboardsModel.actions.updateDashboardInsight(payload, undefined, 10)
+
+            await expectLogic(nineLogic).toFinishAllListeners()
+            const nineQuery = nineLogic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(nineQuery?.source?.dateRange?.date_from).toBeUndefined()
+            expect(nineQuery?.source?.interval).toEqual('day')
+
+            const tenQuery = tenLogic.values.insightTiles[0].insight?.query as InsightVizNode<TrendsQuery> | undefined
+            expect(tenQuery?.source?.dateRange?.date_from).toEqual('-1d')
+            expect(tenQuery?.source?.interval).toEqual('hour')
+        })
+
         it('can respond to external insight rename', async () => {
             expect(logic.values.dashboard?.tiles[0].color).toEqual(null)
 

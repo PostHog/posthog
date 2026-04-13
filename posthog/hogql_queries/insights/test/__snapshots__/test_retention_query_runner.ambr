@@ -341,6 +341,88 @@
                         use_hive_partitioning=0
   '''
 # ---
+# name: TestRetention.test_retention_first_time_vs_first_ever_occurrence
+  '''
+  SELECT actor_activity.start_interval_index AS start_event_matching_interval,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         count(DISTINCT actor_activity.actor_id) AS count
+  FROM
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            if(has(arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(and(equals(events.event, 'target_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'prop'), ''), 'null'), '^"|"$', ''), 'correct'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _start_event_timestamps, toStartOfInterval(minIf(toTimeZone(events.timestamp, 'UTC'), and(equals(events.event, 'target_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'prop'), ''), 'null'), '^"|"$', ''), 'correct'), 0))), toIntervalDay(1))), _start_event_timestamps, []) AS start_event_timestamps,
+            arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(x)), range(0, 6)) AS date_range,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, 'returning_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date) -> if(ifNull(equals(start_event_timestamps[1], interval_date), isNull(start_event_timestamps[1])
+                                                                                                                        and isNull(interval_date)), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range))) AS start_interval_index,
+            arrayJoin(arrayConcat(if(ifNull(equals(start_event_timestamps[1], date_range[plus(start_interval_index, 1)]), isNull(start_event_timestamps[1])
+                                            and isNull(date_range[plus(start_interval_index, 1)])), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 5), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('returning_event', 'target_event')), or(and(equals(events.event, 'target_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'prop'), ''), 'null'), '^"|"$', ''), 'correct'), 0)), equals(events.event, 'returning_event')))
+     GROUP BY actor_id
+     HAVING 1) AS actor_activity
+  GROUP BY start_event_matching_interval,
+           intervals_from_base
+  ORDER BY start_event_matching_interval ASC,
+           intervals_from_base ASC
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
+  '''
+# ---
+# name: TestRetention.test_retention_first_time_vs_first_ever_occurrence.1
+  '''
+  SELECT actor_activity.start_interval_index AS start_event_matching_interval,
+         actor_activity.intervals_from_base AS intervals_from_base,
+         count(DISTINCT actor_activity.actor_id) AS count
+  FROM
+    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+            if(has(arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(and(equals(events.event, 'target_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'prop'), ''), 'null'), '^"|"$', ''), 'correct'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS _start_event_timestamps, toStartOfInterval(if(equals(minIf(toTimeZone(events.timestamp, 'UTC'), equals(events.event, 'target_event')), minIf(toTimeZone(events.timestamp, 'UTC'), and(equals(events.event, 'target_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'prop'), ''), 'null'), '^"|"$', ''), 'correct'), 0)))), minIf(toTimeZone(events.timestamp, 'UTC'), equals(events.event, 'target_event')), NULL), toIntervalDay(1))), _start_event_timestamps, []) AS start_event_timestamps,
+            arrayMap(x -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(x)), range(0, 6)) AS date_range,
+            arraySort(groupUniqArrayIf(toStartOfDay(toTimeZone(events.timestamp, 'UTC')), and(equals(events.event, 'returning_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))) AS return_event_timestamps,
+            arrayJoin(arrayFilter(x -> ifNull(greater(x, -1), 0), arrayMap((interval_index, interval_date) -> if(ifNull(equals(start_event_timestamps[1], interval_date), isNull(start_event_timestamps[1])
+                                                                                                                        and isNull(interval_date)), minus(interval_index, 1), -1), arrayEnumerate(date_range), date_range))) AS start_interval_index,
+            arrayJoin(arrayConcat(if(ifNull(equals(start_event_timestamps[1], date_range[plus(start_interval_index, 1)]), isNull(start_event_timestamps[1])
+                                            and isNull(date_range[plus(start_interval_index, 1)])), [0], []), arrayFilter(x -> ifNull(greater(x, 0), 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(start_interval_index, 1), 5), _timestamp), 1), return_event_timestamps)))) AS intervals_from_base
+     FROM events
+     LEFT OUTER JOIN
+       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('returning_event', 'target_event')))
+     GROUP BY actor_id
+     HAVING 1) AS actor_activity
+  GROUP BY start_event_matching_interval,
+           intervals_from_base
+  ORDER BY start_event_matching_interval ASC,
+           intervals_from_base ASC
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1,
+                        use_hive_partitioning=0
+  '''
+# ---
 # name: TestRetention.test_retention_with_user_properties_via_action
   '''
   SELECT actor_activity.start_interval_index AS start_event_matching_interval,

@@ -1,4 +1,3 @@
-import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -574,7 +573,7 @@ function Chip({
         <Tooltip title={tooltipTitle ?? title}>
             <LemonTag
                 size="small"
-                className={classNames('bg-surface-primary', className)}
+                className={clsx('bg-surface-primary', className)}
                 icon={icon}
                 type={type}
                 onClick={onClick}
@@ -1243,7 +1242,7 @@ const TreeNode = React.memo(function TraceNode({
                         ...(searchQuery?.trim() && { search: searchQuery }),
                     }).url
                 }
-                className={classNames(
+                className={clsx(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
                     isSelected && '!bg-accent-highlight-secondary',
                     isCollapsedDueToFilter && 'min-h-4 min-w-0'

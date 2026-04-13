@@ -32,7 +32,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, dashboardToSaveableTemplate } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
@@ -779,7 +779,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return state
                 },
-                [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { insight, extraDashboardIds }) => {
+                [dashboardsModel.actionTypes.updateDashboardInsight]: (
+                    state,
+                    { insight, extraDashboardIds, sourceDashboardId }
+                ) => {
+                    if (sourceDashboardId != null && sourceDashboardId !== props.id) {
+                        // Insight payload is from another dashboard's refresh; merged query/date range must not leak here.
+                        return state
+                    }
                     const targetDashboards = (insight.dashboard_tiles || [])
                         .map((tile) => tile.dashboard_id)
                         .concat(extraDashboardIds || [])
@@ -1347,52 +1354,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         asDashboardTemplate: [
             (s) => [s.dashboard],
-            (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
-                return dashboard
-                    ? {
-                          template_name: dashboard.name,
-                          dashboard_description: dashboard.description,
-                          dashboard_filters: dashboard.filters,
-                          tags: dashboard.tags || [],
-                          tiles: dashboard.tiles
-                              .filter((tile) => !tile.error) // Skip error tiles when creating templates
-                              .map((tile) => {
-                                  if (tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          query: tile.insight.query,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  if (tile.button_tile) {
-                                      return {
-                                          button_tile: {
-                                              url: tile.button_tile.url,
-                                              text: tile.button_tile.text,
-                                              placement: tile.button_tile.placement,
-                                              style: tile.button_tile.style,
-                                          },
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
-                                  }
-                                  throw new Error('Unknown tile type')
-                              }),
-                          variables: [],
-                      }
-                    : undefined
-            },
+            (dashboard: DashboardType): DashboardTemplateEditorType | undefined =>
+                dashboardToSaveableTemplate(dashboard),
         ],
         placement: [
             () => [(_, props) => props.placement],
@@ -1562,6 +1525,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           AccessControlLevel.Editor
                       )
                     : false
+            },
+        ],
+        /** Save-as-project-template from dashboard scene: editor on dashboard, payload has tiles; customers also need authoring flag. Staff use the same modal, with an optional JSON editor entry inside. */
+        canSaveProjectDashboardTemplate: [
+            (s) => [userLogic.selectors.user, s.featureFlags, s.canEditDashboard, s.asDashboardTemplate],
+            (user, featureFlags, canEditDashboard, asDashboardTemplate): boolean => {
+                if (!canEditDashboard || !(asDashboardTemplate?.tiles?.length ?? 0)) {
+                    return false
+                }
+                if (user?.is_staff) {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING]
             },
         ],
         /** AI dashboard title/description: editor access, tiles present, main dashboard scene only, not shared/embed routes. */
@@ -1896,7 +1872,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
+            if (sourceDashboardId != null && sourceDashboardId !== props.id) {
+                // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
+                return
+            }
             const targetDashboards = (insight.dashboard_tiles || [])
                 .map((tile) => tile.dashboard_id)
                 .concat(extraDashboardIds || [])
@@ -2055,7 +2035,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 if (refreshedInsight) {
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                     actions.setRefreshStatus(insight.short_id)
                 } else {
                     actions.setRefreshError(insight.short_id)
@@ -2149,7 +2129,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
 
                         if (refreshedInsight) {
-                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
+                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
                             if (refreshedInsight.is_cached) {

@@ -63,14 +63,18 @@ class Handler:
     contain a three item tuple: (team_id, hog_function_id, body). ``error_data`` is only
     populated when an error response is returned, and ``data`` is only populated on
     successful responses.
+
+    If ``hog_function_error`` is True, the handler will return HTTP 200 but with
+    ``status: "error"`` in the JSON body, simulating a hog function execution failure.
     """
 
-    def __init__(self, error: int | None = None):
+    def __init__(self, error: int | None = None, hog_function_error: bool = False):
         self.data: list[RequestData] = []
 
         self.error_data: list[RequestData] = []
         self.error = error
         self.has_errored_once = False
+        self.hog_function_error = hog_function_error
 
     def __call__(self, request):
         return self.handle(request)
@@ -99,7 +103,9 @@ class Handler:
             return aiohttp.web.Response(status=self.error, text="error")
 
         self.data.append(RequestData(team_id, hog_function_id, body))
-        return aiohttp.web.Response(status=200, text="ok")
+        if self.hog_function_error:
+            return aiohttp.web.json_response({"status": "error", "errors": ["hog function failed"], "logs": []})
+        return aiohttp.web.json_response({"status": "success", "errors": [], "logs": []})
 
 
 @pytest.fixture
@@ -112,8 +118,17 @@ def error(request) -> int | None:
 
 
 @pytest.fixture
-def handler(error):
-    return Handler(error=error)
+def hog_function_error(request) -> bool:
+    """Parameterize this fixture to simulate hog function execution errors (HTTP 200 but status: error)."""
+    try:
+        return request.param
+    except AttributeError:
+        return False
+
+
+@pytest.fixture
+def handler(error, hog_function_error):
+    return Handler(error=error, hog_function_error=hog_function_error)
 
 
 @pytest_asyncio.fixture
