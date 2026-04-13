@@ -26,10 +26,10 @@ export function StepWaitUntilEventConfiguration({ node }: { node: Node<WaitUntil
         <>
             <StepSchemaErrors />
 
-            <div className="text-xs text-muted">
+            <p className="text-xs text-muted">
                 Choose which events to wait for. The workflow continues on the matched path when any event fires, or the
                 timeout path if none arrive in time.
-            </div>
+            </p>
 
             <HogFlowEventFilters
                 filtersKey={`wait-until-event-${action.id}`}
