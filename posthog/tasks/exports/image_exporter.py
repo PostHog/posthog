@@ -234,7 +234,7 @@ def _export_to_png(
             # query string. Without `quote()`, a second `?` in `heatmap_url` makes the
             # parser drop everything after it, the screenshot fetch 404s, and the
             # exported PNG renders a broken `<img alt="Heatmap">` placeholder.
-            encoded_page_url = quote(exported_asset.export_context.get("heatmap_url") or "", safe="")
+            encoded_page_url = quote(heatmap_url, safe="")
             encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
