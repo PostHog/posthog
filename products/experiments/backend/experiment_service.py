@@ -23,8 +23,8 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.models.action.action import Action
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
+from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag

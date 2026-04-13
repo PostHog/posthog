@@ -294,7 +294,6 @@ class ExperimentQueryBuilder:
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
-
         # Determine which query pattern to use
         has_dw_steps = self._has_datawarehouse_steps()
 
