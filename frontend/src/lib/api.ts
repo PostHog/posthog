@@ -75,6 +75,7 @@ import {
     CohortType,
     CommentCreationParams,
     CommentType,
+    Conversation,
     ConversationDetail,
     ConversationQueueResponse,
     CoreMemory,
@@ -210,14 +211,14 @@ import {
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
-import {
+import type {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
-import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
-import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import {
+import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -225,12 +226,12 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
-import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
-import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
-import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import {
+import type { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
+import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
+import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import type {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
@@ -1232,6 +1233,10 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('issues')
     }
 
+    public errorTrackingIssuesExists(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent('exists')
+    }
+
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssues(teamId).addPathComponent(id)
     }
@@ -1947,6 +1952,11 @@ export class ApiRequest {
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
         return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
     }
+
+    // Revenue analytics
+    public revenueAnalyticsJoins(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -2004,6 +2014,70 @@ function getDistinctId(): string | undefined {
         return undefined
     }
     return posthog.get_distinct_id()
+}
+
+// TEMPORARY DEBUG — remove once livestream 401 root cause is identified.
+// Decodes the (unverified) JWT payload from an Authorization header and captures
+// a PostHog event so we can aggregate which claim shape is causing 401s. Sensitive
+// fields are masked.
+function captureLivestream401Debug(url: string, authHeader: string | undefined, serverErrorData: any): void {
+    try {
+        const props: Record<string, any> = {
+            url,
+            server_message: serverErrorData?.message || serverErrorData?.error,
+        }
+        if (!authHeader) {
+            posthog.capture('livestream_401_debug', { ...props, decode_status: 'no_auth_header' })
+            return
+        }
+        const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/)
+        if (!bearerMatch) {
+            posthog.capture('livestream_401_debug', { ...props, decode_status: 'not_bearer' })
+            return
+        }
+        const parts = bearerMatch[1].split('.')
+        if (parts.length !== 3) {
+            posthog.capture('livestream_401_debug', {
+                ...props,
+                decode_status: 'malformed_jwt',
+                jwt_parts: parts.length,
+            })
+            return
+        }
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64 + '==='.slice((b64.length + 3) % 4)
+        const payload = JSON.parse(atob(padded))
+        const now = Math.floor(Date.now() / 1000)
+        const apiTokenMasked =
+            typeof payload.api_token === 'string'
+                ? payload.api_token.slice(0, 4) + `***(len=${payload.api_token.length})`
+                : `<${typeof payload.api_token}>`
+        posthog.capture('livestream_401_debug', {
+            ...props,
+            decode_status: 'ok',
+            team_id: payload.team_id,
+            team_id_type: typeof payload.team_id,
+            user_id: payload.user_id,
+            user_id_type: typeof payload.user_id,
+            organization_id: payload.organization_id,
+            organization_id_type: typeof payload.organization_id,
+            api_token_masked: apiTokenMasked,
+            api_token_type: typeof payload.api_token,
+            aud: payload.aud,
+            aud_type: Array.isArray(payload.aud) ? 'array' : typeof payload.aud,
+            exp: payload.exp,
+            now_epoch: now,
+            exp_seconds_remaining: typeof payload.exp === 'number' ? payload.exp - now : null,
+            token_is_expired: typeof payload.exp === 'number' ? payload.exp < now : null,
+            claim_keys: Object.keys(payload).sort(),
+        })
+    } catch (e) {
+        posthog.capture('livestream_401_debug', {
+            url,
+            decode_status: 'exception',
+            decode_error: String(e),
+        })
+    }
 }
 
 const api = {
@@ -5252,8 +5326,11 @@ const api = {
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
-        async githubRepositories(id: IntegrationType['id']): Promise<GitHubReposResponseApi> {
-            return await new ApiRequest().integrationGitHubRepositories(id).get()
+        async githubRepositories(
+            id: IntegrationType['id'],
+            params?: { limit?: number; offset?: number }
+        ): Promise<GitHubReposResponseApi> {
+            return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
             return await new ApiRequest().integrationJiraProjects(id).get()
@@ -5757,7 +5834,7 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
-        list(): Promise<PaginatedResponse<ConversationDetail>> {
+        list(): Promise<PaginatedResponse<Conversation>> {
             return new ApiRequest().conversations().get()
         },
 
@@ -6122,6 +6199,11 @@ const api = {
             body: data !== undefined ? JSON.stringify(data) : undefined,
             signal: abortController.signal,
             onopen: async (response) => {
+                // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
+                // livestream endpoints so the generic stream helper stays quiet.
+                // Remove together with captureLivestream401Debug once root cause is known.
+                const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
+
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After')
                     if (retryAfter) {
@@ -6135,6 +6217,18 @@ const api = {
                     } catch {
                         // If JSON parsing fails, leave errorData empty
                     }
+                    // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
+                    // identify which failure mode is producing the livestream auth baseline.
+                    // Remove once root cause is known.
+                    if (response.status === 401) {
+                        captureLivestream401Debug(url, headers?.Authorization, errorData)
+                    } else if (isLivestreamUrl) {
+                        posthog.capture('livestream_sse_non_ok_non_401', {
+                            url,
+                            status: response.status,
+                            server_message: errorData?.message || errorData?.error,
+                        })
+                    }
                     onError(
                         new ApiError(
                             errorData.error || `Request failed with status ${response.status}`,
@@ -6144,6 +6238,11 @@ const api = {
                         )
                     )
                     abortController.abort()
+                } else if (isLivestreamUrl) {
+                    posthog.capture('livestream_sse_opened', {
+                        url,
+                        status: response.status,
+                    })
                 }
             },
             onmessage: onMessage,
@@ -6256,6 +6355,12 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    revenueAnalyticsJoins: {
+        async sync(enabled: boolean): Promise<void> {
+            return await new ApiRequest().revenueAnalyticsJoins().create({ data: { enabled } })
         },
     },
 

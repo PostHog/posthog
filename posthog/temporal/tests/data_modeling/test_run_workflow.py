@@ -1336,50 +1336,85 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
         assert saved_query.is_materialized is True
 
 
-async def test_cleanup_running_jobs_activity(activity_environment, ateam):
-    """Test cleanup marks all existing RUNNING jobs as FAILED when starting a new run."""
-    old_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="old-1", workflow_run_id="run-1"
+@pytest.mark.parametrize(
+    "saved_query_ids_fn, expected_a, expected_b",
+    [
+        pytest.param(
+            lambda sq_a, sq_b: [sq_a.id.hex],
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            id="uuid_hex",
+        ),
+        pytest.param(
+            lambda sq_a, sq_b: [sq_a.name],
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            id="name_label",
+        ),
+        pytest.param(
+            lambda sq_a, sq_b: [], DataModelingJob.Status.FAILED, DataModelingJob.Status.FAILED, id="team_wide_fallback"
+        ),
+    ],
+)
+async def test_cleanup_running_jobs_activity(activity_environment, ateam, saved_query_ids_fn, expected_a, expected_b):
+    sq_a = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="query_a", query={"query": "SELECT 1", "kind": "HogQLQuery"}
     )
-    recent_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="recent-1", workflow_run_id="run-2"
+    sq_b = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="query_b", query={"query": "SELECT 2", "kind": "HogQLQuery"}
+    )
+    job_a = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, saved_query=sq_a, status=DataModelingJob.Status.RUNNING, workflow_id="wf-a", workflow_run_id="run-a"
     )
     completed_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.COMPLETED, workflow_id="completed-1", workflow_run_id="run-3"
+        team=ateam,
+        saved_query=sq_a,
+        status=DataModelingJob.Status.COMPLETED,
+        workflow_id="wf-c",
+        workflow_run_id="run-c",
+    )
+    job_b = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, saved_query=sq_b, status=DataModelingJob.Status.RUNNING, workflow_id="wf-b", workflow_run_id="run-b"
     )
 
-    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
+    saved_query_ids = saved_query_ids_fn(sq_a, sq_b)
+    inputs = CleanupRunningJobsActivityInputs(team_id=ateam.pk)
+    if saved_query_ids:
+        inputs.saved_query_ids = saved_query_ids
+    await activity_environment.run(cleanup_running_jobs_activity, inputs)
 
-    await database_sync_to_async(old_job.refresh_from_db)()
-    await database_sync_to_async(recent_job.refresh_from_db)()
+    await database_sync_to_async(job_a.refresh_from_db)()
     await database_sync_to_async(completed_job.refresh_from_db)()
+    await database_sync_to_async(job_b.refresh_from_db)()
 
-    assert old_job.status == DataModelingJob.Status.FAILED
-    assert old_job.rows_materialized == 0
-    assert old_job.error is not None
-    assert "Preempted" in old_job.error
-    assert recent_job.status == DataModelingJob.Status.FAILED
-    assert recent_job.rows_materialized == 0
-    assert recent_job.error is not None
-    assert "Preempted" in recent_job.error
+    assert job_a.status == expected_a
+    assert job_a.error is not None if expected_a == DataModelingJob.Status.FAILED else job_a.error is None
     assert completed_job.status == DataModelingJob.Status.COMPLETED
+    assert job_b.status == expected_b
 
 
 async def test_create_job_model_activity_cleans_up_running_jobs(activity_environment, ateam, temporal_client):
     """Test that orphaned jobs are cleaned up when running the full workflow."""
-    # Create old orphaned job
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    )
+
+    # Create old orphaned job for the same saved query
     orphaned_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="orphaned-1", workflow_run_id="run-1"
+        team=ateam,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="orphaned-1",
+        workflow_run_id="run-1",
     )
     await database_sync_to_async(DataModelingJob.objects.filter(id=orphaned_job.id).update)(
         updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
     )
 
-    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
-        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    await activity_environment.run(
+        cleanup_running_jobs_activity,
+        CleanupRunningJobsActivityInputs(team_id=ateam.pk, saved_query_ids=[saved_query.id.hex]),
     )
-
-    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
 
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED

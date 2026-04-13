@@ -1149,7 +1149,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     if (page >= 0) {
                         actions.setSelectedPageIndex(page)
                     }
-                } else if (hasFormErrors(values.survey.appearance)) {
+                } else if (hasFormErrors(values.surveyErrors?.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
                     actions.setSelectedSection(SurveyEditSection.Steps)
@@ -2359,9 +2359,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ) {
                             return {
                                 ...questionErrors,
-                                choices: question.choices.some((choice) => !choice.trim())
-                                    ? 'Please ensure all choices are non-empty.'
-                                    : undefined,
+                                choices:
+                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                        ? 'Please ensure all choices are non-empty.'
+                                        : undefined,
                             }
                         }
 
