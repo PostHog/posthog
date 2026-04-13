@@ -2131,3 +2131,239 @@ class TestApplyRoutesStepsToCorrectCluster(unittest.TestCase):
         # Step 1 went through the logs cluster, NOT the migrations cluster.
         self.assertIs(executed[1][0], logs_cluster, "logs step routed to wrong cluster")
         self.assertIsNot(executed[1][0], migrations_cluster, "logs step incorrectly hit migrations cluster")
+
+
+class TestComputeDiffsSkipsOrphanScanOnFallback(unittest.TestCase):
+    """Pass 2 (cluster-wide orphan scan) must be skipped when the satellite
+    cluster was unreachable and `current` came from the migrations-cluster
+    fallback. Otherwise every main-cluster table becomes a spurious DROP
+    orphan against the unreachable satellite (since the satellite's
+    ecosystem doesn't claim main's tables).
+    """
+
+    def test_no_orphan_drops_when_satellite_falls_back_to_migrations(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        logs_state = DesiredState(
+            ecosystem="logs",
+            cluster="logs",
+            tables={
+                "logs_table": _make_desired_table(
+                    "logs_table",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        def fake_get_cluster_by_name(name: str, **_kw):
+            # Only `logs` is unreachable; migrations cluster resolves fine.
+            if name == "logs":
+                raise Exception("Code: 701 CLUSTER_DOESNT_EXIST: Cluster 'logs' not found")
+            return MagicMock(name=f"{name}-cluster")
+
+        # Fallback introspection returns main-cluster tables. None of these
+        # belong to the logs ecosystem — the guard must prevent them being
+        # emitted as orphan drops against the `logs` cluster.
+        def fake_dump(_cluster_obj, _database):
+            return {
+                "host1": {
+                    "sharded_events": _make_table_schema(
+                        "sharded_events",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    "sharded_heatmaps": _make_table_schema(
+                        "sharded_heatmaps",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                }
+            }
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[logs_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=fake_get_cluster_by_name,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.client.migration_tools.get_migrations_cluster",
+                return_value=MagicMock(name="migrations-cluster"),
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual(
+            drops,
+            [],
+            f"Fallback must not emit orphan drops (would drop main tables): {[d.table for d in drops]}",
+        )
+
+
+class TestComputeDiffsSharedPhysicalHost(unittest.TestCase):
+    """On dev stacks several logical clusters (`main`, `aux`, `ops`) share
+    the same physical CLICKHOUSE_HOST — so `dump_schema_all_hosts(aux)`
+    returns main's tables too. The orphan scan must NOT emit drops for
+    tables owned by a sibling logical cluster, even though that logical
+    cluster's ecosystems don't claim them.
+
+    In production each logical cluster has a distinct physical host, so the
+    introspection would only return that cluster's tables — this check is
+    a no-op there.
+    """
+
+    def test_aux_does_not_drop_main_owned_tables(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        main_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+        aux_state = DesiredState(
+            ecosystem="error_tracking_fingerprint_issue_state",
+            cluster="aux",
+            tables={
+                "error_tracking_fingerprint_issue_state": _make_desired_table(
+                    "error_tracking_fingerprint_issue_state",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        # Both clusters' introspection returns the same shared-host schema.
+        def fake_dump(_cluster_obj, _database):
+            return {
+                "host1": {
+                    "sharded_events": _make_table_schema(
+                        "sharded_events",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    "error_tracking_fingerprint_issue_state": _make_table_schema(
+                        "error_tracking_fingerprint_issue_state",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                }
+            }
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[main_state, aux_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=lambda name, **_kw: MagicMock(name=f"{name}-cluster"),
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual(
+            drops,
+            [],
+            f"No drops expected — every live table is claimed by some ecosystem: {[d.table for d in drops]}",
+        )
+
+    def test_shared_host_still_drops_tables_claimed_nowhere(self) -> None:
+        """A table that no ecosystem on ANY cluster claims is still a real
+        orphan and must be dropped (when encountered on its cluster)."""
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        main_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        def fake_dump(_cluster_obj, _database):
+            return {
+                "host1": {
+                    "sharded_events": _make_table_schema(
+                        "sharded_events",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    # Not in any YAML on any cluster — real orphan.
+                    "truly_orphan": _make_table_schema(
+                        "truly_orphan",
+                        engine="MergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                }
+            }
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[main_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=lambda name, **_kw: MagicMock(name=f"{name}-cluster"),
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual([d.table for d in drops], ["truly_orphan"])
