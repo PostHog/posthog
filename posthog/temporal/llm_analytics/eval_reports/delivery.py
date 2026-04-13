@@ -16,7 +16,8 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import Eval
 
 logger = structlog.get_logger(__name__)
 
-UUID_LINK_PATTERN = re.compile(r"`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`")
+# Match both `uuid` and `` `uuid` `` (the agent sometimes emits double-backtick wrapping)
+UUID_LINK_PATTERN = re.compile(r"`{1,2}\s?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?\s?`{1,2}")
 
 # Matches a leading markdown heading line at the very start of a section's content.
 # The renderer (email/Slack/UI) already emits its own section title, so if the agent

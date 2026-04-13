@@ -12,7 +12,8 @@ import type {
     EvaluationReportSection,
 } from '../types'
 
-const UUID_REGEX = /`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`/g
+// Match both `uuid` and `` `uuid` `` (the agent sometimes emits double-backtick wrapping)
+const UUID_REGEX = /`{1,2}\s?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?\s?`{1,2}/g
 
 // Rewrite `<uuid>` backtick tokens into markdown links pointing to the correct
 // trace URL. Uses the citations list to map generation_id → trace_id so the link
