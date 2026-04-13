@@ -5585,7 +5585,7 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.fee29d78a729a5bfb1a787987d079896369e23fe24d469719f4a53d7da3fe681._YguRm3nt5svk_20VSpmBSNGvrCqsGtSp78tWBfS7Hk
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.f86be99707e307ec64f495f17928cbe1f6c41f61f50419a2d276e7792165bd2a.3qB2TYXR_m4kmG8YBemMAeWGiZZi--IdmO09HhAjr9w
+        hash: v1.k794b7964.ade147578080220fc354259c1c808cc1ec0356d796f86a7d6b1c5a60edd5174b.71igjMCch1cigRhNMCX3imFWT-wsOAZoP1hT1AjmRkg
     scenes-app-settings-environment--settings-environment-access-control--light:
         hash: v1.k794b7964.946ac21324a376599ed3026079aa5d2373cc531a0f1d549ee0a7eb5f6a676efa._NJLL03RwK94Yat4iVssy3WF14ycxGKGBHZz_S3fCAM
     scenes-app-settings-environment--settings-environment-autocapture--dark:
@@ -5958,22 +5958,26 @@ snapshots:
         hash: v1.k794b7964.a10d712ce02c714c49515dd59a23540a90f47f684c5c8619ad22bd15364cf27d.38Bs_hejj-HWbqhETzvh4gQa59tri4Kx2OyEaiUpRg0
     scenes-other-login--cloud-with-google-login-enforcement--light:
         hash: v1.k794b7964.0ff44d68c1579ab57eee9d339e6044e409ef5401b2b0ed86a1b7eaf9095d4e7e.0WUhtxd8w3iXWySuA18HcZTlzO__wDlo0GnBWBG3wGQ
+    scenes-other-login--local-dev--dark:
+        hash: v1.k794b7964.62bcea2768ae6411b2a3a259da12d4cc20bb44ea6ec2da10066e16f4062a4745.GbBuaO98hG-j3FRCGPaMtcgCJbCaIX4jeqveGF60b4c
+    scenes-other-login--local-dev--light:
+        hash: v1.k794b7964.8af03a4ecdc4afc6a5e2535543e2b354709b2a7b2f2229422f713c14228b19c2.fYGsg3-qxkULlFYztaj6lZZyeu-TiBKas24xiclvotw
     scenes-other-login--second-factor--dark:
-        hash: v1.k794b7964.ed7cc9dbe6968d4b1e94ac24f0b462557d4e26ca47bfa999fb284f775cb4f085.wjQ8IplZZRWuUambJbKFl36vMH_9wfAlu-tgq37nQv4
+        hash: v1.k794b7964.901161159aab12d0df6bd5f5dc31dca8e292d4edfc822d22d7c9ccb36afbf58d.vkoQ-5IIcaS6yctqPboBaBRutCmXW7qIM6dRbuJy8kM
     scenes-other-login--second-factor--light:
         hash: v1.k794b7964.cae5ac2439ccb084cc8a00b6a0c9460a6e9652af7c56c6b5ed450e6d7cc84adf.-3sEuShu3S7a7lJsYIpkvhnEsDlNh43FVc6KXT5MVRw
     scenes-other-login--self-hosted--dark:
-        hash: v1.k794b7964.23c635147cee19fe5c29cec52e7768bd0a52a8b5920b75c39336853c3a1b6f6c.NosxKBUJtEedndx6pDjIe7MSKOFOQE2VyC8EfuV0k38
+        hash: v1.k794b7964.62bcea2768ae6411b2a3a259da12d4cc20bb44ea6ec2da10066e16f4062a4745.2X1fkBDi3NUQk-UFwIyxNs4mkj2EqxLEO0dudgVF2Bo
     scenes-other-login--self-hosted--light:
-        hash: v1.k794b7964.2ea872bb3d1dc7851ce589692d40e543a1d573f6b36340e88a81c3ddc9b91ded.jLdcFWsKpa943jgC4_gCIlNACLCTV0Bmc_5SHJjh1As
+        hash: v1.k794b7964.1ecc49356fb5457b7886c61975e9e34a1317c687cde7b9e375bba03fe76a084b.mMafdY9Z8R9gtcRNVVbk5QPWrZPIGsn70pHwrLHLGNU
     scenes-other-login--self-hosted-with-saml--dark:
         hash: v1.k794b7964.6fed44dadd2b1df54044208d679d7d8a55ef61af1851bfda1e0adc4d8df04d66.zUgkiYzaKEYvK1-sDMdBGtK_JkGAW_GboR3imXBvWCs
     scenes-other-login--self-hosted-with-saml--light:
-        hash: v1.k794b7964.45d4188866323f82d7553e89b693c4cb8e22dcf04e3eb637a1f39d314d0330ba.inbY4qLocXPlHEPDfaw08vm_CUIBpZzrnXsF9wJAi6k
+        hash: v1.k794b7964.cedf3d91d3f3383742ed56627b08d3883ffc18e34554aad70f27474ff2788891.N2gH7c0So0kqJtYIpaSL7yeJHtwrUuDUtDclvWhMpGQ
     scenes-other-login--sso-error--dark:
-        hash: v1.k794b7964.30246f37bec093282c28c4c2369664dbf97e256a3b7c4c635e63ca6f602e38a1.2HxEltsdIMc67gyXe563-b-N8rp-rat-FtoBkwJyx1w
+        hash: v1.k794b7964.a16925732d63031a79ea2a48b90a072aab798e17e1f848619dad94ffda32e56b.UZvVg4sBqmhR1bZ_9nJFVOkq2hb0pRXilRfHbcn7IHc
     scenes-other-login--sso-error--light:
-        hash: v1.k794b7964.e3531f02585f69ca46e68222d24b33db7e853635b357d95b3c792b2b97f8a45b.P3WyrTpc-AkNiK9F-Tdx7dtDFZlRpeZi0q8ijJ2FuFI
+        hash: v1.k794b7964.5f46b2334d47109cfcebcd78399087ec18d8d222f051d75a0c057c76c6da474b.x19Ep3vTg0Y4JL57MkB52EHGaXooIzV4gOD23po8puM
     scenes-other-onboarding--alerts--dark:
         hash: v1.k794b7964.d66fb935e8f6fcf6d71031d9a59bf76501c90d29e5e5bae324b2cb2bbcd15ed7.4Cvshejpp_prXnrtkj5xZMl08OoFB6I6RreTrsQ4Hno
     scenes-other-onboarding--alerts--light:
