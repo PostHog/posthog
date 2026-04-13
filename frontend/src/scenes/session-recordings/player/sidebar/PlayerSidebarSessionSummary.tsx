@@ -743,10 +743,12 @@ function SessionSummaryFeedbackSurvey(): JSX.Element | null {
         })
     }, [])
 
+    const trimmedText = openText.trim()
+
     const handleSubmit = (): void => {
         posthog.capture('survey sent', {
             $survey_id: SESSION_SUMMARY_FEEDBACK_SURVEY_ID,
-            $survey_response: openText,
+            $survey_response: trimmedText,
         })
         setSubmitted(true)
         setTimeout(() => setShowFeedbackSurvey(false), 3000)
@@ -779,7 +781,7 @@ function SessionSummaryFeedbackSurvey(): JSX.Element | null {
                         type="primary"
                         size="small"
                         className="mt-2"
-                        disabledReason={!openText ? 'Please enter your feedback' : undefined}
+                        disabledReason={!trimmedText ? 'Please enter your feedback' : undefined}
                         onClick={handleSubmit}
                         data-attr="session-summary-feedback-submit"
                     >
