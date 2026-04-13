@@ -422,6 +422,27 @@ describe('insightDataLogic', () => {
             })
         })
 
+        it('passes null through untouched', async () => {
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery(null)
+            })
+
+            expect(theInsightDataLogic.values.internalQuery).toBeNull()
+        })
+
+        it('passes non-InsightVizNode queries through untouched', async () => {
+            const hogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT 1',
+            }
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery(hogQLQuery as any)
+            })
+
+            expect(theInsightDataLogic.values.internalQuery).toEqual(hogQLQuery)
+        })
+
         it('strips breakdownFilter via syncQueryFromProps', async () => {
             const taintedLifecycle: InsightVizNode = {
                 kind: NodeKind.InsightVizNode,
