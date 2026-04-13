@@ -5405,9 +5405,9 @@ snapshots:
     scenes-app-posthog-ai--shared-thread--light:
         hash: v1.k794b7964.0969b4703aabcdd0f4b3660f730a45931baa1645c3ff26d2adc65dde971213e7.zRikaxiWHDcBq3OOitfA34aZUCX5GLf2053rmQR5kU0
     scenes-app-posthog-ai--task-execution-component--dark:
-        hash: v1.k794b7964.70c5d87878e634e1ba3880b250b1c17bfb75c2c3b819226750d787e8fa405e50.neGQhPxmRS1iA6-VNDAyxiOY9WFrzJJsbqLsElVwIT4
+        hash: v1.k794b7964.8400768c4b1539bd7a934d739595bf5e05025efbddf07e43cd8a4ea0d7cb402b.JrGEEkjbQxlaw0BtZeT-twSiyaehF55fqBjXisxvpP4
     scenes-app-posthog-ai--task-execution-component--light:
-        hash: v1.k794b7964.7780c22bb50c5c835eb1935479ecfd63cbb91b2f7c0a7844094835c2282e1845.MEDVM5T5l9TjjDcCxgmoi2KFPIaB4EbgG789wUy5I9o
+        hash: v1.k794b7964.ed6659dfc3ba3816d2f3e95278192a886585a4e6ca001f3384df3ec8367c0786.jSeOK5yJX49q5NkEdv_UQV9qqRIH1-npycheU5uQCD4
     scenes-app-posthog-ai--task-execution-with-failure--dark:
         hash: v1.k794b7964.4157cc93602509ddaa6502bff322bfed4f31a28387946d9f093356d3381884d3.YhgjzMcQJW08nt2ZBYVQDA_hb579XU3Tir-DsBYsdYY
     scenes-app-posthog-ai--task-execution-with-failure--light:
@@ -5585,7 +5585,7 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.fee29d78a729a5bfb1a787987d079896369e23fe24d469719f4a53d7da3fe681._YguRm3nt5svk_20VSpmBSNGvrCqsGtSp78tWBfS7Hk
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.f86be99707e307ec64f495f17928cbe1f6c41f61f50419a2d276e7792165bd2a.3qB2TYXR_m4kmG8YBemMAeWGiZZi--IdmO09HhAjr9w
+        hash: v1.k794b7964.ade147578080220fc354259c1c808cc1ec0356d796f86a7d6b1c5a60edd5174b.71igjMCch1cigRhNMCX3imFWT-wsOAZoP1hT1AjmRkg
     scenes-app-settings-environment--settings-environment-access-control--light:
         hash: v1.k794b7964.946ac21324a376599ed3026079aa5d2373cc531a0f1d549ee0a7eb5f6a676efa._NJLL03RwK94Yat4iVssy3WF14ycxGKGBHZz_S3fCAM
     scenes-app-settings-environment--settings-environment-autocapture--dark:
