@@ -109,13 +109,13 @@ describe('rasterizeRecording', () => {
             return Promise.resolve(baseCaptureResult)
         })
 
-        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), cfg)
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
 
         expect(callOrder).toEqual(['getPage', 'prepare', 'fetchBlocks', 'load', 'waitForStart', 'capturePlayback'])
     })
 
     it('releases page and disposes player on success', async () => {
-        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), cfg)
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
 
         expect(mockPlayer.dispose).toHaveBeenCalled()
         expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
@@ -125,7 +125,7 @@ describe('rasterizeRecording', () => {
         mockedCapturePlayback.mockRejectedValue(new Error('capture failed'))
 
         await expect(
-            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), cfg)
+            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
         ).rejects.toThrow('capture failed')
 
         expect(mockPlayer.dispose).toHaveBeenCalled()
@@ -136,7 +136,7 @@ describe('rasterizeRecording', () => {
         mockPlayer.load.mockRejectedValue(new Error('navigation failed'))
 
         await expect(
-            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), cfg)
+            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
         ).rejects.toThrow('navigation failed')
 
         expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
@@ -146,14 +146,14 @@ describe('rasterizeRecording', () => {
         mockedBlockProxy.prototype.fetchBlocks = jest.fn().mockRejectedValue(new Error('API down'))
 
         await expect(
-            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), cfg)
+            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
         ).rejects.toThrow('API down')
 
         expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
     })
 
     it('passes playerHtml to CapturePage.prepare', async () => {
-        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html>player</html>', jest.fn(), cfg)
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html>player</html>', jest.fn(), null, cfg)
 
         expect(mockedCapturePage.prepare).toHaveBeenCalledWith(
             mockPage,
@@ -172,6 +172,7 @@ describe('rasterizeRecording', () => {
             '/tmp/out.mp4',
             '<html></html>',
             jest.fn(),
+            null,
             cfg
         )
 
@@ -186,7 +187,7 @@ describe('rasterizeRecording', () => {
     })
 
     it('defaults viewport to 1280x720', async () => {
-        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), cfg)
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
 
         expect(mockedCapturePage.prepare).toHaveBeenCalledWith(
             mockPage,
@@ -205,6 +206,7 @@ describe('rasterizeRecording', () => {
             '/tmp/out.mp4',
             '<html></html>',
             jest.fn(),
+            null,
             cfg
         )
 
@@ -220,7 +222,7 @@ describe('rasterizeRecording', () => {
     it('calls onProgress after waitForStart', async () => {
         const onProgress = jest.fn()
 
-        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', onProgress, cfg)
+        await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', onProgress, null, cfg)
 
         expect(onProgress).toHaveBeenCalledTimes(1)
     })

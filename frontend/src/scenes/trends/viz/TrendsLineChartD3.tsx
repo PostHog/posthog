@@ -7,6 +7,7 @@ import { LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
 import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
+import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -79,30 +80,27 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? [])
-                .filter((r: IndexedTrendResult) => r.count !== 0)
-                .map((r: IndexedTrendResult) => {
-                    const isActiveSeries = !r.compare || r.compare_label !== 'previous'
-                    const dashedFromIndex =
-                        isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
-                    return {
-                        key: `${r.id}`,
-                        label: r.label ?? '',
-                        data: r.data,
-                        color: getTrendsColor(r),
-                        fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                        dashedFromIndex,
-                        meta: {
-                            action: r.action,
-                            breakdown_value: r.breakdown_value,
-                            compare_label: r.compare_label,
-                            days: r.days,
-                            // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
-                            order: r.action?.order ?? r.id,
-                            filter: r.filter,
-                        },
-                    }
-                }),
+            (indexedResults ?? []).map((r: IndexedTrendResult) => {
+                const isActiveSeries = !r.compare || r.compare_label !== 'previous'
+                const dashedFromIndex =
+                    isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
+                return {
+                    key: `${r.id}`,
+                    label: r.label ?? '',
+                    data: r.data,
+                    color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                    fillArea: display === ChartDisplayType.ActionsAreaGraph,
+                    dashedFromIndex,
+                    meta: {
+                        action: r.action,
+                        breakdown_value: r.breakdown_value,
+                        compare_label: r.compare_label,
+                        days: r.days,
+                        order: r.action?.order ?? r.id,
+                        filter: r.filter,
+                    },
+                }
+            }),
         [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd]
     )
 
