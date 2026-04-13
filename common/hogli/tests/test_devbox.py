@@ -99,7 +99,7 @@ class TestResolveTailscale:
         monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
 
         captured_args: list[list[str]] = []
-        captured_env: list[dict[str, str] | None] = []
+        captured_env: list[object] = []
 
         def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             captured_args.append(args)
@@ -112,7 +112,9 @@ class TestResolveTailscale:
 
         assert status == {"BackendState": "Running"}
         assert captured_args[0][0] == coder._MACOS_TAILSCALE_CLI
-        assert captured_env[0]["TAILSCALE_BE_CLI"] == "1"
+        env = captured_env[0]
+        assert isinstance(env, dict)
+        assert env["TAILSCALE_BE_CLI"] == "1"
 
     def test_ensure_tailscale_connected_says_not_installed_when_missing(
         self,
@@ -260,7 +262,7 @@ class TestWorkspaceCreation:
         }
 
     def test_create_workspace_passes_dotfiles_uri_as_rich_parameter(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        captured: dict[str, dict[str, str]] = {}
 
         def fake_run_with_rich_parameters(
             args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
@@ -280,7 +282,7 @@ class TestWorkspaceCreation:
         assert captured["parameters"]["dotfiles_uri"] == "https://github.com/user/dotfiles"
 
     def test_create_workspace_includes_template_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        captured: dict[str, dict[str, str]] = {}
 
         def fake_run_with_rich_parameters(
             args: list[str], parameters: dict[str, str], *, verbose: bool | None = None
@@ -914,7 +916,12 @@ class TestClaudeTokenResolution:
         monkeypatch.delenv("CLAUDE_OAUTH_TOKEN", raising=False)
         monkeypatch.setattr(keychain, "read", lambda service: None)
         saved: list[str] = []
-        monkeypatch.setattr(keychain, "write", lambda service, value: (saved.append(value), True)[1])
+
+        def fake_write(service: str, value: str) -> bool:
+            saved.append(value)
+            return True
+
+        monkeypatch.setattr(keychain, "write", fake_write)
 
         monkeypatch.setattr(click, "confirm", lambda *a, **kw: True)
         monkeypatch.setattr(click, "prompt", lambda *a, **kw: "my-pasted-token")
@@ -928,7 +935,12 @@ class TestClaudeTokenResolution:
         monkeypatch.delenv("CLAUDE_OAUTH_TOKEN", raising=False)
         monkeypatch.setattr(keychain, "read", lambda service: "stale-token")
         saved: list[str] = []
-        monkeypatch.setattr(keychain, "write", lambda service, value: (saved.append(value), True)[1])
+
+        def fake_write(service: str, value: str) -> bool:
+            saved.append(value)
+            return True
+
+        monkeypatch.setattr(keychain, "write", fake_write)
 
         monkeypatch.setattr(click, "prompt", lambda *a, **kw: "fresh-token")
         token = devbox_cli._maybe_prompt_for_claude_oauth_token(True)
@@ -988,7 +1000,12 @@ class TestSetupClaudeToken:
         monkeypatch.setattr(keychain, "read", lambda service: "stale-token")
         monkeypatch.setattr(keychain, "is_supported", lambda: True)
         saved: list[str] = []
-        monkeypatch.setattr(keychain, "write", lambda service, value: (saved.append(value), True)[1])
+
+        def fake_write(service: str, value: str) -> bool:
+            saved.append(value)
+            return True
+
+        monkeypatch.setattr(keychain, "write", fake_write)
         monkeypatch.setattr(click, "echo", lambda msg="", **kw: None)
         monkeypatch.setattr(click, "pause", lambda msg="": None)
         monkeypatch.setattr(click, "confirm", lambda *a, **kw: True)
