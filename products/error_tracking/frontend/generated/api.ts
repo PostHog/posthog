@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ErrorTrackingAssignmentRuleApi,
+    ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRulesListParams,
     ErrorTrackingExternalReferenceApi,
     ErrorTrackingExternalReferencesListParams,
@@ -112,14 +113,14 @@ export const getErrorTrackingAssignmentRulesCreateUrl = (projectId: string) => {
 
 export const errorTrackingAssignmentRulesCreate = async (
     projectId: string,
-    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
+    errorTrackingAssignmentRuleCreateRequestApi: ErrorTrackingAssignmentRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingAssignmentRuleApi> => {
     return apiMutator<ErrorTrackingAssignmentRuleApi>(getErrorTrackingAssignmentRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingAssignmentRuleApi),
+        body: JSON.stringify(errorTrackingAssignmentRuleCreateRequestApi),
     })
 }
 
