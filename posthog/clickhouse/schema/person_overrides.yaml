@@ -62,9 +62,24 @@ tables:
         on_nodes: ALL
         columns: []
 
+    # Backed by a SELECT over person_overrides that picks the latest version per
+    # (team_id, old_person_id). See posthog/models/person_overrides/sql.py.
+    # Uses tight LIFETIME windows (5-10 seconds) because override changes must
+    # propagate quickly for correct event<->person attribution.
     person_overrides_dict:
         engine: Dictionary
         on_nodes: ALL
+        primary_key: team_id, old_person_id
+        source:
+            type: CLICKHOUSE
+            query: "SELECT team_id, old_person_id, argMax(override_person_id, version) FROM `posthog`.`person_overrides` AS overrides GROUP BY team_id, old_person_id"
+        layout:
+            type: COMPLEX_KEY_HASHED
+            params:
+                PREALLOCATE: 1
+        lifetime:
+            min: 5
+            max: 10
         columns:
             - name: team_id
               type: Int64
