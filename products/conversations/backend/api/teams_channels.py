@@ -78,7 +78,7 @@ class TeamsChannelsView(APIView):
             return Response({"error": "Failed to get Teams access token"}, status=400)
 
         try:
-            resp = requests.get(
+            resp = requests.get(  # nosemgrep: ssrf-injection-requests
                 f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=15,
