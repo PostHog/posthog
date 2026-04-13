@@ -136,11 +136,10 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(1)
     })
 
-    it('returns synthetic buffer when timestamp is after all segments', () => {
+    it('falls back to last segment with windowId when timestamp is after all segments', () => {
         const result = findSegmentForTimestamp(segments, 9999)
-        expect(result?.kind).toBe('buffer')
-        expect(result?.startTimestamp).toBe(9999)
-        expect(result?.endTimestamp).toBe(5001)
+        expect(result).toEqual(segments[2])
+        expect(result?.windowId).toBe(2)
     })
 
     it('skips segments without windowId when falling back', () => {
@@ -325,6 +324,38 @@ describe('sessionRecordingPlayerLogic', () => {
 
             logic.unmount()
             expect(logic.cache.hasInitialized).toBeFalsy()
+        })
+
+        // Seeking past the end of a recording should not leave the player
+        // stuck buffering. See #53686, #53893.
+        it('handles out-of-range ?t= parameter without getting stuck', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: '999' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // The player must have a valid timestamp and not be stuck in
+            // an unrecoverable state. endReached may legitimately be true
+            // here — updateAnimation detects end-of-recording after the
+            // normal BUFFER → load cycle completes. The important thing
+            // is the player initialized (didn't get stuck before
+            // tryInitReplayer) and isn't permanently buffering.
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
+            expect(logic.values.isBuffering).toBe(false)
         })
     })
 

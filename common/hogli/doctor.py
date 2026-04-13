@@ -928,18 +928,40 @@ def _format_size(bytes_size: float) -> str:
 # doctor:zombies — find and kill orphaned PostHog dev processes
 # ---------------------------------------------------------------------------
 
-# Processes whose executable or args match these patterns are never shown.
-_EXCLUDED_PROCESS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(n?vim|emacs|code|codium)\b"),
-    re.compile(r"\bgit\b"),
-    re.compile(r"\b(ssh|tmux|screen|mosh)\b"),
-    re.compile(r"\bclaude\b"),
-    re.compile(r"\b(grep|rg|find|ls|cat|head|tail|sed|awk|ps|lsof)\b"),
-    re.compile(r"\bflox-activations\b"),
-    re.compile(r"\bwatchman\b"),
-    re.compile(r"\bhogli\b"),
-    re.compile(r"\bdocker(?:d| daemon)\b"),
-    re.compile(r"\bdirenv\b"),
+# Executable basenames that should never be reported as PostHog dev processes.
+# Matched against the first token's basename only (not the full args string)
+# to avoid false positives from directory names like "/Users/x/code/github/...".
+_EXCLUDED_EXECUTABLES: frozenset[str] = frozenset(
+    {
+        "vim",
+        "nvim",
+        "emacs",
+        "code",
+        "codium",
+        "git",
+        "ssh",
+        "tmux",
+        "screen",
+        "mosh",
+        "claude",
+        "grep",
+        "rg",
+        "find",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "sed",
+        "awk",
+        "ps",
+        "lsof",
+        "flox-activations",
+        "watchman",
+        "hogli",
+        "docker",
+        "dockerd",
+        "direnv",
+    }
 )
 
 
@@ -1240,12 +1262,11 @@ def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
 
 
 def _is_excluded(args: str) -> bool:
-    """Check if a command line matches an excluded pattern."""
-
-    for pattern in _EXCLUDED_PROCESS_PATTERNS:
-        if pattern.search(args):
-            return True
-    return False
+    """Check if the executable basename is in the exclusion set."""
+    if not args or not args.strip():
+        return False
+    basename = args.split()[0].rsplit("/", 1)[-1]
+    return basename in _EXCLUDED_EXECUTABLES
 
 
 def _has_known_executable(args: str) -> bool:

@@ -55,6 +55,8 @@ export function MemberSelect({
     useEffect(() => {
         if (showPopover) {
             ensureAllMembersLoaded()
+        } else {
+            setSearch('')
         }
     }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
 

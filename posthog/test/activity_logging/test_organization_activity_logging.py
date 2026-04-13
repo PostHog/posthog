@@ -148,17 +148,6 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         assert stats_change is not None
         self.assertEqual(stats_change["after"], "frequentist")
 
-    def test_organization_member_join_email_logging(self):
-        organization = self.create_organization("Email Preferences Test Org")
-        self.update_organization(organization["id"], {"is_member_join_email_enabled": False})
-
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
-        assert log is not None
-        changes = log.detail.get("changes", [])
-        email_change = next((c for c in changes if c["field"] == "member join email notifications"), None)
-        assert email_change is not None
-        self.assertEqual(email_change["after"], False)
-
     def test_organization_2fa_enforcement_logging(self):
         organization = self.create_organization("2FA Test Org")
         Organization.objects.filter(id=organization["id"]).update(

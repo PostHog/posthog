@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { Copy, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 

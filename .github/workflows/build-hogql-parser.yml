@@ -76,10 +76,7 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         strategy:
             matrix:
-                # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
-                # (20x longer) on the Linux runners (while being reasonable on the macOS runners). Hence, we use
-                # BuildJet as a provider of ARM runners - this solution saves a lot of time and consequently some money.
-                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-14, macos-15-intel]
+                os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel]
                 include:
                     - os: macos-14
                       cibw_archs_macos: arm64
@@ -90,7 +87,7 @@ jobs:
                     - os: ubuntu-22.04
                       cibw_archs_linux: x86_64
                       MACOSX_DEPLOYMENT_TARGET: ''
-                    - os: buildjet-2vcpu-ubuntu-2204-arm
+                    - os: ubuntu-22.04-arm
                       cibw_archs_linux: aarch64
                       MACOSX_DEPLOYMENT_TARGET: ''
 
@@ -142,10 +139,10 @@ jobs:
                   name: wheels-ubuntu-22.04
                   path: dist
 
-            - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
+            - name: Download wheels from ubuntu-22.04-arm
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: wheels-buildjet-2vcpu-ubuntu-2204-arm
+                  name: wheels-ubuntu-22.04-arm
                   path: dist
 
             - name: Download wheels from macos-14

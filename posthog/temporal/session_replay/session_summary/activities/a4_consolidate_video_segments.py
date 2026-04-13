@@ -16,6 +16,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.session_replay.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
+    SessionSentiment,
     VideoSegmentOutput,
     VideoSummarySingleSessionInputs,
 )
@@ -77,12 +78,18 @@ async def consolidate_video_segments_activity(
             trace_id=trace_id,
         )
 
+        consolidated_analysis = _validate_and_clamp_sentiment(consolidated_analysis)
+
         logger.debug(
             f"Consolidated {len(raw_segments)} raw segments into {len(consolidated_analysis.segments)} semantic segments",
             session_id=inputs.session_id,
             raw_count=len(raw_segments),
             consolidated_count=len(consolidated_analysis.segments),
             session_success=consolidated_analysis.session_outcome.success,
+            frustration_score=consolidated_analysis.sentiment.frustration_score
+            if consolidated_analysis.sentiment
+            else None,
+            outcome=consolidated_analysis.sentiment.outcome if consolidated_analysis.sentiment else None,
             signals_type="session-summaries",
         )
 
@@ -146,6 +153,46 @@ async def _call_llm_to_consolidate_segments(
     raise RuntimeError("Unreachable")
 
 
+def _validate_and_clamp_sentiment(analysis: ConsolidatedVideoAnalysis) -> ConsolidatedVideoAnalysis:
+    """Validate and clamp sentiment fields for consistency with segment-level signals.
+
+    Ensures the LLM-produced frustration_score aligns with the stated outcome and
+    observed segment flags. Drops signals referencing non-existent segments.
+    """
+    if not analysis.sentiment:
+        return analysis
+
+    sentiment = analysis.sentiment
+    score = sentiment.frustration_score
+    valid_indices = set(range(len(analysis.segments)))
+
+    valid_signals = [s for s in sentiment.sentiment_signals if s.segment_index in valid_indices]
+
+    n_confused = sum(1 for s in analysis.segments if s.confusion_detected)
+    n_blocked = sum(1 for s in analysis.segments if s.exception == "blocking")
+    if len(analysis.segments) > 0:
+        signal_floor = min((n_confused + n_blocked * 2) / len(analysis.segments), 1.0)
+        score = max(score, signal_floor * 0.5)
+
+    OUTCOME_SCORE_FLOORS: dict[str, float] = {
+        "successful": 0.0,
+        "friction": 0.2,
+        "frustrated": 0.5,
+        "blocked": 0.75,
+    }
+
+    outcome_floor = OUTCOME_SCORE_FLOORS.get(sentiment.outcome, 0.0)
+    score = max(score, outcome_floor)
+
+    clamped_sentiment = SessionSentiment(
+        frustration_score=round(max(0.0, min(1.0, score)), 4),
+        outcome=sentiment.outcome,
+        sentiment_signals=valid_signals,
+    )
+
+    return analysis.model_copy(update={"sentiment": clamped_sentiment})
+
+
 CONSOLIDATION_PROMPT = """
 You are summarizing a user's journey through a product session for PMs, developers, and analysts who want to understand what the user did and whether anything needs attention.
 
@@ -178,6 +225,19 @@ fix_suggestions:
 - Each needs: issue, evidence (exact error or observed behavior), suggestion.
 - Only include when grounded in something specific. Empty list is fine.
 
+Sentiment scoring:
+- Produce a `sentiment` object with:
+  - `frustration_score`: float 0.0-1.0. Based on observable evidence only. 0.0 = entirely smooth session, 1.0 = severe, persistent frustration. Most sessions should land 0.1-0.4. Reserve >0.7 for persistent, unresolved issues.
+  - `outcome`: "successful" if no significant friction, "friction" if some issues but user recovered, "frustrated" if repeated issues or visible confusion, "blocked" if user couldn't proceed.
+  - `sentiment_signals`: list of specific observed signals. Each has:
+    - `signal_type`: one of rage_click, repeated_error, backtracking, long_pause, abandonment, dead_click, confusion_loop, error_cascade, other.
+    - `segment_index`: which segment the signal occurred in.
+    - `description`: 1 sentence about what was observed.
+    - `intensity`: 0.0-1.0 severity of this individual signal.
+- The frustration_score should be roughly consistent with the signals. A session with no signals should score near 0. A session with multiple high-intensity signals should score high.
+- Do not infer frustration from normal behavior. Pausing to read is not frustration. Repeatedly clicking a broken button is.
+- Empty sentiment_signals list is fine if the session was smooth.
+
 Raw segments:
 {segments_text}
 
@@ -194,4 +254,6 @@ Style:
 Rules:
 - Time ranges must not overlap and should cover the full session.
 - One segment_outcome per segment with a brief narrative summary.
+- frustration_score and each signal intensity must be between 0.0 and 1.0 inclusive.
+- outcome must be exactly one of: successful, friction, frustrated, blocked.
 """

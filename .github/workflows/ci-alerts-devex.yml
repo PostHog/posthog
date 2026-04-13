@@ -1,0 +1,165 @@
+name: Master CI Alerts
+
+# Cron-based rolling window alert for sustained master failures.
+# Only alerts when master has been continuously broken for 30+ minutes,
+# filtering out transient flakes that self-heal.
+#
+# See also: ci-master-status.yml (event-driven, alerts on first failure)
+
+on:
+    schedule:
+        - cron: '*/5 * * * *'
+    workflow_dispatch: # manual trigger for testing
+
+permissions:
+    contents: read
+    actions: write
+
+env:
+    SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
+    ALERT_THRESHOLD_MINUTES: '30'
+    # Keep in sync with ci-master-status.yml watched workflows
+    WATCHED_WORKFLOWS: 'ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml'
+
+jobs:
+    check-master:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+            - name: Restore state
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: .alerts-devex
+                  key: alerts-devex-${{ github.run_id }}
+                  restore-keys: alerts-devex-
+
+            - name: Check master status
+              id: check
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const script = require('./.github/scripts/ci-alerts-devex.js');
+                      await script({ github, context, core });
+
+            # ============ SLACK: CREATE ============
+
+            - name: Post new alert to Slack
+              if: steps.check.outputs.action == 'create'
+              id: slack_new
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: Master has been red for ${{ steps.check.outputs.duration_mins }}+ min (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Master has been red for ${{ steps.check.outputs.duration_mins }}+ min* (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "*Failing:* ${{ steps.check.outputs.failing_links }}"
+
+            - name: Save Slack info to state
+              if: steps.check.outputs.action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_new.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_new.outputs.ts }}
+              run: |
+                  jq \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
+                    '. + {slack_channel: $channel, slack_ts: $ts}' \
+                    .alerts-devex > .alerts-devex.tmp
+                  mv .alerts-devex.tmp .alerts-devex
+
+            # ============ SLACK: UPDATE ============
+
+            - name: Update Slack message
+              if: steps.check.outputs.action == 'update'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: ":red_circle: Master has been red for ${{ steps.check.outputs.duration_mins }}+ min (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Master has been red for ${{ steps.check.outputs.duration_mins }}+ min* (${{ steps.check.outputs.failing_count }} workflow(s) failing)"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "*Failing:* ${{ steps.check.outputs.failing_links }}"
+
+            - name: Thread reply with changes
+              if: steps.check.outputs.action == 'update' && (steps.check.outputs.added_workflows != '' || steps.check.outputs.removed_workflows != '')
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      thread_ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: "${{ steps.check.outputs.added_workflows != '' && format(':x: Now also failing: {0}', steps.check.outputs.added_workflows) || '' }}${{ steps.check.outputs.added_workflows != '' && steps.check.outputs.removed_workflows != '' && '\n' || '' }}${{ steps.check.outputs.removed_workflows != '' && format(':white_check_mark: Recovered: {0}', steps.check.outputs.removed_workflows) || '' }}"
+
+            # ============ SLACK: RESOLVE ============
+
+            - name: Update Slack to resolved
+              if: steps.check.outputs.action == 'resolve'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: "Master recovered :v: (was red for ~${{ steps.check.outputs.duration_mins }} min)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "*Master recovered* :v: (was red for ~${{ steps.check.outputs.duration_mins }} min)"
+
+            - name: Thread reply with resolution
+              if: steps.check.outputs.action == 'resolve'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.check.outputs.slack_channel }}"
+                      thread_ts: "${{ steps.check.outputs.slack_ts }}"
+                      text: ":white_check_mark: All watched workflows are passing again"
+
+            # ============ CACHE ============
+
+            - name: Delete old caches on new alert
+              if: steps.check.outputs.delete_old_caches == 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  echo "Deleting old alert caches..."
+                  gh cache list --key alerts-devex- --json id,key -q '.[] | "\(.id) \(.key)"' | while read id key; do
+                    echo "Deleting cache: $key"
+                    gh cache delete "$id" || true
+                  done
+
+            - name: Save state to cache
+              if: steps.check.outputs.save_cache == 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: .alerts-devex
+                  key: alerts-devex-${{ github.run_id }}

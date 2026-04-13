@@ -131,7 +131,6 @@ pub struct KafkaTopicConfig {
     pub overflow_topic: String,
     pub historical_topic: String,
     pub client_ingestion_warning_topic: String,
-    pub exceptions_topic: String,
     pub heatmaps_topic: String,
     pub replay_overflow_topic: String,
     pub dlq_topic: String,
@@ -146,7 +145,6 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             overflow_topic: config.kafka_overflow_topic.clone(),
             historical_topic: config.kafka_historical_topic.clone(),
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic.clone(),
-            exceptions_topic: config.kafka_exceptions_topic.clone(),
             heatmaps_topic: config.kafka_heatmaps_topic.clone(),
             replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
             dlq_topic: config.kafka_dlq_topic.clone(),
@@ -423,9 +421,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     Some(event_key.as_str()),
                 ),
                 DataType::HeatmapMain => (&self.topics.heatmaps_topic, Some(event_key.as_str())),
-                DataType::ExceptionMain => {
-                    (&self.topics.exceptions_topic, Some(event_key.as_str()))
-                }
                 DataType::ExceptionErrorTracking => {
                     (&self.topics.error_tracking_topic, Some(event_key.as_str()))
                 }
@@ -577,7 +572,6 @@ mod tests {
             kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-            kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
             kafka_error_tracking_topic: "error_tracking_events".to_string(),
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
@@ -886,7 +880,6 @@ mod tests {
         const DLQ_TOPIC: &str = "events_plugin_ingestion_dlq";
         const HISTORICAL_TOPIC: &str = "events_plugin_ingestion_historical";
         const HEATMAPS_TOPIC: &str = "heatmaps";
-        const EXCEPTIONS_TOPIC: &str = "exceptions";
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
@@ -898,7 +891,6 @@ mod tests {
                 overflow_topic: OVERFLOW_TOPIC.to_string(),
                 historical_topic: HISTORICAL_TOPIC.to_string(),
                 client_ingestion_warning_topic: CLIENT_INGESTION_WARNING_TOPIC.to_string(),
-                exceptions_topic: EXCEPTIONS_TOPIC.to_string(),
                 heatmaps_topic: HEATMAPS_TOPIC.to_string(),
                 replay_overflow_topic: REPLAY_OVERFLOW_TOPIC.to_string(),
                 dlq_topic: DLQ_TOPIC.to_string(),
@@ -1444,21 +1436,21 @@ mod tests {
             .await;
         }
 
-        // ==================== ExceptionMain ====================
+        // ==================== ExceptionErrorTracking ====================
         // Exceptions IGNORE force_overflow
 
         #[tokio::test]
         async fn exception_normal() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionMain,
+                    data_type: DataType::ExceptionErrorTracking,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                 },
                 ExpectedRouting {
-                    topic: EXCEPTIONS_TOPIC,
+                    topic: ERROR_TRACKING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
                 },
@@ -1470,14 +1462,14 @@ mod tests {
         async fn exception_ignores_force_overflow() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionMain,
+                    data_type: DataType::ExceptionErrorTracking,
                     force_overflow: true,
                     skip_person_processing: false,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                 },
                 ExpectedRouting {
-                    topic: EXCEPTIONS_TOPIC,
+                    topic: ERROR_TRACKING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
                 },
@@ -1489,14 +1481,14 @@ mod tests {
         async fn exception_skip_person() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionMain,
+                    data_type: DataType::ExceptionErrorTracking,
                     force_overflow: false,
                     skip_person_processing: true,
                     redirect_to_dlq: false,
                     redirect_to_topic: None,
                 },
                 ExpectedRouting {
-                    topic: EXCEPTIONS_TOPIC,
+                    topic: ERROR_TRACKING_TOPIC,
                     has_key: true,
                     force_disable_person_processing: Some(true),
                 },
@@ -1508,7 +1500,7 @@ mod tests {
         async fn exception_redirect_to_dlq() {
             assert_routing(
                 EventInput {
-                    data_type: DataType::ExceptionMain,
+                    data_type: DataType::ExceptionErrorTracking,
                     force_overflow: false,
                     skip_person_processing: false,
                     redirect_to_dlq: true,
@@ -1756,50 +1748,6 @@ mod tests {
             assert_eq!(headers.dlq_reason, None);
             assert_eq!(headers.dlq_step, None);
             assert_eq!(headers.dlq_timestamp, None);
-        }
-
-        // ==================== ExceptionErrorTracking Tests ====================
-        // Rollout routing logic is handled in process_events (analytics.rs).
-        // These tests verify that ExceptionErrorTracking events route to the correct topic.
-
-        #[tokio::test]
-        async fn exception_error_tracking_routes_to_error_tracking_topic() {
-            let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
-
-            let event = create_test_event(&EventInput {
-                data_type: DataType::ExceptionErrorTracking,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: false,
-                redirect_to_topic: None,
-            });
-            sink.send(event).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, ERROR_TRACKING_TOPIC);
-        }
-
-        #[tokio::test]
-        async fn exception_error_tracking_dlq_takes_priority() {
-            let producer = MockKafkaProducer::new();
-            let sink =
-                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
-
-            let event = create_test_event(&EventInput {
-                data_type: DataType::ExceptionErrorTracking,
-                force_overflow: false,
-                skip_person_processing: false,
-                redirect_to_dlq: true,
-                redirect_to_topic: None,
-            });
-            sink.send(event).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, DLQ_TOPIC);
         }
     }
 }

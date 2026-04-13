@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 import { Filter, Heart, ArrowDownAZ } from 'lucide-react'
 
 import { ToggleGroup, ToggleGroupItem } from './toggle-group'

@@ -10,6 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 
 import jwt
+from parameterized import parameterized
 
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.insight import Insight
@@ -221,37 +222,94 @@ class TestSubscription(BaseTest):
         subscription.save()
         assert subscription.next_delivery_date == datetime(2022, 2, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
-    def test_subscription_summary(self):
-        subscription = self._create_insight_subscription(interval=1, frequency="monthly", bysetpos=None)
-        assert subscription.summary == "sent every month"
-        subscription = self._create_insight_subscription(
-            interval=2, frequency="monthly", byweekday=["wednesday"], bysetpos=1
-        )
-        assert subscription.summary == "sent every 2 months on the first Wednesday"
-        subscription = self._create_insight_subscription(
-            interval=1, frequency="weekly", byweekday=["wednesday"], bysetpos=-1
-        )
-        assert subscription.summary == "sent every week on the last Wednesday"
-        subscription = self._create_insight_subscription(interval=1, frequency="weekly", byweekday=["wednesday"])
-        assert subscription.summary == "sent every week"
+    @parameterized.expand(
+        [
+            ("monthly_no_bysetpos", {"interval": 1, "frequency": "monthly", "bysetpos": None}, "sent every month"),
+            (
+                "bimonthly_first_wednesday",
+                {"interval": 2, "frequency": "monthly", "byweekday": ["wednesday"], "bysetpos": 1},
+                "sent every 2 months on the first Wednesday",
+            ),
+            (
+                "weekly_last_wednesday",
+                {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"], "bysetpos": -1},
+                "sent every week on the last Wednesday",
+            ),
+            (
+                "weekly_wednesday_no_bysetpos",
+                {"interval": 1, "frequency": "weekly", "byweekday": ["wednesday"]},
+                "sent every week",
+            ),
+            (
+                "monthly_third_day",
+                {
+                    "interval": 1,
+                    "frequency": "monthly",
+                    "byweekday": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+                    "bysetpos": 3,
+                },
+                "sent every month on the third day",
+            ),
+            (
+                "unexpected_bysetpos_fallback",
+                {"interval": 1, "frequency": "monthly", "byweekday": ["monday"], "bysetpos": 10},
+                "sent on a schedule",
+            ),
+        ]
+    )
+    def test_subscription_summary(self, _name, params, expected_summary):
+        subscription = self._create_insight_subscription(**params)
+        assert subscription.summary == expected_summary
+
+    @parameterized.expand(
+        [
+            ("first_weekday", 1, "sent every month on the first weekday"),
+            ("second_weekday", 2, "sent every month on the second weekday"),
+            ("third_weekday", 3, "sent every month on the third weekday"),
+            ("fourth_weekday", 4, "sent every month on the fourth weekday"),
+            ("last_weekday", -1, "sent every month on the last weekday"),
+            ("no_bysetpos", None, "sent every month"),
+        ]
+    )
+    def test_subscription_summary_weekday(self, _name, bysetpos, expected_summary):
         subscription = self._create_insight_subscription(
             interval=1,
             frequency="monthly",
-            byweekday=[
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
-            ],
-            bysetpos=3,
+            byweekday=["monday", "tuesday", "wednesday", "thursday", "friday"],
+            bysetpos=bysetpos,
         )
-        assert subscription.summary == "sent every month on the third day"
+        assert subscription.summary == expected_summary
 
-    def test_subscription_summary_with_unexpected_values(self):
-        subscription = self._create_insight_subscription(
-            interval=1, frequency="monthly", byweekday=["monday"], bysetpos=10
-        )
-        assert subscription.summary == "sent on a schedule"
+    @parameterized.expand(
+        [
+            # First weekday of month — Jan 1 is Saturday, so first weekday is Mon Jan 3
+            ("first_weekday_sat_start", "2022-01-01", 1, datetime(2022, 1, 3, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # First weekday of month starting on Sunday
+            ("first_weekday_sun_start", "2022-05-01", 1, datetime(2022, 5, 2, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # Last weekday of month ending on Saturday
+            ("last_weekday_sat_end", "2022-07-01", -1, datetime(2022, 7, 29, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # Second weekday
+            ("second_weekday", "2022-01-01", 2, datetime(2022, 1, 4, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # Last weekday of Feb in leap year (Feb 29 2024 is Thursday)
+            ("last_weekday_feb_leap", "2024-02-01", -1, datetime(2024, 2, 29, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # First weekday when month starts on a weekday (Mar 1 2022 is Tuesday)
+            ("first_weekday_starts_on_weekday", "2022-03-01", 1, datetime(2022, 3, 1, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # Last weekday when month ends on a weekday (Jun 30 2022 is Thursday)
+            ("last_weekday_ends_on_weekday", "2022-06-01", -1, datetime(2022, 6, 30, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # Fourth weekday (Jan 2022: Mon 3, Tue 4, Wed 5, Thu 6)
+            ("fourth_weekday", "2022-01-01", 4, datetime(2022, 1, 6, 9, 0, tzinfo=ZoneInfo("UTC"))),
+            # Last weekday of Feb in non-leap year (Feb 28 2022 is Monday)
+            ("last_weekday_feb_non_leap", "2022-02-01", -1, datetime(2022, 2, 28, 9, 0, tzinfo=ZoneInfo("UTC"))),
+        ]
+    )
+    def test_weekday_rrule_edge_cases(self, _name, freeze_date, bysetpos, expected_next):
+        with freeze_time(freeze_date):
+            subscription = self._create_insight_subscription(
+                interval=1,
+                frequency="monthly",
+                byweekday=["monday", "tuesday", "wednesday", "thursday", "friday"],
+                bysetpos=bysetpos,
+                start_date=datetime(2021, 1, 1, 9, 0, tzinfo=ZoneInfo("UTC")),
+            )
+            subscription.set_next_delivery_date()
+            assert subscription.next_delivery_date == expected_next

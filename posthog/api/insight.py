@@ -41,7 +41,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_metadata import SUPPORTED_ACTOR_SOURCES, generate_insight_metadata
+from posthog.api.insight_metadata import generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
@@ -121,6 +121,7 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
+LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -190,6 +191,26 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
 
     return posthoganalytics.feature_enabled(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
+        str(distinct_id),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        send_feature_flag_events=False,
+    )
+
+
+def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return False
+
+    return posthoganalytics.feature_enabled(
+        LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
             "organization": str(team.organization_id),
@@ -463,6 +484,15 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "is_cached",
         )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        query = attrs.get("query") if "query" in attrs else None
+        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
+        if using_legacy_filters and is_legacy_insight_filters_blocked(
+            self.context["request"].user, self.context["get_team"]()
+        ):
+            raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+        return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
@@ -1174,6 +1204,17 @@ class InsightViewSet(
 
         return self.order_queryset(queryset)
 
+    def safely_get_object(self, queryset: QuerySet) -> Insight | None:
+        lookup_value = self.kwargs[self.lookup_field]
+        if isinstance(lookup_value, str) and lookup_value.isdigit():
+            # A numeric lookup is ambiguous: usually it's a primary key, but a small number of
+            # legacy rows have numeric-only short_ids. Try pk first (preserving existing behavior)
+            # and fall back to short_id so those legacy insights stay retrievable.
+            pk_match = queryset.filter(pk=int(lookup_value)).first()
+            if pk_match is not None:
+                return pk_match
+        return queryset.filter(short_id=lookup_value).first()
+
     def order_queryset(self, queryset: QuerySet) -> QuerySet:
         order = self.request.GET.get("order", None)
         if not order:
@@ -1570,14 +1611,13 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             if kind == "ActorsQuery":
-                validated_query: schema.InsightVizNode | schema.ActorsQuery = schema.ActorsQuery.model_validate(
-                    query_data
-                )
-                if not isinstance(validated_query.source, SUPPORTED_ACTOR_SOURCES):
-                    return Response(
-                        {"error": "ActorsQuery must have a supported insight source (e.g. InsightActorsQuery)"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                validated_query: (
+                    schema.InsightVizNode | schema.ActorsQuery | schema.EventsQuery | schema.GroupsQuery
+                ) = schema.ActorsQuery.model_validate(query_data)
+            elif kind == "EventsQuery":
+                validated_query = schema.EventsQuery.model_validate(query_data)
+            elif kind == "GroupsQuery":
+                validated_query = schema.GroupsQuery.model_validate(query_data)
             else:
                 validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:

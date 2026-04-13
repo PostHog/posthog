@@ -55,7 +55,7 @@ export function ClustersView(): JSX.Element {
     if (clusteringRunsLoading) {
         return (
             <div className="flex items-center justify-center p-8">
-                <Spinner className="text-2xl" />
+                <Spinner className="text-2xl" captureTime />
             </div>
         )
     }
@@ -250,7 +250,7 @@ export function ClustersView(): JSX.Element {
             {/* Loading State */}
             {currentRunLoading && (
                 <div className="flex items-center justify-center p-8">
-                    <Spinner className="text-2xl" />
+                    <Spinner className="text-2xl" captureTime />
                 </div>
             )}
 

@@ -5,7 +5,7 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient, type GroupType } from '@/api/client'
-import { AnalyticsEvent, generateId, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
+import { AnalyticsEvent, getPostHogClient, isFeatureFlagEnabled } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
     CUSTOM_API_BASE_URL,
@@ -16,6 +16,7 @@ import {
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { buildInstructionsV2 } from '@/lib/instructions'
+import { initMcpCatObservability } from '@/lib/mcpcat'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -45,6 +46,7 @@ export type RequestProperties = {
     clientUserAgent?: string
     readOnly?: boolean
     transport?: 'streamable-http' | 'sse'
+    requestStartTime?: number
 }
 
 export class MCP extends McpAgent<Env> {
@@ -209,7 +211,7 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
 
-            const client = getPostHogClient(!!CUSTOM_API_BASE_URL)
+            const client = getPostHogClient()
 
             await this.resolveClientInfo()
 
@@ -242,40 +244,11 @@ export class MCP extends McpAgent<Env> {
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
         const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
-            const traceId = generateId()
-            const spanId = generateId()
-            const spanName = `mcp/${tool.name}`
-            const startTime = performance.now()
-            const inputState = params
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                    tool: tool.name,
-                    valid_input: false,
-                    input: params,
-                })
-                const latency = (performance.now() - startTime) / 1000
                 const errorOutput = `Invalid input: ${validation.error.message}`
-                const outputState = { error: errorOutput }
-                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
-                    $ai_trace_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
-                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
-                    $ai_trace_id: traceId,
-                    $ai_span_id: spanId,
-                    $ai_parent_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_input_state: inputState,
-                    $ai_output_state: outputState,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
+
                 return {
                     content: [
                         {
@@ -286,35 +259,8 @@ export class MCP extends McpAgent<Env> {
                 }
             }
 
-            await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                tool: tool.name,
-                valid_input: true,
-            })
-
             try {
                 const result = await handler(params)
-                const latency = (performance.now() - startTime) / 1000
-                const outputState = result
-
-                await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, {
-                    tool: tool.name,
-                })
-                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
-                    $ai_trace_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_latency: latency,
-                    ai_product: 'mcp',
-                })
-                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
-                    $ai_trace_id: traceId,
-                    $ai_span_id: spanId,
-                    $ai_parent_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_input_state: inputState,
-                    $ai_output_state: outputState,
-                    $ai_latency: latency,
-                    ai_product: 'mcp',
-                })
 
                 // For tools with UI resources, include structuredContent for better UI rendering
                 // structuredContent is not added to model context, only used by UI apps
@@ -349,27 +295,6 @@ export class MCP extends McpAgent<Env> {
                     ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
-                const latency = (performance.now() - startTime) / 1000
-                const errorMessage = error instanceof Error ? error.message : String(error)
-                const outputState = { error: errorMessage }
-                await this.trackEvent(AnalyticsEvent.AI_TRACE, {
-                    $ai_trace_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
-                await this.trackEvent(AnalyticsEvent.AI_SPAN, {
-                    $ai_trace_id: traceId,
-                    $ai_span_id: spanId,
-                    $ai_parent_id: traceId,
-                    $ai_span_name: spanName,
-                    $ai_input_state: inputState,
-                    $ai_output_state: outputState,
-                    $ai_latency: latency,
-                    $ai_is_error: true,
-                    ai_product: 'mcp',
-                })
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
                     error,
@@ -474,12 +399,43 @@ export class MCP extends McpAgent<Env> {
             const typedTool = tool as Tool<z.ZodObject>
             this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
         }
+
+        await initMcpCatObservability(this.server, {
+            getDistinctId: () => this.getDistinctId(),
+            getSessionUuid: async () =>
+                this.requestProperties.sessionId
+                    ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+                    : undefined,
+            getMcpClientName: () => this._mcpClientName,
+            getMcpClientVersion: () => this._mcpClientVersion,
+            getMcpProtocolVersion: () => this._mcpProtocolVersion,
+            getRegion: () => this.requestProperties.region,
+            getOrganizationId: () => this.requestProperties.organizationId,
+            getProjectId: () => this.requestProperties.projectId,
+            getClientUserAgent: () => this.requestProperties.clientUserAgent,
+            getVersion: () => this.requestProperties.version,
+        })
+
+        const initDurationMs = this.requestProperties.requestStartTime
+            ? Date.now() - this.requestProperties.requestStartTime
+            : undefined
+
+        this.ctx.waitUntil(
+            this.trackEvent(AnalyticsEvent.MCP_INIT, {
+                tool_count: allTools.length,
+                mcp_version: version,
+                has_organization_id: !!organizationId,
+                has_project_id: !!projectId,
+                read_only: !!readOnly,
+                ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
+            })
+        )
     }
 
     private async resolveVersionFlag(): Promise<number | undefined> {
         try {
             const distinctId = await this.getDistinctId()
-            return (await isFeatureFlagEnabled('mcp-version-2', distinctId, !!CUSTOM_API_BASE_URL)) ? 2 : undefined
+            return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
         } catch {
             return undefined
         }
@@ -501,7 +457,7 @@ export class MCP extends McpAgent<Env> {
                 // Stale — revalidate in background, return cached immediately
                 this.ctx.waitUntil(
                     this.fetchAndCacheGroupTypes(projectId).catch((error) => {
-                        getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+                        getPostHogClient().captureException(error, undefined, {
                             tag: 'max_ai',
                             context: 'group_types_background_revalidation',
                         })
@@ -513,7 +469,7 @@ export class MCP extends McpAgent<Env> {
             // No cache — fetch synchronously
             return await this.fetchAndCacheGroupTypes(projectId)
         } catch (error) {
-            getPostHogClient(!!CUSTOM_API_BASE_URL).captureException(error, undefined, {
+            getPostHogClient().captureException(error, undefined, {
                 tag: 'max_ai',
                 context: 'get_or_fetch_group_types',
             })
