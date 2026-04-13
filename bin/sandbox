@@ -279,6 +279,9 @@ class Registry:
 # ---------------------------------------------------------------------------
 
 
+# --- Shell runner ---
+
+
 def run(
     cmd: list[str],
     *,
@@ -297,12 +300,18 @@ def run(
     )
 
 
+# --- Naming ---
+
+
 def slugify(branch: str) -> str:
     return re.sub(r"[^a-z0-9-]", "-", branch.lower().replace("/", "-"))
 
 
 def project_name(slug: str) -> str:
     return f"sandbox-{slug}"
+
+
+# --- Host auth paths ---
 
 
 def _claude_auth_dir() -> str:
@@ -344,6 +353,9 @@ def _ssh_authorized_keys_path() -> str:
     return str(keys_file)
 
 
+# --- User config ---
+
+
 def _load_config() -> dict:
     """Load persistent user preferences from ~/.posthog-sandboxes/config.json."""
     try:
@@ -354,6 +366,9 @@ def _load_config() -> dict:
 
 def _save_config(config: dict) -> None:
     CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
+
+
+# --- JetBrains setup ---
 
 
 JETBRAINS_PRODUCTS = {
@@ -449,6 +464,9 @@ def _ensure_jetbrains() -> None:
     _setup_jetbrains(wanted)
 
 
+# --- Host git signing ---
+
+
 def _host_git_config_file(key: str) -> str:
     """Resolve a git config path to a real file, or /dev/null for compose mounts."""
     result = run(
@@ -485,6 +503,9 @@ def _check_host_git_signing() -> None:
             continue
         if not Path(val).expanduser().is_file():
             warn(f"Host git config {key}={val!r} — file not found; signing inside the sandbox will fail.")
+
+
+# --- Host SSH forwarding ---
 
 
 def _host_ssh_auth_sock() -> str:
@@ -604,6 +625,9 @@ def _install_ssh_agent_launchagent(socket_path: str) -> None:
     warn("Quit and relaunch OrbStack for this to take effect inside the sandbox.")
 
 
+# --- Compose runner ---
+
+
 @functools.cache
 def _host_compose_env() -> dict[str, str]:
     """Env vars from host state, cached to avoid re-probing per sandbox in cmd_list."""
@@ -611,10 +635,9 @@ def _host_compose_env() -> dict[str, str]:
     ide = config.get("jetbrains")
     claude_json = Path.home() / ".claude.json"
     host_gitconfig = Path.home() / ".gitconfig"
-    return {
+    env = {
         "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
         "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
-        "SANDBOX_IDE_VOLUME": f"sandbox-{ide}" if ide else "sandbox-intellij",
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
         "SANDBOX_CLAUDE_JSON": str(claude_json) if claude_json.is_file() else "/dev/null",
@@ -624,6 +647,9 @@ def _host_compose_env() -> dict[str, str]:
         "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
         "SSH_AUTH_SOCK": _host_ssh_auth_sock(),
     }
+    if ide:
+        env["SANDBOX_IDE_VOLUME"] = f"sandbox-{ide}"
+    return env
 
 
 def _compose_env(port: int) -> dict[str, str]:
@@ -668,9 +694,22 @@ def compose(
     )
 
 
+# --- Volumes ---
+
+
 def workspace_volume_name(project: str) -> str:
     """Docker Compose prefixes declared volumes with the project name."""
     return f"{project}_workspace"
+
+
+def docker_volume_run(volume: str, shell_cmd: str) -> None:
+    """Run a one-shot alpine container with a volume mounted at /data."""
+    run(["docker", "run", "--rm", "-v", f"{volume}:/data", "alpine", "sh", "-c", shell_cmd], capture=True)
+
+
+def clear_volume(volume: str) -> None:
+    """Delete all contents of a Docker volume."""
+    docker_volume_run(volume, "find /data -mindepth 1 -delete")
 
 
 def _populate_workspace_volume(
@@ -775,6 +814,9 @@ def _populate_workspace_volume(
     )
 
 
+# --- Git ref helpers ---
+
+
 def _fetch_origin() -> None:
     """Fetch + prune origin. Non-fatal — branch resolution fails loudly if the
     resulting refs don't cover what the user asked for.
@@ -807,13 +849,21 @@ def _is_ancestor(maybe_ancestor: str, of_descendant: str) -> bool:
     ).returncode == 0
 
 
-def _resolve_base_branch(base_branch: str) -> tuple[str, str]:
-    """Resolve base_branch to (sha, ref), preferring the local head over origin."""
-    for ref in (f"refs/heads/{base_branch}", f"refs/remotes/origin/{base_branch}"):
+def _first_existing_ref(*refs: str) -> tuple[str, str] | None:
+    """Return (sha, ref) for the first ref that resolves, or None."""
+    for ref in refs:
         sha = _rev_parse(ref)
         if sha:
             return sha, ref
-    fatal(f"Base branch '{base_branch}' not found locally or on origin.")
+    return None
+
+
+def _resolve_base_branch(base_branch: str) -> tuple[str, str]:
+    """Resolve base_branch to (sha, ref), preferring the local head over origin."""
+    resolved = _first_existing_ref(f"refs/heads/{base_branch}", f"refs/remotes/origin/{base_branch}")
+    if resolved is None:
+        fatal(f"Base branch '{base_branch}' not found locally or on origin.")
+    return resolved
 
 
 def _prompt_branch_choice(branch: str, local_sha: str, origin_sha: str) -> str:
@@ -883,16 +933,6 @@ def _warn_if_host_dirty(branch: str) -> None:
         fatal("Aborted.")
 
 
-def docker_volume_run(volume: str, shell_cmd: str) -> None:
-    """Run a one-shot alpine container with a volume mounted at /data."""
-    run(["docker", "run", "--rm", "-v", f"{volume}:/data", "alpine", "sh", "-c", shell_cmd], capture=True)
-
-
-def clear_volume(volume: str) -> None:
-    """Delete all contents of a Docker volume."""
-    docker_volume_run(volume, "find /data -mindepth 1 -delete")
-
-
 # ---------------------------------------------------------------------------
 # Database cache
 # ---------------------------------------------------------------------------
@@ -942,15 +982,10 @@ def init_cache_from_master() -> None:
 
     try:
         run(["git", "fetch", "origin", "master", "--quiet"], capture=True)
-        master_ref: str | None = None
-        master_sha: str | None = None
-        for ref in ("refs/remotes/origin/master", "refs/heads/master"):
-            master_sha = _rev_parse(ref)
-            if master_sha:
-                master_ref = ref
-                break
-        if not master_sha:
+        resolved = _first_existing_ref("refs/remotes/origin/master", "refs/heads/master")
+        if resolved is None:
             fatal("Cannot find master locally or on origin — nothing to build cache from.")
+        master_sha, master_ref = resolved
 
         info("Populating cache-init workspace with master...")
         _populate_workspace_volume(init_volume, "master", master_sha, "master", None, branch_ref=master_ref)
