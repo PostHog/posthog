@@ -45,12 +45,46 @@ export const Sizes: Story = {
                     <CardTitle>Small size</CardTitle>
                     <CardDescription>Card Description</CardDescription>
                     <CardAction>
-                    <Button size="icon"><MoreVertical /></Button>
+                        <Button size="icon"><MoreVertical /></Button>
+                    </CardAction>
+                </CardHeader>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card size='sm'>
+                <CardHeader>
+                    <CardTitle>Small size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon"><MoreVertical /></Button>
                     </CardAction>
                 </CardHeader>
                 <CardContent>
                     <p>Card Content</p>
                 </CardContent>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Default size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon"><MoreVertical /></Button>
+                    </CardAction>
+                </CardHeader>
                 <CardFooter className="flex-col gap-2">
                     <Button type="submit" variant="primary" className="w-full">
                         Login
