@@ -292,11 +292,6 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         'data-attr': `support-form-target-area-web_analytics`,
         label: 'Web analytics',
     },
-    {
-        value: 'logs',
-        'data-attr': `support-form-target-area-logs`,
-        label: 'Logs',
-    },
 ] as const satisfies LemonSelectOptions<string>
 
 export const TARGET_AREA_TO_NAME = [
