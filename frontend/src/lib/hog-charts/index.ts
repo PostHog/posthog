@@ -16,7 +16,6 @@ export type {
     ChartDrawArgs,
     ChartScales,
     CreateScalesFn,
-    GoalLine,
     LineChartConfig,
     PointClickData,
     ResolveValueFn,

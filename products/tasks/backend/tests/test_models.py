@@ -372,6 +372,17 @@ class TestTaskRun(TestCase):
         )
         self.assertEqual(str(run), "Run for Test Task - In Progress")
 
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_create_run_seeds_stream_state_event(self, mock_publish_stream_event):
+        run = self.task.create_run(branch="main")
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["type"], "task_run_state")
+        self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
+        self.assertEqual(call_args.args[1]["branch"], "main")
+
     def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
             task=self.task,
@@ -567,6 +578,20 @@ class TestTaskRun(TestCase):
         self.assertEqual(entry["notification"]["params"]["level"], "info")
         self.assertEqual(entry["notification"]["params"]["message"], "Test message")
 
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_emit_console_event_publishes_to_stream(self, mock_publish_stream_event):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_console_event("info", "Test message")
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["notification"]["method"], "_posthog/console")
+
     @parameterized.expand(
         [
             (0, "stdout output", "stderr output"),
@@ -594,6 +619,20 @@ class TestTaskRun(TestCase):
         self.assertEqual(entry["notification"]["params"]["stdout"], stdout)
         self.assertEqual(entry["notification"]["params"]["stderr"], stderr)
         self.assertEqual(entry["notification"]["params"]["exitCode"], exit_code)
+
+    @patch("products.tasks.backend.models.publish_task_run_stream_event")
+    def test_emit_sandbox_output_publishes_to_stream(self, mock_publish_stream_event):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_sandbox_output("stdout output", "stderr output", 0)
+
+        mock_publish_stream_event.assert_called_once()
+        call_args = mock_publish_stream_event.call_args
+        self.assertEqual(call_args.args[0], str(run.id))
+        self.assertEqual(call_args.args[1]["notification"]["method"], "_posthog/sandbox_output")
 
     @parameterized.expand(
         [

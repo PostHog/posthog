@@ -282,6 +282,50 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Should indicate variable metadata issue
         self.assertIn("Cannot materialize endpoint", response.json()["detail"])
 
+    @parameterized.expand(
+        [
+            (
+                "legacy_breakdown_type",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": 123},
+                },
+            ),
+            (
+                "new_breakdowns_cohort",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "breakdownFilter": {"breakdowns": [{"type": "cohort", "property": 123}]},
+                },
+            ),
+        ]
+    )
+    def test_cannot_materialize_trends_with_cohort_breakdown(self, _name, query):
+        """Cohort breakdowns produce UNION ALL across cohorts, which inject_series_index
+        would tag as separate series — causing a mismatch loop at read time. Block upfront."""
+        endpoint = create_endpoint_with_version(
+            name=f"test_cohort_breakdown_{_name}",
+            team=self.team,
+            query=query,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cohort breakdowns are not supported", response.json()["detail"])
+
     def test_can_materialize_lifecycle_query(self):
         _create_event(
             team=self.team,

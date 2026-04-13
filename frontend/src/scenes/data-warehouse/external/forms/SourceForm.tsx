@@ -477,7 +477,7 @@ export function SourceFormComponent({
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 ph-no-capture">
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (

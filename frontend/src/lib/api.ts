@@ -1947,6 +1947,11 @@ export class ApiRequest {
     public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
         return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
     }
+
+    // Revenue analytics
+    public revenueAnalyticsJoins(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('revenue_analytics').addPathComponent('joins')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -6342,6 +6347,12 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    revenueAnalyticsJoins: {
+        async sync(enabled: boolean): Promise<void> {
+            return await new ApiRequest().revenueAnalyticsJoins().create({ data: { enabled } })
         },
     },
 

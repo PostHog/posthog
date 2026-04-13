@@ -20,8 +20,6 @@ ROLE_MAP: dict[str, str] = {
     "SESSIONS": "sessions",
 }
 
-VALID_NODE_ROLES = frozenset(ROLE_MAP.keys())
-
 
 @dataclass
 class ManifestStep:
@@ -30,5 +28,3 @@ class ManifestStep:
     comment: str = ""
     sharded: bool = False
     is_alter_on_replicated_table: bool = False
-    clusters: list[str] | None = None
-    affected_table: str | None = None

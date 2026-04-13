@@ -12,6 +12,7 @@ import {
 import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
@@ -136,19 +137,28 @@ export class KafkaProducerWrapper {
                     [key]: value,
                 })) ?? []
 
-            const result = await new Promise((resolve, reject) => {
-                this.producer.produce(
-                    topic,
-                    null,
-                    value,
-                    key,
-                    Date.now(),
-                    kafkaHeaders,
-                    (error: any, offset: NumberNullUndefined) => {
-                        return error ? reject(error) : resolve(offset)
-                    }
-                )
-            })
+            const result = await instrumentFn(
+                {
+                    key: 'kafka_produce_callback',
+                    timeoutMs: 10_000,
+                    sendException: false,
+                    timeoutMessage: `Kafka produce callback timeout for topic "${topic}"`,
+                },
+                () =>
+                    new Promise((resolve, reject) => {
+                        this.producer.produce(
+                            topic,
+                            null,
+                            value,
+                            key,
+                            Date.now(),
+                            kafkaHeaders,
+                            (error: any, offset: NumberNullUndefined) => {
+                                return error ? reject(error) : resolve(offset)
+                            }
+                        )
+                    })
+            )
 
             kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })

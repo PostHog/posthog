@@ -283,3 +283,37 @@ async def test_insert_into_workflows_activity_from_stage_fails_with_empty_url(
 
     with pytest.raises(ValueError):
         await activity_environment.run(insert_into_workflows_activity_from_stage, workflows_inputs)
+
+
+@pytest.mark.parametrize("hog_function_error", [True], indirect=True)
+async def test_insert_into_workflows_activity_tracks_hog_function_failures(
+    clickhouse_client,
+    activity_environment,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    server,
+    path,
+    handler,
+    hog_function_id,
+):
+    model = BatchExportModel(name="events", schema=None)
+
+    result = await _run_activity(
+        activity_environment,
+        server=server,
+        handler=handler,
+        hog_function_id=hog_function_id,
+        clickhouse_client=clickhouse_client,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="event",
+    )
+
+    total_events = len(handler.data)
+    assert total_events > 0
+    assert result.records_failed == total_events
+    assert result.records_completed == 0

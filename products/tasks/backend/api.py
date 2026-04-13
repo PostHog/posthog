@@ -30,6 +30,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.event_usage import groups
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
+from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
@@ -441,6 +442,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     task_run.completed_at = timezone.now()
 
             task_run.save()
+            task_run.publish_stream_state_event()
 
         # Signal Temporal and post Slack updates after commit to avoid
         # holding the row lock during external calls.
@@ -564,6 +566,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # TODO: Validate output data according to schema for the task type.
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+        task_run.publish_stream_state_event()
         self._post_slack_update_for_pr(task_run)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
@@ -1022,6 +1025,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             response = JsonResponse([], safe=False)
             response["X-Total-Count"] = "0"
             response["X-Filtered-Count"] = "0"
+            response["X-Matching-Count"] = "0"
+            response["X-Has-More"] = "false"
             response["Cache-Control"] = "no-cache"
             response["Server-Timing"] = timer.to_header_string()
             return response
@@ -1045,6 +1050,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         event_types_str = params.get("event_types")
         exclude_types_str = params.get("exclude_types")
         limit = params.get("limit", 1000)
+        offset = params.get("offset", 0)
 
         event_types = {t.strip() for t in event_types_str.split(",") if t.strip()} if event_types_str else None
         exclude_types = {t.strip() for t in exclude_types_str.split(",") if t.strip()} if exclude_types_str else None
@@ -1074,37 +1080,58 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 filtered.append(entry)
 
-                if len(filtered) >= limit:
-                    break
+        matching_count = len(filtered)
+        page = filtered[offset : offset + limit]
+        has_more = offset + len(page) < matching_count
 
-        response = JsonResponse(filtered, safe=False)
+        response = JsonResponse(page, safe=False)
         response["X-Total-Count"] = str(total_count)
-        response["X-Filtered-Count"] = str(len(filtered))
+        response["X-Filtered-Count"] = str(matching_count)
+        response["X-Matching-Count"] = str(matching_count)
+        response["X-Has-More"] = "true" if has_more else "false"
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
 
-    @action(detail=True, methods=["get"], url_path="stream", required_scopes=["task:read"])
+    @staticmethod
+    def _format_sse_event(data: dict, *, event_id: str | None = None, event_name: str | None = None) -> bytes:
+        parts: list[str] = []
+        if event_name:
+            parts.append(f"event: {event_name}")
+        if event_id:
+            parts.append(f"id: {event_id}")
+        parts.append(f"data: {json.dumps(data)}")
+        return ("\n".join(parts) + "\n\n").encode()
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stream",
+        required_scopes=["task:read"],
+        renderer_classes=[ServerSentEventRenderer],
+    )
     def stream(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         stream_key = get_task_run_stream_key(str(task_run.id))
+        last_event_id = request.headers.get("Last-Event-ID")
+        start_latest = request.GET.get("start") == "latest"
+        format_sse_event = self._format_sse_event
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
             if not await redis_stream.wait_for_stream():
-                yield b'event: error\ndata: {"error":"Stream not available"}\n\n'
+                yield format_sse_event({"error": "Stream not available"}, event_name="error")
                 return
+
+            start_id = last_event_id or "0"
+            if not last_event_id and start_latest:
+                start_id = await redis_stream.get_latest_stream_id() or "0"
             try:
-                async for event in redis_stream.read_stream():
-                    yield f"data: {json.dumps(event)}\n\n".encode()
+                async for event_id, event in redis_stream.read_stream_entries(start_id=start_id):
+                    yield format_sse_event(event, event_id=event_id)
             except TaskRunStreamError as e:
-                logger.error(
-                    "TaskRunRedisStream error for stream %s: %s",
-                    stream_key,
-                    e,
-                    exc_info=True,
-                )
-                yield b'event: error\ndata: {"error": "Stream error"}\n\n'
+                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                yield format_sse_event({"error": str(e)}, event_name="error")
 
         return StreamingHttpResponse(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),

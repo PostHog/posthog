@@ -81,6 +81,7 @@ from products.data_warehouse.backend.models.external_data_schema import sync_old
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 
 logger = structlog.get_logger(__name__)
 
@@ -863,6 +864,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
+            ensure_person_join(self.team.pk, new_source_model.prefix)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
@@ -1351,12 +1353,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
 
+        table_prefix = external_data_source.prefix or ""
+
         if config.enabled:
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
                 kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
+            ensure_person_join(self.team.pk, table_prefix)
         else:
             try:
                 managed_viewset = DataWarehouseManagedViewSet.objects.get(
@@ -1367,6 +1372,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             except DataWarehouseManagedViewSet.DoesNotExist:
                 pass
+            remove_person_join(self.team.pk, table_prefix)
 
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())

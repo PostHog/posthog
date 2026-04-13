@@ -142,11 +142,3 @@ for _eco in KNOWN_ECOSYSTEMS:
 def lookup_ecosystem(table_name: str) -> TableEcosystem | None:
     """Find the ecosystem a table belongs to, or None."""
     return _TABLE_TO_ECOSYSTEM.get(table_name)
-
-
-def get_ecosystem_by_name(name: str) -> TableEcosystem | None:
-    """Find an ecosystem by its base_name."""
-    for eco in KNOWN_ECOSYSTEMS:
-        if eco.base_name == name:
-            return eco
-    return None
