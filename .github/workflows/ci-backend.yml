@@ -1269,6 +1269,25 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore pre-migrated Django schema
+              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.migrations != 'true' }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              shell: bash
+              run: |
+                  set -e
+                  set -o pipefail
+
+                  # Pull the latest schema snapshot produced on master.
+                  ./bin/hogli db:download-schema
+
+                  # Prime pytest-django's reused test DB to avoid re-running
+                  # the full Django migration chain in each shard.
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  echo "✅ Restored test_posthog from CI schema artifact"
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
