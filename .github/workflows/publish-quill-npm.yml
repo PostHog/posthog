@@ -41,6 +41,9 @@ jobs:
                   registry-url: https://registry.npmjs.org
                   cache: 'pnpm'
 
+            - name: Ensure modern npm (OIDC trusted publishing support)
+              run: npm install -g npm@11.6.4
+
             - name: Install dependencies
               run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens"
 
@@ -60,7 +63,6 @@ jobs:
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
-                  NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 
@@ -72,7 +74,6 @@ jobs:
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
-                  NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 
