@@ -25,7 +25,7 @@ export function Login2FA(): JSX.Element {
             message={
                 <>
                     Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ' (self-hosted)'}!
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : preflight?.is_debug ? '' : ' (self-hosted)'}!
                 </>
             }
         >
