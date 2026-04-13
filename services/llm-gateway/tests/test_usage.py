@@ -122,22 +122,32 @@ class TestUsageEndpoint:
         response = client.get("/v1/usage/posthog_code")
         assert response.status_code == 401
 
-    def test_reflects_accumulated_cost(self, authenticated_usage_client: TestClient) -> None:
+    def test_reflects_accumulated_cost(
+        self, authenticated_usage_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         app = authenticated_usage_client.app
         runner = app.state.throttle_runner
 
         burst_throttle = next(t for t in runner.throttles if isinstance(t, UserCostBurstThrottle))
         sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
-        burst_throttle.get_status = AsyncMock(
-            return_value=CostStatus(
-                used_usd=25.5, limit_usd=100.0, remaining_usd=74.5, resets_in_seconds=3600, exceeded=False
-            )
+        monkeypatch.setattr(
+            burst_throttle,
+            "get_status",
+            AsyncMock(
+                return_value=CostStatus(
+                    used_usd=25.5, limit_usd=100.0, remaining_usd=74.5, resets_in_seconds=3600, exceeded=False
+                )
+            ),
         )
-        sustained_throttle.get_status = AsyncMock(
-            return_value=CostStatus(
-                used_usd=25.5, limit_usd=1000.0, remaining_usd=974.5, resets_in_seconds=86400, exceeded=False
-            )
+        monkeypatch.setattr(
+            sustained_throttle,
+            "get_status",
+            AsyncMock(
+                return_value=CostStatus(
+                    used_usd=25.5, limit_usd=1000.0, remaining_usd=974.5, resets_in_seconds=86400, exceeded=False
+                )
+            ),
         )
 
         response = authenticated_usage_client.get(
@@ -153,22 +163,32 @@ class TestUsageEndpoint:
         assert data["sustained"]["used_percent"] == 2.5
         assert data["sustained"]["exceeded"] is False
 
-    def test_shows_rate_limited_when_burst_exceeded(self, authenticated_usage_client: TestClient) -> None:
+    def test_shows_rate_limited_when_burst_exceeded(
+        self, authenticated_usage_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         app = authenticated_usage_client.app
         runner = app.state.throttle_runner
 
         burst_throttle = next(t for t in runner.throttles if isinstance(t, UserCostBurstThrottle))
         sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
-        burst_throttle.get_status = AsyncMock(
-            return_value=CostStatus(
-                used_usd=100.0, limit_usd=100.0, remaining_usd=0, resets_in_seconds=3600, exceeded=True
-            )
+        monkeypatch.setattr(
+            burst_throttle,
+            "get_status",
+            AsyncMock(
+                return_value=CostStatus(
+                    used_usd=100.0, limit_usd=100.0, remaining_usd=0, resets_in_seconds=3600, exceeded=True
+                )
+            ),
         )
-        sustained_throttle.get_status = AsyncMock(
-            return_value=CostStatus(
-                used_usd=100.0, limit_usd=1000.0, remaining_usd=900.0, resets_in_seconds=86400, exceeded=False
-            )
+        monkeypatch.setattr(
+            sustained_throttle,
+            "get_status",
+            AsyncMock(
+                return_value=CostStatus(
+                    used_usd=100.0, limit_usd=1000.0, remaining_usd=900.0, resets_in_seconds=86400, exceeded=False
+                )
+            ),
         )
 
         response = authenticated_usage_client.get(
