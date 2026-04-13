@@ -50,7 +50,7 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
     return { ctx, dimensions, xScale, yScale: patchedYScale as any, labels }
 }
 
-/** Collects dash-pattern argument of each setLineDash call (ignoring the final [] reset). */
+/** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
 function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
     return ctx.setLineDash.mock.calls.map(([p]: [number[]]) => p)
 }
