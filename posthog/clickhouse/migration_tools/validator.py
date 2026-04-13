@@ -16,7 +16,19 @@ from posthog.clickhouse.migration_tools.state_diff import _is_distributed, _is_k
 _SATELLITE_ROLES: frozenset[str] = frozenset({"LOGS", "AUX", "SESSIONS", "OPS", "AI_EVENTS", "SHUFFLEHOG", "ENDPOINTS"})
 
 _EXPECTED_ROLES: dict[str, set[str]] = {
-    "distributed": {"COORDINATOR", "ALL", *_SATELLITE_ROLES},
+    # Distributed routing is logical, not physical — a Distributed table can
+    # legitimately live on any role (DATA for read paths, INGESTION_* for
+    # writable passthroughs on ingestion hosts, COORDINATOR for query
+    # coordination, satellite roles for per-ecosystem hosts).
+    "distributed": {
+        "COORDINATOR",
+        "ALL",
+        "DATA",
+        "INGESTION_EVENTS",
+        "INGESTION_SMALL",
+        "INGESTION_MEDIUM",
+        *_SATELLITE_ROLES,
+    },
     "kafka": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL", *_SATELLITE_ROLES},
     "materializedview": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL", *_SATELLITE_ROLES},
 }
