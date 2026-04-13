@@ -870,6 +870,36 @@ class TestStructuralFieldDiffs(unittest.TestCase):
         self.assertEqual(len(modify_diffs), 1)
         self.assertIn("default", modify_diffs[0].detail.lower())
 
+    def test_column_default_removal_emits_remove_default(self) -> None:
+        """Dropping `default:` from YAML while the live column still has a
+        default must emit a MODIFY COLUMN ... REMOVE DEFAULT. Previously the
+        comparison short-circuited on an empty desired default and silently
+        ignored removals, so live DEFAULT clauses lingered after YAML changes.
+        """
+        desired = _make_desired_state(
+            {
+                "t": _make_desired_table(
+                    "t",
+                    columns=[
+                        ColumnDef(name="val", type="Int64"),  # no default
+                    ],
+                ),
+            }
+        )
+        current = {
+            "t": _make_table_schema(
+                "t",
+                columns=[
+                    ColumnSchema(name="val", type="Int64", default_kind="DEFAULT", default_expression="42"),
+                ],
+            ),
+        }
+        diffs = diff_state(desired, current)
+        modify_diffs = [d for d in diffs if d.action == "alter_modify_column"]
+        self.assertEqual(len(modify_diffs), 1)
+        self.assertIn("REMOVE DEFAULT", modify_diffs[0].sql)
+        self.assertIn("val", modify_diffs[0].sql)
+
     def test_no_recreate_when_structural_fields_match(self) -> None:
         """No structural diff when order_by/partition_by match current."""
         desired = _make_desired_state(
