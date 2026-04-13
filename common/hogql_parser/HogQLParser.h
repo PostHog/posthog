@@ -1678,12 +1678,9 @@ public:
     KeywordForTypeCastContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *DATE();
-    antlr4::tree::TerminalNode *LOCAL();
     antlr4::tree::TerminalNode *TIME();
     antlr4::tree::TerminalNode *TIMESTAMP();
     antlr4::tree::TerminalNode *INTERVAL();
-    antlr4::tree::TerminalNode *WITH();
-    antlr4::tree::TerminalNode *ZONE();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

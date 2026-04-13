@@ -1743,6 +1743,18 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ),
                 ),
                 (
+                    "int_cast_with_as",
+                    "select 1::int as value",
+                    ast.SelectQuery(
+                        select=[
+                            ast.Alias(
+                                alias="value",
+                                expr=ast.TypeCast(expr=ast.Constant(value=1), type_name="int"),
+                            )
+                        ],
+                    ),
+                ),
+                (
                     "literal_cast",
                     "select '123'::int as x from events",
                     ast.SelectQuery(
@@ -1759,6 +1771,17 @@ def parser_test_factory(backend: HogQLParserBackend):
         )
         def test_type_cast_alias_parsing(self, _, query, expected):
             self.assertEqual(self._select(query), expected)
+
+        @parameterized.expand(
+            [
+                ("with_alone", "select 1::with"),
+                ("zone_alone", "select 1::zone"),
+                ("local_alone", "select 1::local"),
+            ]
+        )
+        def test_type_cast_rejects_partial_with_time_zone_keywords(self, _, query):
+            with self.assertRaises(SyntaxError):
+                self._select(query)
 
         def test_order_by(self):
             self.assertEqual(

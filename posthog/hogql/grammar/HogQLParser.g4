@@ -184,12 +184,9 @@ columnTypeCastIdentifier
     ;
 keywordForTypeCast
     : DATE
-    | LOCAL
     | TIME
     | TIMESTAMP
     | INTERVAL
-    | WITH
-    | ZONE
     ;
 columnExprList: columnExpr (COMMA columnExpr)* COMMA?;
 selectColumnExprListBeforeFrom
