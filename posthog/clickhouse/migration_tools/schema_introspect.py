@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -53,10 +54,72 @@ class SchemaDiff:
     actual: str = ""
 
 
+def _parse_dict_ddl_columns(create_query: str) -> list[ColumnSchema]:
+    """Extract (name, type) pairs from the column list of a CREATE DICTIONARY DDL.
+
+    CH's system.columns reports the stripped type for Dictionary range columns
+    (e.g. Date instead of Nullable(Date)). The canonical type is in
+    create_table_query. This parser handles only the balanced-parens column list
+    that immediately follows the dictionary name.
+    """
+    match = re.search(r"CREATE\s+DICTIONARY\s+[`\w.]+\s*\(", create_query, re.IGNORECASE)
+    if not match:
+        return []
+    start = match.end()
+    depth = 1
+    end = start
+    while end < len(create_query) and depth > 0:
+        ch = create_query[end]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        end += 1
+    if depth != 0:
+        return []
+    body = create_query[start:end]
+
+    columns: list[ColumnSchema] = []
+    position = 0
+    # Split on commas that are NOT nested inside parens.
+    buf: list[str] = []
+    depth = 0
+    pieces: list[str] = []
+    for ch in body:
+        if ch == "(":
+            depth += 1
+            buf.append(ch)
+        elif ch == ")":
+            depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            pieces.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        pieces.append("".join(buf).strip())
+
+    for piece in pieces:
+        # `name` Type (optional trailing DEFAULT/MATERIALIZED clauses)
+        m = re.match(r"`?(\w+)`?\s+(.+)", piece)
+        if not m:
+            continue
+        col_name = m.group(1)
+        col_type = m.group(2).strip()
+        # Strip CODEC, DEFAULT/MATERIALIZED/ALIAS clauses (not relevant for dicts).
+        col_type = re.sub(r"\s+(CODEC|DEFAULT|MATERIALIZED|ALIAS)\b.*$", "", col_type, flags=re.IGNORECASE)
+        columns.append(ColumnSchema(name=col_name, type=col_type.strip(), position=position))
+        position += 1
+    return columns
+
+
 def dump_schema(client: Any, database: str) -> dict[str, TableSchema]:
     """Query a single ClickHouse host for its current schema state."""
     tables_rows = client.execute(
-        "SELECT name, engine, engine_full, sorting_key, partition_key, primary_key, as_select "
+        "SELECT name, engine, engine_full, sorting_key, partition_key, primary_key, as_select, create_table_query "
         "FROM system.tables WHERE database = %(database)s",
         {"database": database},
     )
@@ -69,7 +132,20 @@ def dump_schema(client: Any, database: str) -> dict[str, TableSchema]:
     )
 
     schema: dict[str, TableSchema] = {}
-    for name, engine, engine_full, sorting_key, partition_key, primary_key, as_select in tables_rows:
+    # Dictionary engine has two quirks that force fallback to create_table_query:
+    # 1. engine_full is always empty for Dictionary rows in system.tables
+    # 2. system.columns strips Nullable() from RANGE columns (end_date reports
+    #    Date instead of Nullable(Date)), so ALTER-free recreate checks based on
+    #    system.columns types false-positive.
+    # create_table_query is authoritative for dicts — use it as engine_full and
+    # as the source for column types.
+    dict_ddl_columns: dict[str, list[ColumnSchema]] = {}
+    for name, engine, engine_full, sorting_key, partition_key, primary_key, as_select, create_query in tables_rows:
+        if engine == "Dictionary" and create_query:
+            engine_full = create_query
+            dict_cols = _parse_dict_ddl_columns(create_query)
+            if dict_cols:
+                dict_ddl_columns[name] = dict_cols
         schema[name] = TableSchema(
             name=name,
             engine=engine,
@@ -91,6 +167,11 @@ def dump_schema(client: Any, database: str) -> dict[str, TableSchema]:
                     position=position,
                 )
             )
+
+    # Override Dictionary column types from DDL — system.columns reports Date
+    # for Nullable(Date) RANGE bounds, which false-positives column diff.
+    for table_name, ddl_cols in dict_ddl_columns.items():
+        schema[table_name].columns = ddl_cols
 
     # Enrich Dictionary rows with system.dictionaries metadata. Dictionaries
     # show up in system.tables with engine="Dictionary" but don't expose
