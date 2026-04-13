@@ -356,13 +356,19 @@ fi
 
 log "Waiting for app to be healthy..."
 HEALTH_DEADLINE=$((SECONDS + 600))
+HEALTH_OK=false
 while [ "$SECONDS" -lt "$HEALTH_DEADLINE" ]; do
     if curl -sf "http://localhost:48001/_health" > /dev/null 2>&1; then
         log "App is healthy"
+        HEALTH_OK=true
         break
     fi
     sleep 5
 done
+if [ "$HEALTH_OK" != true ]; then
+    log "ERROR: App did not become healthy within 600s"
+    exit 1
+fi
 
 BOOT_STATUS="complete"
 log "Cloud sandbox boot complete at $(date)"

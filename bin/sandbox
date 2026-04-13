@@ -159,18 +159,6 @@ def resolve_docker_profiles(intents_csv: str) -> list[str]:
     return sorted(profiles)
 
 
-def dump_container_logs(container: str, *, tail: int = 200) -> None:
-    """Print the last N lines of a container's logs (both stdout and stderr)."""
-    logs = run(
-        ["docker", "logs", "--tail", str(tail), container],
-        check=False,
-        capture=True,
-    )
-    for line in (logs.stdout or "").strip().splitlines():
-        print(f"  {line}")
-    for line in (logs.stderr or "").strip().splitlines():
-        print(f"  {line}")
-
 
 # ---------------------------------------------------------------------------
 # Registry — persistent JSON store at ~/.posthog-sandboxes/registry.json
@@ -946,18 +934,9 @@ def _init_cache_cleanup(project: str, port: int) -> None:
     compose(project, port, "down", "-v", "-t", "0", check=False, capture=True)
 
 
-def init_db_cache() -> None:
-    """Build the database cache from the current checkout of the main repo.
-
-    Runs migrations, generates demo data, pre-builds Rust, and snapshots
-    Postgres + ClickHouse into a shared volume. Uses HEAD rather than
-    origin/master so the cache builder instance (which checks out a specific
-    branch in cloud-init) picks up that branch's migrations.
-    """
-    current_branch = run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture=True, check=False
-    ).stdout.strip() or "HEAD"
-    info(f"No database cache found. Building from {current_branch} (one-time setup, ~10 min)...")
+def init_cache_from_master() -> None:
+    """Run migrations, generate demo data, pre-build Rust, and snapshot databases."""
+    info("No database cache found. Building from master (one-time setup, ~10 min)...")
 
     init_project = "sandbox-cache-init"
     init_port = 47999
@@ -1680,7 +1659,7 @@ def cmd_rebuild_cache() -> None:
     info("Clearing database cache...")
     clear_volume(DB_CACHE_VOLUME)
     docker_volume_run(DB_CACHE_VOLUME, "chmod 777 /data")
-    init_db_cache()
+    init_cache_from_master()
 
 
 def cmd_nuke() -> None:

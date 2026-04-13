@@ -102,7 +102,7 @@ export default defineConfig(({ mode }) => {
             host: process.argv.includes('--host') || process.env.POSTHOG_SANDBOX ? '0.0.0.0' : 'localhost',
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true,
-            allowedHosts: true,
+            allowedHosts: process.env.POSTHOG_SANDBOX ? true : undefined,
             // JS_URL overrides for sandbox environments where Vite is exposed
             // through a reverse proxy at a different origin (same-origin via
             // Caddy in local sandboxes, https FQDN via Tailscale in cloud).
