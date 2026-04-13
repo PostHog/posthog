@@ -124,7 +124,7 @@ export function Login(): JSX.Element {
             message={
                 <>
                     Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : preflight?.is_debug ? '' : ' (self-hosted)'}!
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : preflight?.is_debug ? ' (local dev)' : ' (self-hosted)'}!
                 </>
             }
             footer={<SupportModalButton />}
