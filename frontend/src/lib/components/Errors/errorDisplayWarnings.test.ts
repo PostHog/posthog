@@ -3,7 +3,7 @@ import { addExceptionStepsMalformedWarning } from './errorDisplayWarnings'
 describe('errorDisplayWarnings', () => {
     it('returns the original object when exception steps are valid', () => {
         const eventProperties = {
-            $exception_steps: [{ message: 'Button clicked', timestamp: '2024-07-09T12:00:02.500Z' }],
+            $exception_steps: [{ $message: 'Button clicked', $timestamp: '2024-07-09T12:00:02.500Z' }],
         }
 
         const result = addExceptionStepsMalformedWarning(eventProperties as any)
@@ -23,12 +23,12 @@ describe('errorDisplayWarnings', () => {
         expect(eventProperties.$cymbal_errors).toEqual(['existing ingestion warning'])
         expect(result.$cymbal_errors).toEqual([
             'existing ingestion warning',
-            'Exception steps malformed: step 0: missing message, timestamp',
+            'Exception steps malformed: step 0: missing $message, $timestamp',
         ])
     })
 
     it('does not duplicate malformed-step warning if already present', () => {
-        const warning = 'Exception steps malformed: step 0: missing message, timestamp'
+        const warning = 'Exception steps malformed: step 0: missing $message, $timestamp'
         const eventProperties = {
             $exception_steps: [{}],
             $cymbal_errors: [warning],

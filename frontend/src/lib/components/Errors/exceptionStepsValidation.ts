@@ -1,10 +1,17 @@
 import { dayjs } from 'lib/dayjs'
 
+export const EXCEPTION_STEP_INTERNAL_FIELDS = {
+    TYPE: '$type',
+    MESSAGE: '$message',
+    LEVEL: '$level',
+    TIMESTAMP: '$timestamp',
+} as const
+
 export type RawExceptionStep = Record<string, unknown> & {
-    type?: unknown
-    message?: unknown
-    level?: unknown
-    timestamp?: unknown
+    $type?: unknown
+    $message?: unknown
+    $level?: unknown
+    $timestamp?: unknown
 }
 
 export function getExceptionStepMalformedReason(step: unknown): string | null {
@@ -13,12 +20,21 @@ export function getExceptionStepMalformedReason(step: unknown): string | null {
     }
 
     const rawStep = step as RawExceptionStep
-    const message = typeof rawStep.message === 'string' && rawStep.message.trim() ? rawStep.message : null
-    const timestamp = rawStep.timestamp
+    const message =
+        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE] === 'string' &&
+        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE].trim()
+            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE]
+            : null
+
+    const timestamp = rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP]
     const hasValidTimestamp =
         (typeof timestamp === 'string' || typeof timestamp === 'number') && dayjs.utc(timestamp).isValid()
 
-    const missing = [!message && 'message', !hasValidTimestamp && 'timestamp'].filter(Boolean)
+    const missing = [
+        !message && EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE,
+        !hasValidTimestamp && EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP,
+    ].filter(Boolean)
+
     if (missing.length > 0) {
         return `missing ${missing.join(', ')}`
     }

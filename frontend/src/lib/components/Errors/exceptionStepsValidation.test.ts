@@ -5,7 +5,7 @@ describe('exceptionStepsValidation', () => {
         it.each([
             {
                 name: 'returns null for a valid step',
-                step: { message: 'Button clicked', timestamp: '2024-07-09T12:00:02.500Z' },
+                step: { $message: 'Button clicked', $timestamp: '2024-07-09T12:00:02.500Z' },
                 expected: null,
             },
             {
@@ -15,18 +15,18 @@ describe('exceptionStepsValidation', () => {
             },
             {
                 name: 'fails when message is missing',
-                step: { timestamp: '2024-07-09T12:00:02.500Z' },
-                expected: 'missing message',
+                step: { $timestamp: '2024-07-09T12:00:02.500Z' },
+                expected: 'missing $message',
             },
             {
                 name: 'fails when timestamp is invalid',
-                step: { message: 'Button clicked', timestamp: 'not-a-timestamp' },
-                expected: 'missing timestamp',
+                step: { $message: 'Button clicked', $timestamp: 'not-a-timestamp' },
+                expected: 'missing $timestamp',
             },
             {
                 name: 'fails when both message and timestamp are invalid',
-                step: { message: '   ', timestamp: null },
-                expected: 'missing message, timestamp',
+                step: { $message: '   ', $timestamp: null },
+                expected: 'missing $message, $timestamp',
             },
         ])('$name', ({ step, expected }) => {
             expect(getExceptionStepMalformedReason(step)).toBe(expected)
@@ -47,13 +47,13 @@ describe('exceptionStepsValidation', () => {
             },
             {
                 name: 'returns the indexed malformed reason',
-                rawSteps: [{ message: 'valid', timestamp: '2024-07-09T12:00:02.500Z' }, 'oops'],
+                rawSteps: [{ $message: 'valid', $timestamp: '2024-07-09T12:00:02.500Z' }, 'oops'],
                 expected: 'step 1: not an object',
             },
             {
                 name: 'returns all malformed reasons',
-                rawSteps: [{}, { message: 'valid' }],
-                expected: 'step 0: missing message, timestamp, step 1: missing timestamp',
+                rawSteps: [{}, { $message: 'valid' }],
+                expected: 'step 0: missing $message, $timestamp, step 1: missing $timestamp',
             },
         ])('$name', ({ rawSteps, expected }) => {
             expect(getExceptionStepsMalformedReason(rawSteps)).toBe(expected)

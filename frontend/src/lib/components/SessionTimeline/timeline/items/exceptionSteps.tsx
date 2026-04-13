@@ -1,6 +1,10 @@
 import { IconList } from '@posthog/icons'
 
-import { RawExceptionStep, getExceptionStepMalformedReason } from 'lib/components/Errors/exceptionStepsValidation'
+import {
+    EXCEPTION_STEP_INTERNAL_FIELDS,
+    RawExceptionStep,
+    getExceptionStepMalformedReason,
+} from 'lib/components/Errors/exceptionStepsValidation'
 import { ErrorEventProperties, ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -119,10 +123,22 @@ function buildStepItem({
     }
 
     const rawStep = step as RawExceptionStep
-    const type = typeof rawStep.type === 'string' && rawStep.type.trim() ? rawStep.type : undefined
-    const message = typeof rawStep.message === 'string' && rawStep.message.trim() ? rawStep.message : ''
-    const level = typeof rawStep.level === 'string' && rawStep.level.trim() ? rawStep.level : undefined
-    const timestamp = parseStepTimestamp(rawStep.timestamp)
+    const type =
+        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE] === 'string' &&
+        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE].trim()
+            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TYPE]
+            : undefined
+    const message =
+        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE] === 'string' &&
+        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE].trim()
+            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE]
+            : ''
+    const level =
+        typeof rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL] === 'string' &&
+        rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL].trim()
+            ? rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.LEVEL]
+            : undefined
+    const timestamp = parseStepTimestamp(rawStep[EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP])
     if (!timestamp) {
         return null
     }

@@ -452,6 +452,25 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
     }
 }
 
+function normalizeExceptionStepForStory(step: unknown): unknown {
+    if (!step || typeof step !== 'object' || Array.isArray(step)) {
+        return step
+    }
+
+    const record = step as Record<string, unknown>
+
+    return {
+        ...record,
+        ...(record.$type === undefined && typeof record.type === 'string' ? { $type: record.type } : {}),
+        ...(record.$message === undefined && typeof record.message === 'string' ? { $message: record.message } : {}),
+        ...(record.$level === undefined && typeof record.level === 'string' ? { $level: record.level } : {}),
+        ...(record.$timestamp === undefined &&
+        (typeof record.timestamp === 'string' || typeof record.timestamp === 'number')
+            ? { $timestamp: record.timestamp }
+            : {}),
+    }
+}
+
 function buildSessionTimelineEvent(
     exceptionSteps?: any[],
     { sessionId = 'session-with-steps' }: { sessionId?: string | null } = {}
@@ -464,12 +483,17 @@ function buildSessionTimelineEvent(
         ...(sessionId != null ? { $session_id: sessionId } : {}),
         $lib: 'web',
     }
+
+    const normalizedExceptionSteps = exceptionSteps?.map(normalizeExceptionStepForStory)
+
     return {
         ...(TEST_EVENTS['javascript_resolved'] as ErrorEventType),
         uuid: 'current-exception-uuid',
         timestamp: '2024-07-09T12:00:05.000Z',
         properties:
-            exceptionSteps !== undefined ? { ...baseProperties, $exception_steps: exceptionSteps } : baseProperties,
+            normalizedExceptionSteps !== undefined
+                ? { ...baseProperties, $exception_steps: normalizedExceptionSteps }
+                : baseProperties,
     }
 }
 

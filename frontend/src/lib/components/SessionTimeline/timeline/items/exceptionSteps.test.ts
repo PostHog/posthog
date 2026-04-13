@@ -10,21 +10,21 @@ describe('ExceptionStepLoader', () => {
             $lib: 'web',
             $exception_steps: [
                 {
-                    message: 'Second valid step',
-                    timestamp: '2024-07-09T12:00:04.000Z',
-                    level: 'info',
+                    $message: 'Second valid step',
+                    $timestamp: '2024-07-09T12:00:04.000Z',
+                    $level: 'info',
                 },
                 {
                     bad: 'row',
                 },
                 {
-                    message: 'First valid step',
-                    timestamp: '2024-07-09T12:00:02.000Z',
-                    type: 'ui.interaction',
+                    $message: 'First valid step',
+                    $timestamp: '2024-07-09T12:00:02.000Z',
+                    $type: 'ui.interaction',
                 },
                 {
-                    message: '',
-                    timestamp: '2024-07-09T12:00:05.000Z',
+                    $message: '',
+                    $timestamp: '2024-07-09T12:00:05.000Z',
                 },
             ],
         } as any)
@@ -43,16 +43,16 @@ describe('ExceptionStepLoader', () => {
             $lib: 'web',
             $exception_steps: [
                 {
-                    message: 'Step A',
-                    timestamp: '2024-07-09T12:00:01.000Z',
+                    $message: 'Step A',
+                    $timestamp: '2024-07-09T12:00:01.000Z',
                 },
                 {
-                    message: 'Step B',
-                    timestamp: '2024-07-09T12:00:02.000Z',
+                    $message: 'Step B',
+                    $timestamp: '2024-07-09T12:00:02.000Z',
                 },
                 {
-                    message: 'Step C',
-                    timestamp: '2024-07-09T12:00:03.000Z',
+                    $message: 'Step C',
+                    $timestamp: '2024-07-09T12:00:03.000Z',
                 },
             ],
         } as any)
@@ -64,14 +64,18 @@ describe('ExceptionStepLoader', () => {
         expect(before.items.map((item) => item.payload.message)).toEqual(['Step B'])
     })
 
-    it('preserves flattened custom step properties', async () => {
+    it('uses $-prefixed internal keys so custom properties can avoid conflicts', async () => {
         const loader = new ExceptionStepLoader('exception-uuid', {
             $lib: 'web',
             $exception_steps: [
                 {
-                    message: 'Payment attempted',
-                    timestamp: '2024-07-09T12:00:01.000Z',
-                    type: 'checkout',
+                    $message: 'Payment attempted',
+                    $timestamp: '2024-07-09T12:00:01.000Z',
+                    $type: 'checkout',
+                    message: 'custom value',
+                    timestamp: 'custom value',
+                    type: 'custom value',
+                    level: 'custom value',
                     retry_count: 2,
                     provider: 'stripe',
                     cart_total: 12900,
@@ -84,7 +88,13 @@ describe('ExceptionStepLoader', () => {
         const renderExpanded = exceptionStepRenderer.renderExpanded
 
         expect(before.items).toHaveLength(1)
+        expect(item.payload.message).toBe('Payment attempted')
+        expect(item.payload.type).toBe('checkout')
         expect(item.payload.stepProperties).toMatchObject({
+            message: 'custom value',
+            timestamp: 'custom value',
+            type: 'custom value',
+            level: 'custom value',
             retry_count: 2,
             provider: 'stripe',
             cart_total: 12900,
