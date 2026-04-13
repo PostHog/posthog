@@ -20,6 +20,7 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { evaluationReportLogic } from './evaluationReportLogic'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -505,6 +506,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 enabled: true,
                 config: { ...existing?.config, evaluation_ids: newIds },
             })
+        },
+
+        saveEvaluationSuccess: ({ evaluation }) => {
+            if (props.evaluationId === 'new' && evaluation?.id) {
+                // Create the pending report if the user configured one during evaluation creation
+                evaluationReportLogic({ evaluationId: 'new' }).actions.createPendingReport(evaluation.id)
+            }
         },
 
         saveEvaluation: async () => {
