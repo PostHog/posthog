@@ -50,28 +50,30 @@ def get_person_and_distinct_ids_for_identifier(
         raise ValueError("person_id must be a non-empty value")
 
     try:
-        from posthog.models import (
-            Person as PersonModel,
-            PersonDistinctId,
-        )
-        from posthog.models.person.person import READ_DB_FOR_PERSONS
-
-        query_manager = PersonModel.objects.db_manager(READ_DB_FOR_PERSONS)
+        from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid
 
         if distinct_id is not None:
-            person = query_manager.filter(team_id=team_id, persondistinctid__distinct_id=distinct_id).first()
+            person = get_person_by_distinct_id(team_id, distinct_id)
         else:
             assert person_id is not None
-            person = query_manager.filter(team_id=team_id, uuid=person_id).first()
+            person = get_person_by_uuid(team_id, person_id)
 
         if person is None:
             return None, []
 
-        distinct_ids = list(
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team_id=team_id, person_id=person.pk)
-            .values_list("distinct_id", flat=True)
-        )
+        # The personhog-routed functions already include distinct_ids
+        if hasattr(person, "distinct_ids"):
+            distinct_ids = person.distinct_ids
+        else:
+            # Fallback for ORM-only path
+            from posthog.models import PersonDistinctId
+            from posthog.models.person.person import READ_DB_FOR_PERSONS
+
+            distinct_ids = list(
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(team_id=team_id, person_id=person.pk)
+                .values_list("distinct_id", flat=True)
+            )
 
         return person, distinct_ids
 
@@ -132,6 +134,9 @@ def build_person_properties_at_time(
     if not all(isinstance(did, str) and did for did in distinct_ids):
         raise ValueError("All distinct_ids must be non-empty strings")
 
+    if not isinstance(timestamp, datetime):
+        raise ValueError("timestamp must be a datetime object")
+
     # Build the ClickHouse query for all distinct_ids
     if include_set_once:
         # Query to get all property update events ($set, $set_once) up to timestamp
@@ -179,8 +184,8 @@ def build_person_properties_at_time(
 
     try:
         rows = sync_execute(query, params, settings={"max_execution_time": timeout})
-    except Exception:
-        raise
+    except Exception as e:
+        raise Exception(f"Failed to query ClickHouse events: {str(e)}")
 
     # Build person properties by applying operations chronologically
     person_properties = {}
