@@ -14,6 +14,28 @@ from oauth2_provider.models import AbstractApplication
 
 from posthog.models.oauth import OAuthApplication
 
+PROVISIONING_AUTH_METHOD_CHOICES = [
+    ("", "Not a provisioning app"),
+    ("pkce", "PKCE"),
+    ("bearer", "Bearer"),
+    ("hmac", "HMAC"),
+]
+
+PROVISIONING_PARTNER_TYPE_CHOICES = [
+    ("", "No partner type"),
+    ("wizard", "Wizard"),
+    ("stripe", "Stripe"),
+]
+
+
+def _choices_with_current_value(
+    choices: list[tuple[str, str]],
+    current_value: str | None,
+) -> list[tuple[str, str]]:
+    if current_value and current_value not in {value for value, _ in choices}:
+        return [*choices, (current_value, f"{current_value} (existing value)")]
+    return choices
+
 
 class OAuthApplicationForm(forms.ModelForm):
     class Meta:
@@ -38,6 +60,28 @@ class OAuthApplicationForm(forms.ModelForm):
         if "provisioning_signing_secret" in self.fields:
             self.fields["provisioning_signing_secret"].help_text = (
                 "Only used for HMAC provisioning partners. Leave blank for PKCE or bearer clients."
+            )
+
+        if "provisioning_auth_method" in self.fields:
+            current_value = self.initial.get("provisioning_auth_method") or getattr(
+                self.instance, "provisioning_auth_method", ""
+            )
+            self.fields["provisioning_auth_method"].widget = forms.Select(
+                choices=_choices_with_current_value(PROVISIONING_AUTH_METHOD_CHOICES, current_value)
+            )
+            self.fields["provisioning_auth_method"].help_text = (
+                "How provisioning requests authenticate. Choose PKCE for the PostHog Wizard."
+            )
+
+        if "provisioning_partner_type" in self.fields:
+            current_value = self.initial.get("provisioning_partner_type") or getattr(
+                self.instance, "provisioning_partner_type", ""
+            )
+            self.fields["provisioning_partner_type"].widget = forms.Select(
+                choices=_choices_with_current_value(PROVISIONING_PARTNER_TYPE_CHOICES, current_value)
+            )
+            self.fields["provisioning_partner_type"].help_text = (
+                "Which provisioning integration this app belongs to."
             )
 
         # For new applications, set defaults
@@ -158,6 +202,13 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party")}),
+                (
+                    "Provisioning",
+                    {
+                        "description": "Provisioning settings for agentic partners. HMAC signing secret is only used for HMAC clients.",
+                        "fields": tuple(provisioning_fields),
+                    },
+                ),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):
