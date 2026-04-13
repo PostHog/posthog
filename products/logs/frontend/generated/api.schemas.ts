@@ -600,6 +600,29 @@ export type LogsAlertsListParams = {
     offset?: number
 }
 
+export type LogsAlertsChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter checks by outcome.
+     */
+    outcome?: LogsAlertsChecksListOutcome
+}
+
+export type LogsAlertsChecksListOutcome = (typeof LogsAlertsChecksListOutcome)[keyof typeof LogsAlertsChecksListOutcome]
+
+export const LogsAlertsChecksListOutcome = {
+    Breached: 'breached',
+    Errored: 'errored',
+    Ok: 'ok',
+} as const
+
 export type LogsAttributesRetrieveParams = {
     /**
  * Type of attributes: "log" for log attributes, "resource" for resource attributes
@@ -662,29 +685,6 @@ export type LogsValuesRetrieveAttributeType =
 export const LogsValuesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
-} as const
-
-export type LogsAlertsChecksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter checks by outcome.
-     */
-    outcome?: LogsAlertsChecksListOutcome
-}
-
-export type LogsAlertsChecksListOutcome = (typeof LogsAlertsChecksListOutcome)[keyof typeof LogsAlertsChecksListOutcome]
-
-export const LogsAlertsChecksListOutcome = {
-    Breached: 'breached',
-    Errored: 'errored',
-    Ok: 'ok',
 } as const
 
 export type PluginConfigsLogsListParams = {

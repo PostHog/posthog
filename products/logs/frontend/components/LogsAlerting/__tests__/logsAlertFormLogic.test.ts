@@ -62,6 +62,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
         hedgehog_config: null,
     },
     updated_at: null,
+    sparkline: [],
 }
 
 const MOCK_CREATED_ALERT: LogsAlertConfigurationApi = {

@@ -134,3 +134,6 @@ tools:
     logs-sparkline-create:
         operation: logs_sparkline_create
         enabled: false
+    logs-alerts-checks-list:
+        operation: logs_alerts_checks_list
+        enabled: false

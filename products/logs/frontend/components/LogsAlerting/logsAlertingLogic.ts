@@ -13,9 +13,9 @@ import {
     logsAlertsPartialUpdate,
 } from 'products/logs/frontend/generated/api'
 import {
-    LogsAlertCheckApi,
     LogsAlertsChecksListOutcome,
     LogsAlertConfigurationApi,
+    PaginatedLogsAlertCheckListApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
@@ -97,17 +97,12 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             },
         ],
         checkHistory: [
+            { count: 0, results: [], next: null, previous: null } as PaginatedLogsAlertCheckListApi,
             {
-                count: 0,
-                results: [] as LogsAlertCheckApi[],
-                next: null as string | null,
-                previous: null as string | null,
-            },
-            {
-                loadCheckHistory: async () => {
+                loadCheckHistory: async (): Promise<PaginatedLogsAlertCheckListApi> => {
                     const alert = values.checkHistoryAlert
                     if (!alert) {
-                        return { results: [], next: null, previous: null }
+                        return { count: 0, results: [], next: null, previous: null }
                     }
                     const projectId = String(values.currentTeamId)
                     const outcome = values.checkHistoryOutcome
@@ -117,7 +112,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
                         outcome !== 'all' ? { outcome: outcome as LogsAlertsChecksListOutcome } : {}
                     )
                 },
-                loadCheckHistoryPage: async ({ url }) => {
+                loadCheckHistoryPage: async ({ url }): Promise<PaginatedLogsAlertCheckListApi> => {
                     return await api.get(url)
                 },
             },
