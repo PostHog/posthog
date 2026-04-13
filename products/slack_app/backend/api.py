@@ -64,7 +64,6 @@ PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
 SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
 
-_GITHUB_REPOS_PER_PAGE = 100
 _MAX_GITHUB_REPOS = 500
 REPO_LIST_CACHE_TTL_SECONDS = 300
 
@@ -875,26 +874,18 @@ def _get_full_repo_names(integration: Integration) -> list[str]:
 
     for record in github_records:
         github = GitHubIntegration(record)
-
-        page = 1
-        while True:
-            repo_entries = github.list_repositories(page=page)
-            for repo in repo_entries:
-                full_name = repo["full_name"]
-                all_repos.add(full_name)
-                if len(all_repos) >= _MAX_GITHUB_REPOS:
-                    logger.warning(
-                        "github_repo_list_capped",
-                        team_id=integration.team_id,
-                        cap=_MAX_GITHUB_REPOS,
-                    )
-                    result = sorted(all_repos)
-                    cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
-                    return result
-
-            if len(repo_entries) < _GITHUB_REPOS_PER_PAGE:
-                break
-            page += 1
+        repo_entries = github.list_all_repositories(max_repos=_MAX_GITHUB_REPOS)
+        for repo in repo_entries:
+            all_repos.add(repo["full_name"])
+            if len(all_repos) >= _MAX_GITHUB_REPOS:
+                logger.warning(
+                    "github_repo_list_capped",
+                    team_id=integration.team_id,
+                    cap=_MAX_GITHUB_REPOS,
+                )
+                result = sorted(all_repos)
+                cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
+                return result
 
     result = sorted(all_repos)
     if result:

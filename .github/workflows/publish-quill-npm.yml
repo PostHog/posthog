@@ -42,31 +42,49 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile --filter "@posthog/quill-*" --filter "@posthog/quill"
+              run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens"
 
             - name: Build quill packages
               run: pnpm quill:build
 
-            - name: Publish quill packages
+            # Only the public facade packages get published. The internal
+            # workspace members (-primitives, -components, -blocks) have
+            # `private: true` and are bundled into @posthog/quill at build
+            # time. Each public package gets its own publish + version-capture
+            # step so a failure shows up on the exact step that broke.
+            - name: Publish @posthog/quill-tokens
+              id: publish-tokens
               run: |
-                  for pkg in quill-tokens quill-primitives quill-components quill-blocks; do
-                    echo "Publishing @posthog/$pkg"
-                    pnpm --filter "@posthog/$pkg" publish --tag "$NPM_TAG" --no-git-checks --access public
-                  done
+                  pnpm --filter "@posthog/quill-tokens" publish --tag "$NPM_TAG" --no-git-checks --access public
+                  VERSION=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
                   NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 
-            - name: Get published versions
-              id: versions
+            - name: Publish @posthog/quill
+              id: publish-quill
               run: |
-                  SUMMARY=""
-                  for pkg in quill-tokens quill-primitives quill-components quill-blocks; do
-                    VERSION=$(node -p "require('./packages/quill/packages/${pkg#quill-}/package.json').version")
-                    SUMMARY="$SUMMARY@posthog/$pkg@$VERSION, "
-                  done
-                  echo "summary=${SUMMARY%, }" >> $GITHUB_OUTPUT
+                  pnpm --filter "@posthog/quill" publish --tag "$NPM_TAG" --no-git-checks --access public
+                  VERSION=$(node -p "require('./packages/quill/packages/quill/package.json').version")
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+              env:
+                  NODE_AUTH_TOKEN: ''
+                  NPM_CONFIG_PROVENANCE: true
+                  NPM_TAG: ${{ inputs.tag }}
+
+            - name: Build Slack summary
+              id: versions
+              env:
+                  # Route step outputs through env vars rather than interpolating them
+                  # directly into `run:` — semgrep's github-actions-shell-injection rule
+                  # treats any `${{ steps.*.outputs.* }}` inside a shell script as a
+                  # defense-in-depth hazard, even when the upstream value is trusted.
+                  TOKENS_VERSION: ${{ steps.publish-tokens.outputs.version }}
+                  QUILL_VERSION: ${{ steps.publish-quill.outputs.version }}
+              run: |
+                  echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}" >> $GITHUB_OUTPUT
 
             - name: Notify Slack
               if: ${{ !cancelled() }}

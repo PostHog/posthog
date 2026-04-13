@@ -1,6 +1,6 @@
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export { Badge, badgeVariants } from './badge'
-export { Button, buttonVariants } from './button'
+export { Button, buttonVariants, type ButtonProps } from './button'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'

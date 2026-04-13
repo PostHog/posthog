@@ -437,3 +437,103 @@ def test_full_job_property_removal_single_property(cluster: ClickhouseCluster):
 
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+def _assert_subfield_removed(props: dict, path: str) -> None:
+    """Assert a dotted subfield path was removed from props."""
+    parts = path.split(".")
+    obj = props
+    for part in parts[:-1]:
+        obj = obj.get(part, {})
+    assert parts[-1] not in obj, f"{path} should be removed, got {props}"
+
+
+def _assert_subfield_present(props: dict, path: str, expected_value: object) -> None:
+    """Assert a dotted subfield path is present with expected value.
+
+    Skips if a parent key is missing (control event that never had this structure).
+    """
+    parts = path.split(".")
+    obj = props
+    for part in parts[:-1]:
+        child = obj.get(part)
+        if child is None:
+            return
+        obj = child
+    assert obj.get(parts[-1]) == expected_value, f"{path} should be {expected_value}, got {props}"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "properties, target_props_obj, expected_removed, expected_preserved",
+    [
+        pytest.param(
+            ["sub.prop", "sub2.a"],
+            {"keep": "yes", "sub": {"prop": "value", "other": "keep"}, "sub2": {"a": "b", "c": "d"}},
+            ["sub.prop", "sub2.a"],
+            [("keep", "yes"), ("sub.other", "keep"), ("sub2.c", "d")],
+            id="multiple_subfields",
+        ),
+        pytest.param(
+            ["nested.secret"],
+            {"keep": "yes", "nested": {"secret": "value", "visible": "ok"}},
+            ["nested.secret"],
+            [("keep", "yes"), ("nested.visible", "ok")],
+            id="single_subfield",
+        ),
+    ],
+)
+def test_full_job_property_removal_subfield_only(
+    cluster: ClickhouseCluster,
+    properties: list[str],
+    target_props_obj: dict,
+    expected_removed: list[str],
+    expected_preserved: list[tuple[str, object]],
+):
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    target_props = json.dumps(target_props_obj)
+    no_target_props = json.dumps({"keep": "yes", "other": "value"})
+
+    target_events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), target_props) for i in range(30)]
+    control_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), no_target_props) for i in range(20)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_properties, target_events + control_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=properties,
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 50
+
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    for props in all_props:
+        for path in expected_removed:
+            _assert_subfield_removed(props, path)
+        for path, value in expected_preserved:
+            _assert_subfield_present(props, path, value)
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED

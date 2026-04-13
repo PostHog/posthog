@@ -25,6 +25,7 @@ from posthog.schema import (
 )
 
 from posthog.api.mixins import PydanticModelMixin
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -510,63 +511,64 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("value", "")
-        limit = request.GET.get("limit", 100)
-        offset = request.GET.get("offset", 0)
-        attributeKey = request.GET.get("key", "")
+        with PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time():
+            search = request.GET.get("value", "")
+            limit = request.GET.get("limit", 100)
+            offset = request.GET.get("offset", 0)
+            attributeKey = request.GET.get("key", "")
 
-        if not attributeKey:
-            return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
+            if not attributeKey:
+                return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            # Default to last hour if dateRange is malformed
-            dateRange = DateRange(date_from="-1h")
+            try:
+                dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
+            except (json.JSONDecodeError, ValidationError, ValueError):
+                # Default to last hour if dateRange is malformed
+                dateRange = DateRange(date_from="-1h")
 
-        try:
-            serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
-        except json.JSONDecodeError:
-            serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+            try:
+                serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
+            except json.JSONDecodeError:
+                serviceNames = []
+            try:
+                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
+            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
+                filterGroup = None
 
-        attributeType = request.GET.get("attribute_type", "log")
-        # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
-        # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
-        if attributeType not in ["log", "resource"]:
-            attributeType = "log"
+            attributeType = request.GET.get("attribute_type", "log")
+            # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
+            # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
+            if attributeType not in ["log", "resource"]:
+                attributeType = "log"
 
-        try:
-            limit = int(limit)
-        except ValueError:
-            limit = 100
+            try:
+                limit = int(limit)
+            except ValueError:
+                limit = 100
 
-        try:
-            offset = int(offset)
-        except ValueError:
-            offset = 0
+            try:
+                offset = int(offset)
+            except ValueError:
+                offset = 0
 
-        query = LogValuesQuery(
-            dateRange=dateRange,
-            attributeKey=attributeKey,
-            attributeType=attributeType,
-            search=search,
-            limit=limit,
-            offset=offset,
-            serviceNames=serviceNames,
-            filterGroup=filterGroup,
-        )
+            query = LogValuesQuery(
+                dateRange=dateRange,
+                attributeKey=attributeKey,
+                attributeType=attributeType,
+                search=search,
+                limit=limit,
+                offset=offset,
+                serviceNames=serviceNames,
+                filterGroup=filterGroup,
+            )
 
-        runner = LogValuesQueryRunner(team=self.team, query=query)
+            runner = LogValuesQueryRunner(team=self.team, query=query)
 
-        result = runner.calculate()
-        return Response(
-            {"results": [r.model_dump() for r in result.results], "refreshing": False},
-            status=status.HTTP_200_OK,
-        )
+            result = runner.calculate()
+            return Response(
+                {"results": [r.model_dump() for r in result.results], "refreshing": False},
+                status=status.HTTP_200_OK,
+            )
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
