@@ -21,6 +21,7 @@ services:
             - 'capture-ai:host-gateway'
             - 'replay-capture:host-gateway'
             - 'feature-flags:host-gateway'
+            - 'hypercache-server:host-gateway'
         environment:
             CADDYFILE: |
                 http://localhost:8000 {
@@ -53,6 +54,17 @@ services:
                         path /flags*
                     }
 
+                    @surveys {
+                        path /surveys
+                        path /surveys/
+                        path /api/surveys
+                        path /api/surveys/
+                    }
+
+                    @remote-config {
+                        path /array/*
+                    }
+
                     @webhooks {
                         path /public/webhooks
                         path /public/webhooks/*
@@ -78,6 +90,14 @@ services:
 
                     handle @flags {
                         reverse_proxy feature-flags:3001
+                    }
+
+                    handle @surveys {
+                        reverse_proxy hypercache-server:3002
+                    }
+
+                    handle @remote-config {
+                        reverse_proxy hypercache-server:3002
                     }
 
                     handle @webhooks {

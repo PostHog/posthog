@@ -106,6 +106,10 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.count_playlist_items import (
+    ACTIVITIES as COUNT_PLAYLIST_ITEMS_ACTIVITIES,
+    WORKFLOWS as COUNT_PLAYLIST_ITEMS_WORKFLOWS,
+)
 from posthog.temporal.session_replay.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
@@ -125,6 +129,10 @@ from posthog.temporal.session_replay.import_recording import (
 from posthog.temporal.session_replay.rasterize_recording import (
     ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
     WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.session_replay.replay_count_metrics import (
+    ACTIVITIES as REPLAY_COUNT_METRICS_ACTIVITIES,
+    WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
 from posthog.temporal.subscriptions import (
@@ -267,17 +275,21 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS
+        COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + DELETE_RECORDING_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
         + IMPORT_RECORDING_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
+        + REPLAY_COUNT_METRICS_WORKFLOWS
         + SESSION_SUMMARY_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES
+        COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + DELETE_RECORDING_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES
         + IMPORT_RECORDING_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
+        + REPLAY_COUNT_METRICS_ACTIVITIES
         + SESSION_SUMMARY_ACTIVITIES,
     ),
     (

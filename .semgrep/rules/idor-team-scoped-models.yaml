@@ -187,6 +187,7 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |TicketView
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -376,6 +377,7 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |TicketView
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview

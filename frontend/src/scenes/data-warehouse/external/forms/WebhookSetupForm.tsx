@@ -114,7 +114,7 @@ export function WebhookSetupForm({
             )}
             {webhookFields.length > 0 && sourceConfig && formLogic && formKey && (
                 <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
-                    <div className="space-y-3">
+                    <div className="space-y-3 ph-no-capture">
                         {webhookFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
                         <LemonButton type="primary" htmlType="submit">
                             Save
@@ -131,7 +131,9 @@ export function WebhookUrlDisplay({ url }: { url: string }): JSX.Element {
         <div>
             <label className="font-semibold text-sm">Webhook URL</label>
             <div className="flex items-center gap-2 mt-1">
-                <code className="text-sm bg-bg-light rounded border px-2 py-1 break-all flex-1">{url}</code>
+                <code className="text-sm bg-bg-light rounded border px-2 py-1 break-all flex-1 ph-no-capture">
+                    {url}
+                </code>
                 <LemonButton
                     icon={<IconCopy />}
                     size="small"
