@@ -1,17 +1,21 @@
+import { CLOUD_HOSTNAMES } from 'lib/constants'
+
 import { Region } from '~/types'
 
-// Hostname → cloud region, used for status page URLs and incident filtering.
-// Shared single source of truth — sidePanelStatusIncidentIoLogic derives its
-// group name from this map via getCloudRegionFromHostname().
-const HOSTNAME_REGION_MAP: Record<string, Region> = {
-    'us.posthog.com': Region.US,
-    'eu.posthog.com': Region.EU,
+// Reverse lookup from CLOUD_HOSTNAMES (Region → hostname) to hostname → Region.
+// Used for status page URLs and incident filtering.
+const HOSTNAME_TO_REGION = Object.fromEntries(
+    Object.entries(CLOUD_HOSTNAMES).map(([region, hostname]) => [hostname, region as Region])
+) as Record<string, Region>
+
+// Localhost defaults to US for local dev and Storybook CI
+const DEV_HOSTNAMES: Record<string, Region> = {
     localhost: Region.US,
     '127.0.0.1': Region.US,
 }
 
 export function getCloudRegionFromHostname(): Region | null {
-    return HOSTNAME_REGION_MAP[window.location.hostname] ?? null
+    return HOSTNAME_TO_REGION[window.location.hostname] ?? DEV_HOSTNAMES[window.location.hostname] ?? null
 }
 
 // Raw incident.io API types
