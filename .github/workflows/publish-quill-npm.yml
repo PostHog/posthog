@@ -44,6 +44,27 @@ jobs:
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4
 
+            - name: Diagnostic — npm and OIDC env
+              run: |
+                  echo "=== npm version ==="
+                  which npm
+                  npm --version
+                  node --version
+                  echo ""
+                  echo "=== OIDC env vars (unmasked names only) ==="
+                  env | awk -F= '/^ACTIONS_ID_TOKEN_REQUEST_/ {print $1}'
+                  echo ""
+                  echo "=== NPM env vars (names only) ==="
+                  env | awk -F= '/^NPM_|^NODE_AUTH/ {print $1}'
+                  echo ""
+                  echo "=== .npmrc path: $NPM_CONFIG_USERCONFIG ==="
+                  if [ -f "$NPM_CONFIG_USERCONFIG" ]; then
+                      cat "$NPM_CONFIG_USERCONFIG" | sed 's/_authToken=.*/_authToken=<redacted>/'
+                  fi
+                  echo ""
+                  echo "=== npm config get registry ==="
+                  npm config get registry
+
             - name: Install dependencies
               run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens"
 
@@ -59,7 +80,7 @@ jobs:
               id: publish-tokens
               working-directory: packages/quill/packages/tokens
               run: |
-                  npm publish --tag "$NPM_TAG" --access public
+                  npm publish --tag "$NPM_TAG" --access public --verbose 2>&1 || { echo "=== post-failure .npmrc ==="; cat "$NPM_CONFIG_USERCONFIG" | sed 's/_authToken=.*/_authToken=<redacted>/'; echo "=== npm debug log ==="; cat ~/.npm/_logs/*-debug-*.log 2>/dev/null | tail -100; exit 1; }
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
@@ -78,7 +99,7 @@ jobs:
               id: publish-quill
               working-directory: packages/quill/packages/quill
               run: |
-                  npm publish --tag "$NPM_TAG" --access public
+                  npm publish --tag "$NPM_TAG" --access public --verbose 2>&1 || { echo "=== post-failure .npmrc ==="; cat "$NPM_CONFIG_USERCONFIG" | sed 's/_authToken=.*/_authToken=<redacted>/'; echo "=== npm debug log ==="; cat ~/.npm/_logs/*-debug-*.log 2>/dev/null | tail -100; exit 1; }
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
