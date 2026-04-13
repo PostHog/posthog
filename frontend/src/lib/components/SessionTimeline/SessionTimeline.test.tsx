@@ -61,6 +61,25 @@ class TestPagedLoader implements ItemLoader<TestItem> {
     constructor(private readonly items: TestItem[]) {}
 }
 
+async function waitForCallCountToSettle(getCallCount: () => number): Promise<number> {
+    let previousCallCount = getCallCount()
+    let stableChecks = 0
+
+    while (stableChecks < 5) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+
+        const nextCallCount = getCallCount()
+        if (nextCallCount === previousCallCount) {
+            stableChecks += 1
+        } else {
+            stableChecks = 0
+            previousCallCount = nextCallCount
+        }
+    }
+
+    return previousCallCount
+}
+
 describe('SessionTimeline', () => {
     it('refills items when category filtering leaves the viewport underfilled', async () => {
         const center = dayjs.utc('2024-07-09T12:00:00.000Z')
@@ -135,5 +154,67 @@ describe('SessionTimeline', () => {
                 throw new Error('Expected selected category loader to fetch additional data after filtering')
             }
         })
+    })
+
+    it('stops filter refill when only hidden categories keep growing', async () => {
+        const center = dayjs.utc('2024-07-09T12:00:00.000Z')
+        const collector = new ItemCollector('session-id', center)
+
+        const visibleLoader = new TestPagedLoader(generateItems(ItemCategory.ERROR_TRACKING, center, 2, 2))
+        const hiddenLoader = new TestPagedLoader(generateItems(ItemCategory.PAGE_VIEWS, center, 2000, 2000))
+
+        collector.addCategory(ItemCategory.ERROR_TRACKING, buildRenderer(ItemCategory.ERROR_TRACKING), visibleLoader)
+        collector.addCategory(ItemCategory.PAGE_VIEWS, buildRenderer(ItemCategory.PAGE_VIEWS), hiddenLoader)
+
+        const { container } = render(
+            <div style={{ width: 700, height: 320 }}>
+                <SessionTimeline collector={collector} />
+            </div>
+        )
+
+        const scrollContainer = container.querySelector(
+            '[data-attr="session-timeline-scroll-container"]'
+        ) as HTMLDivElement
+        expect(scrollContainer).toBeTruthy()
+
+        Object.defineProperty(scrollContainer, 'clientHeight', {
+            configurable: true,
+            get: () => 320,
+        })
+
+        Object.defineProperty(scrollContainer, 'scrollHeight', {
+            configurable: true,
+            get: () => scrollContainer.querySelectorAll('[data-item-id]').length * 32,
+        })
+
+        await waitFor(() => {
+            const rowCount = scrollContainer.querySelectorAll('[data-item-id]').length
+            if (rowCount <= 0) {
+                throw new Error('Timeline did not render any items yet')
+            }
+        })
+
+        const hiddenCallsBeforeToggle = await waitForCallCountToSettle(
+            () => hiddenLoader.loadBefore.mock.calls.length + hiddenLoader.loadAfter.mock.calls.length
+        )
+
+        const pageViewsToggle = container.querySelector(
+            '[data-attr="session-timeline-category-toggle-pageviews"]'
+        ) as HTMLButtonElement
+        fireEvent.click(pageViewsToggle)
+
+        await waitFor(() => {
+            const hiddenCallsAfterToggle =
+                hiddenLoader.loadBefore.mock.calls.length + hiddenLoader.loadAfter.mock.calls.length
+            if (hiddenCallsAfterToggle <= hiddenCallsBeforeToggle) {
+                throw new Error('Expected hidden loader to be queried at least once after filtering')
+            }
+        })
+
+        const settledHiddenCallCount = await waitForCallCountToSettle(
+            () => hiddenLoader.loadBefore.mock.calls.length + hiddenLoader.loadAfter.mock.calls.length
+        )
+
+        expect(settledHiddenCallCount - hiddenCallsBeforeToggle).toBeLessThanOrEqual(2)
     })
 })

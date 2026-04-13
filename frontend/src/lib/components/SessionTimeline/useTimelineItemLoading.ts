@@ -163,7 +163,9 @@ export function useTimelineItemLoading({
 
         const refillAfterFilter = async (): Promise<void> => {
             let refillIterations = 0
-            let previousItemCount = collector.collectItems().length
+            let previousFilteredItemCount = collector
+                .collectItems()
+                .filter((item) => activeCategorySet.has(item.category)).length
 
             while (
                 !cancelled &&
@@ -199,14 +201,14 @@ export function useTimelineItemLoading({
                 }
 
                 const nextItems = collector.collectItems()
+                const nextFilteredItemCount = nextItems.filter((item) => activeCategorySet.has(item.category)).length
                 setItems(nextItems)
 
-                // Safety valve: avoid spinning if a loader reports "has more"
-                // but does not append anything.
-                if (nextItems.length <= previousItemCount) {
+                // Safety valve: avoid spinning when no new visible items are produced.
+                if (nextFilteredItemCount <= previousFilteredItemCount) {
                     break
                 }
-                previousItemCount = nextItems.length
+                previousFilteredItemCount = nextFilteredItemCount
 
                 await nextFrame()
                 if (cancelled) {
