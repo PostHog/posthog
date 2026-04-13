@@ -444,6 +444,74 @@ const AssistantPropertyFilter = z.union([
     AssistantFlagPropertyFilter,
 ])
 
+const AssistantRecordingPropertyFilter = z.union([
+    z.object({
+        key: z
+            .string()
+            .describe(
+                'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
+            ),
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: z.literal('recording').default('recording'),
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        key: z
+            .string()
+            .describe(
+                'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
+            ),
+        operator: AssistantNumericValuePropertyFilterOperator,
+        type: z.literal('recording').default('recording'),
+        value: z.coerce.number(),
+    }),
+    z.object({
+        key: z
+            .string()
+            .describe(
+                'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
+            ),
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: z.literal('recording').default('recording'),
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+    z.object({
+        key: z
+            .string()
+            .describe(
+                'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
+            ),
+        operator: AssistantDateTimePropertyFilterOperator,
+        type: z.literal('recording').default('recording'),
+        value: z.string().describe('Value must be a date in ISO 8601 format.'),
+    }),
+    z.object({
+        key: z
+            .string()
+            .describe(
+                'Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. "web", "mobile").'
+            ),
+        operator: AssistantSetPropertyFilterOperator.describe(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+        ),
+        type: z.literal('recording').default('recording'),
+    }),
+])
+
+const AssistantRecordingsQueryPropertyFilter = z.union([AssistantPropertyFilter, AssistantRecordingPropertyFilter])
+
 const AssistantRecordingsQuery = z.object({
     after: z.string().describe("Cursor for pagination from a previous response's next_cursor field.").optional(),
     date_from: z
@@ -467,7 +535,7 @@ const AssistantRecordingsQuery = z.object({
     order_direction: RecordingOrderDirection.describe('Sort direction: "ASC" or "DESC". Default: "DESC".').optional(),
     person_uuid: z.string().describe('Filter recordings to a specific person by their UUID.').optional(),
     properties: z
-        .array(AssistantPropertyFilter)
+        .array(AssistantRecordingsQueryPropertyFilter)
         .describe(
             'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).'
         )

@@ -229,6 +229,25 @@ export interface AssistantFlagPropertyFilter {
     value: boolean | string
 }
 
+export type AssistantRecordingPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Recording
+    /**
+     * Recording metric to filter on.
+     * - `duration` — total recording duration in seconds.
+     * - `active_seconds` — seconds with user activity.
+     * - `inactive_seconds` — seconds without user activity.
+     * - `console_error_count` — number of console errors.
+     * - `console_log_count` — number of console log entries.
+     * - `console_warn_count` — number of console warnings.
+     * - `click_count` — number of clicks.
+     * - `keypress_count` — number of key presses.
+     * - `activity_score` — computed activity score (0-100).
+     * - `visited_page` — URL visited during the session.
+     * - `snapshot_source` — the recording source (e.g. "web", "mobile").
+     */
+    key: string
+}
+
 export type AssistantPropertyFilter =
     | AssistantGenericPropertyFilter
     | AssistantGroupPropertyFilter
@@ -236,6 +255,12 @@ export type AssistantPropertyFilter =
     | AssistantElementPropertyFilter
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
+
+/**
+ * Extended property filter union for recordings queries that also supports
+ * recording-specific metric filters (e.g. duration, click_count, activity_score).
+ */
+export type AssistantRecordingsQueryPropertyFilter = AssistantPropertyFilter | AssistantRecordingPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -1261,7 +1286,7 @@ export interface AssistantRecordingsQuery {
      * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
      * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
      */
-    properties?: AssistantPropertyFilter[]
+    properties?: AssistantRecordingsQueryPropertyFilter[]
     /** Exclude internal and test users. Default: false. */
     filter_test_accounts?: boolean
     /** Sort field. Options: "start_time", "duration", "activity_score", "console_error_count", "click_count". Default: "start_time". */

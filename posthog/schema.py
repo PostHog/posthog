@@ -454,6 +454,88 @@ class AssistantPathCleaningFilter(BaseModel):
     )
 
 
+class AssistantRecordingPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: Literal["recording"] = "recording"
+    value: float
+
+
+class AssistantRecordingPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ...,
+        description=("`exact` - exact match of any of the values. `is_not` - does not match any of the values."),
+    )
+    type: Literal["recording"] = "recording"
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If"
+            " you have a number, convert it to a string first. If you have a boolean,"
+            ' convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantRecordingPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Literal["recording"] = "recording"
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -5441,78 +5523,73 @@ class AssistantPathsFilter(BaseModel):
     )
 
 
-class AssistantRecordingsQuery(BaseModel):
+class AssistantRecordingPropertyFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    after: str | None = Field(
-        default=None,
-        description=("Cursor for pagination from a previous response's next_cursor field."),
-    )
-    date_from: str | None = Field(
-        default=None,
+    key: str = Field(
+        ...,
         description=(
-            'Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d".'
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
         ),
     )
-    date_to: str | None = Field(
-        default=None,
-        description=("End of the date range. Supports relative dates or ISO 8601 format. Default: now."),
-    )
-    filter_test_accounts: bool | None = Field(
-        default=None, description="Exclude internal and test users. Default: false."
-    )
-    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
-    limit: int | None = Field(default=None, description="Maximum number of recordings to return.")
-    order: RecordingOrder | None = Field(
-        default=None,
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
+        ...,
         description=(
-            'Sort field. Options: "start_time", "duration", "activity_score",'
-            ' "console_error_count", "click_count". Default: "start_time".'
+            "`icontains` - case insensitive contains. `not_icontains` - case"
+            " insensitive does not contain. `regex` - matches the regex pattern."
+            " `not_regex` - does not match the regex pattern."
         ),
     )
-    order_direction: RecordingOrderDirection | None = Field(
-        default=None, description='Sort direction: "ASC" or "DESC". Default: "DESC".'
-    )
-    person_uuid: str | None = Field(
-        default=None,
-        description="Filter recordings to a specific person by their UUID.",
-    )
-    properties: (
-        list[
-            AssistantCohortPropertyFilter
-            | AssistantHogQLPropertyFilter
-            | AssistantFlagPropertyFilter
-            | AssistantGenericPropertyFilter1
-            | AssistantGenericPropertyFilter2
-            | AssistantGenericPropertyFilter3
-            | AssistantGenericPropertyFilter4
-            | AssistantGenericPropertyFilter5
-            | AssistantGroupPropertyFilter1
-            | AssistantGroupPropertyFilter2
-            | AssistantGroupPropertyFilter3
-            | AssistantGroupPropertyFilter4
-            | AssistantGroupPropertyFilter5
-            | AssistantElementPropertyFilter1
-            | AssistantElementPropertyFilter2
-            | AssistantElementPropertyFilter3
-            | AssistantElementPropertyFilter4
-            | AssistantElementPropertyFilter5
-        ]
-        | None
-    ) = Field(
-        default=None,
+    type: Literal["recording"] = "recording"
+    value: str = Field(
+        ...,
         description=(
-            "Property filters to narrow results. Each filter has a `key`, `value`,"
-            " `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person"
-            " properties (e.g. email, country).\n- `session`: Filter by session"
-            " properties (e.g. $session_duration, $channel_type,"
-            " $entry_current_url).\n- `event`: Filter by properties of events in the"
-            " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
-            " recording metrics (e.g. console_error_count, click_count,"
-            " activity_score)."
+            "Only use property values from the plan. If the operator is `regex` or"
+            " `not_regex`, the value must be a valid ClickHouse regex pattern to match"
+            " against. Otherwise, the value must be a substring that will be matched"
+            " against the property value. Use the string values `true` or `false` for"
+            " boolean properties."
         ),
     )
+
+
+class AssistantRecordingPropertyFilter5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't"
+            " have a value or wasn't collected."
+        ),
+    )
+    type: Literal["recording"] = "recording"
 
 
 class AssistantRetentionActionsNode(BaseModel):
@@ -9015,6 +9092,85 @@ class AssistantPathsQuery(BaseModel):
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantRecordingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(
+        default=None,
+        description=("Cursor for pagination from a previous response's next_cursor field."),
+    )
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            'Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d".'
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=("End of the date range. Supports relative dates or ISO 8601 format. Default: now."),
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None, description="Exclude internal and test users. Default: false."
+    )
+    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: int | None = Field(default=None, description="Maximum number of recordings to return.")
+    order: RecordingOrder | None = Field(
+        default=None,
+        description=(
+            'Sort field. Options: "start_time", "duration", "activity_score",'
+            ' "console_error_count", "click_count". Default: "start_time".'
+        ),
+    )
+    order_direction: RecordingOrderDirection | None = Field(
+        default=None, description='Sort direction: "ASC" or "DESC". Default: "DESC".'
+    )
+    person_uuid: str | None = Field(
+        default=None,
+        description="Filter recordings to a specific person by their UUID.",
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+            | AssistantRecordingPropertyFilter1
+            | AssistantRecordingPropertyFilter2
+            | AssistantRecordingPropertyFilter3
+            | AssistantRecordingPropertyFilter4
+            | AssistantRecordingPropertyFilter5
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Property filters to narrow results. Each filter has a `key`, `value`,"
+            " `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person"
+            " properties (e.g. email, country).\n- `session`: Filter by session"
+            " properties (e.g. $session_duration, $channel_type,"
+            " $entry_current_url).\n- `event`: Filter by properties of events in the"
+            " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
+            " recording metrics (e.g. console_error_count, click_count,"
+            " activity_score)."
+        ),
     )
 
 
