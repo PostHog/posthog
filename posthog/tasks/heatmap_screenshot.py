@@ -302,9 +302,12 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 _scroll_page(page)
 
                 # Hide scrollbars so they don't appear in the exported image
-                page.add_style_tag(
-                    content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
-                )
+                try:
+                    page.add_style_tag(
+                        content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
+                    )
+                except Exception:
+                    pass
 
                 # Take full-page screenshot without resizing viewport
                 # (resizing viewport causes elements with vh units to expand)
