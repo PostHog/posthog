@@ -1,0 +1,68 @@
+<clickhouse>
+    <!--
+    Satellite cluster definitions for the multi-node dev stack.
+
+    In single-node mode (docker-compose.dev.yml) these clusters come from
+    default.xml. In multi-node mode (docker-compose.dev-coordinator.yml) the
+    per-node overlays (data_node.xml, coordinator.xml, logs_node.xml) only
+    declare the clusters that actually have multi-node semantics (posthog,
+    posthog_single_shard, posthog_migrations). The satellite clusters below
+    get merged in via this file so legacy migrations and ch_migrate plans
+    that reference them don't hit "Requested cluster 'X' not found".
+
+    Every satellite cluster points at clickhouse:9000 in the dev stack
+    because there's no real satellite topology — they're logical clusters
+    that collapse to the main data node. This mirrors the single-node
+    default.xml behavior.
+    -->
+    <remote_servers>
+        <posthog_writable>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_writable>
+        <posthog_primary_replica>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_primary_replica>
+        <ai_events>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ai_events>
+        <aux>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </aux>
+        <ops>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </ops>
+        <sessions>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </sessions>
+    </remote_servers>
+</clickhouse>
