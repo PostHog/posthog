@@ -155,6 +155,17 @@ jobs:
                     echo "Closed stale PR #$existing_pr and deleted branch"
                   fi
 
+            - name: Ensure branch exists
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/update-test-timings 2>/dev/null; then
+                    master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/update-test-timings -f sha="$master_sha"
+                    echo "Created branch from master at $master_sha"
+                  fi
+
             # On schedule/dispatch: commit to a branch and create a PR
             - name: Commit via GitHub API (signed)
               if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'

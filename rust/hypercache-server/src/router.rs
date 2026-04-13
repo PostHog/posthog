@@ -61,11 +61,12 @@ pub fn router(
             "/array/:token/config.js",
             any(remote_config::config_js_endpoint),
         )
-        // Explicit 404 for sourcemap requests to avoid high-cardinality unmatched paths in metrics
-        .route(
-            "/array/:token/config.js.map",
-            any(|| ready(StatusCode::NOT_FOUND)),
-        )
+        // Catch-all 404s for known prefixes to avoid high-cardinality unmatched paths in metrics.
+        // Without these, unmatched requests fall through with the raw URI as the metric label,
+        // creating a unique time series for every distinct 404 path (tokens, locales, probes, etc.).
+        // With explicit routes, axum sets MatchedPath so metrics get clean parameterized labels.
+        .route("/array/:token/*rest", any(|| ready(StatusCode::NOT_FOUND)))
+        .route("/array/*rest", any(|| ready(StatusCode::NOT_FOUND)))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
     let router = Router::new()
