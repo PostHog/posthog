@@ -1,27 +1,11 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 
 class TestChatAgentWebSearchToolInclusion(BaseTest):
-    WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
-
-    def _get_toolkit_manager(self):
-        from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
-
-        return ChatAgentToolkitManager(
-            team=self.team,
-            user=self.user,
-            context_manager=MagicMock(),
-        )
-
-    def _mock_state(self):
-        from ee.hogai.utils.types.base import AssistantState
-
-        return AssistantState(messages=[])
-
     @parameterized.expand(
         [
             ("control", True),
@@ -29,22 +13,23 @@ class TestChatAgentWebSearchToolInclusion(BaseTest):
             ("gateway-bedrock", False),
         ]
     )
-    @patch("ee.hogai.chat_agent.toolkit.has_mcp_servers_feature_flag", return_value=False)
-    @patch("ee.hogai.chat_agent.toolkit.has_memory_tool_feature_flag", return_value=False)
-    @patch("ee.hogai.chat_agent.toolkit.has_task_tool_feature_flag", return_value=False)
-    @patch("ee.hogai.chat_agent.toolkit.has_phai_tasks_feature_flag", return_value=False)
-    async def test_web_search_included_based_on_variant(
-        self, variant, should_include, _tasks, _task_tool, _memory, _mcp
-    ):
+    @patch("ee.hogai.core.agent_modes.toolkit.AgentToolkitManager.get_tools", new_callable=AsyncMock)
+    async def test_web_search_included_based_on_variant(self, variant, should_include, mock_get_tools):
+        from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
+        from ee.hogai.utils.types.base import AssistantState
+
+        mock_get_tools.return_value = []
+
         with (
             patch("ee.hogai.chat_agent.toolkit.get_llm_gateway_variant", return_value=variant),
             patch("ee.hogai.chat_agent.toolkit.settings") as mock_settings,
+            patch("ee.hogai.chat_agent.toolkit.has_mcp_servers_feature_flag", return_value=False),
         ):
             mock_settings.LLM_GATEWAY_URL = "http://gateway:3308"
             mock_settings.LLM_GATEWAY_API_KEY = "test-key"
 
-            manager = self._get_toolkit_manager()
-            tools = await manager.get_tools(self._mock_state(), RunnableConfig(configurable={}))
+            manager = ChatAgentToolkitManager(team=self.team, user=self.user, context_manager=MagicMock())
+            tools = await manager.get_tools(AssistantState(messages=[]), RunnableConfig(configurable={}))
 
             web_search_tools = [t for t in tools if isinstance(t, dict) and t.get("type") == "web_search_20250305"]
 
