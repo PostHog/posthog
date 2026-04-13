@@ -30,6 +30,7 @@ from posthog.schema import (
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
@@ -89,11 +90,16 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
+            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
 
-        results = response.results
+        results = list(
+            time_sliced_results(
+                runner=TraceSpansQueryRunner(spans_query, self.team),
+                order_by_earliest=order_by == "earliest",
+                make_runner=make_runner,
+            )
+        )
 
         return Response(
             {

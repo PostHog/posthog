@@ -104,12 +104,13 @@ impl EmbeddingModel {
     pub fn escape_input<'a>(&self, content: &'a str) -> std::borrow::Cow<'a, str> {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                const OPENAI_SPECIAL_TOKENS: [(&str, &str); 5] = [
+                const OPENAI_SPECIAL_TOKENS: [(&str, &str); 6] = [
                     ("<|endoftext|>", ">|endoftext|<"),
                     ("<|fim_prefix|>", ">|fim_prefix|<"),
                     ("<|fim_middle|>", ">|fim_middle|<"),
                     ("<|fim_suffix|>", ">|fim_suffix|<"),
                     ("<|endofprompt|>", ">|endofprompt|<"),
+                    ("<|diff_marker|>", ">|diff_marker|<"),
                 ];
 
                 let mut escaped: Cow<'a, str> = Cow::Borrowed(content);

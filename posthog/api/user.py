@@ -559,6 +559,11 @@ class UserViewSet(
         report_user_deleted_account(user)
         super().perform_destroy(user)
 
+    @action(methods=["GET"], detail=True, url_path="github_login")
+    def github_login(self, request, **kwargs):
+        user = self.get_object()
+        return Response({"github_login": user.get_github_login()})
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None

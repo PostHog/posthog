@@ -1875,3 +1875,168 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # cte2 filters by event_name, so should return count for $pageleave only
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], 10)
+
+    # =========================================================================
+    # METRICS
+    # =========================================================================
+
+    def _make_simple_hogql_endpoint(self, name: str):
+        return create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events",
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+    def test_execution_metric_records_query_kind_label(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_query_kind")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_validation_error_metric_unknown_variable(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_unknown_var",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"reason": "unknown_variable"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"nonexistent": "x"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_observed_on_success(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_result_rows")
+        labels = {"execution_type": "inline"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_not_observed_for_insight_endpoint(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_insight_no_rows",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        def total_count() -> float:
+            total = 0.0
+            for metric in REGISTRY.collect():
+                if metric.name != "posthog_endpoint_hogql_result_rows":
+                    continue
+                for sample in metric.samples:
+                    if sample.name.endswith("_count"):
+                        total += sample.value
+            return total
+
+        before = total_count()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = total_count()
+        self.assertEqual(after - before, 0.0)
+
+    def test_cache_outcome_metric_records_miss_on_first_execution(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_cache_outcome")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "outcome": "miss"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"refresh": "force"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_cache_outcome_only_uses_hit_or_miss_labels(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_no_stale_served")
+        for _ in range(2):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        observed_outcomes: set[str] = set()
+        for metric in REGISTRY.collect():
+            if metric.name != "posthog_endpoint_cache_result_total":
+                continue
+            for sample in metric.samples:
+                outcome = sample.labels.get("outcome")
+                if outcome and sample.value > 0:
+                    observed_outcomes.add(outcome)
+
+        self.assertTrue(observed_outcomes.issubset({"hit", "miss"}), f"Unexpected outcomes: {observed_outcomes}")
+        self.assertNotIn("stale_served", observed_outcomes)
+
+    def test_disable_materialization_no_op_does_not_increment_counter(self):
+        from prometheus_client import REGISTRY
+
+        from products.endpoints.backend.api import EndpointViewSet
+
+        endpoint = self._make_simple_hogql_endpoint("metric_disable_no_op")
+        labels = {"action": "disable", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+
+        viewset = EndpointViewSet()
+        viewset.team_id = self.team.id
+        viewset._disable_materialization(endpoint)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+        self.assertEqual(after - before, 0.0)
