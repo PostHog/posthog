@@ -186,7 +186,7 @@ def build_person_properties_at_time(
     person_properties = {}
 
     for row in rows:
-        properties_json, event_name = row
+        properties_json, _, event_name = row
 
         if properties_json:
             try:

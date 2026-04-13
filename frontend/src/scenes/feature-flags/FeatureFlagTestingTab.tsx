@@ -103,7 +103,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
     const handleClear = (): void => {
         clearTestForm()
-        setDatePickerValue(undefined)
+        setDatePickerValue(null)
         setTestError(null)
         setTestResult(null)
         setShowAllProperties(false)
@@ -188,9 +188,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             visible={datePickerOpen}
                             onClickOutside={() => setDatePickerOpen(false)}
                             onChange={(selectedDate: Dayjs | null) => {
-                                setDatePickerValue(selectedDate || undefined)
+                                setDatePickerValue(selectedDate)
+                                const timestamp = selectedDate ? selectedDate.toISOString() : ''
                                 setTestFormData({
-                                    timestamp: selectedDate ? selectedDate.toISOString() : '',
+                                    timestamp,
                                 })
                                 setDatePickerOpen(false)
                             }}
@@ -257,7 +258,38 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                     </div>
 
                     {/* Error Display */}
-                    {error && <LemonBanner type="error">{error}</LemonBanner>}
+                    {error && (
+                        <LemonBanner type="error">
+                            <div>
+                                <div className="font-medium">Test Evaluation Failed</div>
+                                <div className="text-sm mt-1">{error}</div>
+                                {error.toLowerCase().includes('build person properties') && (
+                                    <div className="text-xs mt-2 text-muted">
+                                        <strong>Solutions:</strong>
+                                        <ul className="list-disc list-inside mt-1 space-y-1">
+                                            <li>Try a more recent timestamp when this person was active</li>
+                                            <li>Remove the timestamp to test with current person properties</li>
+                                            <li>Select a different person who was active at that time</li>
+                                        </ul>
+                                    </div>
+                                )}
+                                {error.toLowerCase().includes('timestamp') &&
+                                    !error.toLowerCase().includes('build person properties') && (
+                                        <div className="text-xs mt-2 text-muted">
+                                            <strong>Tip:</strong> When using historical timestamps, the person must have
+                                            existed at that time and had the necessary properties for evaluation.
+                                        </div>
+                                    )}
+                                {error.toLowerCase().includes('person') &&
+                                    error.toLowerCase().includes('not found') && (
+                                        <div className="text-xs mt-2 text-muted">
+                                            <strong>Tip:</strong> Try selecting a different person or removing the
+                                            timestamp to test with current data.
+                                        </div>
+                                    )}
+                            </div>
+                        </LemonBanner>
+                    )}
                 </div>
 
                 {/* Right Panel - Analysis and Properties */}
@@ -364,13 +396,12 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 )}
 
                                 {/* Right Column - Person Properties */}
-                                {Object.keys(result.person_properties).length > 0 && (
-                                    <div className="space-y-3 xl:col-span-3">
-                                        <div className="flex items-center justify-between">
-                                            <LemonLabel>
-                                                Person Properties{' '}
-                                                {formData.timestamp ? 'at evaluation time' : '(current)'}
-                                            </LemonLabel>
+                                <div className="space-y-3 xl:col-span-3">
+                                    <div className="flex items-center justify-between">
+                                        <LemonLabel>
+                                            Person Properties {formData.timestamp ? 'at evaluation time' : '(current)'}
+                                        </LemonLabel>
+                                        {Object.keys(result.person_properties).length > 0 && (
                                             <LemonButton
                                                 size="small"
                                                 type="secondary"
@@ -378,85 +409,107 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             >
                                                 {showAllProperties ? 'Show used only' : 'Show all'}
                                             </LemonButton>
-                                        </div>
-
-                                        <div className="max-h-96 overflow-auto">
-                                            {(() => {
-                                                const usedProps = getUsedProperties()
-                                                const propertiesToShow = showAllProperties
-                                                    ? Object.keys(result.person_properties)
-                                                    : Array.from(usedProps)
-
-                                                const sortedProperties = propertiesToShow.sort((a, b) => {
-                                                    // Show used properties first, then alphabetical
-                                                    const aUsed = usedProps.has(a)
-                                                    const bUsed = usedProps.has(b)
-                                                    if (aUsed && !bUsed) {
-                                                        return -1
-                                                    }
-                                                    if (!aUsed && bUsed) {
-                                                        return 1
-                                                    }
-                                                    return a.localeCompare(b)
-                                                })
-
-                                                if (sortedProperties.length === 0) {
-                                                    return (
-                                                        <div className="text-center py-4 text-muted">
-                                                            No properties used in conditions
-                                                        </div>
-                                                    )
-                                                }
-
-                                                return (
-                                                    <LemonTable
-                                                        columns={[
-                                                            {
-                                                                title: 'Property',
-                                                                key: 'property',
-                                                                render: (_, record: { key: string }) => (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="font-medium">
-                                                                            {formatPropertyKey(record.key)}
-                                                                        </span>
-                                                                        {usedProps.has(record.key) && (
-                                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-highlight text-success border border-success">
-                                                                                Used in condition
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                ),
-                                                            },
-                                                            {
-                                                                title: 'Value',
-                                                                key: 'value',
-                                                                render: (_, record: { key: string }) => (
-                                                                    <span
-                                                                        className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                            result.person_properties[record.key] ===
-                                                                                null ||
-                                                                            result.person_properties[record.key] ===
-                                                                                undefined
-                                                                                ? 'bg-muted text-muted-alt'
-                                                                                : 'bg-bg-light border'
-                                                                        }`}
-                                                                    >
-                                                                        {formatPropertyValue(
-                                                                            result.person_properties[record.key]
-                                                                        )}
-                                                                    </span>
-                                                                ),
-                                                            },
-                                                        ]}
-                                                        dataSource={sortedProperties.map((key) => ({ key }))}
-                                                        rowKey={(record) => record.key}
-                                                        size="small"
-                                                    />
-                                                )
-                                            })()}
-                                        </div>
+                                        )}
                                     </div>
-                                )}
+
+                                    <div className="max-h-96 overflow-auto">
+                                        {(() => {
+                                            const usedProps = getUsedProperties()
+                                            const propertiesToShow = showAllProperties
+                                                ? Object.keys(result.person_properties)
+                                                : Array.from(usedProps)
+
+                                            const sortedProperties = propertiesToShow.sort((a, b) => {
+                                                // Show used properties first, then alphabetical
+                                                const aUsed = usedProps.has(a)
+                                                const bUsed = usedProps.has(b)
+                                                if (aUsed && !bUsed) {
+                                                    return -1
+                                                }
+                                                if (!aUsed && bUsed) {
+                                                    return 1
+                                                }
+                                                return a.localeCompare(b)
+                                            })
+
+                                            if (Object.keys(result.person_properties).length === 0) {
+                                                return (
+                                                    <div className="text-center py-4 text-muted">
+                                                        <p>No person properties available</p>
+                                                        <p className="text-xs mt-1">
+                                                            This person has no properties, or they were not included in
+                                                            the evaluation
+                                                        </p>
+                                                    </div>
+                                                )
+                                            }
+
+                                            if (sortedProperties.length === 0) {
+                                                return (
+                                                    <div className="text-center py-4 text-muted">
+                                                        <p>No properties used in conditions</p>
+                                                        <p className="text-xs mt-1">
+                                                            This person has{' '}
+                                                            {Object.keys(result.person_properties).length} properties,
+                                                            but none were used in flag conditions.{' '}
+                                                            <button
+                                                                className="text-primary cursor-pointer underline"
+                                                                onClick={() => setShowAllProperties(true)}
+                                                            >
+                                                                Show all properties
+                                                            </button>
+                                                        </p>
+                                                    </div>
+                                                )
+                                            }
+
+                                            return (
+                                                <LemonTable
+                                                    columns={[
+                                                        {
+                                                            title: 'Property',
+                                                            key: 'property',
+                                                            render: (_, record: { key: string }) => (
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-medium">
+                                                                        {formatPropertyKey(record.key)}
+                                                                    </span>
+                                                                    {usedProps.has(record.key) && (
+                                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-highlight text-success border border-success">
+                                                                            Used in condition
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            ),
+                                                        },
+                                                        {
+                                                            title: 'Value',
+                                                            key: 'value',
+                                                            render: (_, record: { key: string }) => (
+                                                                <span
+                                                                    className={`px-2 py-1 rounded text-xs font-mono ${
+                                                                        result.person_properties[record.key] === null ||
+                                                                        result.person_properties[record.key] ===
+                                                                            undefined
+                                                                            ? 'bg-muted text-muted-alt'
+                                                                            : 'bg-bg-light border'
+                                                                    }`}
+                                                                >
+                                                                    {formatPropertyValue(
+                                                                        result.person_properties[record.key]
+                                                                    )}
+                                                                </span>
+                                                            ),
+                                                        },
+                                                    ]}
+                                                    dataSource={sortedProperties.map((key) => ({ key }))}
+                                                    rowKey={(record) => record.key}
+                                                    size="small"
+                                                />
+                                            )
+                                        })()}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     ) : (

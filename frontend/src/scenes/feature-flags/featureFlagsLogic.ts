@@ -207,7 +207,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setTestResult: (result: TestResult | null) => ({ result }),
         setShowAllProperties: (showAll: boolean) => ({ showAll }),
         setDatePickerOpen: (open: boolean) => ({ open }),
-        setDatePickerValue: (value: ReturnType<typeof dayjs> | undefined) => ({ value }),
+        setDatePickerValue: (value: ReturnType<typeof dayjs> | null) => ({ value }),
         clearTestForm: true,
     }),
     loaders(({ values }) => ({
@@ -263,6 +263,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     } else if (formData.distinct_id?.trim()) {
                         data.distinct_id = formData.distinct_id.trim()
                     }
+
                     // Parse groups JSON, defaulting to empty object if not provided or empty
                     if (formData.groups?.trim()) {
                         try {
@@ -274,8 +275,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         // Send empty object instead of undefined to match expected API format
                         data.groups = {}
                     }
+
                     if (formData.timestamp?.trim()) {
                         data.timestamp = formData.timestamp.trim()
+
+                        // Validate timestamp format
+                        const parsedTimestamp = dayjs(data.timestamp)
+                        if (!parsedTimestamp.isValid()) {
+                            throw new Error('Invalid timestamp format')
+                        }
                     }
 
                     return await api.featureFlags.testEvaluation(flagId, data)
@@ -367,7 +375,63 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             {
                 setTestError: (_, { error }) => error,
                 testFlagEvaluation: () => null,
-                testFlagEvaluationFailure: (_, { error }) => error?.message || 'An error occurred',
+                testFlagEvaluationFailure: (_, { error }) => {
+                    // Extract meaningful error messages from server responses
+                    if (error?.response?.data) {
+                        const responseData = error.response.data
+
+                        // Handle specific error cases
+                        if (responseData.detail && typeof responseData.detail === 'string') {
+                            // Check for person properties build failures at timestamp
+                            if (
+                                responseData.detail.includes('Failed to build person properties at specified timestamp')
+                            ) {
+                                return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+                            }
+                            // Check for person-not-found errors
+                            if (responseData.detail.includes('person') && responseData.detail.includes('not found')) {
+                                return 'Person not found. This person may not have existed at the selected timestamp.'
+                            }
+                            // Check for timestamp-related errors
+                            if (responseData.detail.includes('timestamp') || responseData.detail.includes('time')) {
+                                return 'Invalid timestamp. Please select a valid date and time.'
+                            }
+                            return responseData.detail
+                        }
+
+                        // Handle validation errors
+                        if (responseData.errors || responseData.error) {
+                            const errorMsg = responseData.errors || responseData.error
+                            if (typeof errorMsg === 'string') {
+                                // Check for specific error patterns in the error field
+                                if (errorMsg.includes('Failed to build person properties at specified timestamp')) {
+                                    return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+                                }
+                                return errorMsg
+                            }
+                        }
+                    }
+
+                    // Handle common HTTP error codes
+                    if (error?.status === 404) {
+                        return 'Person not found. This person may not exist or may not have existed at the selected timestamp.'
+                    }
+                    if (error?.status === 400) {
+                        return 'Invalid request. Please check your input parameters.'
+                    }
+                    if (error?.status === 500) {
+                        return 'Server error occurred while evaluating the flag. Please try again or contact support if the issue persists.'
+                    }
+
+                    // Check error message for specific patterns
+                    const errorMessage = error?.message || ''
+                    if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
+                        return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
+                    }
+
+                    // Fallback error message
+                    return errorMessage || 'An unexpected error occurred while testing the feature flag'
+                },
             },
         ],
         testResult: [
@@ -390,9 +454,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
         datePickerValue: [
-            undefined as ReturnType<typeof dayjs> | undefined,
+            null as ReturnType<typeof dayjs> | null,
             {
-                setDatePickerValue: (_, { value }) => value,
+                setDatePickerValue: (_, { value }) => {
+                    // Return the value as-is, or null if it's undefined
+                    return value === undefined ? null : value
+                },
             },
         ],
     }),
