@@ -1600,14 +1600,15 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             if kind == "ActorsQuery":
-                validated_query: (
-                    schema.InsightVizNode | schema.ActorsQuery | schema.EventsQuery | schema.GroupsQuery
-                ) = schema.ActorsQuery.model_validate(query_data)
-                if not isinstance(validated_query.source, SUPPORTED_ACTOR_SOURCES):
+                actors_query = schema.ActorsQuery.model_validate(query_data)
+                if not isinstance(actors_query.source, SUPPORTED_ACTOR_SOURCES):
                     return Response(
                         {"error": "ActorsQuery must have a supported insight source (e.g. InsightActorsQuery)"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+                validated_query: (
+                    schema.InsightVizNode | schema.ActorsQuery | schema.EventsQuery | schema.GroupsQuery
+                ) = actors_query
             elif kind == "EventsQuery":
                 validated_query = schema.EventsQuery.model_validate(query_data)
             elif kind == "GroupsQuery":
