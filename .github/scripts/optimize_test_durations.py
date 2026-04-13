@@ -9,13 +9,9 @@
 """
 Prepare test durations for pytest-split sharding.
 
-Merges timing artifacts from CI shards and applies a ceiling cap to inflated
-first-test durations (caused by Django DB setup warm-up).
-
-Note: pytest-split's duration_based_chunks algorithm has inherent limitations -
-fast tests clustered alphabetically at the end can cause the last shard to be
-much faster than others. This script doesn't try to "game" the algorithm;
-it just provides clean timing data.
+Merges timing artifacts from CI shards. First-test durations include Django
+migration overhead (~6.5 min) which is preserved so pytest-split can account
+for it when distributing tests across shards.
 """
 
 import glob
@@ -25,8 +21,6 @@ import argparse
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_CEILING = 60.0
 
 
 def load_timing_artifacts(artifacts_dir: Path, segment: str | None = None) -> dict[str, float]:
@@ -50,19 +44,9 @@ def load_timing_artifacts(artifacts_dir: Path, segment: str | None = None) -> di
     return durations
 
 
-def apply_ceiling_cap(durations: dict[str, float], ceiling: float = DEFAULT_CEILING) -> dict[str, float]:
-    """Apply ceiling cap to inflated durations.
-
-    First test in each shard has Django DB setup baked into its timing (~60-240s).
-    Cap these to avoid skewing the timing file.
-    """
-    result = {}
-    for test, duration in durations.items():
-        if duration > ceiling:
-            result[test] = ceiling
-        else:
-            result[test] = max(0.01, duration)
-    return result
+def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
+    """Ensure all durations have a minimum value for pytest-split."""
+    return {test: max(0.01, dur) for test, dur in durations.items()}
 
 
 def collect_existing_tests(segment: str | None = None) -> set[str]:
@@ -126,12 +110,6 @@ def main():
     parser.add_argument("artifacts_dir", type=Path, help="Directory containing timing artifacts")
     parser.add_argument("output_file", type=Path, help="Output file for processed durations")
     parser.add_argument(
-        "--ceiling",
-        type=float,
-        default=DEFAULT_CEILING,
-        help=f"Duration ceiling for inflated tests (default: {DEFAULT_CEILING}s)",
-    )
-    parser.add_argument(
         "--segment",
         type=str,
         default=None,
@@ -164,8 +142,7 @@ def main():
         )
     logger.info("  Total tests: %d", len(real_durations))
 
-    logger.info("Applying ceiling cap (%.0fs)...", args.ceiling)
-    processed = apply_ceiling_cap(real_durations, ceiling=args.ceiling)
+    processed = ensure_minimum_duration(real_durations)
 
     # Save
     with open(args.output_file, "w") as f:
