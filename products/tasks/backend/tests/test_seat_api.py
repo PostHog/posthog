@@ -32,6 +32,7 @@ def _billing_response(data=None, status_code=200, ok=True):
 
 
 class BaseSeatAPITest(TestCase):
+    client: APIClient
     organization: ClassVar[Organization]
     team: ClassVar[Team]
     user: ClassVar[User]
