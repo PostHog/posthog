@@ -60,9 +60,29 @@ tables:
             - name: max_last_refresh
               type: DateTime64
 
+    # Event count per team over the last month. Sourced from a VIEW
+    # (team_events_last_month_view) that aggregates the events table — the view
+    # and this dictionary were originally removed from the codebase in #22494
+    # but the dictionary name is still referenced by the metrics MVs above
+    # (dictGet('team_events_last_month_dictionary', 'event_count', team_id)).
+    # The legacy definition used complex_key_cache(size_in_cells 100000) and
+    # LIFETIME(86400). Retained here for parity; recreate is cheap.
     team_events_last_month_dictionary:
         engine: Dictionary
         on_nodes: ALL
+        primary_key: team_id
+        source:
+            type: CLICKHOUSE
+            table: team_events_last_month_view
+            user: __from_settings__
+            password: __from_settings__
+        layout:
+            type: COMPLEX_KEY_CACHE
+            params:
+                size_in_cells: 100000
+        lifetime:
+            min: 86400
+            max: 86400
         columns:
             - name: team_id
               type: UInt64

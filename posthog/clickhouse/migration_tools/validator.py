@@ -6,11 +6,19 @@ from posthog.clickhouse.migration_tools.desired_state import DesiredState
 from posthog.clickhouse.migration_tools.schema_graph import TableEcosystem, lookup_ecosystem
 from posthog.clickhouse.migration_tools.state_diff import _is_distributed, _is_kafka, _is_mergetree, _is_mv
 
-# Expected node roles by engine type
+# Expected node roles by engine type.
+#
+# Source of truth: `NodeRole` enum in posthog/clickhouse/client/connection.py.
+# Every satellite cluster (LOGS, AUX, SESSIONS, OPS, AI_EVENTS, SHUFFLEHOG,
+# ENDPOINTS) can host its own Distributed, Kafka, and MV tables in its own
+# topology, so all three engine categories accept those roles in addition to
+# the main-cluster roles.
+_SATELLITE_ROLES: frozenset[str] = frozenset({"LOGS", "AUX", "SESSIONS", "OPS", "AI_EVENTS", "SHUFFLEHOG", "ENDPOINTS"})
+
 _EXPECTED_ROLES: dict[str, set[str]] = {
-    "distributed": {"COORDINATOR", "ALL"},
-    "kafka": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL"},
-    "materializedview": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL"},
+    "distributed": {"COORDINATOR", "ALL", *_SATELLITE_ROLES},
+    "kafka": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL", *_SATELLITE_ROLES},
+    "materializedview": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL", *_SATELLITE_ROLES},
 }
 
 

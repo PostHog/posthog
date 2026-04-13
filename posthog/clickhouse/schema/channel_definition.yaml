@@ -26,6 +26,16 @@ tables:
     channel_definition_dict:
         engine: Dictionary
         on_nodes: ALL
+        primary_key: domain, kind
+        source:
+            type: CLICKHOUSE
+            table: channel_definition
+            password: __from_settings__
+        layout:
+            type: COMPLEX_KEY_HASHED
+        lifetime:
+            min: 3000
+            max: 3600
         columns:
             - name: domain
               type: String

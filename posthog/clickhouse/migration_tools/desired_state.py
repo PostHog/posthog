@@ -46,6 +46,11 @@ class DesiredTable:
     dict_source: dict[str, Any] | None = None  # {"type": "CLICKHOUSE", "table": "...", ...}
     dict_layout: dict[str, Any] | None = None  # {"type": "COMPLEX_KEY_HASHED", "params": {...}}
     dict_lifetime: dict[str, int] | None = None  # {"min": 3000, "max": 3600}
+    # RANGE(MIN x MAX y) clause — only populated for RANGE_HASHED layouts where
+    # the dictionary holds per-range values (exchange_rate_dict being the
+    # canonical example). Kept separate from dict_layout because RANGE is a
+    # top-level DDL clause, not a LAYOUT parameter.
+    dict_range: dict[str, str] | None = None  # {"min": "start_date", "max": "end_date"}
 
 
 @dataclass
@@ -123,6 +128,7 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
     dict_source: dict[str, Any] | None = None
     dict_layout: dict[str, Any] | None = None
     dict_lifetime: dict[str, int] | None = None
+    dict_range: dict[str, str] | None = None
     primary_key = raw.get("primary_key")
     source_raw = raw.get("source")
     if engine.lower() == "dictionary":
@@ -135,6 +141,9 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
         lifetime_raw = raw.get("lifetime")
         if isinstance(lifetime_raw, dict):
             dict_lifetime = {k: int(v) for k, v in lifetime_raw.items()}
+        range_raw = raw.get("range")
+        if isinstance(range_raw, dict):
+            dict_range = {k: str(v) for k, v in range_raw.items()}
 
     return DesiredTable(
         name=name,
@@ -154,6 +163,7 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
         dict_source=dict_source,
         dict_layout=dict_layout,
         dict_lifetime=dict_lifetime,
+        dict_range=dict_range,
     )
 
 
