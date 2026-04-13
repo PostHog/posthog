@@ -439,16 +439,37 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
-        it('handles Vercel AI SDK tool-call format', () => {
-            const message = {
-                type: 'tool-call',
-                id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
-                function: {
-                    name: 'queryModel',
-                    arguments: '{"query": "relevant data"}',
+        it.each([
+            [
+                'string arguments (posthog-node format)',
+                {
+                    type: 'tool-call',
+                    id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                    function: { name: 'queryModel', arguments: '{"query": "relevant data"}' },
                 },
-            }
-
+                'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                'queryModel',
+                { query: 'relevant data' },
+            ],
+            [
+                'object arguments (posthog-node format)',
+                {
+                    type: 'tool-call',
+                    id: 'call_123',
+                    function: { name: 'get_weather', arguments: { location: 'NYC' } },
+                },
+                'call_123',
+                'get_weather',
+                { location: 'NYC' },
+            ],
+            [
+                'native Vercel SDK format (toolName/input/toolCallId)',
+                { type: 'tool-call', toolCallId: 'tc_native_123', toolName: 'get_weather', input: { location: 'NYC' } },
+                'tc_native_123',
+                'get_weather',
+                { location: 'NYC' },
+            ],
+        ])('handles Vercel AI SDK tool-call with %s', (_label, message, expectedId, expectedName, expectedArgs) => {
             expect(normalizeMessage(message, 'assistant')).toEqual([
                 {
                     role: 'assistant',
@@ -456,101 +477,38 @@ describe('LLM Analytics utils', () => {
                     tool_calls: [
                         {
                             type: 'function',
-                            id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
-                            function: {
-                                name: 'queryModel',
-                                arguments: { query: 'relevant data' },
-                            },
+                            id: expectedId,
+                            function: { name: expectedName, arguments: expectedArgs },
                         },
                     ],
                 },
             ])
         })
 
-        it('handles Vercel AI SDK tool-call with object arguments', () => {
-            const message = {
-                type: 'tool-call',
-                id: 'call_123',
-                function: {
-                    name: 'get_weather',
-                    arguments: { location: 'NYC' },
-                },
-            }
-
-            expect(normalizeMessage(message, 'assistant')).toEqual([
+        it.each([
+            [
+                'object output',
                 {
-                    role: 'assistant',
-                    content: '',
-                    tool_calls: [
-                        {
-                            type: 'function',
-                            id: 'call_123',
-                            function: {
-                                name: 'get_weather',
-                                arguments: { location: 'NYC' },
-                            },
-                        },
-                    ],
+                    type: 'tool-result',
+                    toolCallId: 'tc_123',
+                    toolName: 'get_weather',
+                    output: { temperature: 72, unit: 'F' },
                 },
-            ])
-        })
-
-        it('handles native Vercel AI SDK tool-call format (toolName/input/toolCallId)', () => {
-            const message = {
-                type: 'tool-call',
-                toolCallId: 'tc_native_123',
-                toolName: 'get_weather',
-                input: { location: 'NYC' },
-            }
-
-            expect(normalizeMessage(message, 'assistant')).toEqual([
-                {
-                    role: 'assistant',
-                    content: '',
-                    tool_calls: [
-                        {
-                            type: 'function',
-                            id: 'tc_native_123',
-                            function: {
-                                name: 'get_weather',
-                                arguments: { location: 'NYC' },
-                            },
-                        },
-                    ],
-                },
-            ])
-        })
-
-        it('handles Vercel AI SDK tool-result format', () => {
-            const message = {
-                type: 'tool-result',
-                toolCallId: 'tc_123',
-                toolName: 'get_weather',
-                output: { temperature: 72, unit: 'F' },
-            }
-
+                '{"temperature":72,"unit":"F"}',
+                'tc_123',
+            ],
+            [
+                'string output',
+                { type: 'tool-result', toolCallId: 'tc_456', toolName: 'search', output: 'Found 3 results' },
+                'Found 3 results',
+                'tc_456',
+            ],
+        ])('handles Vercel AI SDK tool-result with %s', (_label, message, expectedContent, expectedToolCallId) => {
             expect(normalizeMessage(message, 'assistant')).toEqual([
                 {
                     role: 'assistant (tool result)',
-                    content: '{"temperature":72,"unit":"F"}',
-                    tool_call_id: 'tc_123',
-                },
-            ])
-        })
-
-        it('handles Vercel AI SDK tool-result with string output', () => {
-            const message = {
-                type: 'tool-result',
-                toolCallId: 'tc_456',
-                toolName: 'search',
-                output: 'Found 3 results',
-            }
-
-            expect(normalizeMessage(message, 'assistant')).toEqual([
-                {
-                    role: 'assistant (tool result)',
-                    content: 'Found 3 results',
-                    tool_call_id: 'tc_456',
+                    content: expectedContent,
+                    tool_call_id: expectedToolCallId,
                 },
             ])
         })

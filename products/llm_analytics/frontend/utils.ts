@@ -264,6 +264,17 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
     )
 }
 
+function parseToolArguments(args: string | Record<string, unknown>): Record<string, unknown> | string {
+    if (typeof args === 'string') {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return args
+        }
+    }
+    return args
+}
+
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
     const toolsWithParsedArguments = toolCalls.map((toolCall) => {
         let parsedArguments = toolCall.function.arguments
@@ -954,14 +965,6 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     // OpenAI Responses API
     // Function call (role-less, uses `type` instead)
     if (isOpenAIResponsesFunctionCall(rawMessage)) {
-        let parsedArguments: Record<string, any> | string = rawMessage.arguments
-        if (typeof rawMessage.arguments === 'string') {
-            try {
-                parsedArguments = JSON.parse(rawMessage.arguments)
-            } catch {
-                parsedArguments = rawMessage.arguments
-            }
-        }
         return [
             {
                 role: 'assistant',
@@ -972,7 +975,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                         id: rawMessage.call_id,
                         function: {
                             name: rawMessage.name,
-                            arguments: parsedArguments,
+                            arguments: parseToolArguments(rawMessage.arguments),
                         },
                     },
                 ],
@@ -1020,14 +1023,6 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             toolId = rawMessage.toolCallId
         }
 
-        let parsedArguments: Record<string, unknown> | string = toolArgs
-        if (typeof toolArgs === 'string') {
-            try {
-                parsedArguments = JSON.parse(toolArgs)
-            } catch {
-                parsedArguments = toolArgs
-            }
-        }
         return [
             {
                 role: roleToUse,
@@ -1038,7 +1033,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                         id: toolId,
                         function: {
                             name: toolName,
-                            arguments: parsedArguments,
+                            arguments: parseToolArguments(toolArgs),
                         },
                     },
                 ],
