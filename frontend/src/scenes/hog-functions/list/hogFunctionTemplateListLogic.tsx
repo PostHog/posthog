@@ -52,6 +52,11 @@ export type HogFunctionTemplateListLogicProps = {
     queryParams?: Record<string, string>
 }
 
+// Stable references for default prop values - avoids reselect input stability warnings
+// caused by `?? []` / `?? () => true` creating new references on every selector call.
+const EMPTY_ARRAY: never[] = []
+const ALWAYS_TRUE = (): boolean => true
+
 export const shouldShowHogFunctionTemplate = (
     hogFunctionTemplate: HogFunctionTemplateType,
     user?: UserType | null
@@ -119,8 +124,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 s.rawTemplates,
                 s.user,
                 s.featureFlags,
-                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
-                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
+                (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? EMPTY_ARRAY,
+                (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? EMPTY_ARRAY,
             ],
             (
                 rawTemplates,
@@ -180,7 +185,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 s.templates,
                 s.templatesFuse,
                 (_, props) => props.hideComingSoonByDefault ?? false,
-                (_, props) => props.customFilterFunction ?? (() => true),
+                (_, props) => props.customFilterFunction ?? ALWAYS_TRUE,
             ],
             (
                 filters,

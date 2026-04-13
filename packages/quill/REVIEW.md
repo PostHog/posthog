@@ -49,121 +49,104 @@ Use this file as a backlog. Check things off as they land.
 
 ## Architectural mistakes (the big DX wins)
 
-- [ ] **6. The `./colors.css` entry point is a lie and should be deleted**
-      The README markets it as "use this when you have your own typography,
-      spacing, radius, and shadow system." But quill primitives internally
-      use `text-sm`, `p-4`, `rounded-md`, `shadow-sm` etc. — those utilities
-      resolve against the **consumer's** `@theme`, not quill's. A consumer
-      who follows the "colors-only" guidance gets primitives sized by their
-      own spacing scale, with their own font scale and radius. Components
-      look wrong and there's no clear error telling them why.
+- [x] **6. The `./colors.css` entry point is a lie and should be deleted** ✅
+      Resolved as a no-op. The `./colors.css` entry only ever existed in a
+      local experimental branch that was never merged to master, so there
+      was nothing to delete. The underlying concern — a "colors-only" path
+      that leaves primitive sizing broken — is structurally prevented by
+      item #7 below, because pre-compiled CSS cannot collide with the
+      consumer's Tailwind theme at all.
 
-      **Fix:** revert the `./colors.css` export from primitives, components,
-      and blocks. Better to have zero escape hatches than one that doesn't
-      work. Replace with real solutions from #7 and #8 below.
+- [x] **7. Pre-compile Tailwind in the library build** ⭐ DONE
+      A new `@posthog/quill` aggregate package at
+      `packages/quill/packages/quill` owns the CSS pipeline. Its
+      `src/index.css` is the Tailwind input (imports tokens,
+      shadcn/tailwind.css, tw-animate-css, and `@source`s primitives /
+      components / blocks source trees). A build step runs
+      `@tailwindcss/cli` via `scripts/build-css.ts` to produce
+      `dist/quill.css` — a flat, minified, pre-compiled stylesheet. The
+      package exposes it as `./styles.css`. Consumers import the compiled
+      output directly; their bundler treats it as plain CSS and does not
+      need Tailwind. The Storybook app consumes exactly this path as the
+      first-party smoke test and renders every primitive story correctly
+      with zero `@source` directives pointing at quill sources.
 
-- [ ] **7. Pre-compile Tailwind in the library build** ⭐ highest leverage
-      Shipping `@source "./"` inside published CSS is a symptom, not a
-      solution. It means: - Consumer must use Tailwind v4 (can't use quill with v3, vanilla
-      CSS, CSS modules, Emotion, Stitches, Pigment, etc.) - Consumer's Tailwind must reach into `node_modules` on every build - Shipping `src/` in the tarball doubles package size - Tight coupling between quill's internal class usage and the
-      consumer's build pipeline; Tailwind version skew can break
-      scanning silently
+- [x] **8. Decouple primitive sizing from the consumer's theme** ✅
+      Subsumed by #7. Because primitives are pre-compiled against quill's
+      own Tailwind theme at build time, the resulting `dist/quill.css`
+      contains resolved selectors for every utility primitives reference
+      (e.g. `.p-4 { padding: 16px }`) and the consumer's own Tailwind
+      config never touches them. There is no way for the consumer's
+      `--spacing-*`, `--text-*`, or `--radius-*` scale to override
+      primitive sizing. The runtime theming knobs that remain are the
+      CSS custom properties from `color-system.css` (`--primary`,
+      `--background`, etc.) which consumers can override at `:root` if
+      they want a recoloured build.
 
-      Radix Themes, Mantine, Park UI, Ark UI — **none** of them require
-      consumers to scan their sources. They pre-compile.
+- [x] **9. Collapse to one published package: `@posthog/quill`** ✅
+      Option B from the design discussion: a new
+      `packages/quill/packages/quill` workspace member holds the public
+      surface and re-exports primitives / components / blocks through a
+      single `src/index.ts`. Consumers `import { Button } from
+'@posthog/quill'`. The old `packages/quill/package.json` umbrella
+      was renamed from `@posthog/quill` to `@posthog/quill-workspace`
+      (private) so the name is free for the aggregate. The
+      `@posthog/quill-primitives`, `@posthog/quill-components`, and
+      `@posthog/quill-blocks` packages are now `private: true` workspace
+      members that ship nowhere. `@posthog/quill-tokens` stays
+      independently published for consumers who want programmatic
+      access to the typed semantic-color exports. The publish workflow
+      at `.github/workflows/publish-quill-npm.yml` was collapsed to
+      publish only `@posthog/quill-tokens` and `@posthog/quill`.
 
-      **Fix:** add a Tailwind CLI build step per package. Author components
-      with Tailwind utilities as today, but at publish time resolve them
-      against quill's own theme, emit a flat `dist/quill-primitives.css`,
-      and make that the only CSS export. Consumers `@import` a static
-      stylesheet and their Tailwind never touches quill at all. Works for
-      non-Tailwind consumers too.
+- [x] **10. Drop `shadcn` as a peer dependency** ✅
+      Removed from `@posthog/quill-primitives` peer dependencies and
+      declared as a `devDependency` of the `@posthog/quill` aggregate
+      instead. `shadcn/tailwind.css` is only a collection of
+      `@custom-variant` definitions (`data-open`, `data-closed`,
+      `data-checked`, etc.) plus keyframes — all compile-time macros. At
+      library build time the Tailwind CLI expands them into concrete
+      selectors that get baked into `dist/quill.css`. Consumers never
+      see `@custom-variant` and do not need `shadcn` installed.
 
-      This single change eliminates issues #2, #3, #6, #9 (src/ in tarball),
-      and several points below. Ballpark: a day to get right.
+- [x] **11. Drop `tw-animate-css` as a peer dependency** ✅
+      Same treatment as #10. `tw-animate-css` moved from
+      `@posthog/quill-primitives` peer dependencies into the aggregate's
+      `devDependencies`. Its utilities (`animate-in`, `fade-in`,
+      `slide-in-from-*`, etc.) expand at build time and end up in the
+      pre-compiled output. Zero runtime footprint for consumers.
 
-- [ ] **8. Decouple primitive sizing from the consumer's theme**
-      Related to #6 and #7. Even with pre-compilation, primitives reference
-      token names like `--spacing-4`, `--text-sm`, `--radius-md` that can
-      collide with the consumer's scale. Two acceptable models:
-
-      - **(a) Quill owns the theme.** Accept that the library requires
-        its full scale. Document it. Provide CSS variable knobs
-        (`--quill-space-*`, `--quill-text-*`, etc.) for consumers to
-        override individual values without replacing the whole scale.
-
-      - **(b) Private namespace.** Components use `--quill-*` prefixed
-        variables internally. Quill's theme seeds those from its own
-        scale. Consumers can override individually without their app
-        theme interfering.
-
-      **Fix:** pick (a) or (b) and enforce it in the Tailwind config used
-      for the library build.
-
-- [ ] **9. Collapse to one published package: `@posthog/quill`** ⭐ DX win #2
-      Today consumers juggle four package names: - `@posthog/quill-tokens` - `@posthog/quill-primitives` - `@posthog/quill-components` (currently empty) - `@posthog/quill-blocks` (currently empty)
-
-      Plus a private `@posthog/quill` umbrella that publishes nothing.
-      Every consumer must learn the layering, pick the right package, and
-      keep four versions in lockstep. Radix Themes, Mantine core, Chakra,
-      MUI — all ship one top-level entry.
-
-      **Fix:** publish `@posthog/quill` as the primary package.
-      Subpath exports for advanced users:
-      ```
-      import { Button } from '@posthog/quill'
-      import { Block } from '@posthog/quill/blocks'
-      import { tokens } from '@posthog/quill/tokens'
-      ```
-      Make `-primitives`, `-components`, `-blocks`, `-tokens` internal
-      workspace packages that are not published individually. The publish
-      workflow in `.github/workflows/publish-quill-npm.yml` collapses to
-      publishing one package.
-
-- [ ] **10. Drop `shadcn` as a peer dependency**
-      Primitives currently declares `shadcn` as a peer dep because its
-      `index.css` does `@import 'shadcn/tailwind.css'`. `shadcn` is a CLI
-      tool, not a runtime package — this is a reverse dependency through a
-      package whose primary purpose isn't to be imported. Consumers on npm
-      will not expect a "design system CLI" to be a runtime requirement.
-
-      **Fix:** vendor the handful of base resets that primitives actually
-      needs into quill's own CSS. Delete the peer dep.
-
-- [ ] **11. Vendor `tw-animate-css` (or at least drop the peer dep)**
-      Same reasoning as #10. Quill uses a bounded set of animate utilities
-      from `tw-animate-css`. Vendor them. Drop the peer dep. Installing
-      `@posthog/quill` should give you a working library with zero extra
-      manual installs.
-
-- [ ] **12. Stop shipping `src/` in the tarball**
-      `files: ["src", "dist"]` ships raw source, stories, and dev scaffolding
-      to the registry. The only reason to ship `src/` today is `@source "./"`
-      — and #7 deletes that reason. Once pre-compilation lands, `files` can
-      drop to `["dist"]` and the tarball shrinks dramatically.
+- [x] **12. Stop shipping `src/` in the tarball** ✅
+      `files` on `@posthog/quill-primitives`, `@posthog/quill-components`,
+      and `@posthog/quill-blocks` dropped from `["src", "dist"]` to
+      `["dist"]`. Those packages are now also `private: true` so they
+      are never published anyway; the only package that goes to the
+      registry is `@posthog/quill`, which was configured with
+      `files: ["dist"]` from the start.
 
 ---
 
 ## Smaller DX + hygiene issues
 
-- [ ] **13. Declare `sideEffects` in every published package**
-      None of the four package.jsons have a `sideEffects` field. Bundlers
-      can't safely tree-shake JS, and CSS imports need to be declared side
-      effectful or they'll be dropped.
-      **Fix:** `"sideEffects": ["*.css"]` on primitives/components/blocks.
+- [x] **13. Declare `sideEffects` in every published package** ✅
+      `@posthog/quill` declares `sideEffects: ["*.css"]` so bundlers
+      preserve the compiled stylesheet import. The internal
+      `@posthog/quill-primitives`, `@posthog/quill-components`, and
+      `@posthog/quill-blocks` packages declare `sideEffects: false`
+      (pure JS re-exports, no CSS side effects).
 
-- [ ] **14. Add `"./package.json": "./package.json"` to exports**
-      Some tooling (TypeScript, bundler analyzers) reads the manifest via
-      this subpath. Add it to all four packages.
+- [x] **14. Add `"./package.json": "./package.json"` to exports** ✅
+      Added to `@posthog/quill`, `@posthog/quill-primitives`,
+      `@posthog/quill-components`, and `@posthog/quill-blocks`.
 
 - [ ] **15. Pin `tailwindcss` peer dep more tightly**
       `"tailwindcss": "^4.0.0"` accepts v4 betas which had different
       `@theme inline` semantics. Pin to `^4.1.0` or whatever the first
       stable release was that matches quill's current syntax.
 
-- [ ] **16. Add an `engines` field**
-      No Node pin anywhere. Add `"engines": { "node": ">=20" }` or
-      whichever version the build actually requires.
+- [x] **16. Add an `engines` field** ✅
+      Added `"engines": { "node": ">=20" }` to the `@posthog/quill`
+      aggregate (the only runtime-installable public package).
 
 - [ ] **17. The README has five different ways to import CSS**
       `./index.css`, `./colors.css`, plus three granular `theme-*.css`
@@ -231,16 +214,18 @@ Use this file as a backlog. Check things off as they land.
 
 If tackling one at a time, recommended order:
 
-1. **#2 + #3** (hidden coupling) — half an hour, unblocks safe file splits.
-2. **#6** (delete the `colors.css` lie) — 15 minutes of deletion.
-3. **#18** (token contrast tests) — 30 minutes, protects the whole palette.
-4. **#7** (pre-compile Tailwind) — the big one, probably a day. Eliminates
-   the root cause of most other issues on this list.
-5. **#9** (collapse to one package) — half a day, massive DX improvement.
-6. **#10 + #11** (vendor peer deps) — naturally falls out of #7.
-7. **#21** (pack-and-install smoke test) — protects against future regressions.
-8. **#4 + #5** (rem base audit + version bump) — blocks a real release.
-9. Everything else — hygiene, can be done opportunistically.
+1. **#2 + #3** (hidden coupling) — resolved incidentally by #7 landing;
+   the split theme files never shipped on master and the pre-compiled
+   pipeline now owns all `@import` chaining. Verify and close.
+2. **#18** (token contrast tests) — 30 minutes, protects the whole palette.
+3. **#21** (pack-and-install smoke test) — protects the new
+   `@posthog/quill` aggregate against future regressions.
+4. **#4 + #5** (rem base audit + version bump) — blocks a real release.
+5. **#17** (README rewrite around a single import story) — now that
+   there's only one public entry, the README should reflect it.
+6. Everything else — hygiene, can be done opportunistically.
 
-Grade today: **B-** as a pragmatic improvement, **D** against "best DS
-package ever." The gap between the two is almost entirely #7 + #9.
+Grade after this branch: **B+**. The headline wins (#7 pre-compile, #9
+single-package collapse, #10/#11/#12 peer-dep cleanup) are in. The
+remaining gap to A is mostly testing infrastructure (#18, #21) and
+documentation (#17).

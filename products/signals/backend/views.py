@@ -513,15 +513,8 @@ class SignalReportViewSet(
 
     @staticmethod
     def _get_github_login(user) -> str | None:
-        """Resolve the GitHub login for a PostHog user via social auth."""
-        from social_django.models import UserSocialAuth
-
-        sa = UserSocialAuth.objects.filter(provider="github", user=user).only("extra_data").first()
-        if sa and isinstance(sa.extra_data, dict):
-            login = sa.extra_data.get("login")
-            if login:
-                return login.lower()
-        return None
+        login = user.get_github_login()
+        return login.lower() if login else None
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
