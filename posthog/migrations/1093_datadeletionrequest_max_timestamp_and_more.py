@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1094_oauth_provisioning_fields"),
+        ("posthog", "1092_backfill_provisioning_service_ids"),
     ]
 
     operations = [

@@ -12,7 +12,7 @@ def reverse_create_clickhouse_team_group(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1095_datadeletionrequest_max_timestamp_and_more"),
+        ("posthog", "1094_oauth_provisioning_fields"),
     ]
 
     operations = [
