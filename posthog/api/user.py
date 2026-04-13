@@ -278,6 +278,13 @@ class UserSerializer(serializers.ModelSerializer):
             **(instance.partial_notification_settings or {}),
         }
 
+        _dict_notification_keys = (
+            "project_weekly_digest_disabled",
+            "error_tracking_weekly_digest_project_enabled",
+            "web_analytics_weekly_digest_project_enabled",
+            "organization_member_join_email_disabled",
+        )
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
@@ -287,11 +294,7 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key in (
-                "project_weekly_digest_disabled",
-                "error_tracking_weekly_digest_project_enabled",
-                "organization_member_join_email_disabled",
-            ):
+            if key in _dict_notification_keys:
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
                         f"{key} must be a dictionary mapping IDs to boolean values",
