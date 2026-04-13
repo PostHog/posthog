@@ -104,10 +104,9 @@ MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
 
 
 def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
-    properties = cohort.filters.get("properties") if isinstance(cohort.filters, dict) else None
-    values = properties.get("values") if isinstance(properties, dict) else None
-    has_filter_criteria = isinstance(values, list) and len(values) > 0
-    return bool(cohort.query or has_filter_criteria)
+    from posthog.models.cohort.util import cohort_filters_have_values
+
+    return bool(cohort.query or cohort_filters_have_values(cohort.filters))
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -140,14 +139,23 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
       (re-population never completed)
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
-    return Cohort.objects.filter(
-        is_static=True,
-        is_calculating=True,
-        deleted=False,
-        errors_calculating__lt=MAX_ERRORS_CALCULATING,
-    ).filter(
-        Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
-        | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
+    return (
+        Cohort.objects.filter(
+            is_static=True,
+            is_calculating=True,
+            deleted=False,
+            errors_calculating__lt=MAX_ERRORS_CALCULATING,
+        )
+        .filter(
+            Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
+            | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
+        )
+        .filter(
+            # Only fetch cohorts that have a retriggerable population source
+            # (HogQL query or filter criteria). Excludes CSV-upload cohorts
+            # that would always be discarded by the retry logic.
+            Q(query__isnull=False) | ~Q(filters={}) & ~Q(filters={"properties": {}})
+        )
     )
 
 
@@ -496,7 +504,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.
     """
-    from posthog.api.cohort import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
+    from posthog.models.cohort.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
 
     cohort = Cohort.objects.get(pk=cohort_id)
     if team_id is None:
@@ -566,10 +574,12 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
     """
     One-time population task for static cohorts created from saved cohort criteria.
     """
-    from posthog.api.cohort import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
+    from posthog.models.cohort.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
 
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
+    if team_id is not None:
+        cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+    else:
+        cohort = Cohort.objects.get(pk=cohort_id)
         team_id = cohort.team_id
     team = Team.objects.get(pk=team_id)
 

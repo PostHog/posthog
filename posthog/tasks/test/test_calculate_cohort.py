@@ -1127,8 +1127,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         with (
-            patch("posthog.api.cohort.insert_cohort_query_actors_into_ch") as mock_insert_ch,
-            patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
+            patch("posthog.models.cohort.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.models.cohort.util.insert_cohort_people_into_pg") as mock_insert_pg,
         ):
             mock_insert_ch.side_effect = Exception("Simulated query processing error")
             mock_insert_pg.side_effect = Exception("Simulated pg insert error")
@@ -1162,8 +1162,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
 
         with (
-            patch("posthog.api.cohort.insert_cohort_filter_actors_into_ch") as mock_insert_ch,
-            patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
+            patch("posthog.models.cohort.util.insert_cohort_filter_actors_into_ch") as mock_insert_ch,
+            patch("posthog.models.cohort.util.insert_cohort_people_into_pg") as mock_insert_pg,
         ):
             mock_insert_ch.side_effect = Exception("Simulated filter processing error")
             mock_insert_pg.side_effect = Exception("Simulated pg insert error")

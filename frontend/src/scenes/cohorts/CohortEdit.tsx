@@ -391,11 +391,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                         {cohort.is_static && staticCohortMode === 'criteria' ? (
                             <>
                                 <SceneDivider />
-                                <SceneSection
-                                    title="Matching criteria"
-                                    description="People matching these criteria will be snapshotted into the cohort once. Static cohorts created from criteria do not update automatically."
-                                    hideTitleAndDescription
-                                >
+                                <SceneSection hideTitleAndDescription>
                                     {!isNewCohort && (
                                         <LemonBanner type="info" className="mb-4">
                                             This static cohort was snapshotted from criteria at creation time. Editing
@@ -419,6 +415,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             'w-full [&>div]:my-0 [&>div]:w-full',
                                             !isNewCohort && 'pointer-events-none opacity-60'
                                         )}
+                                        aria-disabled={!isNewCohort}
                                     >
                                         <CohortCriteriaGroups id={logicProps.id} />
                                     </div>

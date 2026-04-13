@@ -4,7 +4,6 @@ import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
-from datetime import datetime
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -32,7 +31,6 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -59,7 +57,11 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
-from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
+from posthog.models.cohort.util import (
+    cohort_filters_have_values,
+    get_all_cohort_dependencies,
+    get_friendly_error_message,
+)
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -69,24 +71,16 @@ from posthog.models.feature_flag.flag_matching import (
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
-from posthog.queries.cohort_query import CohortQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
-
-
-def cohort_filters_have_values(filters_dict: dict | None) -> bool:
-    properties = filters_dict.get("properties") if isinstance(filters_dict, dict) else None
-    values = properties.get("values") if isinstance(properties, dict) else None
-    return isinstance(values, list) and len(values) > 0
 
 
 def validate_filters_and_compute_realtime_support(
@@ -907,10 +901,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
-        original_filters = cohort.filters
-        incoming_filters = validated_data.get("filters", cohort.filters)
-        has_filter_criteria = cohort_filters_have_values(incoming_filters)
-        filters_changed = "filters" in validated_data and incoming_filters != original_filters
+        existing_has_criteria = cohort_filters_have_values(cohort.filters)
+        filters_changed = "filters" in validated_data and validated_data.get("filters") != cohort.filters
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
@@ -942,7 +934,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
         deleted_state = validated_data.get("deleted", None)
 
-        if cohort.is_static and filters_changed and has_filter_criteria:
+        if cohort.is_static and existing_has_criteria and filters_changed:
             raise ValidationError(
                 "Editing the criteria of a static cohort is not supported yet. Create a new static cohort instead."
             )
@@ -1522,88 +1514,6 @@ def will_create_loops(cohort: Cohort) -> bool:
         return False
 
     return dfs_loop_helper(cohort, set(), set())
-
-
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
-    from posthog.helpers.batch_iterators import CursorBatchIterator
-
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-
-    CH_PAGE_SIZE = 10_000
-
-    # Use cursor-based pagination to stream from ClickHouse in pages instead of
-    # loading all rows into memory at once. The old approach fetched every row into
-    # a Python list, which OOM'd for large cohorts (1M+ people).
-    # Cursor-based avoids the O(n²) cost of LIMIT/OFFSET where later pages must
-    # scan and discard all preceding rows.
-    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
-        rows = sync_execute(
-            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
-            {
-                "cohort_id": cohort.pk,
-                "team_id": team_id,
-                "cursor": cursor,
-                "limit": batch_size,
-            },
-        )
-        if not rows:
-            return [], cursor
-        items = [str(r[0]) for r in rows]
-        return items, items[-1]
-
-    batch_iterator = CursorBatchIterator(
-        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
-    )
-    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
-
-
-def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
-    query_builder = CohortQuery(
-        Filter(
-            data={"properties": cohort.properties},
-            team=team,
-            hogql_context=context,
-        ),
-        team,
-        cohort_pk=cohort.pk,
-        persons_on_events_mode=team.person_on_events_mode,
-    )
-    base_query, params = query_builder.get_query()
-    return f"SELECT id AS actor_id FROM ({base_query})", params, context
-
-
-def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
-    query, params, context = build_static_cohort_filters_query(cohort, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
-
-
-def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
-    context = HogQLContext(enable_select_queries=True, team_id=team.id)
-    query = print_cohort_hogql_query(cohort, context, team=team)
-    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
-
-
-def insert_actors_into_cohort_by_query(
-    cohort: Cohort,
-    query: str,
-    params: dict[str, Any],
-    context: HogQLContext,
-    *,
-    team_id: int,
-):
-    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-    sync_execute(
-        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
-        {
-            "cohort_id": cohort.pk,
-            "_timestamp": datetime.now(),
-            "team_id": team_id,
-            **context.values,
-            **params,
-        },
-    )
 
 
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
