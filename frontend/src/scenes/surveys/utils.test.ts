@@ -9,6 +9,8 @@ import {
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
+    SurveyEventName,
+    SurveyEventProperties,
     SurveyQuestionType,
     SurveyType,
     SurveyWidgetType,
@@ -19,6 +21,7 @@ import {
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    getSurveyNotificationFilters,
     getResolvedSurveyDateRange,
     getSurveyAudienceSummaryValue,
     getSurveyDisplayConditionsSummary,
@@ -149,6 +152,64 @@ describe('survey utils', () => {
             expect(sanitizeColor('#ff0000')).toBe('#ff0000')
             expect(sanitizeColor('rgb(255, 0, 0)')).toBe('rgb(255, 0, 0)')
             expect(sanitizeColor('red')).toBe('red')
+        })
+    })
+
+    describe('getSurveyNotificationFilters', () => {
+        it('builds survey-specific notification filters', () => {
+            expect(getSurveyNotificationFilters('survey-123')).toEqual({
+                events: [
+                    {
+                        id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_RESPONSE,
+                                type: PropertyFilterType.Event,
+                                value: 'is_set',
+                                operator: PropertyOperator.IsSet,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_COMPLETED,
+                                type: PropertyFilterType.Event,
+                                value: true,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('can include partial responses when requested', () => {
+            expect(getSurveyNotificationFilters('survey-123', false)).toEqual({
+                events: [
+                    {
+                        id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_RESPONSE,
+                                type: PropertyFilterType.Event,
+                                value: 'is_set',
+                                operator: PropertyOperator.IsSet,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
         })
     })
 

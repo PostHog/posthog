@@ -56,8 +56,10 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -3361,6 +3363,44 @@ class TestExternalDataSource(APIBaseTest):
             for source in sources:
                 # This should not trigger additional queries due to select_related
                 _ = source.revenue_analytics_config.enabled
+
+    def test_enabling_revenue_analytics_creates_person_join(self):
+        source = self._create_external_data_source()
+        source.revenue_analytics_config_safe.enabled = False
+        source.revenue_analytics_config_safe.save()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(
+            team=self.team,
+            source_table_name=view_name,
+            joining_table_name="persons",
+            field_name="persons",
+            deleted=False,
+        ).exists()
+
+    def test_disabling_revenue_analytics_removes_person_join(self):
+        source = self._create_external_data_source()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": False},
+        )
+
+        assert not DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=True).exists()
 
     def test_create_external_data_source_rejects_invalid_prefix(self):
         """Test that invalid characters in prefix are rejected."""

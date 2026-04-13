@@ -368,7 +368,6 @@ class ExperimentService:
         create_in_folder: str | None = None,
         filters: dict | None = None,
         scheduling_config: dict | None = None,
-        exposure_preaggregation_enabled: bool = False,
         only_count_matured_users: bool = False,
         archived: bool = False,
         deleted: bool = False,
@@ -467,7 +466,6 @@ class ExperimentService:
             "primary_metrics_ordered_uuids": primary_metrics_ordered_uuids,
             "secondary_metrics_ordered_uuids": secondary_metrics_ordered_uuids,
             "scheduling_config": scheduling_config,
-            "exposure_preaggregation_enabled": exposure_preaggregation_enabled,
             "only_count_matured_users": only_count_matured_users,
             "archived": archived,
             "deleted": deleted,
@@ -1545,7 +1543,6 @@ class ExperimentService:
             saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=source_experiment.primary_metrics_ordered_uuids,
             secondary_metrics_ordered_uuids=source_experiment.secondary_metrics_ordered_uuids,
-            exposure_preaggregation_enabled=source_experiment.exposure_preaggregation_enabled,
             only_count_matured_users=source_experiment.only_count_matured_users,
             serializer_context=serializer_context,
             # For duplicate we set allow_unknown_events since the goal here is to actually duplicate:

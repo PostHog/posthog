@@ -11,6 +11,7 @@ from products.tasks.backend.services.sandbox import (
     SandboxStatus,
     SandboxTemplate,
     get_sandbox_class,
+    parse_sandbox_repo_mount_map,
 )
 
 
@@ -240,6 +241,72 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(task_id) in command
                 assert shlex.quote(run_id) in command
                 assert shlex.quote(mode) in command
+
+    def test_parse_repo_mount_map_empty(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert parse_sandbox_repo_mount_map() == {}
+
+    def test_parse_repo_mount_map_valid(self, tmp_path):
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"PostHog/posthog:{tmp_path}"}):
+            result = parse_sandbox_repo_mount_map()
+            assert result == {"posthog/posthog": str(tmp_path)}
+
+    def test_parse_repo_mount_map_multiple(self, tmp_path):
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"Org/repoA:{dir_a}, Org/repoB:{dir_b}"}):
+            result = parse_sandbox_repo_mount_map()
+            assert result == {"org/repoa": str(dir_a), "org/repob": str(dir_b)}
+
+    def test_parse_repo_mount_map_skips_nonexistent(self):
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": "Org/repo:/nonexistent/path"}):
+            assert parse_sandbox_repo_mount_map() == {}
+
+    def test_parse_repo_mount_map_skips_malformed(self, tmp_path):
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"no-slash:{tmp_path},,bad"}):
+            assert parse_sandbox_repo_mount_map() == {}
+
+    def test_clone_repository_skipped_when_mounted(self, tmp_path):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"PostHog/posthog:{tmp_path}"}):
+            with patch.object(sandbox, "is_running", return_value=True):
+                with patch.object(sandbox, "execute") as mock_execute:
+                    result = sandbox.clone_repository("PostHog/posthog", github_token="tok")
+                    assert result.exit_code == 0
+                    mock_execute.assert_not_called()
+
+    def test_clone_repository_proceeds_when_not_mounted(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(sandbox, "is_running", return_value=True):
+                with patch.object(sandbox, "execute") as mock_execute:
+                    sandbox.clone_repository("PostHog/posthog", github_token="tok")
+                    mock_execute.assert_called_once()
+
+    @patch("products.tasks.backend.services.docker_sandbox.subprocess.run")
+    def test_create_adds_volume_mounts(self, mock_run, tmp_path):
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+
+        config = SandboxConfig(name="test-sandbox")
+
+        with patch.dict(os.environ, {"SANDBOX_REPO_MOUNT_MAP": f"PostHog/posthog:{tmp_path}"}):
+            with patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"):
+                DockerSandbox.create(config)
+
+        docker_run_call = mock_run.call_args_list[-1]
+        docker_args = docker_run_call[0][0]
+        args_str = " ".join(docker_args)
+        assert f"-v {tmp_path}:/tmp/workspace/repos/posthog/posthog" in args_str
 
     def test_start_agent_server_without_domains_skips_agentsh(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
