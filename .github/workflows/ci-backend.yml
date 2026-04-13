@@ -44,6 +44,7 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
+    actions: write
     contents: read
     pull-requests: write
 
@@ -1767,3 +1768,42 @@ jobs:
               with:
                   name: junit-results-llm-gateway
                   path: junit.xml
+
+    # Watchdog that force-cancels the run when pytest hangs on cancellation.
+    # Runs concurrently with all other jobs (no `needs:`). On normal cancel,
+    # `if: always()` keeps this job alive while the test jobs get SIGINT.
+    # The bash `sleep` gets interrupted, the trap fires, and we call
+    # force-cancel to kill any hung pytest processes immediately.
+    cancel-watchdog:
+        name: Cancel watchdog
+        runs-on: ubuntu-latest
+        if: always()
+        timeout-minutes: 35
+        steps:
+            - name: Force-cancel run if cancellation hangs
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  WATCHDOG_JOB_NAME: Cancel watchdog
+              run: |
+                  echo "Watchdog started — polling every 15s for stuck cancellation"
+                  while true; do
+                      JOBS=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+                          --jq '[.jobs[] | select(.name != env.WATCHDOG_JOB_NAME) | {status, conclusion}]')
+
+                      HAS_CANCELLED=$(echo "$JOBS" | jq '[.[] | select(.conclusion == "cancelled")] | length > 0')
+                      STILL_RUNNING=$(echo "$JOBS" | jq '[.[] | select(.status == "in_progress")] | length > 0')
+                      ALL_DONE=$(echo "$JOBS" | jq '[.[] | select(.status != "completed")] | length == 0')
+
+                      if [ "$ALL_DONE" = "true" ]; then
+                          echo "All jobs complete, watchdog exiting"
+                          exit 0
+                      fi
+
+                      if [ "$HAS_CANCELLED" = "true" ] && [ "$STILL_RUNNING" = "true" ]; then
+                          echo "::warning::Cancelled jobs detected but other jobs still running — force-cancelling run"
+                          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/force-cancel" -X POST 2>&1 || true
+                          exit 0
+                      fi
+
+                      sleep 15
+                  done
