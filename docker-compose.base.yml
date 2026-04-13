@@ -172,14 +172,16 @@ services:
             - ./docker/clickhouse/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
         healthcheck:
             # `ruok` is the standard ZK/Keeper liveness probe — returns "imok" when ready.
-            # Without this, dependent services start before keeper accepts connections,
-            # causing ClickHouse to fail with "Can't connect to ZooKeeper" on first apply.
-            # This is what was breaking the hobby CI (see Slack thread 1776067695).
-            test: ['CMD-SHELL', 'echo ruok | nc -w 2 localhost 9181 | grep -q imok || exit 1']
+            # Use `printf` (no trailing newline) with BusyBox nc so nc waits for the
+            # reply. `echo ruok | nc` closes the connection before Keeper responds
+            # because the trailing newline terminates stdin. Keeper needs ~30s to
+            # initialize its storage, so a 60s start_period gives headroom.
+            # See Slack thread 1776067695 — this fixes the hobby CI.
+            test: ['CMD-SHELL', 'printf ruok | nc -w 3 127.0.0.1 9181 | grep -q imok']
             interval: 5s
             timeout: 10s
-            retries: 12
-            start_period: 30s
+            retries: 20
+            start_period: 60s
 
     kafka:
         image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
