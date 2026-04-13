@@ -878,3 +878,153 @@ tables:
         assert "DROP DICTIONARY IF EXISTS posthog.channel_definition_dict" in recreates[0].sql
         assert "CREATE DICTIONARY" in recreates[0].sql
         assert "LIFETIME" in recreates[0].detail
+
+
+# -- P1-C: Distributed source with database prefix --------------------------
+
+
+class TestDistributedSourceWithDbPrefix:
+    """P1-C: Distributed(..., '<db>', '<table>', ...) must split source on '.'.
+
+    YAML `source: system.processes` must produce `Distributed(..., 'system',
+    'processes', ...)`. Passing the full string as the table name makes CH
+    resolve `system.processes` in the local database, which fails.
+    """
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_system_processes_split_into_db_and_table(self, _mock_setting, _mock_cluster):
+        table = DesiredTable(
+            name="distributed_system_processes",
+            engine="Distributed",
+            columns=[],
+            on_nodes=["all"],
+            source="system.processes",
+        )
+        sql = _generate_create_sql(table, "posthog_test", "test_cluster")
+
+        assert "'system', 'processes'" in sql, f"Expected 'system', 'processes' in: {sql}"
+        # Must NOT emit the un-split form that CH resolves to the current DB.
+        assert "'posthog_test', 'system.processes'" not in sql
+        # AS clause still references the qualified source so columns inherit.
+        assert "AS system.processes" in sql
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_undotted_source_uses_current_database(self, _mock_setting, _mock_cluster):
+        table = DesiredTable(
+            name="events_dist",
+            engine="Distributed",
+            columns=[_col("uuid", "UUID")],
+            on_nodes=["all"],
+            source="sharded_events",
+        )
+        sql = _generate_create_sql(table, "posthog", "test_cluster")
+
+        assert "'posthog', 'sharded_events'" in sql
+
+
+# -- P1-B: Kafka cascade on MV drop+create pair -----------------------------
+
+
+class TestKafkaCascadeOnSelectChange:
+    """P1-B: When an MV's SELECT changes, the diff emits drop+create rather
+    than recreate_mv. The cascade fix must still re-create the Kafka source.
+    """
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_kafka_recreated_on_mv_select_change(self, _mock_setting, _mock_cluster):
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[_col("event", "String")],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+                "kafka_events_mv": DesiredTable(
+                    name="kafka_events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event, toUnixTimestamp(timestamp) AS ts FROM posthog.kafka_events",
+                ),
+            }
+        )
+        current = {
+            "kafka_events": TableSchema(
+                name="kafka_events",
+                engine="Kafka",
+                columns=[
+                    _live_col("event", "String"),
+                    _live_col("_topic", "LowCardinality(String)"),
+                ],
+            ),
+            "kafka_events_mv": TableSchema(
+                name="kafka_events_mv",
+                engine="MaterializedView",
+                # Old SELECT — triggers the drop+create path (not recreate_mv)
+                as_select="SELECT event FROM posthog.kafka_events",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+
+        # Verify MV got a drop+create (not recreate_mv)
+        mv_drops = [d for d in diffs if d.action == "drop" and d.table == "kafka_events_mv"]
+        mv_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events_mv"]
+        assert len(mv_drops) == 1, f"Expected MV drop; got {[d.detail for d in diffs]}"
+        assert len(mv_creates) == 1, f"Expected MV create; got {[d.detail for d in diffs]}"
+
+        # Cascade fix must add a create for the Kafka source
+        kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
+        assert len(kafka_creates) == 1, (
+            f"Expected Kafka source to be re-added after MV recreate; got {[d.detail for d in diffs]}"
+        )
+        assert "cascade-dropped" in kafka_creates[0].detail.lower()
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_no_cascade_when_mv_stable(self, _mock_setting, _mock_cluster):
+        """Regression: Kafka is not re-added when the MV isn't being recreated."""
+        desired = _make_desired(
+            {
+                "kafka_events": DesiredTable(
+                    name="kafka_events",
+                    engine="Kafka",
+                    columns=[_col("event", "String")],
+                    on_nodes=["all"],
+                    settings={"kafka_broker_list": "localhost:9092", "kafka_topic_list": "events"},
+                ),
+                "kafka_events_mv": DesiredTable(
+                    name="kafka_events_mv",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["all"],
+                    target="sharded_events",
+                    select="SELECT event FROM posthog.kafka_events",
+                ),
+            }
+        )
+        current = {
+            "kafka_events": TableSchema(
+                name="kafka_events",
+                engine="Kafka",
+                columns=[
+                    _live_col("event", "String"),
+                    _live_col("_topic", "LowCardinality(String)"),
+                ],
+            ),
+            "kafka_events_mv": TableSchema(
+                name="kafka_events_mv",
+                engine="MaterializedView",
+                as_select="SELECT event FROM posthog.kafka_events",
+                columns=[_live_col("event", "String")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
+        assert len(kafka_creates) == 0, f"Unexpected Kafka recreate: {[d.detail for d in diffs]}"
