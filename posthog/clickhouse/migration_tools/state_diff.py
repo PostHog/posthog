@@ -415,6 +415,18 @@ def _generate_create_sql(
         sharding = table.sharding_key or "rand()"
         physical_cluster = _resolve_physical_cluster(cluster)
 
+        # Split `source` into database + table arguments for the Distributed
+        # engine. When the YAML says `source: system.processes`, passing the
+        # whole string as the table-name argument causes ClickHouse to resolve
+        # `system.processes` as a table in the local database, which fails.
+        # Splitting on the first `.` lets the engine find the source in a
+        # different database (e.g. `system.*` or a shared data DB).
+        if "." in source:
+            src_db, src_table = source.split(".", 1)
+        else:
+            src_db = database
+            src_table = source
+
         # Distributed tables that wrap a system.* table (or any source table
         # whose columns should be inherited rather than redeclared) are
         # authored in the YAML with an empty `columns: []` list. Rendering an
@@ -426,18 +438,18 @@ def _generate_create_sql(
         # resolution:
         #   - If `source` contains a dot, use it verbatim (e.g. `system.processes`).
         #   - Otherwise, qualify it with the current database.
-        # The Distributed cluster args are unchanged from the normal path.
+        # The Distributed cluster args use the split src_db/src_table.
         if not table.columns:
             source_ref = source if "." in source else f"{database}.{source}"
             return (
                 f"CREATE TABLE IF NOT EXISTS {database}.{table.name} AS {source_ref}\n"
-                f"ENGINE = Distributed('{physical_cluster}', '{database}', '{source}', {sharding})"
+                f"ENGINE = Distributed('{physical_cluster}', '{src_db}', '{src_table}', {sharding})"
             )
 
         return (
             f"CREATE TABLE IF NOT EXISTS {database}.{table.name}\n"
             f"(\n{cols}\n"
-            f") ENGINE = Distributed('{physical_cluster}', '{database}', '{source}', {sharding})"
+            f") ENGINE = Distributed('{physical_cluster}', '{src_db}', '{src_table}', {sharding})"
         )
 
     if _is_kafka(table.engine):
@@ -983,17 +995,38 @@ def diff_state(
     creates.sort(key=_create_sort_key)
 
     # Fix 5: Kafka/MV recreate cascade prevention.
-    # When an MV is recreated (DROP + CREATE), ClickHouse can cascade-drop
-    # the source Kafka table if it was created inline. Re-add a CREATE step
-    # for any Kafka table that is the source of a recreated MV.
+    # When an MV is recreated, ClickHouse can cascade-drop the source Kafka
+    # table if it was created inline. Re-add a CREATE step for any Kafka
+    # table referenced by the MV's SELECT.
+    #
+    # MV recreation takes two shapes in the diff:
+    #   1. A single `recreate_mv` entry (structural change: target/engine/etc.)
+    #   2. A paired DROP + CREATE on the same MV table name (SELECT changed,
+    #      see the MV SELECT comparison above that emits `drop` + `create`).
+    # Both cascade-drop the Kafka source, so both must trigger re-creation.
     kafka_tables_in_desired = {name: t for name, t in desired_without_skipped.items() if _is_kafka(t.engine)}
     if kafka_tables_in_desired:
-        # Collect table names already being created
+        # Collect table names already being created so we don't duplicate.
         tables_being_created = {d.table for d in creates}
+
+        # Build the set of MV names being recreated: explicit recreate_mv
+        # entries, plus tables that appear as BOTH a drop and a create (the
+        # drop+create pair path for SELECT changes).
+        dropped_names = {d.table for d in drops}
+        created_names = {d.table for d in creates}
+        drop_create_pairs = dropped_names & created_names
+
+        recreated_mv_names: set[str] = set()
         for rec in recreates:
-            if rec.action != "recreate_mv":
-                continue
-            mv_table = desired_without_skipped.get(rec.table)
+            if rec.action == "recreate_mv":
+                recreated_mv_names.add(rec.table)
+        for name in drop_create_pairs:
+            desired_table = desired_without_skipped.get(name)
+            if desired_table and _is_mv(desired_table.engine):
+                recreated_mv_names.add(name)
+
+        for mv_name in recreated_mv_names:
+            mv_table = desired_without_skipped.get(mv_name)
             if not mv_table or not mv_table.select:
                 continue
             # Find which Kafka tables are referenced in the MV SELECT
@@ -1005,7 +1038,7 @@ def diff_state(
                         StateDiff(
                             action="create",
                             table=kafka_name,
-                            detail=f"Re-create Kafka table {kafka_name} (cascade-dropped by MV {rec.table} recreate)",
+                            detail=f"Re-create Kafka table {kafka_name} (cascade-dropped by MV {mv_name} recreate)",
                             sql=_generate_create_sql(kafka_def, db, cl),
                             node_roles=kafka_def.on_nodes,
                             depends_on=[],

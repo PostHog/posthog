@@ -202,35 +202,47 @@ class Command(BaseCommand):
         for ds in desired_states:
             by_cluster[ds.cluster].append(ds)
 
-        # Introspect the MIGRATIONS cluster (not the data cluster) so we see
-        # every node DDL runs on — coordinator + data + any satellite reachable
-        # from the current env. The data cluster (`posthog` / `CLICKHOUSE_CLUSTER`)
-        # is a subset and misses coordinator-only tables (Distributed wrappers,
-        # writable_* variants, MVs targeting coordinator). A single-cluster scan
-        # causes diff_state to emit spurious "to create" actions for tables
-        # that do exist but on a node outside this cluster.
+        # Introspect each target cluster independently. Earlier versions
+        # introspected only the migrations cluster once and reused that union
+        # for every logical cluster — that's wrong when YAMLs target separate
+        # ecosystems (`logs`, `sessions`, etc.) because their tables don't
+        # exist on the main migrations cluster, so diff_state emits spurious
+        # `create` actions and misses real drift on the satellite.
+        #
+        # The migrations cluster union is used only as a fallback when the
+        # per-cluster introspection fails with an unreachable error — in CI
+        # dev stacks not every satellite is provisioned.
         from posthog.clickhouse.client.migration_tools import get_migrations_cluster
         from posthog.clickhouse.migration_tools.schema_introspect import dump_schema_all_hosts
 
-        introspect_cluster = get_migrations_cluster()
-        introspect_per_host = dump_schema_all_hosts(introspect_cluster, database)
-        introspect_union: dict[str, Any] = {}
-        for _host_info, host_schema in introspect_per_host.items():
-            for tbl_name, tbl_schema in host_schema.items():
-                # First-wins union across all nodes in the migrations cluster.
-                # Replicated tables have identical DDL across replicas; for
-                # node-role-specific tables (Distributed, MV) only one node has
-                # them at all, so there's no conflict.
-                if tbl_name not in introspect_union:
-                    introspect_union[tbl_name] = tbl_schema
+        def _union_from_cluster(cluster_obj: Any) -> dict[str, Any]:
+            per_host = dump_schema_all_hosts(cluster_obj, database)
+            union: dict[str, Any] = {}
+            for _host_info, host_schema in per_host.items():
+                for tbl_name, tbl_schema in host_schema.items():
+                    # First-wins union across all nodes in the cluster.
+                    # Replicated tables have identical DDL across replicas;
+                    # for node-role-specific tables (Distributed, MV) only
+                    # one node has them at all, so there's no conflict.
+                    if tbl_name not in union:
+                        union[tbl_name] = tbl_schema
+            return union
+
+        # Lazy fallback union from the migrations cluster — only computed if
+        # a per-cluster scan fails for an unreachable reason.
+        _migrations_union: dict[str, Any] | None = None
+
+        def _fallback_union() -> dict[str, Any]:
+            nonlocal _migrations_union
+            if _migrations_union is None:
+                _migrations_union = _union_from_cluster(get_migrations_cluster())
+            return _migrations_union
 
         all_diffs = []
         for cluster_name, states in by_cluster.items():
             try:
-                _cluster_obj = get_cluster_by_name(cluster_name)  # noqa: F841 — validates cluster exists
-                # Use the pre-computed union from the migrations cluster scan
-                # instead of re-scanning each target cluster.
-                current = introspect_union
+                cluster_obj = get_cluster_by_name(cluster_name)
+                current = _union_from_cluster(cluster_obj)
             except Exception as exc:
                 # A satellite cluster named in the YAML may be unreachable from the
                 # current runtime for several expected reasons — skip with a warning
@@ -255,13 +267,25 @@ class Command(BaseCommand):
                     or "not found" in exc_str.lower()
                 )
                 if is_unreachable:
+                    # Fall back to the migrations-cluster union so we still
+                    # produce something useful — if the table doesn't exist
+                    # there either, diff_state correctly emits a create.
                     ecosystem_names = ", ".join(s.ecosystem for s in states)
                     print(
-                        f"Warning: skipping cluster '{cluster_name}' "
-                        f"(ecosystems: {ecosystem_names}) — unreachable: {exc_str[:200]}"
+                        f"Warning: cluster '{cluster_name}' "
+                        f"(ecosystems: {ecosystem_names}) unreachable; "
+                        f"falling back to migrations-cluster schema. Details: {exc_str[:200]}"
                     )
-                    continue
-                raise
+                    try:
+                        current = _fallback_union()
+                    except Exception as fallback_exc:
+                        print(
+                            f"Warning: fallback to migrations cluster also failed for "
+                            f"'{cluster_name}': {fallback_exc!s:.200}. Skipping."
+                        )
+                        continue
+                else:
+                    raise
 
             for desired in states:
                 ecosystem_current = {name: table for name, table in current.items() if name in desired.tables}

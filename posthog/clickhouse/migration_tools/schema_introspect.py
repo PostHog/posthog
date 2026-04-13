@@ -137,6 +137,48 @@ def compare_schemas(
                 )
             )
 
+        # Partition key mismatch — distinct diff_type so downstream filtering
+        # can treat partitioning drift separately from sort-key drift.
+        if exp_table.partition_key != act_table.partition_key:
+            diffs.append(
+                SchemaDiff(
+                    table=table,
+                    column=None,
+                    diff_type="partition_key_mismatch",
+                    expected=f"partition_key={exp_table.partition_key}",
+                    actual=f"partition_key={act_table.partition_key}",
+                )
+            )
+
+        # Primary key mismatch. Separate from sorting_key: ClickHouse lets
+        # PRIMARY KEY be a prefix of ORDER BY with different semantics
+        # (index granularity marks), so drift in one doesn't imply the other.
+        if exp_table.primary_key != act_table.primary_key:
+            diffs.append(
+                SchemaDiff(
+                    table=table,
+                    column=None,
+                    diff_type="primary_key_mismatch",
+                    expected=f"primary_key={exp_table.primary_key}",
+                    actual=f"primary_key={act_table.primary_key}",
+                )
+            )
+
+        # engine_full captures engine args (zk path, replica name, replacement
+        # version column, distributed cluster args, etc.) that aren't in
+        # `engine` alone. Only compare when both sides populate it — older CH
+        # versions or system tables may leave it empty.
+        if exp_table.engine_full and act_table.engine_full and exp_table.engine_full != act_table.engine_full:
+            diffs.append(
+                SchemaDiff(
+                    table=table,
+                    column=None,
+                    diff_type="engine_full_mismatch",
+                    expected=exp_table.engine_full,
+                    actual=act_table.engine_full,
+                )
+            )
+
         # Column comparison
         exp_cols = {c.name: c for c in exp_table.columns}
         act_cols = {c.name: c for c in act_table.columns}
