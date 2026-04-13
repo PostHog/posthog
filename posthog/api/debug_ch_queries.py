@@ -228,6 +228,7 @@ class DebugCHQueries(viewsets.ViewSet):
         return {
             "team_id": team.id,
             "team_name": team.name,
+            "organization_id": str(team.organization.id) if team.organization else None,
             "organization_name": team.organization.name if team.organization else None,
             "experiment_precomputation_enabled": enabled,
         }

@@ -9,6 +9,7 @@ import type { queryPerformanceLogicType } from './queryPerformanceLogicType'
 export interface PrecomputationTeam {
     team_id: number
     team_name: string
+    organization_id: string | null
     organization_name: string | null
     experiment_precomputation_enabled: boolean
 }
