@@ -770,6 +770,11 @@ export type TasksRunsSessionLogsRetrieveParams = {
      * @maximum 5000
      */
     limit?: number
+    /**
+     * Zero-based offset into the filtered log entries
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type TasksRepositoryReadinessRetrieveParams = {

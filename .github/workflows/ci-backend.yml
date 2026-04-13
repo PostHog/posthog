@@ -93,7 +93,13 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'common/**/*'
+                        - 'common/__init__.py'
+                        - 'common/hogli/**'
+                        - 'common/hogql_parser/**'
+                        - 'common/hogvm/**'
+                        - 'common/ingestion/**'
+                        - 'common/migration_utils/**'
+                        - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         - bin/build-schema-latest-versions.py
@@ -112,7 +118,6 @@ jobs:
                         - .test_durations # Used for pytest-split sharding
                         - frontend/src/queries/schema.json # Used for generating schema.py
                         - rust/feature-flags/src/properties/property_models.rs # Operator parity check
-                        - common/plugin_transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -132,7 +137,13 @@ jobs:
                         # to detect isolated products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
-                        - 'common/**/*'
+                        - 'common/__init__.py'
+                        - 'common/hogli/**'
+                        - 'common/hogql_parser/**'
+                        - 'common/hogvm/**'
+                        - 'common/ingestion/**'
+                        - 'common/migration_utils/**'
+                        - 'common/plugin_transpiler/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
@@ -150,7 +161,6 @@ jobs:
                         - .test_durations
                         - frontend/src/queries/schema.json
                         - rust/feature-flags/src/properties/property_models.rs
-                        - common/plugin_transpiler/src
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml

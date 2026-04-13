@@ -3,12 +3,12 @@ import React, { useLayoutEffect, useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
 
-interface TooltipProps {
-    context: TooltipContext
-    renderTooltip: (ctx: TooltipContext) => React.ReactNode
+interface TooltipProps<Meta> {
+    context: TooltipContext<Meta>
+    renderTooltip: (ctx: TooltipContext<Meta>) => React.ReactNode
 }
 
-export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactElement {
+export function Tooltip<Meta = unknown>({ context, renderTooltip }: TooltipProps<Meta>): React.ReactElement {
     const virtualReference = useMemo<VirtualElement>(
         () => ({
             getBoundingClientRect() {

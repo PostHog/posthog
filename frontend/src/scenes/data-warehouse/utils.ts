@@ -2,11 +2,14 @@ import { LemonTagType } from '@posthog/lemon-ui'
 
 import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
 import {
+    DataModelingSyncInterval,
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
 } from '~/types'
+
+export type SyncInterval = DataWarehouseSyncInterval | DataModelingSyncInterval
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
 
@@ -30,10 +33,7 @@ export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): Dat
  * @param anchorTime - The time at which the sync was anchored (UTC)
  * @param syncFrequency - Interval at which the sync will reoccur
  */
-export const syncAnchorIntervalToHumanReadable = (
-    anchorTime: string,
-    syncFrequency: DataWarehouseSyncInterval
-): string => {
+export const syncAnchorIntervalToHumanReadable = (anchorTime: string, syncFrequency: SyncInterval): string => {
     // For intervals <= 1 hour, we don't use anchor time
     if (['1min', '5min', '30min', '1hour'].includes(syncFrequency)) {
         return `The sync runs every ${
@@ -80,7 +80,7 @@ export const syncAnchorIntervalToHumanReadable = (
     } UTC`
 }
 
-export function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval | undefined): string {
+export function syncIntervalToShorthand(syncInterval: SyncInterval | undefined): string {
     switch (syncInterval) {
         case '1min':
             return '1m'

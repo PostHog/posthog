@@ -822,6 +822,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/WorkflowVariablePropertyFilter"
                 }
             ]
         },
@@ -16421,6 +16424,10 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "precomputation_mode": {
+                    "enum": ["precomputed", "direct"],
                     "type": "string"
                 },
                 "response": {
@@ -38593,6 +38600,29 @@
                 "endpoints"
             ],
             "type": "string"
+        },
+        "WorkflowVariablePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "workflow_variable",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
         },
         "YAxisSettings": {
             "additionalProperties": false,

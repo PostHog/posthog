@@ -34,7 +34,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { GraphsHog, PopUpBinocularsHog } from 'lib/components/hedgehogs'
-import { NotFound } from 'lib/components/NotFound'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -746,7 +745,24 @@ export function InboxScene(): JSX.Element {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!isProductAutonomyEnabled) {
-        return <NotFound object="page" caption="Check back later." />
+        return (
+            <div className="flex flex-col items-center justify-center max-w-[50rem] px-4 mx-auto text-center text-balance h-full">
+                <GraphsHog className="w-36 mb-2" />
+                <h1 className="text-2xl font-bold mt-4 mb-0">Inbox is now available in the PostHog Code desktop app</h1>
+                <p className="text-sm font-semibold italic mt-3 mb-0">
+                    PostHog Code brings Inbox and agentic development right to your desktop.
+                </p>
+                <div className="flex justify-center mt-4">
+                    <LemonButton
+                        type="primary"
+                        to="https://posthog.com/code?utm_source=app&utm_medium=in-product&utm_campaign=inbox-cta"
+                        targetBlank
+                    >
+                        Download here
+                    </LemonButton>
+                </div>
+            </div>
+        )
     }
 
     return (
