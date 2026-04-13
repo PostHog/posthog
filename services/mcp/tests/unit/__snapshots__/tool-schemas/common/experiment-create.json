@@ -207,7 +207,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -364,7 +375,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -541,7 +563,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -719,7 +752,18 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Event name, e.g. '$pageview'."
+                                                    "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                                },
+                                                "id": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Action ID. Required for ActionsNode."
                                                 },
                                                 "kind": {
                                                     "enum": ["EventsNode", "ActionsNode"],
@@ -868,7 +912,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -1014,7 +1069,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -1200,7 +1266,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -1357,7 +1434,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -1534,7 +1622,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -1712,7 +1811,18 @@
                                                             "type": "null"
                                                         }
                                                     ],
-                                                    "description": "Event name, e.g. '$pageview'."
+                                                    "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                                },
+                                                "id": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Action ID. Required for ActionsNode."
                                                 },
                                                 "kind": {
                                                     "enum": ["EventsNode", "ActionsNode"],
@@ -1861,7 +1971,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
@@ -2007,7 +2128,18 @@
                                                         "type": "null"
                                                     }
                                                 ],
-                                                "description": "Event name, e.g. '$pageview'."
+                                                "description": "Event name, e.g. '$pageview'. Required for EventsNode."
+                                            },
+                                            "id": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
                                                 "enum": ["EventsNode", "ActionsNode"],
