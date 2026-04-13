@@ -47,6 +47,17 @@ export const GroupUsageMetricDisplayEnumApi = {
     Sparkline: 'sparkline',
 } as const
 
+/**
+ * * `count` - count
+ * `sum` - sum
+ */
+export type MathEnumApi = (typeof MathEnumApi)[keyof typeof MathEnumApi]
+
+export const MathEnumApi = {
+    Count: 'count',
+    Sum: 'sum',
+} as const
+
 export interface GroupUsageMetricApi {
     readonly id: string
     /** @maxLength 255 */
@@ -60,6 +71,12 @@ export interface GroupUsageMetricApi {
     interval?: number
     display?: GroupUsageMetricDisplayEnumApi
     filters: unknown
+    math?: MathEnumApi
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    math_property?: string | null
 }
 
 export interface PaginatedGroupUsageMetricListApi {
@@ -84,6 +101,12 @@ export interface PatchedGroupUsageMetricApi {
     interval?: number
     display?: GroupUsageMetricDisplayEnumApi
     filters?: unknown
+    math?: MathEnumApi
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    math_property?: string | null
 }
 
 export type GroupsTypesMetricsListParams = {

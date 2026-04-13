@@ -810,7 +810,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters")
+        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
+
+    def validate(self, data):
+        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
+        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        return data
 
 
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

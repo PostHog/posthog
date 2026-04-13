@@ -79,7 +79,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         with self.timings.measure("get_usage_metrics"):
             return list(
                 GroupUsageMetric.objects.filter(team=self.team).only(
-                    "id", "name", "format", "interval", "display", "filters"
+                    "id", "name", "format", "interval", "display", "filters", "math", "math_property"
                 )
             )
 
@@ -93,6 +93,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             date_to = datetime.now(tz=ZoneInfo("UTC"))
             date_from = date_to - timedelta(days=metric.interval)
             prev_date_from = date_to - 2 * timedelta(days=metric.interval)
+            value_expr, previous_expr = self._build_aggregation_exprs(metric, date_from, date_to, prev_date_from)
 
         return parse_select(
             """
@@ -106,8 +107,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                     {format} as format,
                     {display} as display,
                     {interval} as interval,
-                    countIf(timestamp >= {date_from} AND timestamp <= {date_to}) as value,
-                    countIf(timestamp >= {prev_date_from} AND timestamp < {date_from}) as previous
+                    {value_expr} as value,
+                    {previous_expr} as previous
                 FROM events
                 WHERE {where_expr}
             )
@@ -119,10 +120,63 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 "display": ast.Constant(value=metric.display),
                 "interval": ast.Constant(value=metric.interval),
                 "where_expr": where_expr,
-                "date_from": ast.Constant(value=date_from),
-                "prev_date_from": ast.Constant(value=prev_date_from),
-                "date_to": ast.Constant(value=date_to),
+                "value_expr": value_expr,
+                "previous_expr": previous_expr,
             },
+        )
+
+    def _build_aggregation_exprs(
+        self,
+        metric: GroupUsageMetric,
+        date_from: datetime,
+        date_to: datetime,
+        prev_date_from: datetime,
+    ) -> tuple[ast.Expr, ast.Expr]:
+        current_condition = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_to),
+                ),
+            ]
+        )
+        previous_condition = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=prev_date_from),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_from),
+                ),
+            ]
+        )
+
+        if metric.math == GroupUsageMetric.Math.SUM:
+            prop_as_float = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric.math_property])])
+            return (
+                ast.Call(
+                    name="ifNull",
+                    args=[ast.Call(name="sumIf", args=[prop_as_float, current_condition]), ast.Constant(value=0)],
+                ),
+                ast.Call(
+                    name="ifNull",
+                    args=[ast.Call(name="sumIf", args=[prop_as_float, previous_condition]), ast.Constant(value=0)],
+                ),
+            )
+
+        return (
+            ast.Call(name="toFloat", args=[ast.Call(name="countIf", args=[current_condition])]),
+            ast.Call(name="toFloat", args=[ast.Call(name="countIf", args=[previous_condition])]),
         )
 
     def _get_entity_filter(self) -> ast.CompareOperation:
