@@ -93,9 +93,10 @@ fn insert_negative_cache(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::helpers::dummy_s3_client;
     use common_hypercache::HyperCacheConfig;
     use common_redis::MockRedisClient;
-    use common_s3::{MockS3Client, S3Client, S3Error};
+    use common_s3::{MockS3Client, S3Error};
 
     fn test_config(namespace: &str, value: &str) -> HyperCacheConfig {
         let mut config = HyperCacheConfig::new(
@@ -111,15 +112,6 @@ mod tests {
     fn cache_key_for_token(config: &HyperCacheConfig, token: &str) -> String {
         let key = KeyType::string(token);
         config.get_redis_cache_key(&key)
-    }
-
-    fn dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
-        let mut mock_s3 = MockS3Client::new();
-        mock_s3.expect_get_string().returning(|_, key| {
-            let key_owned = key.to_string();
-            Box::pin(async move { Err(S3Error::NotFound(key_owned)) })
-        });
-        Arc::new(mock_s3)
     }
 
     fn make_reader(mock_redis: MockRedisClient, config: HyperCacheConfig) -> Arc<HyperCacheReader> {

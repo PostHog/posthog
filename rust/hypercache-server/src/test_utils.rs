@@ -24,7 +24,7 @@ pub mod helpers {
     }
 
     /// S3 mock that returns NotFound for all keys.
-    fn dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
+    pub fn dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
         let mut mock_s3 = MockS3Client::new();
         mock_s3.expect_get_string().returning(|_, key| {
             let key_owned = key.to_string();
