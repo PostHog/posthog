@@ -14,7 +14,7 @@ import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './c
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
-    person_id: z.string().uuid(),
+    person_id: z.guid(),
     cohort_id: z.number(),
     team_id: z.number(),
     status: z.enum(['entered', 'left']),
@@ -121,7 +121,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
                 if (!validationResult.success) {
                     logger.error('Invalid cohort membership change message', {
-                        errors: validationResult.error.errors,
+                        errors: validationResult.error.issues,
                         message: messageValue,
                     })
                     throw new Error(`Invalid cohort membership change message: ${validationResult.error.message}`)

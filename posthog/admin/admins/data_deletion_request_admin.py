@@ -7,7 +7,7 @@ from django.utils import timezone
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
 
@@ -30,12 +30,17 @@ def _build_property_filter(obj) -> tuple[str, dict]:
         "end_time": obj.end_time,
         "events": obj.events,
     }
-    if len(obj.properties) == 1:
-        filter_clause = "AND JSONHas(properties, %(property)s)"
-        params["property"] = obj.properties[0]
+    properties = obj.properties
+    if len(properties) == 1:
+        filter_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
     else:
-        filter_clause = "AND hasAny(JSONExtractKeys(properties), %(properties)s)"
-        params["properties"] = obj.properties
+        exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+        filter_clause = f"AND ({' OR '.join(exprs)})"
+
+    for i, prop in enumerate(properties):
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+
     return filter_clause, params
 
 
@@ -55,7 +60,9 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
             f"""
             SELECT
                 count() AS events,
-                count(DISTINCT _part) AS parts
+                count(DISTINCT _part) AS parts,
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
             FROM sharded_events
             WHERE team_id = %(team_id)s
               AND timestamp >= %(start_time)s
@@ -110,6 +117,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
     return {
         "count": event_result[0][0] if event_result else 0,
+        "min_timestamp": event_result[0][2] if event_result and event_result[0][0] else None,
+        "max_timestamp": event_result[0][3] if event_result and event_result[0][0] else None,
         "part_count": parts_result[0][0] if parts_result else 0,
         "parts_size": parts_result[0][1] if parts_result else 0,
         "parts_row_count": parts_result[0][2] if parts_result else 0,
@@ -158,6 +167,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "part_count",
         "parts_size",
         "parts_row_count",
+        "min_timestamp",
+        "max_timestamp",
         "stats_calculated_at",
         "created_at",
         "created_by",
@@ -191,7 +202,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         (
             "ClickHouse stats",
             {
-                "fields": ("count", "part_count", "parts_size", "parts_row_count", "stats_calculated_at"),
+                "fields": (
+                    "count",
+                    "part_count",
+                    "parts_size",
+                    "parts_row_count",
+                    "min_timestamp",
+                    "max_timestamp",
+                    "stats_calculated_at",
+                ),
                 "description": "Populated by executing a ClickHouse query. Not editable.",
             },
         ),
@@ -222,6 +241,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.part_count = None
             obj.parts_size = None
             obj.parts_row_count = None
+            obj.min_timestamp = None
+            obj.max_timestamp = None
             obj.stats_calculated_at = None
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
@@ -322,6 +343,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.part_count = stats["part_count"]
             obj.parts_size = stats["parts_size"]
             obj.parts_row_count = stats["parts_row_count"]
+            obj.min_timestamp = stats["min_timestamp"]
+            obj.max_timestamp = stats["max_timestamp"]
             obj.stats_calculated_at = timezone.now()
             obj.save(
                 update_fields=[
@@ -329,6 +352,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "part_count",
                     "parts_size",
                     "parts_row_count",
+                    "min_timestamp",
+                    "max_timestamp",
                     "stats_calculated_at",
                     "updated_at",
                 ]

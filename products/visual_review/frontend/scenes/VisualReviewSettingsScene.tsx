@@ -10,9 +10,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import type { RepoApi } from '../generated/api.schemas'
 import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'

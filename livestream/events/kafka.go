@@ -296,6 +296,9 @@ func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
 }
 
 func applyKafkaConfigOverrides(config *kafka.ConfigMap, consumerConfig configs.ConsumerConfig) {
+	if consumerConfig.ClientID != "" {
+		_ = config.SetKey("client.id", consumerConfig.ClientID)
+	}
 	if consumerConfig.SessionTimeoutMs > 0 {
 		_ = config.SetKey("session.timeout.ms", consumerConfig.SessionTimeoutMs)
 	}

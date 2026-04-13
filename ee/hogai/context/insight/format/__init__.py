@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantStickinessQuery,
@@ -64,12 +65,12 @@ def format_query_results_for_llm(
         return TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
+    elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
+        return LifecycleResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
         return PathsResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
         return StickinessResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, LifecycleQuery):
-        return LifecycleResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):

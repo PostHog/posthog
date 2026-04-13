@@ -20,6 +20,7 @@ export type ScrollableShadowsProps = {
     ariaLabel?: string
     ariaActivedescendant?: string
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
+    onFocusCapture?: (event: React.FocusEvent<HTMLDivElement>) => void
     onBlur?: () => void
     styledScrollbars?: boolean
     style?: CSSProperties

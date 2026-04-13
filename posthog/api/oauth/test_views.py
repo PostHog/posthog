@@ -2568,6 +2568,37 @@ class TestOAuthAPI(APIBaseTest):
         old_db_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNotNone(old_db_token.revoked)
 
+    @parameterized.expand(["vscode", "obsidian", "myapp"])
+    def test_error_redirect_with_custom_scheme_does_not_500(self, scheme):
+        custom_scheme_app = OAuthApplication.objects.create(
+            name=f"{scheme} App",
+            client_id=f"{scheme}_client_id",
+            client_secret=f"{scheme}_client_secret",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=f"{scheme}://posthog/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        # Request with an invalid scope to trigger an error redirect
+        url = (
+            f"/oauth/authorize/?client_id={custom_scheme_app.client_id}"
+            f"&redirect_uri={scheme}://posthog/callback"
+            f"&response_type=code"
+            f"&code_challenge={self.code_challenge}"
+            f"&code_challenge_method=S256"
+            f"&scope=nonexistent_scope"
+        )
+
+        response = self.client.get(url)
+
+        # Should redirect back to the client with the error, not 500
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(response["Location"].startswith(f"{scheme}://posthog/callback"))
+        self.assertIn("error=invalid_scope", response["Location"])
+
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_token_response_includes_region_for_us_cloud(self):

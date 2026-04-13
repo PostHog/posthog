@@ -7,6 +7,8 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
 
     const base: ChartTheme = {
         colors: getSeriesColorPalette(),
+        backgroundColor:
+            getComputedStyle(document.body).getPropertyValue('--color-bg-surface-primary').trim() || '#ffffff',
         axisColor: graphColors.axisLabel ?? undefined,
         gridColor: graphColors.axisLine ?? undefined,
         crosshairColor: graphColors.crosshair ?? undefined,

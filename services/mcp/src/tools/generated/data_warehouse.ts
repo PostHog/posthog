@@ -68,6 +68,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -116,6 +119,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -176,6 +182,9 @@ const viewMaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -219,6 +228,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -258,6 +270,9 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test

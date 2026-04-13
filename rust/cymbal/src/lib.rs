@@ -75,6 +75,12 @@ pub fn sanitize_string(s: String) -> String {
         .to_string()
 }
 
+/// Sanitize a source code line: replace only null bytes, leave all whitespace intact.
+/// Source context lines have meaningful indentation that must be preserved.
+pub fn sanitize_source_line(s: String) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
+}
+
 pub fn needs_sanitization(s: &str) -> bool {
     s.contains('\u{0000}') || s.len() > 512
 }
@@ -109,6 +115,21 @@ mod test {
         let input = "hello     world".to_string();
         let result = sanitize_string(input);
         assert_eq!(result, "hello     world");
+    }
+
+    #[test]
+    fn test_sanitize_source_line_preserves_indentation() {
+        // 65 leading spaces (e.g. Obj-C multi-line method call) must be preserved.
+        let input = format!("{:>65}reason:@\"value\"", "");
+        let result = sanitize_source_line(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_sanitize_source_line_strips_nulls() {
+        let input = "hello\u{0000}world".to_string();
+        let result = sanitize_source_line(input);
+        assert_eq!(result, "hello\u{FFFD}world");
     }
 
     #[test]

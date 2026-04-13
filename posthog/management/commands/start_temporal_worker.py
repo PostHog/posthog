@@ -12,6 +12,7 @@ import structlog
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.open_telemetry import initialize_otel
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -105,6 +106,10 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.count_playlist_items import (
+    ACTIVITIES as COUNT_PLAYLIST_ITEMS_ACTIVITIES,
+    WORKFLOWS as COUNT_PLAYLIST_ITEMS_WORKFLOWS,
+)
 from posthog.temporal.session_replay.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
@@ -124,6 +129,10 @@ from posthog.temporal.session_replay.import_recording import (
 from posthog.temporal.session_replay.rasterize_recording import (
     ACTIVITIES as RASTERIZE_RECORDING_ACTIVITIES,
     WORKFLOWS as RASTERIZE_RECORDING_WORKFLOWS,
+)
+from posthog.temporal.session_replay.replay_count_metrics import (
+    ACTIVITIES as REPLAY_COUNT_METRICS_ACTIVITIES,
+    WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
 from posthog.temporal.subscriptions import (
@@ -266,17 +275,21 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        DELETE_RECORDING_WORKFLOWS
+        COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + DELETE_RECORDING_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
         + IMPORT_RECORDING_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
+        + REPLAY_COUNT_METRICS_WORKFLOWS
         + SESSION_SUMMARY_WORKFLOWS,
-        DELETE_RECORDING_ACTIVITIES
+        COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + DELETE_RECORDING_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES
         + IMPORT_RECORDING_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
+        + REPLAY_COUNT_METRICS_ACTIVITIES
         + SESSION_SUMMARY_ACTIVITIES,
     ),
     (
@@ -367,7 +380,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--server-root-ca-cert",
-            default=settings.TEMPORAL_CLIENT_ROOT_CA,
+            default=None,
             help="Optional root server CA cert",
         )
         parser.add_argument(
@@ -479,6 +492,11 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
+        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        if enable_otel is True:
+            # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
+            initialize_otel(settings.OTEL_SERVICE_NAME)  # type: ignore
+
         async def shutdown_all(
             worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
         ) -> None:
@@ -556,6 +574,7 @@ class Command(BaseCommand):
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
                     enable_combined_metrics_server=not disable_combined_metrics_server,
+                    enable_open_telemetry_plugin=enable_otel,
                 )
             )
 

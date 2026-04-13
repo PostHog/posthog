@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.models import Edge, Node
-from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
     HasDependentsError,
@@ -43,11 +43,11 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         sync_saved_query_to_dag(saved_query)
 
-        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
-        self.assertEqual(dag.name, f"posthog_{self.team.id}")
+        dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        self.assertEqual(dag.name, DEFAULT_DAG_NAME)
 
     def test_sync_reuses_existing_dag_model(self):
-        existing_dag = DAG.objects.create(team=self.team, name=get_dag_id(self.team.id))
+        existing_dag = DAG.objects.create(team=self.team, name=DEFAULT_DAG_NAME)
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -56,8 +56,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
         sync_saved_query_to_dag(saved_query)
 
-        self.assertEqual(DAG.objects.filter(team=self.team, name=get_dag_id(self.team.id)).count(), 1)
-        self.assertEqual(DAG.objects.get(team=self.team, name=get_dag_id(self.team.id)).id, existing_dag.id)
+        self.assertEqual(DAG.objects.filter(team=self.team, name=DEFAULT_DAG_NAME).count(), 1)
+        self.assertEqual(DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME).id, existing_dag.id)
 
     def test_sync_creates_node_for_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -71,11 +71,11 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
         assert node.dag is not None
-        self.assertEqual(node.dag.name, get_dag_id(self.team.id))
+        self.assertEqual(node.dag.name, DEFAULT_DAG_NAME)
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.saved_query, saved_query)
 
-        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(node.dag_id, dag.id)
 
     def test_sync_creates_table_node_for_posthog_source(self):
@@ -89,7 +89,7 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         events_node = Node.objects.filter(
             team=self.team,
-            dag__name=get_dag_id(self.team.id),
+            dag__name=DEFAULT_DAG_NAME,
             name="events",
         ).first()
 
@@ -97,7 +97,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(events_node.type, NodeType.TABLE)
         self.assertEqual(events_node.properties.get("origin"), "posthog")
 
-        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertEqual(events_node.dag_id, dag.id)
 
         # edge from events -> test_view
@@ -216,7 +216,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert conflict_edge is not None
         self.assertEqual(conflict_edge.properties.get("error_type"), "cycle")
         self.assertIn("original_dag_id", conflict_edge.properties)
-        self.assertEqual(conflict_edge.properties["original_dag_id"], get_dag_id(self.team.id))
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        self.assertEqual(conflict_edge.properties["original_dag_id"], str(default_dag.id))
 
     def test_sync_raises_for_empty_or_null_query(self):
         empty_query, _ = DataWarehouseSavedQuery.objects.get_or_create(

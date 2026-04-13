@@ -157,7 +157,6 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service embedding-worker
-        autostart: false
         capability: embedding_service
         ready_pattern: 'Generated embedding'
 
@@ -166,6 +165,13 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service feature-flags
         capability: flag_evaluation
+        ready_pattern: 'listening on *'
+
+    hypercache-server:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service hypercache-server
+        capability: hypercache
         ready_pattern: 'listening on *'
 
     livestream:

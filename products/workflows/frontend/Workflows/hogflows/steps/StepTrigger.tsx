@@ -1,5 +1,4 @@
 import { Node } from '@xyflow/react'
-import Fuse from 'fuse.js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
@@ -40,6 +39,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
@@ -99,7 +99,7 @@ function TriggerTypeDropdown({
         if (!search) {
             return items
         }
-        const fuse = new Fuse(items, { keys: ['label', 'description'], threshold: 0.3 })
+        const fuse = createFuse(items, { keys: ['label', 'description'], threshold: 0.3 })
         return fuse.search(search).map((result) => result.item)
     }, [items, search])
 
@@ -550,14 +550,14 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return null
     }
 
-    const { users_affected, total_users } = blastRadius
+    const { affected, total } = blastRadius
 
-    if (users_affected != null && total_users != null) {
-        const exceeded = users_affected > BLAST_RADIUS_LIMIT
+    if (affected != null && total != null) {
+        const exceeded = affected > BLAST_RADIUS_LIMIT
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
-                    approximately {humanFriendlyNumber(users_affected)} of {humanFriendlyNumber(total_users)} persons.
+                    approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
                 </div>
                 {exceeded && (
                     <div className="text-danger text-xs">
@@ -573,18 +573,11 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
 }
 
 function BatchScheduleSection(): JSX.Element {
-    const { setPendingSchedule } = useActions(workflowLogic)
-    const { currentSchedule, pendingSchedule } = useValues(workflowLogic)
-
     return (
         <>
             <LemonDivider />
             <LemonLabel>Schedule</LemonLabel>
-            <RecurringSchedulePicker
-                key={currentSchedule?.id ?? 'new'}
-                schedule={pendingSchedule !== false ? pendingSchedule : (currentSchedule ?? null)}
-                onChange={(schedule) => setPendingSchedule(schedule)}
-            />
+            <RecurringSchedulePicker />
         </>
     )
 }

@@ -33,9 +33,11 @@ class NodeRole(StrEnum):
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 
-    OPS = "ops"
+    # Below nodes are part of separate clusters.
     AI_EVENTS = "ai_events"
     AUX = "aux"
+    OPS = "ops"
+    SESSIONS = "sessions"
 
 
 _default_workload = Workload.ONLINE

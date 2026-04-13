@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -32,6 +32,45 @@ const MOCK_INSIGHT_QUERY: DataVisualizationNode = {
         query: 'SELECT count() FROM events',
     },
 }
+
+const MOCK_DATA_TABLE_INSIGHT_SHORT_ID = 'def456' as InsightShortId
+
+const MOCK_DATA_TABLE_INSIGHT_QUERY: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT count() FROM persons',
+    },
+}
+
+const MOCK_DATA_TABLE_INSIGHT: QueryBasedInsightModel = {
+    id: 2,
+    short_id: MOCK_DATA_TABLE_INSIGHT_SHORT_ID,
+    name: 'DataTable Insight',
+    query: MOCK_DATA_TABLE_INSIGHT_QUERY,
+    result: null,
+    dashboards: [],
+    dashboard_tiles: [],
+    saved: true,
+    order: null,
+    last_refresh: null,
+    created_at: '2024-01-01T00:00:00.000Z',
+    created_by: null,
+    deleted: false,
+    description: '',
+    is_sample: false,
+    is_shared: null,
+    pinned: null,
+    refresh_interval: null,
+    updated_at: '2024-01-01T00:00:00.000Z',
+    updated_by: null,
+    visibility: null,
+    last_modified_at: '2024-01-01T00:00:00.000Z',
+    last_modified_by: null,
+    layouts: {},
+    color: null,
+    user_access_level: 'none',
+} as QueryBasedInsightModel
 
 const MOCK_INSIGHT: QueryBasedInsightModel = {
     id: 1,
@@ -128,6 +167,9 @@ describe('sqlEditorLogic', () => {
                     const shortId = req.url.searchParams.get('short_id')
                     if (shortId === MOCK_INSIGHT_SHORT_ID) {
                         return [200, { results: [MOCK_INSIGHT] }]
+                    }
+                    if (shortId === MOCK_DATA_TABLE_INSIGHT_SHORT_ID) {
+                        return [200, { results: [MOCK_DATA_TABLE_INSIGHT] }]
                     }
                     return [200, { results: [] }]
                 },
@@ -376,6 +418,35 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('wraps a DataTableNode insight into a DataVisualizationNode so saves do not fail', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_DATA_TABLE_INSIGHT_SHORT_ID })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_DATA_TABLE_INSIGHT_SHORT_ID,
+                    }),
+                    sourceQuery: partial({
+                        kind: NodeKind.DataVisualizationNode,
+                        source: partial({
+                            kind: NodeKind.HogQLQuery,
+                            query: (MOCK_DATA_TABLE_INSIGHT_QUERY.source as HogQLQuery).query,
+                        }),
+                    }),
+                })
+
+            // The button should not appear "dirty" immediately after load
+            expect(logic.values.updateInsightButtonEnabled).toEqual(false)
+        })
+
         it('does not dispatch syncUrlWithQuery before the API responds', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -447,7 +518,7 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
-        it('switches to the materialization tab when opening a view directly', async () => {
+        it('keeps the results tab when opening a view directly', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -458,12 +529,12 @@ describe('sqlEditorLogic', () => {
             logic.actions.editView(MOCK_VIEW.query.query, MOCK_VIEW)
 
             await expectLogic(logic)
-                .toDispatchActions(['setActiveTab', 'createTab', 'updateTab'])
+                .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({
                     editingView: partial({
                         id: MOCK_VIEW.id,
                     }),
-                    outputActiveTab: OutputTab.Materialization,
+                    outputActiveTab: OutputTab.Results,
                 })
         })
     })
@@ -504,11 +575,11 @@ describe('sqlEditorLogic', () => {
             logic.actions.createTab('SELECT 1')
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
-            logic.actions.setActiveTab(OutputTab.Materialization)
+            logic.actions.setActiveTab(OutputTab.Visualization)
             await new Promise((resolve) => setTimeout(resolve, 0))
 
             expect(router.values.hashParams.q).toEqual('SELECT 1')
-            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Materialization)
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
         })
     })
 

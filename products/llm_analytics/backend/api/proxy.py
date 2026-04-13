@@ -39,10 +39,11 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from products.llm_analytics.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
+    TRIAL_MODEL_IDS,
     Client,
     CompletionRequest,
     ModelInfo,
-    get_default_models,
+    get_trial_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
 from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLMProviderKey
@@ -222,6 +223,15 @@ class LLMProxyViewSet(viewsets.ViewSet):
             except ValueError:
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
+            # Enforce trial model allowlist when using PostHog-funded keys
+            if provider_key is None and model not in TRIAL_MODEL_IDS:
+                return Response(
+                    {
+                        "error": f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model."
+                    },
+                    status=403,
+                )
+
             # Provider is always explicit from request
             provider = data.get("provider")
 
@@ -366,7 +376,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Return a list of available models across providers.
 
         If provider_key_id is specified, returns models available for that key.
-        Otherwise, returns the default static list of models.
+        Otherwise, returns only trial-eligible models (PostHog pays for these).
         """
         provider_key_id = request.query_params.get("provider_key_id")
 
@@ -394,8 +404,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     ]
                 )
 
-        # Default: return static list of all supported models
-        return Response(get_default_models())
+        # Default: return only trial-eligible models (PostHog pays for these)
+        return Response(get_trial_models())
 
     @action(detail=False, methods=["POST"])
     @llma_track_latency("llma_proxy_completion")

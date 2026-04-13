@@ -270,3 +270,45 @@ class TestTeam(BaseTest):
         with self.is_cloud(is_cloud):
             team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             assert getattr(team, field) == expected
+
+    @parameterized.expand(
+        [
+            ("Daily active users (DAUs)",),
+            ("Weekly active users (WAUs)",),
+        ]
+    )
+    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name=tile_name,
+        )
+        assert tile.insight is not None
+        assert tile.insight.query is not None
+        series = tile.insight.query["source"]["series"]
+        assert len(series) == 1
+        assert series[0]["kind"] == "GroupNode"
+        assert series[0]["operator"] == "OR"
+        assert series[0]["math"] == "dau"
+        assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
+
+    @parameterized.expand(
+        [
+            ("Retention", "RetentionQuery"),
+            ("Growth accounting", "LifecycleQuery"),
+            ("Referring domain (last 14 days)", "TrendsQuery"),
+            ("Pageview funnel, by browser", "FunnelsQuery"),
+        ]
+    )
+    def test_default_dashboard_pageview_only_tiles(self, tile_name, expected_kind):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name=tile_name,
+        )
+        assert tile.insight is not None
+        assert tile.insight.query is not None
+        source = tile.insight.query["source"]
+        assert source["kind"] == expected_kind
+        assert "GroupNode" not in str(source)
+        assert "$pageview" in str(source)

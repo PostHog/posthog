@@ -4,7 +4,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -30,6 +30,7 @@ import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualiza
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
@@ -194,6 +195,7 @@ export function SQLEditor({
                                                 </div>
                                             </div>
                                         </div>
+                                        <MaterializationModal tabId={tabId || ''} />
                                         {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
                                     </BindLogic>
                                 </BindLogic>
@@ -203,6 +205,34 @@ export function SQLEditor({
                 </BindLogic>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
+    const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
+    const { closeMaterializationModal } = useActions(sqlEditorLogic)
+
+    return (
+        <LemonModal
+            title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
+            isOpen={materializationModalOpen}
+            onClose={closeMaterializationModal}
+            width={960}
+        >
+            <div className="max-h-[75vh] overflow-auto">
+                {viewLoading ? (
+                    <div className="flex min-h-64 items-center justify-center">
+                        <Spinner className="text-2xl" />
+                    </div>
+                ) : materializationModalView ? (
+                    <QueryInfo tabId={tabId} view={materializationModalView} />
+                ) : (
+                    <div className="flex min-h-64 items-center justify-center">
+                        <Spinner className="text-2xl" />
+                    </div>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 
