@@ -42,7 +42,7 @@ export const VariantDefault = {
             <div className="p-2">
                 <Button>Default</Button>
                 <Button aria-selected>Selected</Button>
-                <Button disabled>Selected</Button>
+                <Button disabled>Disabled</Button>
             </div>
             <div className="p-2 bg-muted">
                 <Button>Default</Button>
