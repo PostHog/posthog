@@ -30,6 +30,8 @@ _FROM_SETTINGS_SENTINEL = "__from_settings__"
 # Map of YAML setting keys to Django settings attributes
 _SETTINGS_RESOLUTION: dict[str, str] = {
     "kafka_broker_list": "KAFKA_HOSTS_FOR_CLICKHOUSE",
+    "password": "CLICKHOUSE_PASSWORD",
+    "user": "CLICKHOUSE_USER",
 }
 
 
@@ -122,6 +124,13 @@ def _is_kafka(engine: str) -> bool:
 
 def _is_dictionary(engine: str) -> bool:
     return engine.lower() == "dictionary"
+
+
+def _drop_stmt(engine: str, database: str, table: str) -> str:
+    """Return the right DROP verb for an engine. Dictionaries require DROP DICTIONARY."""
+    if _is_dictionary(engine):
+        return f"DROP DICTIONARY IF EXISTS {database}.{table}"
+    return f"DROP TABLE IF EXISTS {database}.{table}"
 
 
 # ClickHouse normalizes toIntervalX(N) → INTERVAL N X in system.columns,
@@ -319,6 +328,62 @@ def _columns_sql(columns: list[ColumnDef]) -> str:
     return ",\n".join(parts)
 
 
+# Dictionary metadata renderers. Keep these as small, pure functions so the
+# DROP+CREATE path below can re-use them without duplicating format strings.
+# Value types: YAML admits str/int/bool for source+layout params.
+
+
+def _render_dict_param(key: str, value: object) -> str:
+    """Render one `key value` pair inside a SOURCE(...) or LAYOUT(...) clause.
+
+    Handles the `__from_settings__` sentinel — when set, resolves via Django
+    settings using the YAML key (matching the Kafka settings convention).
+    Strings are single-quoted, ints/bools are bare.
+    """
+    if isinstance(value, str) and value == _FROM_SETTINGS_SENTINEL:
+        return f"{key} '{_resolve_setting(key)}'"
+    if isinstance(value, str):
+        return f"{key} '{value}'"
+    if isinstance(value, bool):
+        return f"{key} {1 if value else 0}"
+    return f"{key} {value}"
+
+
+def _render_dict_source(source: dict | None) -> str:
+    """Render SOURCE(...) clause from a YAML mapping.
+
+    `type` is the source kind (CLICKHOUSE, HTTP, MYSQL, etc). All other keys
+    become parameter names inside the parens. Example:
+        {"type": "HTTP", "url": "https://x", "format": "CSVWithNames"}
+      → SOURCE(HTTP(url 'https://x' format 'CSVWithNames'))
+    """
+    if not source or "type" not in source:
+        raise ValueError("Dictionary source requires a 'type' key (e.g. CLICKHOUSE, HTTP)")
+    kind = source["type"].upper()
+    parts = [_render_dict_param(k, v) for k, v in source.items() if k != "type"]
+    inner = " ".join(parts)
+    return f"SOURCE({kind}({inner}))"
+
+
+def _render_dict_layout(layout: dict | None) -> str:
+    """Render LAYOUT(TYPE(...)) clause. Optional `params` becomes key/value pairs."""
+    if not layout or "type" not in layout:
+        raise ValueError("Dictionary layout requires a 'type' key (e.g. HASHED, COMPLEX_KEY_HASHED)")
+    kind = layout["type"].upper()
+    params = layout.get("params") or {}
+    if params:
+        inner = " ".join(_render_dict_param(k, v) for k, v in params.items())
+        return f"LAYOUT({kind}({inner}))"
+    return f"LAYOUT({kind}())"
+
+
+def _render_dict_lifetime(lifetime: dict | None) -> str:
+    """Render LIFETIME(MIN x MAX y). Both min+max required for stable refresh windows."""
+    if not lifetime or "min" not in lifetime or "max" not in lifetime:
+        raise ValueError("Dictionary lifetime requires 'min' and 'max' keys")
+    return f"LIFETIME(MIN {int(lifetime['min'])} MAX {int(lifetime['max'])})"
+
+
 def _generate_create_sql(
     table: DesiredTable,
     database: str,
@@ -326,6 +391,19 @@ def _generate_create_sql(
 ) -> str:
     """Generate CREATE TABLE/VIEW SQL from a DesiredTable."""
     cols = _columns_sql(table.columns)
+
+    if _is_dictionary(table.engine):
+        if not table.primary_key:
+            raise ValueError(f"Dictionary {table.name!r} missing required 'primary_key'")
+        pk = f"PRIMARY KEY {table.primary_key}"
+        source = _render_dict_source(table.dict_source)
+        layout = _render_dict_layout(table.dict_layout)
+        lifetime = _render_dict_lifetime(table.dict_lifetime)
+        return (
+            f"CREATE DICTIONARY IF NOT EXISTS {database}.{table.name}\n"
+            f"(\n{cols}\n)\n"
+            f"{pk}\n{source}\n{layout}\n{lifetime}"
+        )
 
     if _is_mv(table.engine):
         target = table.target or ""
@@ -509,21 +587,6 @@ def diff_state(
     alters: list[StateDiff] = []
     recreates: list[StateDiff] = []
 
-    # Skip Dictionary tables entirely — the desired-state YAML only declares
-    # columns/engine, not the PRIMARY KEY / SOURCE / LAYOUT / LIFETIME metadata
-    # that `CREATE DICTIONARY` requires. Legacy `migrate_clickhouse` creates
-    # these with hand-written DDL; `ch_migrate` ignores them for now and emits
-    # a warning per skipped dictionary. Revisit once the YAML schema grows
-    # Dictionary-specific fields.
-    skipped_dicts = [name for name, t in desired.tables.items() if _is_dictionary(t.engine)]
-    if skipped_dicts:
-        logger.warning(
-            "ch_migrate: skipping %d Dictionary table(s) — YAML lacks SOURCE/LAYOUT/LIFETIME, "
-            "use legacy migrate_clickhouse for dictionaries: %s",
-            len(skipped_dicts),
-            ", ".join(skipped_dicts),
-        )
-
     # Skip MaterializedViews whose SELECT body contains a literal `...`
     # placeholder. The YAML baseline was generated mechanically from the live
     # schema for some ecosystems and left the SELECT body as a sentinel for
@@ -552,12 +615,12 @@ def diff_state(
         )
 
     def _should_skip(name: str, t: DesiredTable) -> bool:
-        return _is_dictionary(t.engine) or _has_placeholder_select(t)
+        return _has_placeholder_select(t)
 
     desired_without_skipped = {name: t for name, t in desired.tables.items() if not _should_skip(name, t)}
 
     desired_names = set(desired_without_skipped.keys())
-    current_names = {n for n in current.keys() if not _is_dictionary(current[n].engine)}
+    current_names = set(current.keys())
 
     # Tables to drop (in current but not in desired)
     for table_name in sorted(current_names - desired_names):
@@ -567,7 +630,7 @@ def diff_state(
                 action="drop",
                 table=table_name,
                 detail=f"Table {table_name} exists but is not in desired state",
-                sql=f"DROP TABLE IF EXISTS {db}.{table_name}",
+                sql=_drop_stmt(current_table.engine, db, table_name),
                 node_roles=["ALL"],
             )
         )
@@ -601,6 +664,7 @@ def diff_state(
 
         # Engine mismatch → recreate
         if desired_table.engine.lower() != current_table.engine.lower():
+            drop_sql = _drop_stmt(current_table.engine, db, table_name)
             if _is_mv(desired_table.engine) or _is_mv(current_table.engine):
                 recreates.append(
                     StateDiff(
@@ -610,7 +674,7 @@ def diff_state(
                             f"Recreate MV {table_name} "
                             f"(engine changed: {current_table.engine} -> {desired_table.engine})"
                         ),
-                        sql=(f"DROP TABLE IF EXISTS {db}.{table_name};\n{_generate_create_sql(desired_table, db, cl)}"),
+                        sql=(f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}"),
                         node_roles=desired_table.on_nodes,
                         depends_on=[desired_table.target] if desired_table.target else [],
                     )
@@ -623,7 +687,7 @@ def diff_state(
                         detail=(
                             f"Recreate {table_name} (engine changed: {current_table.engine} -> {desired_table.engine})"
                         ),
-                        sql=(f"DROP TABLE IF EXISTS {db}.{table_name};\n{_generate_create_sql(desired_table, db, cl)}"),
+                        sql=(f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}"),
                         node_roles=desired_table.on_nodes,
                         sharded=desired_table.sharded,
                     )
@@ -682,15 +746,38 @@ def diff_state(
                         structural_details.append(f"Kafka setting '{setting_key}' changed (desired: {resolved})")
                         structural_recreate = True
 
+        if _is_dictionary(desired_table.engine):
+            # Dictionaries don't support ALTER — any change in metadata (primary key,
+            # source params, layout, lifetime) forces DROP + CREATE. system.tables
+            # stores the full DDL in engine_full; doing a substring check is
+            # crude but sufficient — false positives just rewrite the same DDL.
+            if current_table.engine_full:
+                haystack = current_table.engine_full
+                if desired_table.primary_key and f"PRIMARY KEY {desired_table.primary_key}" not in haystack:
+                    structural_details.append(f"PRIMARY KEY changed (desired: {desired_table.primary_key})")
+                    structural_recreate = True
+                if (
+                    desired_table.dict_layout
+                    and desired_table.dict_layout.get("type", "").upper() not in haystack.upper()
+                ):
+                    structural_details.append(f"LAYOUT changed (desired: {desired_table.dict_layout.get('type')})")
+                    structural_recreate = True
+                if desired_table.dict_lifetime:
+                    lt = desired_table.dict_lifetime
+                    if f"MIN {lt.get('min')}" not in haystack or f"MAX {lt.get('max')}" not in haystack:
+                        structural_details.append(f"LIFETIME changed (desired: {lt})")
+                        structural_recreate = True
+
         if structural_recreate:
             detail_str = "; ".join(structural_details)
+            drop_sql = _drop_stmt(current_table.engine, db, table_name)
             if _is_mv(desired_table.engine):
                 recreates.append(
                     StateDiff(
                         action="recreate_mv",
                         table=table_name,
                         detail=f"Recreate MV {table_name} ({detail_str})",
-                        sql=f"DROP TABLE IF EXISTS {db}.{table_name};\n{_generate_create_sql(desired_table, db, cl)}",
+                        sql=f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}",
                         node_roles=desired_table.on_nodes,
                         depends_on=[desired_table.target] if desired_table.target else [],
                     )
@@ -701,7 +788,7 @@ def diff_state(
                         action="recreate",
                         table=table_name,
                         detail=f"Recreate {table_name} ({detail_str})",
-                        sql=f"DROP TABLE IF EXISTS {db}.{table_name};\n{_generate_create_sql(desired_table, db, cl)}",
+                        sql=f"{drop_sql};\n{_generate_create_sql(desired_table, db, cl)}",
                         node_roles=desired_table.on_nodes,
                         sharded=desired_table.sharded,
                     )
@@ -723,7 +810,7 @@ def diff_state(
                         action="drop",
                         table=table_name,
                         detail=f"Drop MV {table_name} (SELECT changed — will recreate)",
-                        sql=f"DROP TABLE IF EXISTS {db}.{table_name}",
+                        sql=_drop_stmt(current_table.engine, db, table_name),
                         node_roles=desired_table.on_nodes,
                     )
                 )
@@ -769,7 +856,7 @@ def diff_state(
                     action="drop",
                     table=table_name,
                     detail=f"Drop {desired_table.engine} table {table_name} (recreate for column change)",
-                    sql=f"DROP TABLE IF EXISTS {db}.{table_name}",
+                    sql=_drop_stmt(current_table.engine, db, table_name),
                     node_roles=desired_table.on_nodes,
                 )
             )
