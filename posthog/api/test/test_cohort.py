@@ -529,7 +529,9 @@ email@example.org
 
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
         self.assertEqual(people_in_cohort.count(), 1)
-        self.assertEqual(people_in_cohort.first().uuid, matching_person.uuid)
+        first_person = people_in_cohort.first()
+        assert first_person is not None
+        self.assertEqual(first_person.uuid, matching_person.uuid)
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",
