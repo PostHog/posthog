@@ -8,11 +8,11 @@ from django.utils import timezone
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
-class TestE2EProvisioningFlow(StripeProvisioningTestBase):
+class TestE2EProvisioningFlow(ProvisioningTestBase):
     """Walk through the full APP 0.1d provisioning flow end-to-end."""
 
     def test_full_provisioning_flow(self):

@@ -16,7 +16,7 @@ from ee.api.agentic_provisioning.region_proxy import (
     _should_proxy_body_region,
     _should_proxy_token_lookup,
 )
-from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 factory = APIRequestFactory()
 
@@ -185,7 +185,7 @@ class TestProxyHeaderAllowlist(BaseTest):
         assert forwarded_headers["Host"] == "eu.posthog.com"
 
 
-class TestDecoratorIntegration(StripeProvisioningTestBase):
+class TestDecoratorIntegration(ProvisioningTestBase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_hmac_failure_returns_401_without_proxying(self):
         res = self.client.post(

@@ -15,11 +15,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
-class TestAccountRequests(StripeProvisioningTestBase):
+class TestAccountRequests(ProvisioningTestBase):
     def _account_request_payload(self, **overrides):
         payload = {
             "id": "acctreq_test123",

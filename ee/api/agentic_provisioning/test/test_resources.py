@@ -4,11 +4,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
-class TestProvisioningResources(StripeProvisioningTestBase):
+class TestProvisioningResources(ProvisioningTestBase):
     def test_create_resource_returns_complete(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
