@@ -1125,8 +1125,8 @@ importers:
         specifier: ^2.2.2
         version: 2.2.2
       torph:
-        specifier: ^0.0.5
-        version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.0.9
+        version: 0.0.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
@@ -2691,8 +2691,8 @@ importers:
         specifier: '*'
         version: 15.11.0(typescript@5.8.3)
       torph:
-        specifier: ^0.0.5
-        version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.0.9
+        version: 0.0.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       typescript:
         specifier: 5.8.3
         version: 5.8.3
@@ -3123,8 +3123,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
       torph:
-        specifier: ^0.0.5
-        version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.0.9
+        version: 0.0.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
@@ -22054,12 +22054,12 @@ packages:
     resolution: {integrity: sha512-605uxS6bcYxGXw9qi62XyrV6Q3xwbndjachmNxu8HWTtVPxZfEJN9fd/SZS1Q54Sn2y0TMyMxFj/cJINqGHrKw==}
     hasBin: true
 
-  torph@0.0.5:
-    resolution: {integrity: sha512-A9mwvWouyRIIZ8Y9McJioZ4O5itSjgtfPQMGxU+qvA5MYaF31EY1Cq3OpOLT34wXLhsfOC7tto5Gzg0d6I3NQg==}
+  torph@0.0.9:
+    resolution: {integrity: sha512-WrFMtJwqXCfIXbLNuTOwHWff0XVm/Ewctb+71bFis3HykPvCXl1CHXapU0r67pQhAI323fsA1L2pGPeqxXeRRA==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
-      svelte: '>=4'
+      svelte: '>=5'
       vue: '>=3'
     peerDependenciesMeta:
       react:
@@ -48970,7 +48970,7 @@ snapshots:
     dependencies:
       commander: 2.20.3
 
-  torph@0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  torph@0.0.9(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     optionalDependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)

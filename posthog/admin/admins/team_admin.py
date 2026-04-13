@@ -21,6 +21,7 @@ from django.utils.safestring import mark_safe
 from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
@@ -34,6 +35,7 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
 from posthog.temporal.session_replay.delete_recordings.types import (
     DeletionConfig,
@@ -605,12 +607,20 @@ class TeamAdmin(admin.ModelAdmin):
         """Fetch recent delete-recordings workflows for this team from Temporal."""
         try:
             temporal = sync_connect()
-            prefix = f"delete-recordings-{team_id}-"
-            query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~"'
+            # Use the PostHogTeamId search attribute (indexed) instead of WorkflowId range scan.
+            # WorkflowId range queries (>=, <) are not efficiently indexed and cause 30s+ timeouts.
+            workflow_types = [
+                "delete-recordings-with-person",
+                "delete-recordings-with-team",
+                "delete-recordings-with-query",
+                "delete-recordings-with-session-ids",
+            ]
+            type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in workflow_types)
+            query = f"PostHogTeamId = {team_id} AND ({type_clauses}) ORDER BY StartTime DESC"
 
             async def fetch_workflows():
                 workflows = []
-                async for wf in temporal.list_workflows(query=query):
+                async for wf in temporal.list_workflows(query=query, rpc_timeout=timedelta(seconds=5)):
                     workflows.append(
                         {
                             "id": wf.id,
@@ -669,6 +679,9 @@ class TeamAdmin(admin.ModelAdmin):
             temporal = sync_connect()
             workflow_id = f"delete-recordings-{team.id}-{uuid.uuid4()}"
             config = DeletionConfig(reason=reason, dry_run=dry_run, deleted_by=request.user.email)
+            team_search_attrs = TypedSearchAttributes(
+                search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id)]
+            )
 
             if workflow_type == "person":
                 distinct_ids_raw = request.POST.get("distinct_ids", "").strip()
@@ -689,6 +702,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -718,6 +732,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -811,6 +826,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -878,6 +894,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
