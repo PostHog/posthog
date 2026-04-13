@@ -4,7 +4,14 @@ from typing import Optional
 
 from django.utils.timezone import now
 
-from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, SessionsQuery, SessionsQueryResponse
+from posthog.schema import (
+    CachedSessionsQueryResponse,
+    DashboardFilter,
+    EventPropertyFilter,
+    PropertyOperator,
+    SessionsQuery,
+    SessionsQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -324,10 +331,9 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         if self.query.eventProperties:
                             for prop in self.query.eventProperties:
                                 if (
-                                    hasattr(prop, "key")
+                                    isinstance(prop, EventPropertyFilter)
                                     and prop.key == "$session_id"
-                                    and hasattr(prop, "operator")
-                                    and (prop.operator is None or prop.operator == "exact")
+                                    and prop.operator in (None, PropertyOperator.EXACT)
                                     and prop.value is not None
                                 ):
                                     if isinstance(prop.value, list):
