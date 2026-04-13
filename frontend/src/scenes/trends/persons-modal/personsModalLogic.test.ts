@@ -458,10 +458,6 @@ describe('personsModalLogic', () => {
         })
 
         it('does not fall back to event filters for FunnelsActorsQuery without session IDs', () => {
-            // Funnels match persons across sessions, but a same-session AND of all funnel events
-            // would never reproduce that — it just guarantees an empty list. When the backend has
-            // no matched_recordings (events lacked $session_id, recordings expired), trust that and
-            // return only scoping filters so the recordings page renders its default state.
             logic = personsModalLogic({
                 query: {
                     kind: NodeKind.FunnelsActorsQuery,
