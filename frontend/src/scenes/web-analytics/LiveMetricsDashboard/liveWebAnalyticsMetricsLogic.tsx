@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
@@ -59,7 +59,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             featureFlagLogic,
             ['featureFlags'],
             webAnalyticsFilterLogic,
-            ['selectedHost'],
+            ['selectedHost as rawSelectedHost'],
         ],
     })),
     actions(() => ({
@@ -255,6 +255,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         liveUserCount: [
             (s) => [s.recentUsersByLastSeen],
             (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
+        ],
+        selectedHost: [
+            (s) => [s.rawSelectedHost, s.featureFlags],
+            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet): string | null =>
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] ? rawSelectedHost : null,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
