@@ -111,7 +111,7 @@ export function SessionTimelineTab(): JSX.Element {
             collector.addCategory(
                 ItemCategory.EXCEPTION_STEPS,
                 exceptionStepRenderer,
-                new ExceptionStepLoader(uuid, dayjs.utc(timestamp), properties)
+                new ExceptionStepLoader(uuid, properties)
             )
         }
 
@@ -167,7 +167,7 @@ function NoSessionStepsView({ timestamp }: { timestamp?: string }): JSX.Element 
         collector.addCategory(
             ItemCategory.EXCEPTION_STEPS,
             exceptionStepRenderer,
-            new ExceptionStepLoader(uuid, dayjs.utc(timestamp), properties)
+            new ExceptionStepLoader(uuid, properties)
         )
 
         return collector

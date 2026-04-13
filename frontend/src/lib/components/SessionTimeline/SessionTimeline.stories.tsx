@@ -20,7 +20,7 @@ export default meta
 // ─── Mock items ──────────────────────────────────────────────────────────────
 
 interface MockItem extends TimelineItem {
-    payload: { label: string }
+    payload: { label: string; typeLabel: string }
 }
 
 const ICON_BY_CATEGORY: Record<ItemCategory, string> = {
@@ -36,12 +36,65 @@ function mockRenderer(category: ItemCategory): ItemRenderer<MockItem> {
         sourceIcon: () => <span>{ICON_BY_CATEGORY[category]}</span>,
         categoryIcon: <span>{ICON_BY_CATEGORY[category]}</span>,
         render: ({ item }) => (
-            <div className="flex justify-between items-center">
-                <span className="font-medium text-xs">{item.payload.label}</span>
-                <span className="text-secondary text-xs">{category}</span>
+            <div className="flex justify-between items-center gap-2">
+                <span className="font-medium text-xs truncate">{item.payload.label}</span>
+                <span className="text-secondary text-xs shrink-0">{item.payload.typeLabel}</span>
             </div>
         ),
     }
+}
+
+function getRealisticTypeLabel(category: ItemCategory): string {
+    switch (category) {
+        case ItemCategory.ERROR_TRACKING:
+            return 'exception'
+        case ItemCategory.EXCEPTION_STEPS:
+            return 'step'
+        case ItemCategory.CUSTOM_EVENTS:
+            return 'custom event'
+        case ItemCategory.PAGE_VIEWS:
+            return 'page view'
+        case ItemCategory.CONSOLE_LOGS:
+            return 'console'
+    }
+}
+
+function getRealisticMessage(category: ItemCategory, i: number): string {
+    const samples: Record<ItemCategory, string[]> = {
+        [ItemCategory.ERROR_TRACKING]: [
+            'Cannot read properties of undefined (reading "map")',
+            'NetworkError: Failed to fetch',
+            'TypeError: Cannot convert undefined or null to object',
+            'Unhandled promise rejection in checkout flow',
+        ],
+        [ItemCategory.EXCEPTION_STEPS]: [
+            'ui.interaction Button clicked',
+            'http GET /api/environments/:team_id/error_tracking/issues/',
+            'state setIssuesLoading(true)',
+            'error Exception captured and forwarded',
+        ],
+        [ItemCategory.CUSTOM_EVENTS]: [
+            'checkout_started',
+            'feature_flag_evaluated',
+            'billing_portal_opened',
+            'error_tracking_issue_opened',
+        ],
+        [ItemCategory.PAGE_VIEWS]: [
+            '/error_tracking',
+            '/error_tracking/issues/123',
+            '/settings/project/error-tracking',
+            '/billing',
+        ],
+        [ItemCategory.CONSOLE_LOGS]: [
+            'info App initialized',
+            'warn Slow network detected',
+            'error Failed to load issue details',
+            'info Retrying request (attempt 2)',
+        ],
+    }
+
+    const values = samples[category]
+    return values[i % values.length]
 }
 
 // ─── Mock loader ─────────────────────────────────────────────────────────────
@@ -54,20 +107,30 @@ function generateMockItems(
     intervalMs: number = 2000
 ): MockItem[] {
     const items: MockItem[] = []
+    const offsets = [11000, 7000, 4500, 3200, 2000, 1300]
+
     for (let i = countBefore; i >= 1; i--) {
+        const offset = offsets[i % offsets.length] + i * Math.max(250, Math.floor(intervalMs / 3))
         items.push({
             id: uuid(),
             category,
-            timestamp: center.subtract(i * intervalMs, 'millisecond'),
-            payload: { label: `${category} -${i}` },
+            timestamp: center.subtract(offset, 'millisecond'),
+            payload: {
+                label: getRealisticMessage(category, i),
+                typeLabel: getRealisticTypeLabel(category),
+            },
         })
     }
     for (let i = 1; i <= countAfter; i++) {
+        const offset = offsets[i % offsets.length] + i * Math.max(300, Math.floor(intervalMs / 2))
         items.push({
             id: uuid(),
             category,
-            timestamp: center.add(i * intervalMs, 'millisecond'),
-            payload: { label: `${category} +${i}` },
+            timestamp: center.add(offset, 'millisecond'),
+            payload: {
+                label: getRealisticMessage(category, i + countBefore),
+                typeLabel: getRealisticTypeLabel(category),
+            },
         })
     }
     return items
@@ -85,16 +148,22 @@ class MockLoader implements ItemLoader<MockItem> {
         this.delayMs = delayMs
     }
 
-    async loadBefore(cursor: Dayjs, limit: number): Promise<MockItem[]> {
+    async loadBefore(cursor: Dayjs, limit: number): Promise<{ items: MockItem[]; hasMoreBefore: boolean }> {
         await this.delay()
         const before = this.items.filter((item) => item.timestamp.isBefore(cursor))
-        return before.slice(-limit)
+        return {
+            items: before.slice(-limit),
+            hasMoreBefore: before.length > limit,
+        }
     }
 
-    async loadAfter(cursor: Dayjs, limit: number): Promise<MockItem[]> {
+    async loadAfter(cursor: Dayjs, limit: number): Promise<{ items: MockItem[]; hasMoreAfter: boolean }> {
         await this.delay()
         const after = this.items.filter((item) => item.timestamp.isAfter(cursor))
-        return after.slice(0, limit)
+        return {
+            items: after.slice(0, limit),
+            hasMoreAfter: after.length > limit,
+        }
     }
 
     private delay(): Promise<void> {

@@ -1,32 +1,24 @@
 import { IconList } from '@posthog/icons'
 
+import { RawExceptionStep, getExceptionStepMalformedReason } from 'lib/components/Errors/exceptionStepsValidation'
 import { ErrorEventProperties, ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { getRuntimeFromLib, stringify } from 'lib/components/Errors/utils'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
+import { PropertiesTable } from 'products/error_tracking/frontend/components/PropertiesTable'
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
 import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '..'
-import { BasePreview } from './base'
-
-type RawExceptionStep = {
-    name?: unknown
-    type?: unknown
-    offset_ms?: unknown
-    properties?: unknown
-}
+import { StandardizedPreview } from './base'
 
 export interface ExceptionStepItem extends TimelineItem {
     payload: {
         runtime: ErrorTrackingRuntime
-        name: string
         type?: string
-        offset_ms?: number
-        properties?: Record<string, unknown>
+        message: string
+        level?: string
+        stepProperties?: Record<string, unknown>
         stepIndex?: number
-        malformed?: boolean
-        message?: string
-        errorMessage?: string
     }
 }
 
@@ -34,26 +26,20 @@ export const exceptionStepRenderer: ItemRenderer<ExceptionStepItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconList />,
     render: ({ item }): JSX.Element => {
-        if (item.payload.malformed) {
-            return (
-                <BasePreview
-                    name={item.payload.message ?? 'Exception steps unavailable'}
-                    description={item.payload.errorMessage}
-                    descriptionTitle={item.payload.errorMessage}
-                />
-            )
-        }
-
-        const typeSuffix = item.payload.type ? ` (${item.payload.type})` : ''
-        const description = item.payload.properties ? stringify(item.payload.properties) : undefined
-
         return (
-            <BasePreview
-                name={`${item.payload.name}${typeSuffix}`}
-                description={description}
-                descriptionTitle={description}
+            <StandardizedPreview
+                categoryLabel="step"
+                primaryText={item.payload.message}
+                secondaryText={item.payload.type}
             />
         )
+    },
+    renderExpanded: ({ item }): JSX.Element => {
+        const entries: [string, unknown][] = item.payload.stepProperties
+            ? Object.entries(item.payload.stepProperties)
+            : [['error', 'No step properties available']]
+
+        return <PropertiesTable entries={entries} alternatingColors={false} />
     },
 }
 
@@ -63,28 +49,30 @@ export const exceptionStepRenderer: ItemRenderer<ExceptionStepItem> = {
 export class ExceptionStepLoader implements ItemLoader<ExceptionStepItem> {
     private readonly items: ExceptionStepItem[]
 
-    constructor(exceptionUuid: string, exceptionTimestamp: Dayjs, properties?: ErrorEventProperties) {
-        this.items = buildExceptionStepItems(exceptionUuid, exceptionTimestamp, properties)
+    constructor(exceptionUuid: string, properties?: ErrorEventProperties) {
+        this.items = buildExceptionStepItems(exceptionUuid, properties)
     }
 
-    async loadBefore(cursor: Dayjs, limit: number): Promise<ExceptionStepItem[]> {
+    async loadBefore(cursor: Dayjs, limit: number): Promise<{ items: ExceptionStepItem[]; hasMoreBefore: boolean }> {
         const before = this.items.filter((item) => item.timestamp.isBefore(cursor))
-        return before.slice(-limit)
+        return {
+            items: before.slice(-limit),
+            hasMoreBefore: before.length > limit,
+        }
     }
 
-    async loadAfter(cursor: Dayjs, limit: number): Promise<ExceptionStepItem[]> {
+    async loadAfter(cursor: Dayjs, limit: number): Promise<{ items: ExceptionStepItem[]; hasMoreAfter: boolean }> {
         const after = this.items.filter((item) => item.timestamp.isAfter(cursor))
-        return after.slice(0, limit)
+        return {
+            items: after.slice(0, limit),
+            hasMoreAfter: after.length > limit,
+        }
     }
 }
 
 // ─── Step item builders ──────────────────────────────────────────────────────
 
-function buildExceptionStepItems(
-    exceptionUuid: string,
-    exceptionTimestamp: Dayjs,
-    properties?: ErrorEventProperties
-): ExceptionStepItem[] {
+function buildExceptionStepItems(exceptionUuid: string, properties?: ErrorEventProperties): ExceptionStepItem[] {
     const runtime = getRuntimeFromLib(properties?.$lib)
     const rawSteps = properties?.$exception_steps
 
@@ -97,97 +85,75 @@ function buildExceptionStepItems(
     }
 
     const validItems: ExceptionStepItem[] = []
-    const malformedReasons: string[] = []
 
     rawSteps.forEach((step, stepIndex) => {
-        const result = buildStepItem({
+        const item = buildStepItem({
             exceptionUuid,
-            exceptionTimestamp,
             runtime,
             step,
             stepIndex,
         })
 
-        if (result.item) {
-            validItems.push(result.item)
-        } else {
-            malformedReasons.push(`step ${stepIndex}: ${result.reason}`)
+        if (item) {
+            validItems.push(item)
         }
     })
 
-    if (malformedReasons.length > 0) {
-        validItems.push(buildMalformedItem(exceptionUuid, exceptionTimestamp, runtime, malformedReasons.join(', ')))
-    }
-
-    return validItems.sort((a, b) => (a.sortPriority ?? 0) - (b.sortPriority ?? 0))
+    return validItems.sort((a, b) => {
+        const timestampDiff = a.timestamp.diff(b.timestamp)
+        if (timestampDiff !== 0) {
+            return timestampDiff
+        }
+        return (a.sortPriority ?? 0) - (b.sortPriority ?? 0)
+    })
 }
-
-type StepBuildResult = { item: ExceptionStepItem; reason?: never } | { item?: never; reason: string }
 
 function buildStepItem({
     exceptionUuid,
-    exceptionTimestamp,
     runtime,
     step,
     stepIndex,
 }: {
     exceptionUuid: string
-    exceptionTimestamp: Dayjs
     runtime: ErrorTrackingRuntime
-    step: RawExceptionStep
+    step: unknown
     stepIndex: number
-}): StepBuildResult {
-    if (!step || typeof step !== 'object' || Array.isArray(step)) {
-        return { reason: 'not an object' }
+}): ExceptionStepItem | null {
+    const malformedReason = getExceptionStepMalformedReason(step)
+    if (malformedReason) {
+        return null
     }
 
-    const name = typeof step.name === 'string' && step.name.trim() ? step.name : null
-    const offsetMs = typeof step.offset_ms === 'number' && Number.isFinite(step.offset_ms) ? step.offset_ms : null
-
-    const missing = [!name && 'name', offsetMs === null && 'offset_ms'].filter(Boolean)
-    if (missing.length > 0) {
-        return { reason: `missing ${missing.join(', ')}` }
+    const rawStep = step as RawExceptionStep
+    const type = typeof rawStep.type === 'string' && rawStep.type.trim() ? rawStep.type : undefined
+    const message = typeof rawStep.message === 'string' && rawStep.message.trim() ? rawStep.message : ''
+    const level = typeof rawStep.level === 'string' && rawStep.level.trim() ? rawStep.level : undefined
+    const timestamp = parseStepTimestamp(rawStep.timestamp)
+    if (!timestamp) {
+        return null
     }
 
     return {
-        item: {
-            id: `${exceptionUuid}-exception-step-${stepIndex}`,
-            category: ItemCategory.EXCEPTION_STEPS,
-            timestamp: dayjs.utc(exceptionTimestamp).add(offsetMs!, 'millisecond'),
-            sortPriority: -1000 + stepIndex,
-            payload: {
-                runtime,
-                name: name!,
-                type: typeof step.type === 'string' ? step.type : undefined,
-                offset_ms: offsetMs!,
-                properties: isPlainObject(step.properties) ? step.properties : undefined,
-                stepIndex,
-            },
-        },
-    }
-}
-
-function buildMalformedItem(
-    exceptionUuid: string,
-    exceptionTimestamp: Dayjs,
-    runtime: ErrorTrackingRuntime,
-    errorMessage: string
-): ExceptionStepItem {
-    return {
-        id: `${exceptionUuid}-exception-steps-malformed`,
+        id: `${exceptionUuid}-exception-step-${stepIndex}`,
         category: ItemCategory.EXCEPTION_STEPS,
-        timestamp: dayjs.utc(exceptionTimestamp).subtract(1, 'millisecond'),
-        sortPriority: -1,
+        timestamp,
+        sortPriority: -1000 + stepIndex,
         payload: {
             runtime,
-            name: 'Exception steps unavailable',
-            malformed: true,
-            message: 'Exception steps malformed',
-            errorMessage,
+            type,
+            message,
+            level,
+            stepProperties: { ...(step as Record<string, unknown>) },
+            stepIndex,
         },
     }
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === 'object' && !Array.isArray(value)
+function parseStepTimestamp(value: unknown): Dayjs | null {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return null
+    }
+
+    const parsed = dayjs.utc(value)
+    return parsed.isValid() ? parsed : null
 }

@@ -35,14 +35,23 @@ export function useScrollObserver({
 
     return useCallback(
         (el: HTMLDivElement | null) => {
-            if (!el) {
-                if (containerRef.current) {
-                    containerRef.current.removeEventListener('scroll', handleScroll)
-                }
-            } else {
-                containerRef.current = el
-                el.addEventListener('scroll', handleScroll, { passive: true })
+            const previousEl = containerRef.current
+
+            if (previousEl && previousEl !== el) {
+                previousEl.removeEventListener('scroll', handleScroll)
             }
+
+            if (!el) {
+                containerRef.current = null
+                return
+            }
+
+            if (previousEl === el) {
+                return
+            }
+
+            containerRef.current = el
+            el.addEventListener('scroll', handleScroll, { passive: true })
         },
         [handleScroll]
     )

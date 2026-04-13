@@ -1,62 +1,47 @@
 import { cva } from 'cva'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
-import { Link, Spinner } from '@posthog/lemon-ui'
-
-/** Promise that resolves after the next animation frame. */
-const nextFrame = (): Promise<void> => new Promise<void>((r) => requestAnimationFrame(() => r()))
+import { IconCollapse, IconEllipsis, IconExpand } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { Dayjs } from 'lib/dayjs'
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
 import { IconVerticalAlignCenter } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 
-import { ItemCategory, ItemCollector, ItemRenderer, RendererProps, TimelineItem } from './timeline'
-
-const ITEM_HEIGHT_PX = 32 // matches h-[2rem]
-const BUFFER_FACTOR = 1.5
-const MAX_FILL_ITERATIONS = 10
-
-function calculateBatchSize(containerEl: HTMLElement | null): number {
-    if (!containerEl) {
-        return 25
-    }
-    return Math.max(10, Math.ceil((containerEl.clientHeight / ITEM_HEIGHT_PX) * BUFFER_FACTOR))
-}
+import { ItemCategory, ItemCollector, ItemRenderer, RendererProps, TimelineItem, TimelineMenuItem } from './timeline'
+import { useTimelineItemLoading } from './useTimelineItemLoading'
 
 export interface SessionTimelineHandle {
     scrollToItem: (itemId: string) => void
 }
 
 export interface SessionTimelineProps {
-    ref: React.RefObject<SessionTimelineHandle>
     collector: ItemCollector
     selectedItemId?: string
     className?: string
     onTimeClick?: (time: Dayjs) => void
 }
 
-export function SessionTimeline({
-    ref,
-    collector,
-    selectedItemId,
-    className,
-    onTimeClick,
-}: SessionTimelineProps): JSX.Element {
-    const [items, setItems] = useState<TimelineItem[]>([])
+export const SessionTimeline = forwardRef<SessionTimelineHandle, SessionTimelineProps>(function SessionTimeline(
+    { collector, selectedItemId, className, onTimeClick }: SessionTimelineProps,
+    ref
+): JSX.Element {
     const [activeCategories, setActiveCategories] = useState<ItemCategory[]>(() => collector.getAllCategories())
-    const [loading, setLoading] = useState(false)
-    const [scrollLoading, setScrollLoading] = useState<'before' | 'after' | null>(null)
-    const scrollLoadingRef = useRef<'before' | 'after' | null>(null)
 
     const allCategories = useMemo(() => collector.getAllCategories(), [collector])
+    const activeCategorySet = useMemo(() => new Set(activeCategories), [activeCategories])
 
-    // Client-side category filter — instant, no network
-    const filteredItems = useMemo(
-        () => items.filter((item) => activeCategories.includes(item.category)),
-        [items, activeCategories]
-    )
+    useEffect(() => {
+        setActiveCategories(collector.getAllCategories())
+    }, [collector])
 
     function toggleCategory(category: ItemCategory): void {
         setActiveCategories((prev) => {
@@ -73,111 +58,64 @@ export function SessionTimeline({
         const item = containerRef.current?.querySelector(`[data-item-id="${uuid}"]`)
         if (item) {
             requestAnimationFrame(() => {
-                item.scrollIntoView({ behavior: 'instant', block: 'center' })
+                item.scrollIntoView({ behavior: 'auto', block: 'center' })
             })
         }
     }, [])
 
-    // Initial load + auto-fill
-    useEffect(() => {
-        collector.clear()
-        setLoading(true)
+    const { items, loading, scrollLoading, handleScrollTop, handleScrollBottom } = useTimelineItemLoading({
+        collector,
+        selectedItemId,
+        activeCategorySet,
+        containerRef,
+        scrollToItem,
+    })
 
-        const batch = calculateBatchSize(containerRef.current)
-
-        Promise.all([collector.loadBefore(batch), collector.loadAfter(batch)])
-            .then(async () => {
-                setItems(collector.collectItems())
-
-                if (selectedItemId) {
-                    await nextFrame()
-                    scrollToItem(selectedItemId)
-                }
-
-                // Auto-fill: keep loading until container overflows or data exhausted
-                const el = containerRef.current
-                if (el) {
-                    await nextFrame()
-
-                    let fillIterations = 0
-                    while (el.scrollHeight <= el.clientHeight && fillIterations < MAX_FILL_ITERATIONS) {
-                        fillIterations++
-                        if (!collector.hasMoreBefore && !collector.hasMoreAfter) {
-                            break
-                        }
-
-                        const scrollTop = el.scrollTop
-                        const scrollHeight = el.scrollHeight
-                        const promises: Promise<void>[] = []
-                        if (collector.hasMoreBefore) {
-                            promises.push(collector.loadBefore(batch))
-                        }
-                        if (collector.hasMoreAfter) {
-                            promises.push(collector.loadAfter(batch))
-                        }
-                        await Promise.all(promises)
-                        setItems(collector.collectItems())
-                        await nextFrame()
-                        if (collector.hasMoreBefore) {
-                            el.scrollTop = scrollTop + (el.scrollHeight - scrollHeight)
-                        }
-                    }
-                }
-            })
-            .finally(() => setLoading(false))
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [collector, selectedItemId])
-
-    // Scroll-triggered loading
-    const handleScrollTop = useCallback(async () => {
-        if (!collector.hasMoreBefore || scrollLoadingRef.current) {
-            return
-        }
-        scrollLoadingRef.current = 'before'
-        setScrollLoading('before')
-        try {
-            const el = containerRef.current
-            const scrollTop = el?.scrollTop || 0
-            const scrollHeight = el?.scrollHeight || 0
-            const batch = calculateBatchSize(el)
-            await collector.loadBefore(batch)
-            setItems(collector.collectItems())
-            requestAnimationFrame(() => {
-                const newScrollHeight = el?.scrollHeight || 0
-                if (el) {
-                    el.scrollTop = scrollTop + (newScrollHeight - scrollHeight)
-                }
-            })
-        } finally {
-            scrollLoadingRef.current = null
-            setScrollLoading(null)
-        }
-    }, [collector])
-
-    const handleScrollBottom = useCallback(async () => {
-        if (!collector.hasMoreAfter || scrollLoadingRef.current) {
-            return
-        }
-        scrollLoadingRef.current = 'after'
-        setScrollLoading('after')
-        try {
-            const batch = calculateBatchSize(containerRef.current)
-            await collector.loadAfter(batch)
-            setItems(collector.collectItems())
-        } finally {
-            scrollLoadingRef.current = null
-            setScrollLoading(null)
-        }
-    }, [collector])
+    const filteredItems = useMemo(
+        () => items.filter((item) => activeCategorySet.has(item.category)),
+        [items, activeCategorySet]
+    )
 
     const scrollRefCb = useScrollObserver({
         onScrollTop: handleScrollTop,
         onScrollBottom: handleScrollBottom,
     })
+    const setContainerRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            scrollRefCb(el)
+            containerRef.current = el
+        },
+        [scrollRefCb]
+    )
 
     useImperativeHandle(ref, () => ({ scrollToItem }))
 
     const isLoading = loading || scrollLoading !== null
+    const showInitialLoadingRow = loading && items.length === 0
+    const hasVisibleSelectedItem = useMemo(
+        () => Boolean(selectedItemId && filteredItems.some((item) => item.id === selectedItemId)),
+        [filteredItems, selectedItemId]
+    )
+    const emptyState = useMemo(() => {
+        if (activeCategories.length === 0) {
+            return {
+                title: 'No categories selected',
+                description: 'Select at least one category from the left to show timeline items.',
+            }
+        }
+
+        if (items.length === 0) {
+            return {
+                title: 'No items',
+                description: 'No timeline items were found for this session window.',
+            }
+        }
+
+        return {
+            title: 'No items in selected categories',
+            description: 'Try enabling more categories to see additional events.',
+        }
+    }, [activeCategories.length, items.length])
 
     return (
         <div className={cn('flex h-full', className)}>
@@ -194,7 +132,7 @@ export function SessionTimeline({
                         </ItemCategoryToggle>
                     ))}
                 </CategoryToggleGroup>
-                {filteredItems.find((item) => item.id === selectedItemId) && (
+                {hasVisibleSelectedItem && (
                     <ButtonPrimitive
                         tooltip="Scroll to item"
                         tooltipPlacement="right"
@@ -207,19 +145,12 @@ export function SessionTimeline({
                 )}
             </div>
             <div
-                ref={(el) => {
-                    scrollRefCb(el)
-                    containerRef.current = el
-                }}
+                ref={setContainerRef}
+                data-attr="session-timeline-scroll-container"
                 className="h-full w-full overflow-y-auto relative"
                 style={{ scrollbarGutter: 'stable' }}
             >
-                {(loading || scrollLoading === 'before') && (
-                    <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
-                        <Spinner />
-                        <span className="text-secondary">loading...</span>
-                    </div>
-                )}
+                {(showInitialLoadingRow || scrollLoading === 'before') && <LoadingRow />}
                 {filteredItems.map((item) => {
                     const renderer = collector.getRenderer(item.category)
                     if (!renderer) {
@@ -230,29 +161,23 @@ export function SessionTimeline({
                             renderer={renderer}
                             key={item.id}
                             item={item}
+                            sessionId={collector.sessionId}
                             selected={item.id === selectedItemId}
                             onTimeClick={onTimeClick}
                         />
                     )
                 })}
-                {!loading && scrollLoading === 'after' && (
-                    <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
-                        <Spinner />
-                        <span className="text-secondary">loading...</span>
-                    </div>
-                )}
+                {!loading && scrollLoading === 'after' && <LoadingRow />}
                 {!isLoading && filteredItems.length === 0 && (
-                    <div className={cn(itemContainer({ selected: false }), 'justify-center')}>
-                        <span className="text-secondary text-xs">No items</span>
-                    </div>
+                    <EmptyTimelineState title={emptyState.title} description={emptyState.description} />
                 )}
             </div>
         </div>
     )
-}
+})
 
 const itemContainer = cva({
-    base: 'flex justify-between gap-2 items-center px-2 w-full h-[2rem]',
+    base: 'w-full',
     variants: {
         selected: {
             true: 'bg-[var(--gray-1)] border-1 border-accent',
@@ -260,6 +185,100 @@ const itemContainer = cva({
         },
     },
 })
+
+function getCategoryTooltip(category: ItemCategory): string {
+    switch (category) {
+        case ItemCategory.ERROR_TRACKING:
+            return 'Exception'
+        case ItemCategory.EXCEPTION_STEPS:
+            return 'Exception step'
+        case ItemCategory.CUSTOM_EVENTS:
+            return 'Custom event'
+        case ItemCategory.PAGE_VIEWS:
+            return 'Page view'
+        case ItemCategory.CONSOLE_LOGS:
+            return 'Console log'
+    }
+}
+
+function LoadingRow(): JSX.Element {
+    return (
+        <div className={cn(itemContainer({ selected: false }), 'flex items-center gap-2 px-2 h-[2rem]')}>
+            <Spinner />
+            <span className="text-secondary text-xs">Loading...</span>
+        </div>
+    )
+}
+
+function EmptyTimelineState({ title, description }: { title: string; description?: string }): JSX.Element {
+    return (
+        <div className="h-full min-h-[160px] w-full flex items-center justify-center px-4">
+            <div className="text-center">
+                <div className="text-sm text-secondary">{title}</div>
+                {description ? <div className="text-xs text-tertiary mt-1">{description}</div> : null}
+            </div>
+        </div>
+    )
+}
+
+function TimelineTimestampCell({
+    item,
+    onTimeClick,
+    SourceIcon,
+}: {
+    item: TimelineItem
+    onTimeClick?: (timestamp: Dayjs) => void
+    SourceIcon: React.FC<RendererProps<TimelineItem>>
+}): JSX.Element {
+    return (
+        <button
+            type="button"
+            disabled={!onTimeClick}
+            className={cn(
+                'border-r-1 shrink-0 w-[96px] h-full flex items-center gap-1.5 px-2 text-xs text-tertiary',
+                onTimeClick ? 'cursor-pointer hover:bg-fill-button-tertiary-hover hover:text-primary' : 'cursor-default'
+            )}
+            onClick={() => onTimeClick?.(item.timestamp)}
+            aria-label={`Open recording at ${item.timestamp.format('HH:mm:ss')}`}
+        >
+            <span className="w-[16px] shrink-0 flex items-center justify-center">
+                <SourceIcon item={item} />
+            </span>
+            <span className="whitespace-nowrap">{item.timestamp.format('HH:mm:ss')}</span>
+        </button>
+    )
+}
+
+function TimelineRowMenu({ menuItems }: { menuItems: TimelineMenuItem[] }): JSX.Element {
+    if (menuItems.length === 0) {
+        return <span className="w-7 shrink-0 border-l border-transparent" />
+    }
+
+    return (
+        <div className="border-l-1 shrink-0 w-7 h-full">
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive
+                        className="h-full w-7 rounded-none outline-none text-tertiary hover:text-primary hover:bg-fill-button-tertiary-hover flex items-center justify-center"
+                        aria-label="More actions"
+                        data-attr="session-timeline-row-more"
+                    >
+                        <IconEllipsis />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent loop align="end" side="bottom" className="p-1 min-w-44">
+                    {menuItems.map((menuItem) => (
+                        <DropdownMenuItem key={menuItem.key} asChild>
+                            <ButtonPrimitive menuItem className="whitespace-nowrap" onClick={menuItem.onClick}>
+                                {menuItem.label}
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
+    )
+}
 
 type SessionTimelineItemContainerProps = RendererProps<TimelineItem> & {
     renderer: ItemRenderer<TimelineItem>
@@ -269,23 +288,50 @@ type SessionTimelineItemContainerProps = RendererProps<TimelineItem> & {
 
 const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineItemContainerProps>(
     function SessionTimelineItemContainer(
-        { renderer, item, selected, onTimeClick }: SessionTimelineItemContainerProps,
+        { renderer, item, sessionId, selected, onTimeClick }: SessionTimelineItemContainerProps,
         ref
     ): JSX.Element {
+        const [expanded, setExpanded] = useState(false)
+        const canExpand = Boolean(renderer.renderExpanded)
+        const rowMenuItems = renderer.getMenuItems?.({ item, sessionId }) ?? []
+
         return (
             <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
-                <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
-                    <renderer.sourceIcon item={item} />
-                </span>
-                <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
-                    <Link className="text-tertiary hover:text-accent" onClick={() => onTimeClick?.(item.timestamp)}>
-                        {item.timestamp.format('HH:mm:ss')}
-                    </Link>
-                </span>
-                <div className="shrink-0 w-[20px] text-center">{renderer.categoryIcon}</div>
-                <div className="flex-grow">
-                    <renderer.render item={item} />
+                <div className="flex justify-between pr-0 w-full h-[2rem] items-center">
+                    <TimelineTimestampCell item={item} onTimeClick={onTimeClick} SourceIcon={renderer.sourceIcon} />
+                    <div
+                        className={cn(
+                            'flex items-center gap-2 flex-1 min-w-0 h-full pl-2 transition-colors hover:bg-fill-button-tertiary-hover',
+                            canExpand && 'cursor-pointer'
+                        )}
+                        onClick={() => canExpand && setExpanded((value) => !value)}
+                    >
+                        <div className="shrink-0 w-[20px] text-center" title={getCategoryTooltip(item.category)}>
+                            {renderer.categoryIcon}
+                        </div>
+                        <div className="flex-grow min-w-0">
+                            <renderer.render item={item} sessionId={sessionId} />
+                        </div>
+                        {canExpand ? (
+                            <span className="shrink-0 pr-2 text-tertiary flex items-center justify-center">
+                                {expanded ? <IconCollapse /> : <IconExpand />}
+                            </span>
+                        ) : null}
+                    </div>
+                    <TimelineRowMenu menuItems={rowMenuItems} />
                 </div>
+
+                {expanded ? (
+                    <div className="w-full border-t border-border bg-surface-secondary">
+                        {renderer.renderExpanded ? (
+                            <div className="text-xs p-2">
+                                <renderer.renderExpanded item={item} sessionId={sessionId} />
+                            </div>
+                        ) : (
+                            <div className="text-xs p-2 text-secondary">No details available</div>
+                        )}
+                    </div>
+                ) : null}
             </div>
         )
     }
@@ -326,6 +372,7 @@ export function ItemCategoryToggle({
             tooltip={active ? `Hide ${category}` : `Show ${category}`}
             tooltipPlacement="right"
             className={itemCategoryToggle({ active })}
+            data-attr={`session-timeline-category-toggle-${category.replaceAll(' ', '-')}`}
             {...props}
         />
     )

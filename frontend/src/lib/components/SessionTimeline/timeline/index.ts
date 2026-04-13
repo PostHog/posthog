@@ -37,12 +37,27 @@ export function compareTimelineItems(a: TimelineItem, b: TimelineItem): number {
 
 export interface RendererProps<T extends TimelineItem> {
     item: T
+    sessionId?: string
+}
+
+export interface TimelineMenuItem {
+    key: string
+    label: string
+    onClick: () => void
 }
 
 export type ItemRenderer<T extends TimelineItem> = {
     sourceIcon: React.FC<RendererProps<T>>
     categoryIcon: React.ReactNode
     render: React.FC<RendererProps<T>>
+    renderExpanded?: React.FC<RendererProps<T>>
+    getMenuItems?: (props: RendererProps<T>) => TimelineMenuItem[]
+}
+
+export interface LoaderBatch<T extends TimelineItem> {
+    items: T[]
+    hasMoreBefore?: boolean
+    hasMoreAfter?: boolean
 }
 
 /**
@@ -50,8 +65,8 @@ export type ItemRenderer<T extends TimelineItem> = {
  * before/after the given cursor, within a fixed time window around the center.
  */
 export type ItemLoader<T extends TimelineItem> = {
-    loadBefore(cursor: Dayjs, limit: number): Promise<T[]>
-    loadAfter(cursor: Dayjs, limit: number): Promise<T[]>
+    loadBefore(cursor: Dayjs, limit: number): Promise<LoaderBatch<T>>
+    loadAfter(cursor: Dayjs, limit: number): Promise<LoaderBatch<T>>
 }
 
 // eslint-disable-next-line import/no-cycle

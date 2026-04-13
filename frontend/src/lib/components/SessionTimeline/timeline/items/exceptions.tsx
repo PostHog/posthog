@@ -1,5 +1,6 @@
+import { router } from 'kea-router'
+
 import { IconWarning } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
@@ -9,7 +10,8 @@ import { urls } from 'scenes/urls'
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
 import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '..'
-import { BasePreview } from './base'
+import { StandardizedPreview } from './base'
+import { LazyEventDetailsRenderer } from './eventDetails'
 
 export interface ExceptionItem extends TimelineItem {
     payload: {
@@ -46,12 +48,18 @@ export class StaticExceptionLoader implements ItemLoader<ExceptionItem> {
         }
     }
 
-    async loadBefore(cursor: Dayjs): Promise<ExceptionItem[]> {
-        return this.item.timestamp.isBefore(cursor) ? [this.item] : []
+    async loadBefore(cursor: Dayjs): Promise<{ items: ExceptionItem[]; hasMoreBefore: boolean }> {
+        return {
+            items: this.item.timestamp.isBefore(cursor) ? [this.item] : [],
+            hasMoreBefore: false,
+        }
     }
 
-    async loadAfter(cursor: Dayjs): Promise<ExceptionItem[]> {
-        return this.item.timestamp.isAfter(cursor) ? [this.item] : []
+    async loadAfter(cursor: Dayjs): Promise<{ items: ExceptionItem[]; hasMoreAfter: boolean }> {
+        return {
+            items: this.item.timestamp.isAfter(cursor) ? [this.item] : [],
+            hasMoreAfter: false,
+        }
     }
 }
 
@@ -59,26 +67,33 @@ export const exceptionRenderer: ItemRenderer<ExceptionItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconWarning />,
     render: ({ item }): JSX.Element => {
-        const name = item.payload.type
-        const description = item.payload.message
-        const eventIssueId = item.payload.issue_id
+        const errorType = item.payload.type || 'Exception'
+        const errorMessage = item.payload.message || 'Exception captured'
+
         return (
-            <BasePreview
-                name={name}
-                description={
-                    <Link
-                        className="text-secondary hover:text-accent"
-                        subtle
-                        to={urls.errorTrackingIssue(eventIssueId, {
-                            fingerprint: item.payload.fingerprint,
-                            timestamp: item.timestamp.toISOString(),
-                        })}
-                    >
-                        {description}
-                    </Link>
-                }
-                descriptionTitle={description}
+            <StandardizedPreview
+                categoryLabel="exception"
+                primaryText={errorType}
+                secondaryText={errorMessage}
+                secondaryMuted
             />
         )
     },
+    renderExpanded: LazyEventDetailsRenderer,
+    getMenuItems: ({ item }) =>
+        item.payload.issue_id
+            ? [
+                  {
+                      key: 'open-exception-issue',
+                      label: 'Open exception issue',
+                      onClick: () =>
+                          router.actions.push(
+                              urls.errorTrackingIssue(item.payload.issue_id, {
+                                  fingerprint: item.payload.fingerprint,
+                                  timestamp: item.timestamp.toISOString(),
+                              })
+                          ),
+                  },
+              ]
+            : [],
 }

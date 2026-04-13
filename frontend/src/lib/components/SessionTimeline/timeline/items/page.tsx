@@ -1,12 +1,13 @@
 import { IconEye } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
 import { ItemRenderer, TimelineItem } from '..'
-import { BasePreview } from './base'
+import { StandardizedPreview } from './base'
+import { LazyEventDetailsRenderer } from './eventDetails'
+import { buildOpenInActivityTabMenuItem } from './menuItems'
 
 export interface PageItem extends TimelineItem {
     payload: {
@@ -19,18 +20,21 @@ export const pageRenderer: ItemRenderer<PageItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconEye />,
     render: ({ item }): JSX.Element => {
-        return (
-            <BasePreview
-                name="Pageview"
-                description={
-                    <Link className="text-secondary hover:text-accent" subtle to={item.payload.url} target="_blank">
-                        {getUrlPathname(item.payload.url)}
-                    </Link>
-                }
-                descriptionTitle={item.payload.url}
-            />
-        )
+        return <StandardizedPreview categoryLabel="page view" primaryText={getUrlPathname(item.payload.url)} />
     },
+    renderExpanded: LazyEventDetailsRenderer,
+    getMenuItems: ({ item }) => [
+        ...(item.payload.url
+            ? [
+                  {
+                      key: 'open-page-view',
+                      label: 'Open page view',
+                      onClick: () => window.open(item.payload.url, '_blank', 'noopener,noreferrer'),
+                  },
+              ]
+            : []),
+        ...buildOpenInActivityTabMenuItem({ eventId: item.id, timestamp: item.timestamp.toISOString() }),
+    ],
 }
 
 function getUrlPathname(url: string): string {

@@ -39,16 +39,21 @@ export default meta
 
 export function ExceptionCardBase(): JSX.Element {
     return (
-        <div className="w-[800px]">
-            <ExceptionCard
-                issueId="issue-id"
-                issueName="Test Issue"
-                loading={false}
-                event={TEST_EVENTS['javascript_resolved'] as any}
-            />
+        <div className="w-[1000px] h-[700px]">
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
+                <OpenSessionTab>
+                    <ExceptionCard
+                        issueId="issue-id"
+                        issueName="Test Issue"
+                        loading={false}
+                        event={TEST_EVENTS['javascript_resolved'] as any}
+                    />
+                </OpenSessionTab>
+            </BindLogic>
         </div>
     )
 }
+ExceptionCardBase.parameters = sessionTimelineParameters(TEST_EVENTS['javascript_resolved'] as ErrorEventType)
 
 export function ExceptionCardNoInApp(): JSX.Element {
     return (
@@ -62,6 +67,7 @@ export function ExceptionCardNoInApp(): JSX.Element {
         </div>
     )
 }
+ExceptionCardNoInApp.parameters = sessionTimelineParameters(TEST_EVENTS['javascript_no_in_app'] as ErrorEventType)
 
 export function ExceptionCardLoading(): JSX.Element {
     return (
@@ -75,21 +81,22 @@ ExceptionCardLoading.tags = ['test-skip']
 export function ExceptionCardSessionTimelineWithSteps(): JSX.Element {
     const event = buildSessionTimelineEvent([
         {
-            name: 'Button clicked',
             type: 'ui.interaction',
-            offset_ms: -2500,
-            properties: { selector: '#submit', text: 'Submit' },
+            message: 'Button clicked',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:02.500Z',
         },
         {
-            name: 'API request started',
             type: 'http',
-            offset_ms: -1200,
-            properties: { method: 'POST', path: '/api/demo' },
+            message: 'API request started',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:03.800Z',
         },
         {
-            name: 'State updated',
-            offset_ms: -1200,
-            properties: { from: 'idle', to: 'submitting' },
+            type: 'state',
+            message: 'State updated',
+            level: 'debug',
+            timestamp: '2024-07-09T12:00:03.800Z',
         },
     ])
 
@@ -98,21 +105,22 @@ export function ExceptionCardSessionTimelineWithSteps(): JSX.Element {
 ExceptionCardSessionTimelineWithSteps.parameters = sessionTimelineParameters(
     buildSessionTimelineEvent([
         {
-            name: 'Button clicked',
             type: 'ui.interaction',
-            offset_ms: -2500,
-            properties: { selector: '#submit', text: 'Submit' },
+            message: 'Button clicked',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:02.500Z',
         },
         {
-            name: 'API request started',
             type: 'http',
-            offset_ms: -1200,
-            properties: { method: 'POST', path: '/api/demo' },
+            message: 'API request started',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:03.800Z',
         },
         {
-            name: 'State updated',
-            offset_ms: -1200,
-            properties: { from: 'idle', to: 'submitting' },
+            type: 'state',
+            message: 'State updated',
+            level: 'debug',
+            timestamp: '2024-07-09T12:00:03.800Z',
         },
     ])
 )
@@ -126,10 +134,10 @@ ExceptionCardSessionTimelineWithoutSteps.parameters = sessionTimelineParameters(
 export function ExceptionCardSessionTimelineWithMalformedSteps(): JSX.Element {
     const event = buildSessionTimelineEvent([
         {
-            name: 'Button clicked',
             type: 'ui.interaction',
-            offset_ms: -2500,
-            properties: { selector: '#submit', text: 'Submit' },
+            message: 'Button clicked',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:02.500Z',
         },
         {
             bad: 'row',
@@ -141,10 +149,10 @@ export function ExceptionCardSessionTimelineWithMalformedSteps(): JSX.Element {
 ExceptionCardSessionTimelineWithMalformedSteps.parameters = sessionTimelineParameters(
     buildSessionTimelineEvent([
         {
-            name: 'Button clicked',
             type: 'ui.interaction',
-            offset_ms: -2500,
-            properties: { selector: '#submit', text: 'Submit' },
+            message: 'Button clicked',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:02.500Z',
         },
         {
             bad: 'row',
@@ -152,25 +160,32 @@ ExceptionCardSessionTimelineWithMalformedSteps.parameters = sessionTimelineParam
     ])
 )
 
+export function ExceptionCardSessionTimelineWithLongPreviewTexts(): JSX.Element {
+    const event = buildLongPreviewTextEvent()
+    return <ExceptionCardSessionTimelineStory event={event} containerClassName="w-[560px] h-[700px]" />
+}
+ExceptionCardSessionTimelineWithLongPreviewTexts.parameters = sessionTimelineParameters(buildLongPreviewTextEvent())
+
 ////////////////////// No session ID
 
 const NO_SESSION_STEPS = [
     {
-        name: 'Button clicked',
         type: 'ui.interaction',
-        offset_ms: -2500,
-        properties: { selector: '#submit', text: 'Submit' },
+        message: 'Button clicked',
+        level: 'info',
+        timestamp: '2024-07-09T12:00:02.500Z',
     },
     {
-        name: 'API request started',
         type: 'http',
-        offset_ms: -1200,
-        properties: { method: 'POST', path: '/api/demo' },
+        message: 'API request started',
+        level: 'info',
+        timestamp: '2024-07-09T12:00:03.800Z',
     },
     {
-        name: 'State updated',
-        offset_ms: -800,
-        properties: { from: 'idle', to: 'submitting' },
+        type: 'state',
+        message: 'State updated',
+        level: 'debug',
+        timestamp: '2024-07-09T12:00:04.200Z',
     },
 ]
 
@@ -186,9 +201,15 @@ export function ExceptionCardNoSessionWithoutSteps(): JSX.Element {
 
 //////////////////// Utils
 
-function ExceptionCardSessionTimelineStory({ event }: { event: ErrorEventType }): JSX.Element {
+function ExceptionCardSessionTimelineStory({
+    event,
+    containerClassName = 'w-[1000px] h-[700px]',
+}: {
+    event: ErrorEventType
+    containerClassName?: string
+}): JSX.Element {
     return (
-        <div className="w-[1000px] h-[700px]">
+        <div className={containerClassName}>
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
                 <OpenSessionTab>
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
@@ -198,44 +219,202 @@ function ExceptionCardSessionTimelineStory({ event }: { event: ErrorEventType })
     )
 }
 
-function sessionTimelineParameters(event: ErrorEventType): Record<string, any> {
+function buildLongPreviewTextEvent(): ErrorEventType {
+    const event = buildSessionTimelineEvent([
+        {
+            type: `ui.interaction.${'t'.repeat(180)}`,
+            message: `Step before crash: ${'m'.repeat(220)}`,
+            level: 'info',
+            timestamp: '2024-07-09T12:00:02.500Z',
+        },
+        {
+            type: 'http',
+            message: 'API request started',
+            level: 'info',
+            timestamp: '2024-07-09T12:00:03.800Z',
+        },
+    ])
+
+    return {
+        ...event,
+        properties: {
+            ...event.properties,
+            $exception_list: [
+                {
+                    type: `VeryLongExceptionType${'X'.repeat(170)}`,
+                    value: `Extremely long exception message intended for truncation coverage ${'Y'.repeat(220)}`,
+                },
+            ],
+        },
+    }
+}
+
+type StoryCombinedEventRow = [
+    uuid: string,
+    eventName: string,
+    timestamp: string,
+    lib: string | null,
+    currentUrl: string | null,
+    exceptionList: Array<{ type?: string; value?: string }> | null,
+    exceptionFingerprint: string | null,
+    exceptionIssueId: string | null,
+]
+
+type StoryEventDetailsRow = [uuid: string, eventName: string, timestamp: string, properties: Record<string, unknown>]
+
+interface TimelineQueryLike {
+    after?: string
+    before?: string
+    orderBy?: string[]
+    limit?: number
+    select?: string[]
+    where?: unknown[]
+    kind?: NodeKind
+    query?: string
+}
+
+function sessionTimelineParameters(event: ErrorEventType): Record<string, unknown> {
+    const center = new Date(event.timestamp).getTime()
+    const at = (deltaMs: number): string => new Date(center + deltaMs).toISOString()
+
+    const exceptionList = Array.isArray(event.properties?.$exception_list) ? event.properties.$exception_list : []
     const exceptionRows = [[event.uuid, event.timestamp, JSON.stringify(event.properties)]]
     const pageRows = [
-        ['page-1', '2024-07-09T11:59:50.000Z', 'https://app.example.com/home', 'web'],
-        ['page-2', '2024-07-09T11:59:58.000Z', 'https://app.example.com/demo', 'web'],
+        ['page-1', at(-15000), 'https://app.example.com/home', 'web'],
+        ['page-2', at(-7000), 'https://app.example.com/demo', 'web'],
     ]
     const customRows = [
-        ['custom-1', 'form_opened', '2024-07-09T11:59:55.000Z', 'web'],
-        ['custom-2', 'button_clicked', '2024-07-09T12:00:02.000Z', 'web'],
+        ['custom-1', 'form_opened', at(-11000), 'web'],
+        ['custom-2', 'button_clicked', at(-3000), 'web'],
     ]
-    const logRows = [
-        ['2024-07-09T11:59:52.000Z', 'info', 'App initialized'],
-        ['2024-07-09T11:59:59.000Z', 'warn', 'Slow network detected'],
-        ['2024-07-09T12:00:01.000Z', 'info', 'Form submitted'],
-        ['2024-07-09T12:00:04.000Z', 'error', 'Console error before exception'],
+    const combinedEventRows: StoryCombinedEventRow[] = [
+        ['page-1', '$pageview', at(-15000), 'web', 'https://app.example.com/home', null, null, null],
+        ['custom-1', 'form_opened', at(-11000), 'web', null, null, null, null],
+        ['page-2', '$pageview', at(-7000), 'web', 'https://app.example.com/demo', null, null, null],
+        [
+            'previous-exception',
+            '$exception',
+            at(-4500),
+            'web',
+            null,
+            [{ type: 'ReferenceError', value: 'window.appConfig is undefined' }],
+            'prev-fingerprint',
+            'issue-id',
+        ],
+        ['custom-2', 'button_clicked', at(-3000), 'web', null, null, null, null],
+        [
+            event.uuid,
+            '$exception',
+            event.timestamp,
+            event.properties?.$lib ?? 'web',
+            null,
+            exceptionList,
+            event.properties?.$exception_fingerprint ?? 'current-fingerprint',
+            event.properties?.$exception_issue_id ?? 'issue-id',
+        ],
     ]
 
-    const filterRows = (rows: any[], timestampIndex: number, query: any): any[] => {
+    const eventDetailsRowsByUuid = Object.fromEntries(
+        combinedEventRows.map((row) => {
+            const [uuid, eventName, ts, lib, currentUrl, exceptionListForRow, exceptionFingerprint, exceptionIssueId] =
+                row
+            const baseProperties = {
+                ...(lib ? { $lib: lib } : {}),
+                ...(currentUrl ? { $current_url: currentUrl } : {}),
+                ...(exceptionListForRow ? { $exception_list: exceptionListForRow } : {}),
+                ...(exceptionFingerprint ? { $exception_fingerprint: exceptionFingerprint } : {}),
+                ...(exceptionIssueId ? { $exception_issue_id: exceptionIssueId } : {}),
+            }
+
+            const properties = uuid === event.uuid ? event.properties : baseProperties
+            return [String(uuid), [uuid, eventName, ts, properties]]
+        })
+    ) as Record<string, StoryEventDetailsRow>
+
+    const logRows = [
+        [at(-13000), 'info', 'App initialized'],
+        [at(-6000), 'warn', 'Slow network detected'],
+        [at(-3500), 'info', 'Form submitted'],
+        [at(-1200), 'error', 'Console error before exception'],
+    ]
+
+    const filterRows = <T extends unknown[]>(rows: T[], timestampIndex: number, query: TimelineQueryLike): T[] => {
         const after = query.after ? new Date(query.after).getTime() : Number.NEGATIVE_INFINITY
         const before = query.before ? new Date(query.before).getTime() : Number.POSITIVE_INFINITY
         const descending = query.orderBy?.some((clause: string) => clause.includes('DESC'))
+        const limit = typeof query.limit === 'number' ? query.limit : rows.length
 
         const filtered = rows.filter((row) => {
             const timestamp = new Date(row[timestampIndex]).getTime()
             return timestamp >= after && timestamp <= before
         })
 
-        return filtered.sort((a, b) => {
-            const diff = new Date(a[timestampIndex]).getTime() - new Date(b[timestampIndex]).getTime()
-            return descending ? -diff : diff
-        })
+        return filtered
+            .sort((a, b) => {
+                const diff = new Date(a[timestampIndex]).getTime() - new Date(b[timestampIndex]).getTime()
+                return descending ? -diff : diff
+            })
+            .slice(0, limit)
     }
 
-    const queryHandler = async (req: any, res: any, ctx: any): Promise<any> => {
+    const filterLogRowsFromHogQL = <T extends [string, ...unknown[]]>(rows: T[], query: TimelineQueryLike): T[] => {
+        const queryString = String(query?.query ?? '')
+        const descending = /ORDER BY\s+timestamp\s+DESC/i.test(queryString)
+        const limitMatch = queryString.match(/LIMIT\s+(\d+)/i)
+        const limit = limitMatch ? parseInt(limitMatch[1], 10) : rows.length
+
+        const isoMatches = Array.from(queryString.matchAll(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g), (m) =>
+            new Date(m[0]).getTime()
+        )
+
+        const lowerBound = isoMatches[0] ?? Number.NEGATIVE_INFINITY
+        const upperBound = isoMatches[1] ?? Number.POSITIVE_INFINITY
+
+        const filtered = rows.filter((row) => {
+            const ts = new Date(row[0]).getTime()
+            if (descending) {
+                return ts >= lowerBound && ts < upperBound
+            }
+            return ts > lowerBound && ts <= upperBound
+        })
+
+        return filtered
+            .sort((a, b) => {
+                const diff = new Date(a[0]).getTime() - new Date(b[0]).getTime()
+                return descending ? -diff : diff
+            })
+            .slice(0, limit)
+    }
+
+    const queryHandler = async (req: any, res: any, ctx: any): Promise<unknown> => {
         const body = await req.clone().json()
-        const query = body.query
+        const query = body.query as TimelineQueryLike
 
         if (query.kind === NodeKind.EventsQuery) {
+            const isCombinedEventLoaderQuery =
+                query.select?.includes('event') &&
+                query.select?.includes('properties.$current_url') &&
+                query.select?.includes('properties.$exception_list')
+
+            if (isCombinedEventLoaderQuery) {
+                return res(ctx.json({ results: filterRows(combinedEventRows, 2, query) }))
+            }
+
+            const isEventDetailsQuery =
+                query.select?.includes('uuid') &&
+                query.select?.includes('event') &&
+                query.select?.includes('properties')
+
+            if (isEventDetailsQuery) {
+                const uuidClause = query.where?.find(
+                    (clause: unknown) => typeof clause === 'string' && String(clause).startsWith('equals(uuid,')
+                )
+                const uuidMatch =
+                    typeof uuidClause === 'string' ? uuidClause.match(/equals\(uuid,\s*'([^']+)'\)/) : null
+                const eventRow = uuidMatch ? eventDetailsRowsByUuid[uuidMatch[1]] : null
+                return res(ctx.json({ results: eventRow ? [eventRow] : [] }))
+            }
+
             if (query.select?.includes('properties.$current_url')) {
                 return res(ctx.json({ results: filterRows(pageRows, 1, query) }))
             }
@@ -247,10 +426,12 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, any> {
             if (query.select?.includes('properties')) {
                 return res(ctx.json({ results: filterRows(exceptionRows, 1, query) }))
             }
+
+            return res(ctx.json({ results: filterRows(combinedEventRows, 2, query) }))
         }
 
         if (query.kind === NodeKind.HogQLQuery) {
-            return res(ctx.json({ results: filterRows(logRows, 0, query) }))
+            return res(ctx.json({ results: filterLogRowsFromHogQL(logRows, query) }))
         }
 
         return res(ctx.json({ results: [] }))
@@ -261,6 +442,10 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, any> {
             mocks: {
                 post: {
                     'api/environments/:team_id/query': queryHandler,
+                    '/api/environments/:team_id/query': queryHandler,
+                    '/api/environments/:team_id/query/': queryHandler,
+                    '/api/environments/:team_id/query/:query_kind': queryHandler,
+                    '/api/environments/:team_id/query/:query_kind/': queryHandler,
                 },
             },
         },

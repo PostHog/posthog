@@ -1,14 +1,15 @@
-import { IconTerminal } from '@posthog/icons'
+import { IconLive } from '@posthog/icons'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { hogql } from '~/queries/utils'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
 import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '..'
-import { BasePreview } from './base'
+import { StandardizedPreview } from './base'
 
 export interface ConsoleLogItem extends TimelineItem {
     payload: {
@@ -19,16 +20,36 @@ export interface ConsoleLogItem extends TimelineItem {
 
 export const consoleLogRenderer: ItemRenderer<ConsoleLogItem> = {
     sourceIcon: () => <RuntimeIcon runtime="web" />,
-    categoryIcon: <IconTerminal />,
+    categoryIcon: <IconLive />,
     render: ({ item }): JSX.Element => {
+        const level = item.payload.level?.toLowerCase() || 'log'
+        const levelLabel = `${level.charAt(0).toUpperCase()}${level.slice(1)}`
+
+        return <StandardizedPreview categoryLabel="log" primaryText={item.payload.message} secondaryText={levelLabel} />
+    },
+    renderExpanded: ({ item }): JSX.Element => {
+        const level = item.payload.level?.toLowerCase() || 'log'
+        const levelLabel = `${level.charAt(0).toUpperCase()}${level.slice(1)}`
+
         return (
-            <BasePreview
-                name={`Console ${item.payload.level}`}
-                description={item.payload.message}
-                descriptionTitle={item.payload.message}
-            />
+            <div className="space-y-1">
+                <div className="text-xs text-tertiary">Level: {levelLabel}</div>
+                <pre className="text-xs whitespace-pre-wrap break-words mb-0">{item.payload.message}</pre>
+            </div>
         )
     },
+    getMenuItems: ({ item }) =>
+        item.payload.message
+            ? [
+                  {
+                      key: 'copy-full-log-text',
+                      label: 'Copy full log text',
+                      onClick: () => {
+                          void copyToClipboard(item.payload.message, 'log text')
+                      },
+                  },
+              ]
+            : [],
 }
 
 const WINDOW_HOURS = 1
@@ -39,21 +60,25 @@ export class ConsoleLogLoader implements ItemLoader<ConsoleLogItem> {
         private readonly centerTimestamp: Dayjs
     ) {}
 
-    async loadBefore(cursor: Dayjs, limit: number): Promise<ConsoleLogItem[]> {
+    async loadBefore(cursor: Dayjs, limit: number): Promise<{ items: ConsoleLogItem[]; hasMoreBefore: boolean }> {
         const windowStart = this.centerTimestamp.subtract(WINDOW_HOURS, 'hours')
         const query = hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = 'session_replay' AND log_source_id = ${this.sessionId} AND timestamp >= ${windowStart} AND timestamp < ${cursor} ORDER BY timestamp DESC LIMIT ${limit}`
-        return this.execute(query)
+        return this.execute(query, limit, 'before')
     }
 
-    async loadAfter(cursor: Dayjs, limit: number): Promise<ConsoleLogItem[]> {
+    async loadAfter(cursor: Dayjs, limit: number): Promise<{ items: ConsoleLogItem[]; hasMoreAfter: boolean }> {
         const windowEnd = this.centerTimestamp.add(WINDOW_HOURS, 'hours')
         const query = hogql`SELECT timestamp, level, message FROM log_entries WHERE log_source = 'session_replay' AND log_source_id = ${this.sessionId} AND timestamp > ${cursor} AND timestamp <= ${windowEnd} ORDER BY timestamp ASC LIMIT ${limit}`
-        return this.execute(query)
+        return this.execute(query, limit, 'after')
     }
 
-    private async execute(query: ReturnType<typeof hogql>): Promise<ConsoleLogItem[]> {
+    private async execute(
+        query: ReturnType<typeof hogql>,
+        limit: number,
+        direction: 'before' | 'after'
+    ): Promise<{ items: ConsoleLogItem[]; hasMoreBefore?: boolean; hasMoreAfter?: boolean }> {
         const response = await api.queryHogQL(query, { scene: 'ReplaySingle', productKey: 'session_replay' })
-        return response.results.map(
+        const items = response.results.map(
             (row) =>
                 ({
                     id: `log-${String(row[0])}-${String(row[1])}-${String(row[2])}`,
@@ -65,5 +90,9 @@ export class ConsoleLogLoader implements ItemLoader<ConsoleLogItem> {
                     },
                 }) as ConsoleLogItem
         )
+
+        return direction === 'before'
+            ? { items, hasMoreBefore: items.length === limit }
+            : { items, hasMoreAfter: items.length === limit }
     }
 }

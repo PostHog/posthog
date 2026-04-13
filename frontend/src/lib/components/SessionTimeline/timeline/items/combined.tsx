@@ -25,6 +25,32 @@ const SELECT = [
     'properties.$exception_issue_id',
 ]
 
+type RawCombinedEventRow = [
+    uuid: unknown,
+    eventName: unknown,
+    timestamp: unknown,
+    lib: unknown,
+    currentUrl: unknown,
+    rawExceptionList: unknown,
+    exceptionFingerprint: unknown,
+    exceptionIssueId: unknown,
+]
+
+interface ParsedCombinedEventRow {
+    uuid: string
+    eventName: string
+    timestamp: string
+    lib?: string
+    currentUrl?: string
+    rawExceptionList: unknown
+    exceptionFingerprint?: string
+    exceptionIssueId?: string
+}
+
+interface CombinedEventQueryResponse {
+    results?: unknown[]
+}
+
 function buildWhere(sessionId: string): string[] {
     return [
         `equals($session_id, '${sessionId}')`,
@@ -38,7 +64,7 @@ export class CombinedEventLoader implements ItemLoader<TimelineItem> {
         private readonly centerTimestamp: Dayjs
     ) {}
 
-    async loadBefore(cursor: Dayjs, limit: number): Promise<TimelineItem[]> {
+    async loadBefore(cursor: Dayjs, limit: number): Promise<{ items: TimelineItem[]; hasMoreBefore: boolean }> {
         const query: EventsQuery = {
             kind: NodeKind.EventsQuery,
             select: SELECT,
@@ -48,11 +74,16 @@ export class CombinedEventLoader implements ItemLoader<TimelineItem> {
             orderBy: ['timestamp DESC'],
             limit,
         }
-        const response = await api.query(query)
-        return response.results.map(buildItem)
+        const response = (await api.query(query)) as CombinedEventQueryResponse
+        const rawResults = Array.isArray(response.results) ? response.results : []
+        const items = parseItemsFromResults(rawResults)
+        return {
+            items,
+            hasMoreBefore: rawResults.length === limit,
+        }
     }
 
-    async loadAfter(cursor: Dayjs, limit: number): Promise<TimelineItem[]> {
+    async loadAfter(cursor: Dayjs, limit: number): Promise<{ items: TimelineItem[]; hasMoreAfter: boolean }> {
         const query: EventsQuery = {
             kind: NodeKind.EventsQuery,
             select: SELECT,
@@ -62,47 +93,91 @@ export class CombinedEventLoader implements ItemLoader<TimelineItem> {
             orderBy: ['timestamp ASC'],
             limit,
         }
-        const response = await api.query(query)
-        return response.results.map(buildItem)
+        const response = (await api.query(query)) as CombinedEventQueryResponse
+        const rawResults = Array.isArray(response.results) ? response.results : []
+        const items = parseItemsFromResults(rawResults)
+        return {
+            items,
+            hasMoreAfter: rawResults.length === limit,
+        }
     }
 }
 
-function buildItem(evt: any[]): TimelineItem {
-    const [uuid, event, timestamp, lib, currentUrl, rawExceptionList, exceptionFingerprint, exceptionIssueId] = evt
-    const ts = dayjs.utc(timestamp)
-    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
+function parseItemsFromResults(results: unknown[] | undefined): TimelineItem[] {
+    if (!Array.isArray(results)) {
+        return []
+    }
 
-    if (event === '$exception') {
-        const exceptionList: ErrorTrackingException[] | undefined = parseIfString(rawExceptionList)
+    return results
+        .map(parseCombinedEventRow)
+        .filter((row): row is ParsedCombinedEventRow => Boolean(row))
+        .map(buildItem)
+}
+
+function parseCombinedEventRow(row: unknown): ParsedCombinedEventRow | null {
+    if (!Array.isArray(row) || row.length < 8) {
+        return null
+    }
+
+    const [uuid, eventName, timestamp, lib, currentUrl, rawExceptionList, exceptionFingerprint, exceptionIssueId] =
+        row as RawCombinedEventRow
+
+    if (typeof uuid !== 'string' || typeof eventName !== 'string') {
+        return null
+    }
+
+    const timestampValue = dayjs.utc(timestamp)
+    if (!timestampValue.isValid()) {
+        return null
+    }
+
+    return {
+        uuid,
+        eventName,
+        timestamp: timestampValue.toISOString(),
+        lib: typeof lib === 'string' ? lib : undefined,
+        currentUrl: typeof currentUrl === 'string' ? currentUrl : undefined,
+        rawExceptionList,
+        exceptionFingerprint: typeof exceptionFingerprint === 'string' ? exceptionFingerprint : undefined,
+        exceptionIssueId: typeof exceptionIssueId === 'string' ? exceptionIssueId : undefined,
+    }
+}
+
+function buildItem(evt: ParsedCombinedEventRow): TimelineItem {
+    const ts = dayjs.utc(evt.timestamp)
+    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(evt.lib)
+
+    if (evt.eventName === '$exception') {
+        const exceptionList: ErrorTrackingException[] | undefined = parseIfString(evt.rawExceptionList)
         return {
-            id: uuid,
+            id: evt.uuid,
             category: ItemCategory.ERROR_TRACKING,
             timestamp: ts,
             payload: {
                 runtime,
                 type: exceptionList?.[0]?.type,
                 message: exceptionList?.[0]?.value,
-                fingerprint: exceptionFingerprint,
-                issue_id: exceptionIssueId,
+                fingerprint: evt.exceptionFingerprint,
+                issue_id: evt.exceptionIssueId,
             },
         }
     }
 
-    if (event === '$pageview') {
+    if (evt.eventName === '$pageview') {
         return {
-            id: uuid,
+            id: evt.uuid,
             category: ItemCategory.PAGE_VIEWS,
             timestamp: ts,
-            payload: { runtime, url: currentUrl },
+            payload: { runtime, url: evt.currentUrl ?? '' },
         }
     }
 
     // Custom event (anything not starting with $)
     return {
-        id: uuid,
+        id: evt.uuid,
         category: ItemCategory.CUSTOM_EVENTS,
         timestamp: ts,
-        payload: { runtime, name: event },
+        payload: { runtime, name: evt.eventName },
     }
 }
 
