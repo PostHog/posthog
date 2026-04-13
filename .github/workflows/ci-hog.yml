@@ -104,11 +104,22 @@ jobs:
 
             - name: Check if ANTLR definitions are up to date
               run: |
+                  set -euo pipefail
                   cd ..
                   sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
-                  curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
+                  for url in \
+                      "https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar" \
+                      "https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr-${ANTLR_VERSION}-complete.jar" \
+                      "https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar"
+                  do
+                      if curl --silent --show-error --fail --location --retry 5 --retry-all-errors "$url" --output antlr.jar && java -jar antlr.jar >/dev/null 2>&1; then
+                          break
+                      fi
+                      rm -f antlr.jar
+                  done
+                  test -f antlr.jar
                   export PWD=`pwd`
                   echo '#!/bin/bash' > antlr
                   echo "java -jar $PWD/antlr.jar \$*" >> antlr
