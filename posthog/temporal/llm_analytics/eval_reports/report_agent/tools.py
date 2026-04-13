@@ -202,16 +202,20 @@ def get_pass_rate_over_time(
     return json.dumps(result, indent=2)
 
 
+_LIST_ALL_MAX_RESULTS = 500
+
+
 @tool
 def list_all_eval_results(
     state: Annotated[dict, InjectedState],
     max_reasoning_length: int = 80,
 ) -> str:
-    """Get a compact overview of ALL evaluation results in the period.
+    """Get a compact overview of evaluation results in the period.
 
-    Returns every result as a condensed row: generation_id, pass/fail/na verdict,
-    and a truncated reasoning string. Use this as your first scan to spot patterns
-    before drilling into specific examples with sample_generation_details.
+    Returns up to 500 results as condensed rows: verdict, generation_id, and
+    truncated reasoning. When there are more than 500 results, returns a random
+    sample. Use this as your first scan to spot patterns before drilling into
+    specific examples with sample_generation_details.
 
     Args:
         max_reasoning_length: Truncate reasoning strings to this many characters (default 80)
@@ -220,6 +224,25 @@ def list_all_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
+
+    # First get total count to know if we need to sample.
+    count_rows = _execute_hogql(
+        team_id,
+        f"""
+        SELECT count() as cnt
+        FROM events
+        WHERE event = '$ai_evaluation'
+            AND properties.$ai_evaluation_id = '{evaluation_id}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
+        """,
+    )
+    total_count = int(count_rows[0][0]) if count_rows else 0
+    is_sampled = total_count > _LIST_ALL_MAX_RESULTS
+
+    # Use random ordering when sampling, chronological when showing all.
+    order_clause = "ORDER BY rand()" if is_sampled else "ORDER BY timestamp ASC"
+    limit_clause = f"LIMIT {_LIST_ALL_MAX_RESULTS}" if is_sampled else ""
 
     rows = _execute_hogql(
         team_id,
@@ -234,7 +257,8 @@ def list_all_eval_results(
             AND properties.$ai_evaluation_id = '{evaluation_id}'
             AND timestamp >= '{ts_start}'
             AND timestamp < '{ts_end}'
-        ORDER BY timestamp ASC
+        {order_clause}
+        {limit_clause}
         """,
     )
 
@@ -256,7 +280,10 @@ def list_all_eval_results(
             reasoning += "..."
         lines.append(f"{verdict} | {gen_id} | {reasoning}")
 
-    header = f"Total: {len(lines)} results\n"
+    if is_sampled:
+        header = f"Total: {total_count} results (showing random sample of {len(lines)})\n"
+    else:
+        header = f"Total: {len(lines)} results\n"
     return header + "\n".join(lines)
 
 
