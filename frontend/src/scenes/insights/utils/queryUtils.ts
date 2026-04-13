@@ -3,7 +3,16 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    BreakdownFilter,
+    CompareFilter,
+    DataNode,
+    FunnelPathsFilter,
+    HogQLVariable,
+    InsightQueryNode,
+    Node,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -12,6 +21,8 @@ import {
     isHogQLQuery,
     isLifecycleQuery,
     isInsightQueryNode,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -288,5 +299,27 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
         }
     }
 
-    return cleanedQuery
+    return stripUnsupportedQueryFields(cleanedQuery)
+}
+
+type InsightQueryNodeWithLeakedFields = InsightQueryNode & {
+    breakdownFilter?: BreakdownFilter
+    compareFilter?: CompareFilter
+    funnelPathsFilter?: FunnelPathsFilter
+}
+
+export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQueryNode => {
+    const cleaned: InsightQueryNodeWithLeakedFields = { ...query }
+
+    if (!isInsightQueryWithBreakdown(query)) {
+        delete cleaned.breakdownFilter
+    }
+    if (!isInsightQueryWithCompare(query)) {
+        delete cleaned.compareFilter
+    }
+    if (!isPathsQuery(query)) {
+        delete cleaned.funnelPathsFilter
+    }
+
+    return cleaned
 }

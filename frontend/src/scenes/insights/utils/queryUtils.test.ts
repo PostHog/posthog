@@ -1,9 +1,10 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 
 import {
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
+    stripUnsupportedQueryFields,
     syncSelectedVariablesToQuery,
     validateQuery,
 } from './queryUtils'
@@ -214,5 +215,166 @@ describe('isBoxPlotMissingProperty', () => {
                 { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
             ])
         ).toBe(false)
+    })
+})
+
+describe('stripUnsupportedQueryFields', () => {
+    it.each([
+        [
+            'strips breakdownFilter from StickinessQuery',
+            {
+                kind: NodeKind.StickinessQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                breakdownFilter: { breakdown: '$browser' },
+            },
+            {},
+            ['breakdownFilter'],
+        ],
+        [
+            'strips breakdownFilter from LifecycleQuery',
+            {
+                kind: NodeKind.LifecycleQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                breakdownFilter: { breakdown: '$browser' },
+            },
+            {},
+            ['breakdownFilter'],
+        ],
+        [
+            'strips breakdownFilter from PathsQuery',
+            {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: { includeEventTypes: [] },
+                breakdownFilter: { breakdown: '$browser' },
+            },
+            {},
+            ['breakdownFilter'],
+        ],
+        [
+            'preserves breakdownFilter on TrendsQuery',
+            {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                breakdownFilter: { breakdown: '$browser' },
+            },
+            { breakdownFilter: { breakdown: '$browser' } },
+            [],
+        ],
+        [
+            'preserves breakdownFilter on FunnelsQuery',
+            {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$signup' },
+                ],
+                breakdownFilter: { breakdown: '$browser' },
+            },
+            { breakdownFilter: { breakdown: '$browser' } },
+            [],
+        ],
+        [
+            'preserves breakdownFilter on RetentionQuery',
+            {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {},
+                breakdownFilter: { breakdown: '$browser' },
+            },
+            { breakdownFilter: { breakdown: '$browser' } },
+            [],
+        ],
+        [
+            'strips compareFilter from FunnelsQuery',
+            {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$signup' },
+                ],
+                compareFilter: { compare: true },
+            },
+            {},
+            ['compareFilter'],
+        ],
+        [
+            'strips compareFilter from LifecycleQuery',
+            {
+                kind: NodeKind.LifecycleQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                compareFilter: { compare: true },
+            },
+            {},
+            ['compareFilter'],
+        ],
+        [
+            'preserves compareFilter on TrendsQuery',
+            {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                compareFilter: { compare: true },
+            },
+            { compareFilter: { compare: true } },
+            [],
+        ],
+        [
+            'preserves compareFilter on StickinessQuery',
+            {
+                kind: NodeKind.StickinessQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                compareFilter: { compare: true },
+            },
+            { compareFilter: { compare: true } },
+            [],
+        ],
+        [
+            'strips funnelPathsFilter from TrendsQuery',
+            {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                funnelPathsFilter: { funnelSource: {} },
+            },
+            {},
+            ['funnelPathsFilter'],
+        ],
+        [
+            'preserves funnelPathsFilter on PathsQuery',
+            {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: { includeEventTypes: [] },
+                funnelPathsFilter: { funnelSource: {} },
+            },
+            { funnelPathsFilter: { funnelSource: {} } },
+            [],
+        ],
+        [
+            'preserves all supported fields on TrendsQuery',
+            {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                breakdownFilter: { breakdown: '$browser' },
+                compareFilter: { compare: true },
+            },
+            { breakdownFilter: { breakdown: '$browser' }, compareFilter: { compare: true } },
+            [],
+        ],
+    ])('%s', (_name, input, expectedPresent, expectedAbsent) => {
+        const result = stripUnsupportedQueryFields(input as InsightQueryNode)
+
+        expect(result).toEqual(expect.objectContaining(expectedPresent))
+        for (const field of expectedAbsent) {
+            expect(result).not.toHaveProperty(field)
+        }
+    })
+
+    it('does not mutate the original query', () => {
+        const original = {
+            kind: NodeKind.StickinessQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            breakdownFilter: { breakdown: '$browser' },
+        }
+
+        stripUnsupportedQueryFields(original as unknown as InsightQueryNode)
+
+        expect(original.breakdownFilter).toEqual({ breakdown: '$browser' })
     })
 })
