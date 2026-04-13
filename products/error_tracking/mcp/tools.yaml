@@ -276,6 +276,9 @@ tools:
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false
+    error-tracking-issues-exists-retrieve:
+        operation: error_tracking_issues_exists_retrieve
+        enabled: false
 
 # Query wrapper tools — execute ErrorTrackingQuery via the query API.
 wrappers:

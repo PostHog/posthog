@@ -506,6 +506,9 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::NoConditionMatch => {
                 Some("No matching condition set".to_string())
             }
+            FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => {
+                Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
+            }
             FeatureFlagMatchReason::OutOfRolloutBound => Some("Out of rollout bound".to_string()),
             FeatureFlagMatchReason::NoGroupType => Some("No group type".to_string()),
             FeatureFlagMatchReason::SuperConditionValue => {
@@ -963,6 +966,16 @@ mod tests {
             payload: None,
         },
         Some("Flag cannot be evaluated due to missing dependency".to_string())
+    )]
+    #[case::no_condition_match_groups_not_evaluated(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated,
+            condition_index: Some(0),
+            payload: None,
+        },
+        Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
     )]
     fn test_get_reason_description(
         #[case] flag_match: FeatureFlagMatch,

@@ -404,17 +404,42 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._resource, self._schema, self._last_incremental_field_value, self._logger
         )
 
-        await self._logger.adebug("Validating schema and updating table")
-        await validate_schema_and_update_table(
-            run_id=str(self._job.id),
-            team_id=self._job.team_id,
-            schema_id=self._schema.id,
-            table_schema_dict=self._internal_schema.to_hogql_types(),
-            row_count=row_count,
-            queryable_folder=queryable_folder,
-            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-        )
-        await self._logger.adebug("Finished validating schema and updating table")
+        # For cdc_only mode, skip registering the consolidated DataWarehouseTable — only the
+        # _cdc companion table should be visible.  The DeltaLake files still exist on S3 for
+        # the seeding step to read from.
+        if not (
+            self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode == "cdc_only"
+        ):
+            await self._logger.adebug("Validating schema and updating table")
+            await validate_schema_and_update_table(
+                run_id=str(self._job.id),
+                team_id=self._job.team_id,
+                schema_id=self._schema.id,
+                table_schema_dict=self._internal_schema.to_hogql_types(),
+                row_count=row_count,
+                queryable_folder=queryable_folder,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            )
+            await self._logger.adebug("Finished validating schema and updating table")
+
+        # Seed the _cdc companion table for CDC schemas (same logic as in run_post_load_operations
+        # for the V3 pipeline — the V2 pipeline calls validate_schema_and_update_table directly
+        # and doesn't go through run_post_load_operations).
+        if self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode in (
+            "cdc_only",
+            "both",
+        ):
+            from posthog.temporal.data_imports.pipelines.common.load import _seed_cdc_companion_from_snapshot
+
+            await self._logger.ainfo("Seeding CDC companion table from snapshot (V2 pipeline)")
+            await _seed_cdc_companion_from_snapshot(
+                schema=self._schema,
+                job=self._job,
+                source=self._source,
+                snapshot_delta_table_helper=self._delta_table_helper,
+                logger=self._logger,
+            )
+            await self._logger.ainfo("Finished seeding CDC companion table from snapshot")
 
         await self._logger.adebug("Syncing revenue analytics views")
         await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)

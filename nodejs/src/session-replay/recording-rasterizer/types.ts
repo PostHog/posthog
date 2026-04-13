@@ -31,6 +31,17 @@ export interface InactivityPeriod extends BaseInactivityPeriod {
     recording_ts_to_s?: number
 }
 
+/**
+ * Structured heartbeat payload sent from the rasterizer activity to Temporal.
+ * The parent workflow reads this via `describe().pending_activities[].heartbeat_details`
+ * to surface fine-grained progress to the frontend during video rendering.
+ */
+export interface RasterizationProgress {
+    phase: 'setup' | 'capture' | 'upload'
+    frame: number
+    estimatedTotalFrames: number
+}
+
 export interface ActivityTimings {
     total_s: number
     setup_s: number // browser setup + player load + data fetch

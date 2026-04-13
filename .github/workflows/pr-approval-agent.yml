@@ -54,6 +54,7 @@ jobs:
             - name: Run review
               env:
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   uv run tools/pr-approval-agent/review_pr.py \
