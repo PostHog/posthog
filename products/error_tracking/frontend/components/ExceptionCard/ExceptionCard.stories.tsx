@@ -458,16 +458,26 @@ function normalizeExceptionStepForStory(step: unknown): unknown {
     }
 
     const record = step as Record<string, unknown>
+    const { type, message, level, timestamp, ...rest } = record
 
     return {
-        ...record,
-        ...(record.$type === undefined && typeof record.type === 'string' ? { $type: record.type } : {}),
-        ...(record.$message === undefined && typeof record.message === 'string' ? { $message: record.message } : {}),
-        ...(record.$level === undefined && typeof record.level === 'string' ? { $level: record.level } : {}),
-        ...(record.$timestamp === undefined &&
-        (typeof record.timestamp === 'string' || typeof record.timestamp === 'number')
-            ? { $timestamp: record.timestamp }
-            : {}),
+        ...rest,
+        ...(record.$type !== undefined ? { $type: record.$type } : typeof type === 'string' ? { $type: type } : {}),
+        ...(record.$message !== undefined
+            ? { $message: record.$message }
+            : typeof message === 'string'
+              ? { $message: message }
+              : {}),
+        ...(record.$level !== undefined
+            ? { $level: record.$level }
+            : typeof level === 'string'
+              ? { $level: level }
+              : {}),
+        ...(record.$timestamp !== undefined
+            ? { $timestamp: record.$timestamp }
+            : typeof timestamp === 'string' || typeof timestamp === 'number'
+              ? { $timestamp: timestamp }
+              : {}),
     }
 }
 
