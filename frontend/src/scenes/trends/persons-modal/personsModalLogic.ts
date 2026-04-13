@@ -574,7 +574,26 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     }
                 }
 
-                // For non-funnel queries or funnels without session IDs, use filter-based approach
+                // For funnels, matched_recordings is the source of truth — if empty, the backend has nothing
+                // to surface (events lacked $session_id, or the recordings expired). The events-fallback below
+                // can't approximate the funnel's cross-session person set with a same-session AND filter, so we
+                // return only the breakdown scope and let the recordings page render its default state.
+                if (source.kind === NodeKind.FunnelsActorsQuery) {
+                    return {
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: funnelBreakdownFilter ? [funnelBreakdownFilter] : [],
+                                },
+                            ],
+                        },
+                        duration: [],
+                    }
+                }
+
+                // For non-funnel queries, use the filter-based approach
                 const filters: UniversalFilterValue[] = []
 
                 // The actual insight query (with series, properties, etc.) is nested at source.source

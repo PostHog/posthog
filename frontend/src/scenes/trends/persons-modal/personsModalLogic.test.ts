@@ -456,5 +456,60 @@ describe('personsModalLogic', () => {
                 ])
             )
         })
+
+        it('does not fall back to event filters for FunnelsActorsQuery without session IDs', () => {
+            // Funnels match persons across sessions, but a same-session AND of all funnel events
+            // would never reproduce that — it just guarantees an empty list. When the backend has
+            // no matched_recordings (events lacked $session_id, recordings expired), trust that and
+            // return only scoping filters so the recordings page renders its default state.
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: 'sign_up' },
+                        ],
+                    },
+                    funnelStep: 1,
+                    includeRecordings: true,
+                },
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+            })
+            logic.mount()
+
+            logic.actions.loadActorsSuccess({
+                results: [
+                    {
+                        count: 1,
+                        people: [
+                            {
+                                type: 'person',
+                                id: 'person-1',
+                                distinct_ids: ['user-1'],
+                                is_identified: true,
+                                properties: {},
+                                created_at: '2024-01-01',
+                                matched_recordings: [],
+                                value_at_data_point: null,
+                            },
+                        ],
+                    },
+                ],
+                missing_persons: 0,
+            })
+
+            expectLogic(logic).toMatchValues({
+                recordingFilters: {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values: [] }],
+                    },
+                    duration: [],
+                },
+            })
+        })
     })
 })
