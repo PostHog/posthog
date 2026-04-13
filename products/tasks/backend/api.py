@@ -573,7 +573,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
-        self._signal_workflow_completion(task_run, TaskRun.Status.COMPLETED, None)
+        # We only really want to complete the task run if it's a structured output task.
+        if task.json_schema:
+            self._signal_workflow_completion(task_run, TaskRun.Status.COMPLETED, None)
         task_run.publish_stream_state_event()
         self._post_slack_update_for_pr(task_run)
 
