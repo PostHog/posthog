@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 
 
@@ -101,11 +102,35 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_delete_organization_integration_not_supported(self):
+    def test_delete_organization_integration(self):
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         response = self.client.delete(url)
 
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
+
+    def test_delete_organization_integration_cleans_up_team_integrations(self):
+        team_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.id),
+            config={"type": "connectable"},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
+        self.assertFalse(Integration.objects.filter(id=team_integration.id).exists())
+
+    def test_delete_organization_integration_unauthorized(self):
+        self.client.logout()
+
+        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
 
     def test_create_organization_integration_not_supported(self):
