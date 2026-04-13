@@ -320,8 +320,23 @@ class Command(BaseCommand):
             # Because the slice always covers all of `desired.tables`, this
             # pass produces only creates / alters / recreates — never drops —
             # which is what makes apply converge to zero.
+            #
+            # When `current` came from the migrations-cluster fallback, the
+            # introspected tables belong to a *different* physical cluster.
+            # Matching a desired table name against that set would suppress
+            # a legitimate create — e.g. `logs` ecosystem falling back to
+            # the `main` cluster's tables would see `events` on main, and a
+            # desired `logs`-exclusive table sharing a name with any
+            # main-cluster table would skip creation. Treat the introspected
+            # state as empty when falling back so every desired table on the
+            # unreachable cluster is emitted as a create.
             for desired in states:
-                ecosystem_current = {name: table for name, table in current.items() if name in desired.tables}
+                if used_fallback:
+                    ecosystem_current = {}
+                else:
+                    ecosystem_current = {
+                        name: table for name, table in current.items() if name in desired.tables
+                    }
                 diffs = diff_state(desired, ecosystem_current, database=database)
                 for d in diffs:
                     d.cluster = cluster_name
