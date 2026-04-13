@@ -53,10 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
     tracing::info!("etcd prefix: {}", config.etcd_prefix);
     tracing::info!("Pod name: {}", config.pod_name);
-    tracing::info!(
-        "Kafka changelog topic: {}",
-        config.kafka_person_state_topic
-    );
+    tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
     let mut manager = Manager::builder("personhog-leader")
         .with_global_shutdown_timeout(Duration::from_secs(30))

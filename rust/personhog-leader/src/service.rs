@@ -182,8 +182,8 @@ impl PersonHogLeader for PersonHogLeaderService {
         self.cache
             .put(req.partition, cache_key.clone(), updated_person);
 
-        if let Err(e) = produce_person_changelog(&self.producer, &self.changelog_topic, &proto)
-            .await
+        if let Err(e) =
+            produce_person_changelog(&self.producer, &self.changelog_topic, &proto).await
         {
             tracing::error!(
                 team_id = cache_key.team_id,
@@ -191,8 +191,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                 error = %e,
                 "failed to produce person state changelog, rolling back cache"
             );
-            self.cache
-                .put(req.partition, cache_key, (*person).clone());
+            self.cache.put(req.partition, cache_key, (*person).clone());
             return Err(Status::internal(format!(
                 "failed to durably store person state: {e}"
             )));

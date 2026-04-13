@@ -465,8 +465,7 @@ async fn update_produces_person_state_to_kafka() {
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Kafka Test"}))
-                .unwrap(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Kafka Test"})).unwrap(),
             set_once_properties: vec![],
             unset_properties: vec![],
             partition: 0,
