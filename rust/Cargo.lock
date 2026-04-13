@@ -1721,7 +1721,6 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
- "common-metrics",
  "common-redis",
  "common-types",
  "envconfig",
@@ -8776,7 +8775,6 @@ name = "serve-metrics"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
- "common-metrics",
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
