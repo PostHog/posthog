@@ -334,9 +334,7 @@ class Command(BaseCommand):
                 if used_fallback:
                     ecosystem_current = {}
                 else:
-                    ecosystem_current = {
-                        name: table for name, table in current.items() if name in desired.tables
-                    }
+                    ecosystem_current = {name: table for name, table in current.items() if name in desired.tables}
                 diffs = diff_state(desired, ecosystem_current, database=database)
                 for d in diffs:
                     d.cluster = cluster_name
@@ -822,12 +820,47 @@ class Command(BaseCommand):
             print(f"No YAML files found in {schema_dir}")
             return
 
-        cluster = get_cluster_by_name("main")
-        client = _any_client(cluster)
-        current = dump_schema(client, database)
         exclude = options.get("exclude") or []
 
-        orphans = detect_orphans(desired_states, current, exclude)
+        # Orphan scan must walk every registered logical cluster — satellite
+        # tables live on separate CH hosts, so a main-cluster scan alone
+        # misses them and risks reporting false positives when a table owned
+        # by e.g. `logs` isn't declared in `main`'s YAML. Merge the per-cluster
+        # current schemas into a single introspection map before calling
+        # detect_orphans, mirroring the global-name semantics used in
+        # _compute_diffs.
+        current_union: dict[str, Any] = {}
+        unreachable: list[tuple[str, str]] = []
+        for cluster_name in get_all_logical_clusters():
+            try:
+                cluster = get_cluster_by_name(cluster_name)
+                client = _any_client(cluster)
+                current = dump_schema(client, database)
+            except Exception as exc:
+                exc_str = str(exc)
+                is_unreachable = (
+                    "CLUSTER_DOESNT_EXIST" in exc_str
+                    or "Code: 701" in exc_str
+                    or "Code: 210" in exc_str
+                    or "Connection refused" in exc_str
+                    or "Name or service not known" in exc_str
+                    or "not found" in exc_str.lower()
+                )
+                if is_unreachable:
+                    unreachable.append((cluster_name, exc_str[:200]))
+                    continue
+                raise
+            for tbl_name, tbl_schema in current.items():
+                # First-wins union — replicated tables have identical DDL
+                # across nodes, and for node-role-specific tables (Distributed,
+                # MV) only one cluster host has them anyway.
+                current_union.setdefault(tbl_name, tbl_schema)
+
+        if unreachable:
+            for cluster_name, detail in unreachable:
+                print(f"Warning: cluster '{cluster_name}' unreachable; skipping. Details: {detail}")
+
+        orphans = detect_orphans(desired_states, current_union, exclude)
 
         if not orphans:
             print("No orphan tables found. All production tables are declared in YAML.")
@@ -835,7 +868,7 @@ class Command(BaseCommand):
 
         print(f"Orphan tables ({len(orphans)}) — in production but not declared in any YAML:\n")
         for name in orphans:
-            engine = current[name].engine if name in current else "?"
+            engine = current_union[name].engine if name in current_union else "?"
             print(f"  {name} (engine={engine})")
         print("\nThese tables may be leftover from old migrations or manual creation.")
 

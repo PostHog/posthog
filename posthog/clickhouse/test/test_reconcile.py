@@ -870,6 +870,36 @@ class TestStructuralFieldDiffs(unittest.TestCase):
         self.assertEqual(len(modify_diffs), 1)
         self.assertIn("default", modify_diffs[0].detail.lower())
 
+    def test_column_default_removal_emits_remove_default(self) -> None:
+        """Dropping `default:` from YAML while the live column still has a
+        default must emit a MODIFY COLUMN ... REMOVE DEFAULT. Previously the
+        comparison short-circuited on an empty desired default and silently
+        ignored removals, so live DEFAULT clauses lingered after YAML changes.
+        """
+        desired = _make_desired_state(
+            {
+                "t": _make_desired_table(
+                    "t",
+                    columns=[
+                        ColumnDef(name="val", type="Int64"),  # no default
+                    ],
+                ),
+            }
+        )
+        current = {
+            "t": _make_table_schema(
+                "t",
+                columns=[
+                    ColumnSchema(name="val", type="Int64", default_kind="DEFAULT", default_expression="42"),
+                ],
+            ),
+        }
+        diffs = diff_state(desired, current)
+        modify_diffs = [d for d in diffs if d.action == "alter_modify_column"]
+        self.assertEqual(len(modify_diffs), 1)
+        self.assertIn("REMOVE DEFAULT", modify_diffs[0].sql)
+        self.assertIn("val", modify_diffs[0].sql)
+
     def test_no_recreate_when_structural_fields_match(self) -> None:
         """No structural diff when order_by/partition_by match current."""
         desired = _make_desired_state(
@@ -1019,6 +1049,10 @@ class TestDistributedClusterResolution(unittest.TestCase):
         self.assertIn("Distributed('unknown_thing',", sql)
 
     def test_distributed_satellite_cluster_resolves(self) -> None:
+        from unittest.mock import patch
+
+        from django.conf import settings as _settings
+
         from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
 
         table = DesiredTable(
@@ -1029,8 +1063,11 @@ class TestDistributedClusterResolution(unittest.TestCase):
             source="sharded_sessions",
             sharding_key="rand()",
         )
-        sql = _generate_create_sql(table, database="posthog", cluster="sessions")
-        # 'sessions' should resolve to CLICKHOUSE_SESSIONS_CLUSTER (test stub: 'posthog_sessions')
+        # Patch setting so the test is deterministic regardless of whether the
+        # Django-free _stubs module installed its SimpleNamespace (stubs skip
+        # when Django is already configured).
+        with patch.object(_settings, "CLICKHOUSE_SESSIONS_CLUSTER", "posthog_sessions"):
+            sql = _generate_create_sql(table, database="posthog", cluster="sessions")
         self.assertIn("Distributed('posthog_sessions',", sql)
 
 

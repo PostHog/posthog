@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from posthog.clickhouse.migration_tools.desired_state import DesiredState
-from posthog.clickhouse.migration_tools.schema_graph import TableEcosystem, lookup_ecosystem
+from posthog.clickhouse.migration_tools.schema_graph import DictRef, TableEcosystem, lookup_ecosystem
 from posthog.clickhouse.migration_tools.state_diff import _is_distributed, _is_kafka, _is_mergetree, _is_mv
 
 # Expected node roles by engine type.
@@ -44,11 +44,20 @@ _EXPECTED_ROLES: dict[str, set[str]] = {
 }
 
 
+def _is_dictionary(engine: str) -> bool:
+    return engine.lower() == "dictionary"
+
+
 def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[TableEcosystem]:
     """Build ecosystem objects from desired-state YAML definitions.
 
-    Scans all DesiredState objects and identifies ecosystems by finding
-    Distributed tables that reference MergeTree source tables.
+    Scans all DesiredState objects and identifies ecosystems. Each MergeTree
+    local table anchors one ecosystem — companion tables are matched by
+    name prefix (after stripping a leading `sharded_`). Any combination of
+    Distributed, Kafka, MV, or Dictionary companions triggers an ecosystem.
+    This catches dictionary-only and local-only pipelines (exchange_rate,
+    channel_definition, person_overrides, web_preaggregated) that were
+    previously silently skipped because they lacked a Distributed pair.
     """
     ecosystems: list[TableEcosystem] = []
 
@@ -59,6 +68,7 @@ def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[Table
         distributed = {n: t for n, t in tables.items() if _is_distributed(t.engine)}
         kafka = {n: t for n, t in tables.items() if _is_kafka(t.engine)}
         mvs = {n: t for n, t in tables.items() if _is_mv(t.engine)}
+        dicts = {n: t for n, t in tables.items() if _is_dictionary(t.engine)}
 
         for local_name in local_tables:
             writable = next(
@@ -80,8 +90,12 @@ def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[Table
                 (n for n in mvs if base_name in n),
                 None,
             )
+            dict_tbl = next(
+                (n for n in dicts if base_name in n),
+                None,
+            )
 
-            if writable or readable:
+            if writable or readable or kafka_tbl or mv_tbl or dict_tbl:
                 ecosystems.append(
                     TableEcosystem(
                         base_name=base_name,
@@ -90,6 +104,7 @@ def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[Table
                         distributed_readable=readable,
                         kafka_table=kafka_tbl,
                         materialized_view=mv_tbl,
+                        dictionaries=[DictRef(dict_name=dict_tbl, source_table=local_name)] if dict_tbl else [],
                     )
                 )
 
