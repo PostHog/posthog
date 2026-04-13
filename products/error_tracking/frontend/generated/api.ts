@@ -20,6 +20,8 @@ import type {
     ErrorTrackingIssueFullApi,
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
+    ErrorTrackingIssueSplitRequestApi,
+    ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesList2Params,
@@ -739,14 +741,14 @@ export const getErrorTrackingIssuesSplitCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesSplitCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueSplitRequestApi: ErrorTrackingIssueSplitRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueSplitResponseApi> => {
+    return apiMutator<ErrorTrackingIssueSplitResponseApi>(getErrorTrackingIssuesSplitCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueSplitRequestApi),
     })
 }
 
