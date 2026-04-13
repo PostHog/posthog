@@ -114,8 +114,7 @@ def dump_dictionaries(client: Any, database: str, schema: dict[str, TableSchema]
     would misinterpret as real tables.
     """
     rows = client.execute(
-        "SELECT name, source, type, lifetime_min, lifetime_max "
-        "FROM system.dictionaries WHERE database = %(database)s",
+        "SELECT name, source, type, lifetime_min, lifetime_max FROM system.dictionaries WHERE database = %(database)s",
         {"database": database},
     )
     for name, source, layout_type, lifetime_min, lifetime_max in rows:

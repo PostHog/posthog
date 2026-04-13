@@ -1029,6 +1029,7 @@ class TestKafkaCascadeOnSelectChange:
         kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
         assert len(kafka_creates) == 0, f"Unexpected Kafka recreate: {[d.detail for d in diffs]}"
 
+
 # -- Dictionary introspection + extended recreate checks --
 
 
@@ -1245,4 +1246,3 @@ class TestDictionaryRangeInCreateSql:
         t = _dict_table()
         sql = _generate_create_sql(t, "posthog", "main")
         assert "RANGE(" not in sql
-

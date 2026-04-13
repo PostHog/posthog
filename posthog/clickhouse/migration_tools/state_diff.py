@@ -812,9 +812,7 @@ def diff_state(
                     for param_key, param_val in (desired_table.dict_layout.get("params") or {}).items():
                         rendered = _render_dict_param(param_key, param_val)
                         if rendered not in haystack:
-                            structural_details.append(
-                                f"LAYOUT param '{param_key}' changed (desired: {rendered})"
-                            )
+                            structural_details.append(f"LAYOUT param '{param_key}' changed (desired: {rendered})")
                             structural_recreate = True
                 # Source type — prefer structured, fall back to substring.
                 if desired_table.dict_source and desired_table.dict_source.get("type"):
@@ -846,9 +844,7 @@ def diff_state(
                         rendered = _render_dict_param(param_key, param_val)
                         rendered_upper = _render_dict_param(param_key.upper(), param_val)
                         if rendered not in haystack and rendered_upper not in haystack:
-                            structural_details.append(
-                                f"SOURCE param '{param_key}' changed (desired: {param_val!r})"
-                            )
+                            structural_details.append(f"SOURCE param '{param_key}' changed (desired: {param_val!r})")
                             structural_recreate = True
                 # Lifetime — prefer structured comparison (ints), fall back to substring.
                 if desired_table.dict_lifetime:
