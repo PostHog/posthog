@@ -5,10 +5,13 @@ import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 export function FeaturePreviewGate(): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
@@ -20,6 +23,13 @@ export function FeaturePreviewGate(): JSX.Element {
 
     return (
         <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.CustomerAnalytics].name}
+                description={sceneConfigurations[Scene.CustomerAnalytics].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
+                }}
+            />
             <ProductIntroduction
                 productName="Customer analytics"
                 thingName="customer analytics"
