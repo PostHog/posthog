@@ -260,7 +260,8 @@ function SourceFields({
     const allValues = useValues(formLogic!)
     const payload = (allValues[formKey as keyof typeof allValues] as Record<string, any>)?.payload
 
-    const isSshTunnelEnabled = !!payload?.ssh_tunnel?.enabled
+    const sshTunnelEnabled = payload?.ssh_tunnel?.enabled
+    const isSshTunnelEnabled = sshTunnelEnabled === true || sshTunnelEnabled === 'true' || sshTunnelEnabled === 'True'
 
     return (
         <>
