@@ -108,6 +108,9 @@ impl EmbeddingModel {
                     // Open AI's embedding endpoints 500 in the face of <|endoftext|> tokens
                     return Cow::Owned(content.replace("<|endoftext|>", ">|endoftext|<"));
                 }
+                if content.contains("<|endofprompt|>") {
+                    return Cow::Owned(content.replace("<|endofprompt|>", ">|endofprompt|<"));
+                }
                 Cow::Borrowed(content)
             }
         }
