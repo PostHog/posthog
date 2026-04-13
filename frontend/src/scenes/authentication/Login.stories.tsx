@@ -107,6 +107,28 @@ export const SelfHosted: Story = {
                     ...preflightJson,
                     cloud: false,
                     realm: 'hosted-clickhouse',
+                    is_debug: false,
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                },
+            },
+        })
+        return <Login />
+    },
+}
+
+export const LocalDev: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    is_debug: true,
                     available_social_auth_providers: {
                         github: false,
                         gitlab: false,
@@ -128,6 +150,7 @@ export const SelfHostedWithSAML: Story = {
                     ...preflightJson,
                     cloud: false,
                     realm: 'hosted-clickhouse',
+                    is_debug: false,
                     available_social_auth_providers: {
                         github: false,
                         gitlab: false,
