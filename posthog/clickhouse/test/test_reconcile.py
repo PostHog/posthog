@@ -1369,22 +1369,26 @@ class TestSatelliteRoleLint(unittest.TestCase):
 
     def test_distributed_on_logs_passes_lint(self) -> None:
         from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
         errors = _check_cross_cluster_targeting(self._state_with_engine("Distributed", ["LOGS"]))
         self.assertEqual(errors, [], f"LOGS on Distributed should be valid: {errors}")
 
     def test_kafka_on_aux_passes_lint(self) -> None:
         from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
         errors = _check_cross_cluster_targeting(self._state_with_engine("Kafka", ["AUX"]))
         self.assertEqual(errors, [], f"AUX on Kafka should be valid: {errors}")
 
     def test_mv_on_sessions_passes_lint(self) -> None:
         from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
         errors = _check_cross_cluster_targeting(self._state_with_engine("MaterializedView", ["SESSIONS"]))
         self.assertEqual(errors, [], f"SESSIONS on MaterializedView should be valid: {errors}")
 
     def test_invalid_role_still_rejected(self) -> None:
         """Ensure we didn't broaden the set so far that garbage roles pass."""
         from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
         errors = _check_cross_cluster_targeting(self._state_with_engine("Distributed", ["GARBAGE"]))
         self.assertTrue(len(errors) > 0, "Unknown role should still fail lint")
 
@@ -1398,10 +1402,18 @@ class TestSatelliteRoleLint(unittest.TestCase):
         # Source: NodeRole enum in posthog/clickhouse/client/connection.py.
         # DATA is excluded — Distributed/Kafka/MV don't run on DATA nodes.
         expected_named = {
-            "ALL", "COORDINATOR",
-            "INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM",
-            "SHUFFLEHOG", "ENDPOINTS", "LOGS",
-            "AI_EVENTS", "AUX", "OPS", "SESSIONS",
+            "ALL",
+            "COORDINATOR",
+            "INGESTION_EVENTS",
+            "INGESTION_SMALL",
+            "INGESTION_MEDIUM",
+            "SHUFFLEHOG",
+            "ENDPOINTS",
+            "LOGS",
+            "AI_EVENTS",
+            "AUX",
+            "OPS",
+            "SESSIONS",
         }
         union_of_allowed: set[str] = set()
         for allowed in _EXPECTED_ROLES.values():
@@ -1417,14 +1429,15 @@ class TestDriftComparesKeyFields(unittest.TestCase):
 
     def _base(self, **overrides):
         from posthog.clickhouse.migration_tools.schema_introspect import TableSchema
-        defaults = dict(
-            name="sharded_events",
-            engine="ReplicatedMergeTree",
-            engine_full="ReplicatedMergeTree('/clickhouse/tables/{shard}/events', '{replica}')",
-            sorting_key="team_id, id",
-            partition_key="toStartOfMonth(timestamp)",
-            primary_key="team_id, id",
-        )
+
+        defaults = {
+            "name": "sharded_events",
+            "engine": "ReplicatedMergeTree",
+            "engine_full": "ReplicatedMergeTree('/clickhouse/tables/{shard}/events', '{replica}')",
+            "sorting_key": "team_id, id",
+            "partition_key": "toStartOfMonth(timestamp)",
+            "primary_key": "team_id, id",
+        }
         defaults.update(overrides)
         return TableSchema(**defaults)
 
@@ -1526,18 +1539,23 @@ class TestComputeDiffsPerCluster(unittest.TestCase):
             dump_calls.append(cluster_obj)
             return {}  # empty live schema → every desired table becomes a create
 
-        with patch(
-            "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
-            return_value=[main_state, logs_state],
-        ), patch(
-            "posthog.management.commands.ch_migrate.get_cluster_by_name",
-            side_effect=fake_get_cluster_by_name,
-        ), patch(
-            "posthog.management.commands.ch_migrate.is_known_cluster",
-            return_value=True,
-        ), patch(
-            "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
-            side_effect=fake_dump,
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[main_state, logs_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=fake_get_cluster_by_name,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
         ):
             cmd = Command()
             diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
@@ -1585,21 +1603,27 @@ class TestComputeDiffsPerCluster(unittest.TestCase):
             calls.append(cluster_obj)
             return {}
 
-        with patch(
-            "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
-            return_value=[logs_state],
-        ), patch(
-            "posthog.management.commands.ch_migrate.get_cluster_by_name",
-            side_effect=fake_get_cluster_by_name,
-        ), patch(
-            "posthog.management.commands.ch_migrate.is_known_cluster",
-            return_value=True,
-        ), patch(
-            "posthog.clickhouse.client.migration_tools.get_migrations_cluster",
-            return_value=migrations_cluster,
-        ), patch(
-            "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
-            side_effect=fake_dump,
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[logs_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=fake_get_cluster_by_name,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.client.migration_tools.get_migrations_cluster",
+                return_value=migrations_cluster,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
         ):
             cmd = Command()
             diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")

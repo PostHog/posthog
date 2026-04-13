@@ -13,9 +13,7 @@ from posthog.clickhouse.migration_tools.state_diff import _is_distributed, _is_k
 # ENDPOINTS) can host its own Distributed, Kafka, and MV tables in its own
 # topology, so all three engine categories accept those roles in addition to
 # the main-cluster roles.
-_SATELLITE_ROLES: frozenset[str] = frozenset(
-    {"LOGS", "AUX", "SESSIONS", "OPS", "AI_EVENTS", "SHUFFLEHOG", "ENDPOINTS"}
-)
+_SATELLITE_ROLES: frozenset[str] = frozenset({"LOGS", "AUX", "SESSIONS", "OPS", "AI_EVENTS", "SHUFFLEHOG", "ENDPOINTS"})
 
 _EXPECTED_ROLES: dict[str, set[str]] = {
     "distributed": {"COORDINATOR", "ALL", *_SATELLITE_ROLES},
