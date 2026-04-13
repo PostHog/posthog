@@ -20,7 +20,7 @@ export const customItemRenderer: ItemRenderer<CustomItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconGraph />,
     render: ({ item }): JSX.Element => {
-        return <StandardizedPreview categoryLabel="event" primaryText={item.payload.name} />
+        return <StandardizedPreview primaryText={item.payload.name} />
     },
     renderExpanded: LazyEventDetailsRenderer,
     getMenuItems: ({ item }) =>

@@ -26,13 +26,7 @@ export const exceptionStepRenderer: ItemRenderer<ExceptionStepItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconList />,
     render: ({ item }): JSX.Element => {
-        return (
-            <StandardizedPreview
-                categoryLabel="step"
-                primaryText={item.payload.message}
-                secondaryText={item.payload.type}
-            />
-        )
+        return <StandardizedPreview primaryText={item.payload.message} secondaryText={item.payload.type} />
     },
     renderExpanded: ({ item }): JSX.Element => {
         const entries: [string, unknown][] = item.payload.stepProperties

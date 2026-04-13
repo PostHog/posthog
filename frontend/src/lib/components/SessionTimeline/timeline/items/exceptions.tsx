@@ -70,14 +70,7 @@ export const exceptionRenderer: ItemRenderer<ExceptionItem> = {
         const errorType = item.payload.type || 'Exception'
         const errorMessage = item.payload.message || 'Exception captured'
 
-        return (
-            <StandardizedPreview
-                categoryLabel="exception"
-                primaryText={errorType}
-                secondaryText={errorMessage}
-                secondaryMuted
-            />
-        )
+        return <StandardizedPreview primaryText={errorType} secondaryText={errorMessage} secondaryMuted />
     },
     renderExpanded: LazyEventDetailsRenderer,
     getMenuItems: ({ item }) =>

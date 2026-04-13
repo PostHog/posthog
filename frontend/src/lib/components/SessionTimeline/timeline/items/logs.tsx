@@ -25,7 +25,7 @@ export const consoleLogRenderer: ItemRenderer<ConsoleLogItem> = {
         const level = item.payload.level?.toLowerCase() || 'log'
         const levelLabel = `${level.charAt(0).toUpperCase()}${level.slice(1)}`
 
-        return <StandardizedPreview categoryLabel="log" primaryText={item.payload.message} secondaryText={levelLabel} />
+        return <StandardizedPreview primaryText={item.payload.message} secondaryText={levelLabel} />
     },
     renderExpanded: ({ item }): JSX.Element => {
         const level = item.payload.level?.toLowerCase() || 'log'

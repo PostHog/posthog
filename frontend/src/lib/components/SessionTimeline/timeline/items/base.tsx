@@ -98,14 +98,10 @@ export function truncatePreviewTexts({
 }
 
 export function StandardizedPreview({
-    categoryLabel,
-    categoryBadge,
     primaryText,
     secondaryText,
     secondaryMuted = true,
 }: {
-    categoryLabel: string
-    categoryBadge?: React.ReactNode
     primaryText: string
     secondaryText?: string
     secondaryMuted?: boolean
@@ -124,35 +120,27 @@ export function StandardizedPreview({
     )
 
     return (
-        <div className="grid grid-cols-[80px_minmax(0,1fr)] items-center w-full overflow-hidden">
-            <div className="pr-2 text-left">
-                <span className="inline-flex items-center gap-1 text-tertiary text-xs whitespace-nowrap max-w-full">
-                    <span className="shrink-0">{categoryLabel}</span>
-                    {categoryBadge}
-                </span>
-            </div>
-            <div className="min-w-0 pr-2 overflow-hidden">
-                <div className="flex items-center min-w-0 overflow-hidden w-full">
-                    <div
-                        className={`font-medium min-w-0 truncate ${truncatedSecondaryText ? 'max-w-[70%]' : 'w-full'}`}
-                        title={truncatedPrimaryText !== primaryText ? primaryText : undefined}
-                    >
-                        {primary}
-                    </div>
-                    {truncatedSecondaryText ? (
-                        <>
-                            <span aria-hidden className="text-tertiary text-[10px] leading-none shrink-0 mx-1">
-                                •
-                            </span>
-                            <div
-                                className="text-xs min-w-0 flex-1 truncate"
-                                title={truncatedSecondaryText !== secondaryText ? secondaryText : undefined}
-                            >
-                                {secondary}
-                            </div>
-                        </>
-                    ) : null}
+        <div className="w-full min-w-0 pr-2 overflow-hidden">
+            <div className="flex items-center min-w-0 overflow-hidden w-full">
+                <div
+                    className={`font-medium min-w-0 truncate ${truncatedSecondaryText ? 'max-w-[70%]' : 'w-full'}`}
+                    title={truncatedPrimaryText !== primaryText ? primaryText : undefined}
+                >
+                    {primary}
                 </div>
+                {truncatedSecondaryText ? (
+                    <>
+                        <span aria-hidden className="text-tertiary text-[10px] leading-none shrink-0 mx-1">
+                            •
+                        </span>
+                        <div
+                            className="text-xs min-w-0 flex-1 truncate"
+                            title={truncatedSecondaryText !== secondaryText ? secondaryText : undefined}
+                        >
+                            {secondary}
+                        </div>
+                    </>
+                ) : null}
             </div>
         </div>
     )

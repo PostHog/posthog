@@ -20,7 +20,7 @@ export const pageRenderer: ItemRenderer<PageItem> = {
     sourceIcon: ({ item }) => <RuntimeIcon runtime={item.payload.runtime} />,
     categoryIcon: <IconEye />,
     render: ({ item }): JSX.Element => {
-        return <StandardizedPreview categoryLabel="page view" primaryText={getUrlPathname(item.payload.url)} />
+        return <StandardizedPreview primaryText={getUrlPathname(item.payload.url)} />
     },
     renderExpanded: LazyEventDetailsRenderer,
     getMenuItems: ({ item }) => [
