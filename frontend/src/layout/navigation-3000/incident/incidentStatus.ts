@@ -1,3 +1,5 @@
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 // Raw incident.io API types
 export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
 export type IncidentIoImpact = 'partial_outage' | 'degraded_performance' | 'full_outage'
@@ -51,8 +53,6 @@ export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
 export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export function getStatusPageUrl(): string {
-    // Import lazily to avoid circular deps — preflightLogic is mounted early in the app lifecycle
-    const { preflightLogic } = require('scenes/PreflightCheck/preflightLogic')
     const region = preflightLogic.findMounted()?.values.preflight?.region
     if (region) {
         return `${INCIDENT_IO_STATUS_PAGE_BASE}/${region.toLowerCase()}`
