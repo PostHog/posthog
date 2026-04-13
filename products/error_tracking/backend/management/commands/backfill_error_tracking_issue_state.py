@@ -123,10 +123,8 @@ class Command(BaseCommand):
             )
 
             # Per-team query: small enough to sort and stream without a composite index
-            team_qs = (
-                ErrorTrackingIssueFingerprintV2.objects.filter(team_id=tid)
-                .select_related("issue", "issue__assignment")
-                .order_by("id")
+            team_qs = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=tid).select_related(
+                "issue", "issue__assignment"
             )
 
             for fp in team_qs.iterator(chunk_size=batch_size):
