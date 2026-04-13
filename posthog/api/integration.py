@@ -599,11 +599,13 @@ class IntegrationViewSet(
         except Exception:
             default_branch = None
 
-        # Put the default branch first, but only on the first page so
-        # paginated results stay consistent with GitHub's alphabetical order.
-        if offset == 0 and default_branch and default_branch in branches:
-            branches.remove(default_branch)
-            branches.insert(0, default_branch)
+        # The default branch is always shown first on page 1 and removed
+        # from all other pages to avoid duplicates.
+        if default_branch:
+            if default_branch in branches:
+                branches.remove(default_branch)
+            if offset == 0:
+                branches.insert(0, default_branch)
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 

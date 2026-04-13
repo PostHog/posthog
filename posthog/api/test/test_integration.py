@@ -1227,7 +1227,7 @@ class TestGitHubBranches:
 
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
-    def test_api_endpoint_no_reorder_on_subsequent_pages(self, mock_list, mock_default, client: HttpClient):
+    def test_api_endpoint_removes_default_branch_on_subsequent_pages(self, mock_list, mock_default, client: HttpClient):
         mock_list.return_value = (["main", "other"], False)
         client.force_login(self.user)
 
@@ -1237,8 +1237,24 @@ class TestGitHubBranches:
         )
 
         data = response.json()
-        # "main" should not be moved to front on non-first pages
-        assert data["branches"] == ["main", "other"]
+        assert data["branches"] == ["other"]
+
+    @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
+    @patch("posthog.models.integration.GitHubIntegration.list_branches")
+    def test_api_endpoint_prepends_default_branch_even_when_not_in_list(
+        self, mock_list, mock_default, client: HttpClient
+    ):
+        """Default branch is prepended on page 1 even if it isn't in the alphabetical window."""
+        mock_list.return_value = (["alpha", "beta"], False)
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo"},
+        )
+
+        data = response.json()
+        assert data["branches"] == ["main", "alpha", "beta"]
 
     @patch("posthog.models.integration.GitHubIntegration.get_default_branch", return_value="main")
     @patch("posthog.models.integration.GitHubIntegration.list_branches")
