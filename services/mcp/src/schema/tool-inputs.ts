@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
-import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema } from './query'
 
 export const PromptListInputSchema = z.object({
