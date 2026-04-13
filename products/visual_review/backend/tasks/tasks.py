@@ -122,6 +122,10 @@ def _diff_snapshot(snapshot) -> None:
     ssim_dissimilarity = 1.0 - ssim_score
 
     if ssim_dissimilarity >= SSIM_DISSIMILARITY_THRESHOLD:
+        # Store SSIM dissimilarity as the diff percentage — it's the metric
+        # that decided this snapshot is changed, so it's more meaningful
+        # than the diluted pixel ratio.
+        result.diff_percentage = round(ssim_dissimilarity * 100, 4)
         _store_diff(snapshot, result, ssim_score=ssim_score)
         logger.info(
             "visual_review.diff_caught_by_ssim",
