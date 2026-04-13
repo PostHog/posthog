@@ -408,7 +408,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             if (dismissKey) {
                 storeNoticeDismissal(dismissKey)
             }
-            actions.reportProjectNoticeDismissed(dismissKey ?? 'billing_alert')
+            actions.reportProjectNoticeDismissed(dismissKey ?? values.projectNoticeVariant ?? 'unknown')
         },
         reportNoticeShown: () => {
             if (values.projectNoticeVariant) {
