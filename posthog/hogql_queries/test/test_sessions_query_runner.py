@@ -14,7 +14,13 @@ from posthog.test.base import (
 
 from parameterized import parameterized
 
-from posthog.schema import CachedSessionsQueryResponse, PersonPropertyFilter, SessionsQuery
+from posthog.schema import (
+    CachedSessionsQueryResponse,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SessionPropertyFilter,
+    SessionsQuery,
+)
 
 from posthog.hogql_queries.sessions_query_runner import SUPPORTED_PERSON_PROPERTY_OPERATORS, SessionsQueryRunner
 from posthog.models.utils import uuid7
@@ -1063,3 +1069,57 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "lte",
         }
         assert SUPPORTED_PERSON_PROPERTY_OPERATORS == expected_operators
+
+    @snapshot_clickhouse_queries
+    def test_filter_by_event_properties_without_event_name(self):
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {"$current_url": "https://example.com/pricing"}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {"$current_url": "https://example.com/about"}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {"$current_url": "https://example.com/pricing"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                eventProperties=[
+                    EventPropertyFilter(
+                        key="$current_url", value="https://example.com/pricing", operator="exact", type="event"
+                    )
+                ],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 2
+
+    @snapshot_clickhouse_queries
+    def test_filter_by_session_properties(self):
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "$session_duration"],
+                properties=[SessionPropertyFilter(key="$session_duration", value=0, operator="gte", type="session")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 3
