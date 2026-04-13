@@ -193,8 +193,10 @@ def get_direct_postgres_connection_metadata(
 
     from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
-    has_ssh_tunnel = bool(getattr(source_config, "ssh_tunnel", None) and source_config.ssh_tunnel.enabled)
-    ssl_toggled_off = bool(getattr(source_config, "ssl_enabled", None) and not source_config.ssl_enabled.enabled)
+    ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+    ssl_enabled = getattr(source_config, "ssl_enabled", None)
+    has_ssh_tunnel = bool(ssh_tunnel and ssh_tunnel.enabled)
+    ssl_toggled_off = bool(ssl_enabled and not ssl_enabled.enabled)
     is_after_cutoff = source_model is not None and source_model.created_at >= SSL_REQUIRED_AFTER_DATE
     require_ssl = is_after_cutoff and not (has_ssh_tunnel and ssl_toggled_off)
 
