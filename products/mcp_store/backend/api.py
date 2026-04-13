@@ -95,7 +95,7 @@ def _create_oauth_state(
         posthog_code_callback_url=posthog_code_callback_url,
         pkce_verifier=pkce_verifier,
         expires_at=timezone.now() + timedelta(seconds=OAUTH_STATE_MAX_AGE_SECONDS),
-        created_by=request.user,
+        created_by=cast(User, request.user),
     )
 
 
