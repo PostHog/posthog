@@ -290,11 +290,14 @@ def sample_generation_details(
         return json.dumps([])
     ids_str = ", ".join(f"'{gid}'" for gid in ids_to_fetch)
 
+    # generation_ids from sample_eval_results are $ai_target_event_id values,
+    # which reference the event UUID of $ai_generation events (not $ai_generation_id
+    # which the SDK doesn't set). Match on the event uuid column.
     rows = _execute_hogql(
         team_id,
         f"""
         SELECT
-            properties.$ai_generation_id as generation_id,
+            toString(uuid) as generation_id,
             properties.$ai_model as model,
             properties.$ai_input as input,
             properties.$ai_output as output,
@@ -303,7 +306,7 @@ def sample_generation_details(
             properties.$ai_trace_id as trace_id
         FROM events
         WHERE event = '$ai_generation'
-            AND properties.$ai_generation_id IN ({ids_str})
+            AND toString(uuid) IN ({ids_str})
         LIMIT {len(ids_to_fetch)}
         """,
     )
