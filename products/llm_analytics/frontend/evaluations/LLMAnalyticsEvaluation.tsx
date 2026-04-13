@@ -299,17 +299,18 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             </div>
                         ),
                     },
-                    !isNewEvaluation && {
-                        key: 'reports',
-                        label: 'Reports',
-                        'data-attr': 'llma-evaluation-reports-tab',
-                        content: (
-                            <EvaluationReportsTab
-                                evaluationId={evaluation.id}
-                                onConfigureClick={() => setActiveTab('configuration')}
-                            />
-                        ),
-                    },
+                    !isNewEvaluation &&
+                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                            key: 'reports',
+                            label: 'Reports',
+                            'data-attr': 'llma-evaluation-reports-tab',
+                            content: (
+                                <EvaluationReportsTab
+                                    evaluationId={evaluation.id}
+                                    onConfigureClick={() => setActiveTab('configuration')}
+                                />
+                            ),
+                        },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -468,11 +469,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
-                                    {isNewEvaluation && <EvaluationReportConfig evaluationId="new" />}
+                                    {isNewEvaluation &&
+                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                            <EvaluationReportConfig evaluationId="new" />
+                                        )}
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation && (
+                                {!isNewEvaluation && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
                                     <div className="mt-6">
                                         <EvaluationReportConfig evaluationId={evaluation.id} />
                                     </div>
