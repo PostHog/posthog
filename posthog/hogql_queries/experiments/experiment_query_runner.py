@@ -582,7 +582,7 @@ class ExperimentQueryRunner(QueryRunner):
             exposure_config=exposure_config,
             filter_test_accounts=self.experiment.exposure_criteria.get("filterTestAccounts", True)
             if self.experiment.exposure_criteria
-            else True,
+            else False,
             multiple_variant_handling=multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
