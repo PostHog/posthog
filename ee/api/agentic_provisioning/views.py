@@ -62,7 +62,7 @@ logger = structlog.get_logger(__name__)
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
-DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
+DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
 SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
@@ -1638,13 +1638,11 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
             )
         return None, access_token.user, access_token
 
-    # Fall back to Stripe Projects HMAC check
-    from .authentication import _is_stripe_oauth_app
+    # Legacy fallback: accept tokens from the Stripe Projects app by client_id
+    if app and app.client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        return None, access_token.user, access_token
 
-    if not _is_stripe_oauth_app(access_token.application):
-        return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
-
-    return None, access_token.user, access_token
+    return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
 def _get_stripe_oauth_app():
