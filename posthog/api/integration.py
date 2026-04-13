@@ -434,11 +434,11 @@ class IntegrationViewSet(
 
         conversion_actions = [
             {
-                "id": conversionAction["conversionAction"]["id"],
-                "name": conversionAction["conversionAction"]["name"],
-                "resourceName": conversionAction["conversionAction"]["resourceName"],
+                "id": ca["conversionAction"]["id"],
+                "name": ca["conversionAction"]["name"],
+                "resourceName": ca["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
+            for ca in conversion_actions[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})

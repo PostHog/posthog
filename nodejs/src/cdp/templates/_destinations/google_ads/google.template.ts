@@ -150,5 +150,21 @@ if (res.status >= 400) {
             },
             inputs_schema: [...build_inputs()],
         },
+        {
+            name: 'Order Completed',
+            include_by_default: false,
+            filters: {
+                events: [{ id: 'Order Completed', type: 'events' }],
+            },
+            inputs_schema: [...build_inputs()],
+        },
+        {
+            name: 'Custom event',
+            include_by_default: false,
+            filters: {
+                events: [],
+            },
+            inputs_schema: [...build_inputs()],
+        },
     ],
 }
