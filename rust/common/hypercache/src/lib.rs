@@ -472,7 +472,18 @@ impl HyperCacheReader {
             );
             Err(e)
         } else {
-            // Shouldn't happen — we always set confirmed_miss or last_infra_error.
+            inc(
+                TOMBSTONE_COUNTER_NAME,
+                &[
+                    ("namespace".to_string(), self.config.namespace.clone()),
+                    (
+                        "operation".to_string(),
+                        "get_with_source_unexpected_state".to_string(),
+                    ),
+                    ("component".to_string(), self.config.object_name.clone()),
+                ],
+                1,
+            );
             Err(HyperCacheError::CacheMiss)
         }
     }

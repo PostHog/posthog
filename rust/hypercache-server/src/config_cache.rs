@@ -237,8 +237,7 @@ mod tests {
             "miss should populate the negative cache"
         );
 
-        // Second call: if the negative cache didn't short-circuit we'd re-query
-        // the mock Redis. The entry is still there, proving we took the fast path.
+        // Second call still returns None.
         let second = get_cached_data(
             &reader,
             Some(&negative_cache),
