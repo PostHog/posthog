@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0041_migrate_stripe_job_inputs_to_auth_type"),
+        ("data_warehouse", "0042_alter_externaldataschema_sync_type"),
     ]
 
     operations = [
