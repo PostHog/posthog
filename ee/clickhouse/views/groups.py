@@ -724,22 +724,24 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time():
-            with tracer.start_as_current_span("groups_api_property_values") as span:
-                value_filter = request.GET.get("value")
-                group_type_index = request.GET.get("group_type_index")
-                if not group_type_index:
-                    raise ValidationError({"group_type_index": ["This query parameter is required."]})
-                key = request.GET.get("key")
-                if not key:
-                    raise ValidationError({"key": ["This query parameter is required."]})
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
+            tracer.start_as_current_span("groups_api_property_values") as span,
+        ):
+            value_filter = request.GET.get("value")
+            group_type_index = request.GET.get("group_type_index")
+            if not group_type_index:
+                raise ValidationError({"group_type_index": ["This query parameter is required."]})
+            key = request.GET.get("key")
+            if not key:
+                raise ValidationError({"key": ["This query parameter is required."]})
 
-                span.set_attribute("team_id", self.team.pk)
-                span.set_attribute("group_type_index", group_type_index)
-                span.set_attribute("property_key", key)
-                span.set_attribute("has_value_filter", value_filter is not None)
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("group_type_index", group_type_index)
+            span.set_attribute("property_key", key)
+            span.set_attribute("has_value_filter", value_filter is not None)
 
-                query = f"""
+            query = f"""
                     SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
                     FROM groups
                     ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
@@ -752,22 +754,22 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                     LIMIT 20
                 """
 
-                params = {
-                    "team_id": self.team.pk,
-                    "group_type_index": group_type_index,
-                    "key": key,
-                }
+            params = {
+                "team_id": self.team.pk,
+                "group_type_index": group_type_index,
+                "key": key,
+            }
 
-                if value_filter:
-                    params["value_filter"] = f"%{value_filter}%"
+            if value_filter:
+                params["value_filter"] = f"%{value_filter}%"
 
-                tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-                rows = sync_execute(query, params)
+            tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
+            rows = sync_execute(query, params)
 
-                span.set_attribute("result_count", len(rows))
-                return response.Response(
-                    {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
-                )
+            span.set_attribute("result_count", len(rows))
+            return response.Response(
+                {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
+            )
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(

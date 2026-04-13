@@ -504,52 +504,52 @@ class EventViewSet(
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="event").time():
-            with tracer.start_as_current_span("events_api_event_property_values") as span:
-                span.set_attribute("team_id", query_params.team.pk)
-                span.set_attribute("property_key", query_params.key)
-                span.set_attribute("is_column", query_params.is_column)
-                span.set_attribute("has_value_filter", query_params.value is not None)
-                span.set_attribute(
-                    "event_names_count", len(query_params.event_names) if query_params.event_names else 0
-                )
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="event").time(),
+            tracer.start_as_current_span("events_api_event_property_values") as span,
+        ):
+            span.set_attribute("team_id", query_params.team.pk)
+            span.set_attribute("property_key", query_params.key)
+            span.set_attribute("is_column", query_params.is_column)
+            span.set_attribute("has_value_filter", query_params.value is not None)
+            span.set_attribute("event_names_count", len(query_params.event_names) if query_params.event_names else 0)
 
-                property_filters = [
-                    (param_key, param_value)
-                    for param_key, param_value in query_params.items
-                    if param_key.startswith("properties_") and isinstance(param_value, str)
-                ]
-                span.set_attribute("property_filter_count", len(property_filters))
+            property_filters = [
+                (param_key, param_value)
+                for param_key, param_value in query_params.items
+                if param_key.startswith("properties_") and isinstance(param_value, str)
+            ]
+            span.set_attribute("property_filter_count", len(property_filters))
 
-                if property_filters:
-                    # Ad-hoc filtered queries are not cached — run directly
-                    return self._event_property_values_filtered(query_params, property_filters)
+            if property_filters:
+                # Ad-hoc filtered queries are not cached — run directly
+                return self._event_property_values_filtered(query_params, property_filters)
 
-                runner = PropertyValuesQueryRunner(
-                    team=query_params.team,
-                    query=PropertyValuesQuery(
-                        property_type=PropertyType.EVENT,
-                        property_key=query_params.key,
-                        is_column=query_params.is_column,
-                        search_value=query_params.value,
-                        event_names=query_params.event_names or None,
-                    ),
-                )
-                execution_mode = execution_mode_from_refresh(refresh)
-                if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
-                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-                result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
-                assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
-                is_refreshing = (
-                    isinstance(result, CachedPropertyValuesQueryResponse)
-                    and result.query_status is not None
-                    and not result.query_status.complete
-                )
-                span.set_attribute("result_count", len(result.results))
-                span.set_attribute("is_refreshing", is_refreshing)
-                return self._return_with_short_cache(
-                    [item.model_dump(exclude_none=True) for item in result.results], refreshing=is_refreshing
-                )
+            runner = PropertyValuesQueryRunner(
+                team=query_params.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.EVENT,
+                    property_key=query_params.key,
+                    is_column=query_params.is_column,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names or None,
+                ),
+            )
+            execution_mode = execution_mode_from_refresh(refresh)
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
+                execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
+            span.set_attribute("result_count", len(result.results))
+            span.set_attribute("is_refreshing", is_refreshing)
+            return self._return_with_short_cache(
+                [item.model_dump(exclude_none=True) for item in result.results], refreshing=is_refreshing
+            )
 
     def _event_property_values_filtered(
         self,

@@ -629,46 +629,48 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time():
-            with tracer.start_as_current_span("person_api_property_values") as span:
-                key = request.GET.get("key")
-                value = request.GET.get("value")
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time(),
+            tracer.start_as_current_span("person_api_property_values") as span,
+        ):
+            key = request.GET.get("key")
+            value = request.GET.get("value")
 
-                span.set_attribute("team_id", self.team.pk)
-                span.set_attribute("property_key", key or "")
-                span.set_attribute("has_value_filter", value is not None)
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
 
-                if not key or key.startswith("$virt"):
-                    span.set_attribute("result_count", 0)
-                    resp = response.Response({"results": [], "refreshing": False})
-                    resp["Cache-Control"] = "max-age=10"
-                    return resp
-
-                refresh = refresh_requested_by_client(request)
-                runner = PropertyValuesQueryRunner(
-                    team=self.team,
-                    query=PropertyValuesQuery(
-                        property_type=PropertyType.PERSON,
-                        property_key=key,
-                        search_value=value,
-                    ),
-                )
-                execution_mode = execution_mode_from_refresh(refresh)
-                if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
-                    execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-                result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
-                assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
-                is_refreshing = (
-                    isinstance(result, CachedPropertyValuesQueryResponse)
-                    and result.query_status is not None
-                    and not result.query_status.complete
-                )
-                results = [item.model_dump(exclude_none=True) for item in result.results]
-                span.set_attribute("result_count", len(results))
-                span.set_attribute("is_refreshing", is_refreshing)
-                resp = response.Response({"results": results, "refreshing": is_refreshing})
+            if not key or key.startswith("$virt"):
+                span.set_attribute("result_count", 0)
+                resp = response.Response({"results": [], "refreshing": False})
                 resp["Cache-Control"] = "max-age=10"
                 return resp
+
+            refresh = refresh_requested_by_client(request)
+            runner = PropertyValuesQueryRunner(
+                team=self.team,
+                query=PropertyValuesQuery(
+                    property_type=PropertyType.PERSON,
+                    property_key=key,
+                    search_value=value,
+                ),
+            )
+            execution_mode = execution_mode_from_refresh(refresh)
+            if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
+                execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
+            assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
+            results = [item.model_dump(exclude_none=True) for item in result.results]
+            span.set_attribute("result_count", len(results))
+            span.set_attribute("is_refreshing", is_refreshing)
+            resp = response.Response({"results": results, "refreshing": is_refreshing})
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
