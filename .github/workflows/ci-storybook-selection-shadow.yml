@@ -1,0 +1,100 @@
+name: Storybook CI - Selection shadow
+
+# Shadow job that records, per PR, how many stories could have rendered
+# differently based on the changed files. Mirror of the backend pattern in
+# .github/workflows/ci-test-selection-shadow.yml — see bin/find_affected_stories.py
+# for the prediction heuristic and scope.
+#
+# This workflow does NOT gate PRs and does NOT change what ci-storybook.yml
+# runs. It only emits a SHADOW_METRICS log line and a step summary so we can
+# measure the upper bound on savings before implementing real test selection.
+
+on:
+    pull_request:
+        branches: [master]
+
+permissions:
+    contents: read
+
+jobs:
+    shadow-story-selection:
+        name: Shadow story selection
+        if: |
+            github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Check dorny pattern sync
+              run: uv run bin/find_affected_stories.py --check-sync
+
+            - name: Compute affected stories (shadow mode)
+              id: selection
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch --no-tags origin "$BASE_SHA"
+                  echo "### Changed files" >&2
+                  git diff --name-only "$BASE_SHA"...HEAD >&2
+
+                  RESULT=$(git diff --name-only "$BASE_SHA"...HEAD | uv run bin/find_affected_stories.py --stdin 2>/dev/stderr | tail -1)
+                  echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+
+            - name: Write job summary
+              env:
+                  RESULT: ${{ steps.selection.outputs.result }}
+                  # See ci-storybook.yml visual-regression matrix.
+                  CURRENT_CHROMIUM_SHARDS: 16
+                  CURRENT_WEBKIT_SHARDS: 4
+                  SHARD_OVERHEAD_MINUTES: 3
+              run: |
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
+                  TOTAL=$(echo "$RESULT" | jq -r '.total_story_count')
+                  CURRENT_SHARDS=$(($CURRENT_CHROMIUM_SHARDS + $CURRENT_WEBKIT_SHARDS))
+
+                  if [ "$MODE" = "selective" ]; then
+                    COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
+                    SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
+                    AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
+                    TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+
+                    SAVED_STORIES=$(($TOTAL - $COUNT))
+                    SAVED_SHARDS=$(($CURRENT_SHARDS - $SHARDS))
+                    FULL_MINUTES=$(( ($CURRENT_SHARDS * $SHARD_OVERHEAD_MINUTES) + ($TOTAL_DUR / 60) ))
+                    SELECTIVE_MINUTES=$(( ($SHARDS * $SHARD_OVERHEAD_MINUTES) + ($AFFECTED_DUR / 60) ))
+                    SAVED_MINUTES=$(($FULL_MINUTES - $SELECTIVE_MINUTES))
+
+                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow story selection
+
+                  | Metric | Full run | Selective | Saved |
+                  |---|---|---|---|
+                  | Story files | $TOTAL | $COUNT | **$SAVED_STORIES** |
+                  | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
+                  | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
+                  | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$(($TOTAL_DUR - $AFFECTED_DUR))s** |
+
+                  > Shadow-only — no effect on CI. Predictor: conservative 1-hop stem match over \`frontend/**\`, \`products/**\`.
+                  EOF
+                    echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: .mode, affected: .affected_story_count, total: .total_story_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
+                  else
+                    REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
+                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow story selection
+
+                  **Full run required:** $REASON
+
+                  Total stories: $TOTAL
+
+                  > Shadow-only — no effect on CI.
+                  EOF
+                    echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: "full", reason: .reason, total: .total_story_count}')"
+                  fi
