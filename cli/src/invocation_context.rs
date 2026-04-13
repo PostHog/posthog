@@ -127,14 +127,16 @@ impl InvocationContext {
             let mut event = Event::new_anon(event_name);
 
             for (key, value) in &props {
-                event
-                    .insert_prop(key, value)
-                    .expect("Inserting prop succeeds");
+                if let Err(e) = event.insert_prop(key, value) {
+                    debug!("Failed to insert prop {}: {:?}", key, e);
+                    return;
+                }
             }
 
-            event
-                .insert_prop("env_id", env_id)
-                .expect("Inserting env_id prop succeeds");
+            if let Err(e) = event.insert_prop("env_id", env_id) {
+                debug!("Failed to insert env_id prop: {:?}", e);
+                return;
+            }
 
             debug!("Capturing event");
             let res = posthog_rs::capture(event); // Purposefully ignore errors here
@@ -155,7 +157,11 @@ impl InvocationContext {
             .lock()
             .unwrap()
             .drain(..)
-            .for_each(|handle| handle.join().unwrap());
+            .for_each(|handle| {
+                if let Err(e) = handle.join() {
+                    debug!("Telemetry thread panicked: {:?}", e);
+                }
+            });
 
         info!("Finished!")
     }
