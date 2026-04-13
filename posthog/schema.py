@@ -6397,7 +6397,11 @@ class ExperimentApiEventSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str | None = Field(default=None, description="Event name, e.g. '$pageview'.")
+    event: str | None = Field(
+        default=None,
+        description="Event name, e.g. '$pageview'. Required for EventsNode.",
+    )
+    id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
     kind: Kind
     properties: list[EventPropertyFilter] | None = Field(
         default=None,

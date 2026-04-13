@@ -199,7 +199,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 zod.object({
                     completion_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -267,7 +271,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -338,7 +346,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     name: zod.string().nullish().describe('Human-readable metric name.'),
                     numerator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -409,7 +421,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     series: zod
                         .array(
                             zod.object({
-                                event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                                event: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                                 kind: zod.enum(['EventsNode', 'ActionsNode']),
                                 properties: zod
                                     .array(
@@ -478,7 +494,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
                     source: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -543,7 +563,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .nullish(),
                     start_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -622,7 +646,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 zod.object({
                     completion_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -690,7 +718,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -763,7 +795,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     name: zod.string().nullish().describe('Human-readable metric name.'),
                     numerator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -834,7 +870,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     series: zod
                         .array(
                             zod.object({
-                                event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                                event: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                                 kind: zod.enum(['EventsNode', 'ActionsNode']),
                                 properties: zod
                                     .array(
@@ -903,7 +943,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
                     source: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -970,7 +1014,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .nullish(),
                     start_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1255,7 +1303,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 zod.object({
                     completion_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1323,7 +1375,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1394,7 +1450,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     name: zod.string().nullish().describe('Human-readable metric name.'),
                     numerator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1465,7 +1525,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     series: zod
                         .array(
                             zod.object({
-                                event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                                event: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                                 kind: zod.enum(['EventsNode', 'ActionsNode']),
                                 properties: zod
                                     .array(
@@ -1534,7 +1598,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
                     source: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1601,7 +1669,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .nullish(),
                     start_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1680,7 +1752,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 zod.object({
                     completion_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1748,7 +1824,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1821,7 +1901,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     name: zod.string().nullish().describe('Human-readable metric name.'),
                     numerator: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -1892,7 +1976,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     series: zod
                         .array(
                             zod.object({
-                                event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                                event: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                                 kind: zod.enum(['EventsNode', 'ActionsNode']),
                                 properties: zod
                                     .array(
@@ -1961,7 +2049,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
                     source: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(
@@ -2028,7 +2120,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .nullish(),
                     start_event: zod
                         .object({
-                            event: zod.string().nullish().describe("Event name, e.g. '$pageview'."),
+                            event: zod
+                                .string()
+                                .nullish()
+                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                            id: zod.number().nullish().describe('Action ID. Required for ActionsNode.'),
                             kind: zod.enum(['EventsNode', 'ActionsNode']),
                             properties: zod
                                 .array(

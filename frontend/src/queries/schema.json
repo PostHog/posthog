@@ -15914,8 +15914,12 @@
             "description": "Slim event/action source for experiment API payloads.",
             "properties": {
                 "event": {
-                    "description": "Event name, e.g. '$pageview'.",
+                    "description": "Event name, e.g. '$pageview'. Required for EventsNode.",
                     "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required for ActionsNode."
                 },
                 "kind": {
                     "enum": ["EventsNode", "ActionsNode"],

@@ -355,10 +355,15 @@ export const KindApi = {
 
 export interface ExperimentApiEventSourceApi {
     /**
-     * Event name, e.g. '$pageview'.
+     * Event name, e.g. '$pageview'. Required for EventsNode.
      * @nullable
      */
     event?: string | null
+    /**
+     * Action ID. Required for ActionsNode.
+     * @nullable
+     */
+    id?: number | null
     kind: KindApi
     /**
      * Event property filters to narrow which events are counted.

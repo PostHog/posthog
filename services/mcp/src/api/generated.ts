@@ -14841,10 +14841,15 @@ export namespace Schemas {
 
     export interface ExperimentApiEventSource {
       /**
-       * Event name, e.g. '$pageview'.
+       * Event name, e.g. '$pageview'. Required for EventsNode.
        * @nullable
        */
       event?: string | null;
+      /**
+       * Action ID. Required for ActionsNode.
+       * @nullable
+       */
+      id?: number | null;
       kind: Kind;
       /**
        * Event property filters to narrow which events are counted.

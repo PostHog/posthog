@@ -3295,8 +3295,10 @@ export interface ExperimentEventExposureConfig extends Node {
 /** Slim event/action source for experiment API payloads. */
 export interface ExperimentApiEventSource {
     kind: 'EventsNode' | 'ActionsNode'
-    /** Event name, e.g. '$pageview'. */
+    /** Event name, e.g. '$pageview'. Required for EventsNode. */
     event?: string
+    /** Action ID. Required for ActionsNode. */
+    id?: integer
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilter[]
 }
