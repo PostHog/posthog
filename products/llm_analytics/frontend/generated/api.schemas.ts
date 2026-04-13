@@ -359,7 +359,7 @@ export const ByweekdayEnumApi = {
 export interface EvaluationReportApi {
     readonly id: string
     evaluation: string
-    frequency: EvaluationReportFrequencyEnumApi
+    frequency?: EvaluationReportFrequencyEnumApi
     /** @nullable */
     byweekday?: ByweekdayEnumApi[] | null
     start_date: string

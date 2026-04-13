@@ -14414,7 +14414,7 @@ export namespace Schemas {
     export interface EvaluationReport {
       readonly id: string;
       evaluation: string;
-      frequency: EvaluationReportFrequencyEnum;
+      frequency?: EvaluationReportFrequencyEnum;
       /** @nullable */
       byweekday?: ByweekdayEnum[] | null;
       start_date: string;
