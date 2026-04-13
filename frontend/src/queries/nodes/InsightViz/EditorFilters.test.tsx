@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
@@ -227,8 +227,15 @@ describe('EditorFilters', () => {
 
             await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
 
-            expect(screen.getByText('Data warehouse insights always use the latest table properties.')).toBeInTheDocument()
-            expect(screen.getByRole('switch', { name: 'Use person properties from query time' })).toBeDisabled()
+            const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
+            expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
+
+            await userEvent.hover(disabledArea as HTMLElement)
+
+            expect(
+                await screen.findByText('Data warehouse insights always use the latest table properties.')
+            ).toBeInTheDocument()
+            expect(within(disabledArea as HTMLElement).getByRole('switch')).toBeDisabled()
         })
     })
 
