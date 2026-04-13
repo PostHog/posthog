@@ -81,30 +81,28 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
 
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? [])
-                .filter((r: IndexedTrendResult) => r.count !== 0)
-                .map((r: IndexedTrendResult, index: number) => {
-                    const isActiveSeries = !r.compare || r.compare_label !== 'previous'
-                    const dashedFromIndex =
-                        isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
-                    return {
-                        key: `${r.id}`,
-                        label: r.label ?? '',
-                        data: r.data,
-                        color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
-                        fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                        dashedFromIndex,
-                        yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
-                        meta: {
-                            action: r.action,
-                            breakdown_value: r.breakdown_value,
-                            compare_label: r.compare_label,
-                            days: r.days,
-                            order: r.action?.order ?? r.id,
-                            filter: r.filter,
-                        },
-                    }
-                }),
+            (indexedResults ?? []).map((r: IndexedTrendResult, index: number) => {
+                const isActiveSeries = !r.compare || r.compare_label !== 'previous'
+                const dashedFromIndex =
+                    isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
+                return {
+                    key: `${r.id}`,
+                    label: r.label ?? '',
+                    data: r.data,
+                    color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                    fillArea: display === ChartDisplayType.ActionsAreaGraph,
+                    dashedFromIndex,
+                    yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
+                    meta: {
+                        action: r.action,
+                        breakdown_value: r.breakdown_value,
+                        compare_label: r.compare_label,
+                        days: r.days,
+                        order: r.action?.order ?? r.id,
+                        filter: r.filter,
+                    },
+                }
+            }),
         [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd, showMultipleYAxes]
     )
 
