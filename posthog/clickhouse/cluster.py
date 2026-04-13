@@ -247,13 +247,20 @@ class ClickhouseCluster:
         # available hosts so ch_migrate creates tables on the dev node — matching
         # legacy migrate_clickhouse behavior which ignores roles entirely.
         #
-        # LOGS is excluded from the fallback: the multi-node dev stack has a
-        # dedicated `clickhouse-logs` node with hostClusterRole=logs. If the
-        # current `hosts` set is the main cluster (which excludes the logs
-        # node), an empty result here is correct — fanning out to main's hosts
-        # would fire LOGS-role migrations onto every main cluster node.
+        # Multi-node dev stacks get a LOGS guard: when there is more than one
+        # unique physical node in `hosts` AND LOGS is requested, an empty
+        # result is correct — the dedicated `clickhouse-logs` node is in a
+        # separate cluster object (see `get_cluster_by_name("logs")`), and
+        # fanning out to the main cluster's nodes would fire LOGS-role DDL
+        # onto every main data node.
+        #
+        # Single-node dev/hobby stacks collapse every logical cluster onto one
+        # physical host, so LOGS must fall back there — otherwise legacy
+        # infi migrations like 0214_logs / 0223_logs_distributed_tables
+        # silently no-op and their tables never get created.
         if not result and (settings.DEBUG or settings.TEST):
-            if NodeRole.LOGS in node_roles:
+            unique_connections = {host.connection_info for host in hosts}
+            if NodeRole.LOGS in node_roles and len(unique_connections) > 1:
                 return result
             deduped: dict[ConnectionInfo, HostInfo] = {}
             for host in hosts:

@@ -158,8 +158,17 @@ def acquire_apply_lock(
         database=database,
     )
 
-    # Wait for replication convergence then re-check for double-locks
-    time.sleep(0.5)
+    # Wait for replication convergence then re-check for double-locks.
+    # 0.5s was too short for ReplicatedMergeTree under load — two concurrent
+    # callers could each read their own insert without seeing the peer's.
+    # 5s covers typical fetch/merge latency on a contended cluster; apply
+    # runs are minute-scale so this is a rounding error in wall time.
+    time.sleep(5)
+    # Deterministic tie-break: earliest-applied wins, then lexicographic
+    # hostname. Both callers sort the same rows identically regardless of
+    # which one landed in the driver result first, so they agree on the
+    # winner. Prior `ORDER BY applied_at DESC` let the winner flip when two
+    # inserts landed in the same millisecond.
     verify_sql = f"""
         SELECT host, applied_at
         FROM {table_ref}
@@ -175,7 +184,7 @@ def acquire_apply_lock(
                 AND step_index = {LOCK_STEP_INDEX}
                 AND direction = 'down'
           )
-        ORDER BY applied_at DESC
+        ORDER BY applied_at ASC, host ASC
     """
     active = client.execute(verify_sql)
     if len(active) > 1 and active[0][0] != hostname:

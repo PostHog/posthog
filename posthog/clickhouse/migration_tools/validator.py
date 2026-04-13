@@ -30,7 +30,17 @@ _EXPECTED_ROLES: dict[str, set[str]] = {
         *_SATELLITE_ROLES,
     },
     "kafka": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL", *_SATELLITE_ROLES},
-    "materializedview": {"INGESTION_EVENTS", "INGESTION_SMALL", "INGESTION_MEDIUM", "ALL", *_SATELLITE_ROLES},
+    # DATA is valid for MVs that feed tables living on the main data nodes —
+    # e.g. events_recent, sessions, query_log_archive — where the MV runs on
+    # the same role as its destination MergeTree table.
+    "materializedview": {
+        "DATA",
+        "INGESTION_EVENTS",
+        "INGESTION_SMALL",
+        "INGESTION_MEDIUM",
+        "ALL",
+        *_SATELLITE_ROLES,
+    },
 }
 
 
