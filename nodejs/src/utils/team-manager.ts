@@ -53,37 +53,24 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
-            // Invalidate the cache for this team
             this.lazyLoader.markForRefresh(String(team.id))
-
-            const organizationMembers = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
-            )
-
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                captureTeamEvent(
-                    team,
-                    'first team event ingested',
-                    {
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    distinct_id
-                )
-            }
+            await this.captureTeamEventForAllMembers(team, 'first team event ingested', properties)
         }
 
-        if (!team.ingested_live_event && this.isLiveHost(properties.$host)) {
-            await this.setTeamIngestedLiveEvent(team, properties)
+        if (!team.ingested_live_event && TeamManager.isLiveHost(properties.$host)) {
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET ingested_live_event = $1 WHERE id = $2`,
+                [true, team.id],
+                'setTeamIngestedLiveEvent'
+            )
+
+            this.lazyLoader.markForRefresh(String(team.id))
+            await this.captureTeamEventForAllMembers(team, 'first production team event ingested', properties)
         }
     }
 
-    private isLiveHost(host: string | undefined): boolean {
+    static isLiveHost(host: string | undefined): boolean {
         if (!host || host === '') {
             return false
         }
@@ -94,20 +81,12 @@ export class TeamManager {
             !lowerHost.startsWith('0.0.0.0') &&
             !lowerHost.startsWith('[::1]') &&
             !lowerHost.startsWith('10.') &&
-            !lowerHost.startsWith('192.168.')
+            !lowerHost.startsWith('192.168.') &&
+            !/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(lowerHost)
         )
     }
 
-    private async setTeamIngestedLiveEvent(team: Team, properties: Properties): Promise<void> {
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_team SET ingested_live_event = $1 WHERE id = $2`,
-            [true, team.id],
-            'setTeamIngestedLiveEvent'
-        )
-
-        this.lazyLoader.markForRefresh(String(team.id))
-
+    private async captureTeamEventForAllMembers(team: Team, event: string, properties: Properties): Promise<void> {
         const organizationMembers = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
@@ -119,7 +98,7 @@ export class TeamManager {
         for (const { distinct_id } of distinctIds) {
             captureTeamEvent(
                 team,
-                'first production team event ingested',
+                event,
                 {
                     sdk: properties.$lib,
                     realm: properties.realm,
