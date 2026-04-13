@@ -22,7 +22,7 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCheckbox, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -730,7 +730,6 @@ function SessionSummaryFeedbackSurvey(): JSX.Element | null {
     const { setShowFeedbackSurvey } = useActions(playerMetaLogic(logicProps))
 
     const [survey, setSurvey] = useState<{ questions: any[] } | null>(null)
-    const [selectedChoices, setSelectedChoices] = useState<string[]>([])
     const [openText, setOpenText] = useState('')
     const [submitted, setSubmitted] = useState(false)
 
@@ -744,18 +743,10 @@ function SessionSummaryFeedbackSurvey(): JSX.Element | null {
         })
     }, [])
 
-    const handleChoiceToggle = (choice: string, checked: boolean): void => {
-        setSelectedChoices((prev) => (checked ? [...prev, choice] : prev.filter((c) => c !== choice)))
-    }
-
     const handleSubmit = (): void => {
-        const response = [...selectedChoices]
-        if (openText) {
-            response.push(openText)
-        }
         posthog.capture('survey sent', {
             $survey_id: SESSION_SUMMARY_FEEDBACK_SURVEY_ID,
-            $survey_response: response,
+            $survey_response: openText,
         })
         setSubmitted(true)
         setTimeout(() => setShowFeedbackSurvey(false), 3000)
@@ -770,48 +761,25 @@ function SessionSummaryFeedbackSurvey(): JSX.Element | null {
     return (
         <div className="border rounded p-3 mt-3">
             <div className="flex items-start justify-between">
-                <strong className="text-sm">{question?.question}</strong>
+                <strong className="text-sm">{question?.question ?? 'What could be better about this summary?'}</strong>
                 <LemonButton size="xsmall" icon={<IconX />} onClick={() => setShowFeedbackSurvey(false)} />
             </div>
             {submitted ? (
                 <p className="text-sm text-muted mt-2">Thanks for your feedback!</p>
             ) : (
                 <>
-                    {question?.choices && (
-                        <ul className="list-none mt-2 space-y-1">
-                            {question.choices.map((choice: string, index: number) => {
-                                if (index === question.choices.length - 1 && question.hasOpenChoice) {
-                                    return (
-                                        <LemonTextArea
-                                            key={choice}
-                                            placeholder="Any other feedback?"
-                                            value={openText}
-                                            onChange={setOpenText}
-                                            className="mt-2"
-                                            data-attr="session-summary-feedback-open-text"
-                                        />
-                                    )
-                                }
-                                return (
-                                    <li key={choice}>
-                                        <LemonCheckbox
-                                            onChange={(checked) => handleChoiceToggle(choice, checked)}
-                                            label={choice}
-                                            className="font-normal"
-                                            data-attr={`session-summary-feedback-choice-${index}`}
-                                        />
-                                    </li>
-                                )
-                            })}
-                        </ul>
-                    )}
+                    <LemonTextArea
+                        placeholder="Share your feedback..."
+                        value={openText}
+                        onChange={setOpenText}
+                        className="mt-2"
+                        data-attr="session-summary-feedback-open-text"
+                    />
                     <LemonButton
                         type="primary"
                         size="small"
                         className="mt-2"
-                        disabledReason={
-                            selectedChoices.length === 0 && !openText ? 'Please select at least one option' : undefined
-                        }
+                        disabledReason={!openText ? 'Please enter your feedback' : undefined}
                         onClick={handleSubmit}
                         data-attr="session-summary-feedback-submit"
                     >
