@@ -44,7 +44,7 @@ def verify_api_version(request: Request) -> Response | None:
     return None
 
 
-def verify_stripe_signature(request: Request) -> Response | None:
+def verify_provisioning_signature(request: Request) -> Response | None:
     """Verify the Stripe-Signature HMAC.
 
     Returns None if verification passes, or an error Response if it fails.

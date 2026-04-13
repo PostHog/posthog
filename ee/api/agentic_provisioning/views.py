@@ -55,7 +55,7 @@ from ee.settings import BILLING_SERVICE_URL
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from .authentication import ProvisioningAuthentication
 from .region_proxy import region_proxy
-from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
+from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_provisioning_signature
 
 logger = structlog.get_logger(__name__)
 
@@ -220,7 +220,7 @@ VALID_SERVICE_IDS: set[str] = {FREE_PLAN_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID, A
 @authentication_classes([])
 @permission_classes([])
 def provisioning_health(request: Request) -> Response:
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -238,7 +238,7 @@ def provisioning_health(request: Request) -> Response:
 @authentication_classes([])
 @permission_classes([])
 def provisioning_services(request: Request) -> Response:
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -1279,7 +1279,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     if auth_error:
         return auth_error
 
-    error = verify_stripe_signature(request)
+    error = verify_provisioning_signature(request)
     if error:
         return error
     if error := verify_api_version(request):
@@ -1594,7 +1594,7 @@ def _verify_hmac_if_present(request: Request) -> Response | None:
     For non-HMAC partners (wizard, Bearer-only), skip HMAC and rely on Bearer auth alone.
     """
     if request.META.get("HTTP_STRIPE_SIGNATURE"):
-        return verify_stripe_signature(request)
+        return verify_provisioning_signature(request)
     return None
 
 
