@@ -113,10 +113,20 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
-        if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+        if exported_asset.export_format in ExportedAsset.TABULAR_FORMATS:
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
-        else:
+        elif exported_asset.export_format in ExportedAsset.VISUAL_FORMATS:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
+        else:
+            # Defense in depth: the API serializer should reject unsupported
+            # format/asset combinations, but if we get here the asset was
+            # constructed by a non-API code path that bypassed validation.
+            # Each branch (csv_exporter / image_exporter) also has its own
+            # NotImplementedError as a third-line backstop.
+            raise NotImplementedError(
+                f"Export format {exported_asset.export_format} cannot be dispatched. "
+                f"This format is either handled by a separate workflow or has no implementation."
+            )
 
         EXPORT_SUCCEEDED_COUNTER.labels(type=exported_asset.export_format).inc()
         logger.info(

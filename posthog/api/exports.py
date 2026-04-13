@@ -159,6 +159,16 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             if not ok:
                 raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
+        # Reject undispatchable formats before any workflow is enqueued.
+        # Without this gate, e.g. a JSON export request would be dispatched to
+        # image_exporter, raise NotImplementedError, and pollute the export SLO
+        # with a "failure" event for what is really a 4xx client error.
+        # Externally-handled formats (videos via VideoExportWorkflow, PDF via
+        # the sharing flow) are routed elsewhere and bypass this check.
+        if export_format and export_format not in ExportedAsset.EXTERNALLY_HANDLED_FORMATS:
+            if export_format not in ExportedAsset.DISPATCHABLE_FORMATS:
+                raise ValidationError({"export_format": [f"{export_format} is not currently supported."]})
+
         data["team_id"] = self.context["team_id"]
         return data
 
@@ -201,7 +211,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
 
         if not force_async:
-            if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
+            if instance.export_format in ExportedAsset.VIDEO_FORMATS:
                 # recordings-only
                 if not (instance.export_context and instance.export_context.get("session_recording_id")):
                     raise serializers.ValidationError(

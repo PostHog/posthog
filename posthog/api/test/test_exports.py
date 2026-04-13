@@ -311,6 +311,22 @@ class TestExports(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("insight", lambda self: {"insight": self.insight.id}),
+            ("dashboard", lambda self: {"dashboard": self.dashboard.id}),
+        ]
+    )
+    def test_rejects_json_export(self, _name: str, payload_fn) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "application/json", **payload_fn(self)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "export_format")
+        self.assertIn("not currently supported", body["detail"])
+
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -758,7 +774,7 @@ class TestExports(APIBaseTest):
     def test_export_expiry_varies_by_format(
         self, export_format, expected_delta, mock_async_connect, mock_async_to_sync
     ) -> None:
-        is_video_format = export_format in ("video/mp4", "video/webm", "image/gif")
+        is_video_format = export_format in ExportedAsset.VIDEO_FORMATS
 
         if is_video_format:
             payload = {
