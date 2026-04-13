@@ -833,9 +833,15 @@ def diff_state(
                 # engine_full. Match against both the rendered YAML form
                 # ("key 'val'") and the CH-uppercased form ("KEY 'val'") to
                 # avoid false positives on case variations alone.
+                #
+                # `password` and `user` are excluded because they're resolved
+                # from Django settings (via __from_settings__) and vary across
+                # envs — triggering recreate on a legitimate env difference
+                # (dev vs prod password) would cause unwanted DDL churn.
+                # Structural source changes (table, URL, query, DB) still fire.
                 if desired_table.dict_source:
                     for param_key, param_val in desired_table.dict_source.items():
-                        if param_key == "type":
+                        if param_key in ("type", "password", "user"):
                             continue
                         rendered = _render_dict_param(param_key, param_val)
                         rendered_upper = _render_dict_param(param_key.upper(), param_val)

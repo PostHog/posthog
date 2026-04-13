@@ -1234,10 +1234,11 @@ class TestDictionaryRangeInCreateSql:
         t.dict_layout = {"type": "RANGE_HASHED", "params": {"range_lookup_strategy": "max"}}
         t.dict_range = {"min": "start_date", "max": "end_date"}
         sql = _generate_create_sql(t, "posthog", "main")
-        # RANGE must come after LIFETIME line
+        # RANGE must come after LIFETIME line. Use "RANGE(MIN" to avoid
+        # matching the "RANGE_HASHED" token inside the LAYOUT clause.
         assert "LIFETIME(MIN 3000 MAX 3600)" in sql
         assert "RANGE(MIN start_date MAX end_date)" in sql
-        assert sql.index("RANGE") > sql.index("LIFETIME")
+        assert sql.index("RANGE(MIN") > sql.index("LIFETIME")
 
     def test_no_range_when_none(self):
         """CREATE DICTIONARY without dict_range emits no RANGE clause."""
