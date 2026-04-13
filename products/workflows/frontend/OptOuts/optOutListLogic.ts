@@ -8,7 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { MessageCategory } from './optOutCategoriesLogic'
 import type { optOutListLogicType } from './optOutListLogicType'
 import { optOutSceneLogic } from './optOutSceneLogic'
-import { OptOutEntry } from './types'
+import type { OptOutEntry } from './types'
 
 export type OptOutPersonPreference = {
     identifier: string

@@ -11,7 +11,7 @@ import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-ge
 
 import { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'
-import { OptOutEntry } from './types'
+import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
