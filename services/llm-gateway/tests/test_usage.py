@@ -5,10 +5,10 @@ from fastapi.testclient import TestClient
 
 from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.cost_throttles import (
+    CostStatus,
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
-from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.services.plan_resolver import PlanInfo
 from tests.conftest import create_test_app
 
@@ -44,8 +44,8 @@ class TestUsageEndpoint:
 
         assert data["product"] == "posthog_code"
         assert data["user_id"] == 42
-        assert data["burst"]["limit_usd"] == 100.0
-        assert data["sustained"]["limit_usd"] == 1000.0
+        assert data["burst"]["used_percent"] == 0
+        assert data["sustained"]["used_percent"] == 0
         assert data["is_rate_limited"] is False
 
     def test_returns_trial_limits_when_flag_on(
@@ -66,8 +66,8 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["burst"]["limit_usd"] == 5.0
-        assert data["sustained"]["limit_usd"] == 50.0
+        assert data["burst"]["used_percent"] == 0
+        assert data["sustained"]["used_percent"] == 0
         get_settings.cache_clear()
 
     def test_returns_zero_limits_when_trial_expired(
@@ -88,8 +88,10 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["burst"]["limit_usd"] == 0.0
-        assert data["sustained"]["limit_usd"] == 0.0
+        assert data["burst"]["used_percent"] == 0
+        assert data["burst"]["exceeded"] is True
+        assert data["sustained"]["used_percent"] == 0
+        assert data["sustained"]["exceeded"] is True
         assert data["is_rate_limited"] is True
         get_settings.cache_clear()
 
@@ -111,8 +113,9 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["burst"]["limit_usd"] == 100.0
-        assert data["sustained"]["limit_usd"] == 1000.0
+        assert data["burst"]["used_percent"] == 0
+        assert data["sustained"]["used_percent"] == 0
+        assert data["is_rate_limited"] is False
         get_settings.cache_clear()
 
     def test_returns_401_without_auth(self, client: TestClient) -> None:
@@ -123,19 +126,15 @@ class TestUsageEndpoint:
         app = authenticated_usage_client.app
         runner = app.state.throttle_runner
 
-        context = ThrottleContext(
-            user=MagicMock(user_id=42, team_id=1),
-            product="posthog_code",
-            end_user_id="42",
-        )
-
         burst_throttle = next(t for t in runner.throttles if isinstance(t, UserCostBurstThrottle))
         sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(burst_throttle.record_cost(context, 25.50))
-        asyncio.get_event_loop().run_until_complete(sustained_throttle.record_cost(context, 25.50))
+        burst_throttle.get_status = AsyncMock(
+            return_value=CostStatus(used_usd=25.5, limit_usd=100.0, remaining_usd=74.5, resets_in_seconds=3600, exceeded=False)
+        )
+        sustained_throttle.get_status = AsyncMock(
+            return_value=CostStatus(used_usd=25.5, limit_usd=1000.0, remaining_usd=974.5, resets_in_seconds=86400, exceeded=False)
+        )
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -144,29 +143,25 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["burst"]["used_usd"] == 25.5
-        assert data["burst"]["remaining_usd"] == 74.5
+        assert data["burst"]["used_percent"] == 25.5
         assert data["burst"]["exceeded"] is False
 
-        assert data["sustained"]["used_usd"] == 25.5
-        assert data["sustained"]["remaining_usd"] == 974.5
+        assert data["sustained"]["used_percent"] == 2.5
         assert data["sustained"]["exceeded"] is False
 
     def test_shows_rate_limited_when_burst_exceeded(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app
         runner = app.state.throttle_runner
 
-        context = ThrottleContext(
-            user=MagicMock(user_id=42, team_id=1),
-            product="posthog_code",
-            end_user_id="42",
-        )
-
         burst_throttle = next(t for t in runner.throttles if isinstance(t, UserCostBurstThrottle))
+        sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(burst_throttle.record_cost(context, 100.0))
+        burst_throttle.get_status = AsyncMock(
+            return_value=CostStatus(used_usd=100.0, limit_usd=100.0, remaining_usd=0, resets_in_seconds=3600, exceeded=True)
+        )
+        sustained_throttle.get_status = AsyncMock(
+            return_value=CostStatus(used_usd=100.0, limit_usd=1000.0, remaining_usd=900.0, resets_in_seconds=86400, exceeded=False)
+        )
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",

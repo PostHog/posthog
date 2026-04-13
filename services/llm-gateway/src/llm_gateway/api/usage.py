@@ -16,9 +16,7 @@ usage_router = APIRouter(prefix="/v1/usage", tags=["Usage"])
 
 
 class CostLimitStatus(BaseModel):
-    used_usd: float
-    limit_usd: float
-    remaining_usd: float
+    used_percent: float
     resets_in_seconds: int
     exceeded: bool
 
@@ -32,10 +30,12 @@ class UsageResponse(BaseModel):
 
 
 def _to_cost_limit_status(status: CostStatus) -> CostLimitStatus:
+    if status.limit_usd > 0:
+        used_percent = min(100.0, (status.used_usd / status.limit_usd) * 100)
+    else:
+        used_percent = 100.0 if status.used_usd > 0 else 0.0
     return CostLimitStatus(
-        used_usd=round(status.used_usd, 6),
-        limit_usd=round(status.limit_usd, 2),
-        remaining_usd=round(status.remaining_usd, 6),
+        used_percent=round(used_percent, 1),
         resets_in_seconds=status.resets_in_seconds,
         exceeded=status.exceeded,
     )
@@ -69,11 +69,9 @@ async def get_usage(
             sustained_status = _to_cost_limit_status(await throttle.get_status(context))
 
     if burst_status is None:
-        burst_status = CostLimitStatus(used_usd=0, limit_usd=0, remaining_usd=0, resets_in_seconds=0, exceeded=False)
+        burst_status = CostLimitStatus(used_percent=0, resets_in_seconds=0, exceeded=False)
     if sustained_status is None:
-        sustained_status = CostLimitStatus(
-            used_usd=0, limit_usd=0, remaining_usd=0, resets_in_seconds=0, exceeded=False
-        )
+        sustained_status = CostLimitStatus(used_percent=0, resets_in_seconds=0, exceeded=False)
 
     return UsageResponse(
         product=product,
