@@ -549,7 +549,7 @@ def user_phase() -> None:
     # creates additional clients.
     os.execvp(
         "zellij",
-        ["zellij", "--session", "posthog", "--layout", "/etc/zellij.sandbox.kdl"],
+        ["zellij", "-s", "posthog", "--new-session-with-layout", "/etc/zellij.sandbox.kdl"],
     )
 
 

@@ -1,0 +1,27 @@
+// Zellij layout for the sandbox container.
+// Loaded via `zellij --session posthog --layout /etc/zellij.sandbox.kdl`.
+
+layout {
+    // Compact tab bar at the top so every client sees tab names + setup status.
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="compact-bar"
+        }
+        children
+    }
+
+    tab name="claude" focus=true {
+        pane command="bash" {
+            // Auto-restart claude on crash.
+            args "-lc" "while true; do claude; echo 'Claude exited, restarting in 2s...'; sleep 2; done"
+            cwd "/workspace"
+        }
+    }
+
+    tab name="setup" {
+        pane command="bash" {
+            args "-lc" "SANDBOX_MODE=setup exec python3 /usr/local/bin/sandbox-entrypoint.py"
+            cwd "/workspace"
+        }
+    }
+}
