@@ -1,10 +1,9 @@
 from typing import Any, Optional, cast
 
-from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
-
 from posthog.temporal.common.utils import make_sync_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from posthog.temporal.data_imports.sources.snapchat_ads.settings import BASE_URL, SNAPCHAT_ADS_CONFIG, EndpointType
 from posthog.temporal.data_imports.sources.snapchat_ads.utils import (
     SnapchatAdsAPIError,

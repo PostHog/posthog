@@ -3,11 +3,10 @@ from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-import dlt
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
 
@@ -435,7 +434,6 @@ class SalesforceEndpointPaginator(BasePaginator):
         request.url = f"{self.instance_url}{_next_page}"
 
 
-@dlt.source(max_table_nesting=0)
 def salesforce_source(
     instance_url: str,
     access_token: str,
@@ -460,4 +458,4 @@ def salesforce_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)

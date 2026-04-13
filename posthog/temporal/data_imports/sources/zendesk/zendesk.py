@@ -1,12 +1,11 @@
 import base64
 from typing import Any, Optional
 
-import dlt
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator, JSONLinkPaginator
+from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, JSONLinkPaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
@@ -282,7 +281,6 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         request.url = self._next_page
 
 
-@dlt.source(max_table_nesting=0)
 def zendesk_source(
     subdomain: str,
     api_key: str,
@@ -314,7 +312,7 @@ def zendesk_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:

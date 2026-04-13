@@ -4,12 +4,11 @@ from typing import Any, Optional
 
 import requests
 from dateutil import parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from requests import JSONDecodeError
+from requests import JSONDecodeError, Request, Response
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 

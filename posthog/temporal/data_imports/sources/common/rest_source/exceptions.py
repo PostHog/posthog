@@ -1,5 +1,6 @@
-from dlt.common.exceptions import DltException
+class RestApiException(Exception):
+    pass
 
 
-class RestApiException(DltException):
+class IgnoreResponseException(Exception):
     pass

@@ -21,7 +21,6 @@ from dateutil import parser
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from dlt.sources import DltResource
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
@@ -90,7 +89,7 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
         return None
 
 
-def _get_primary_keys(resource: DltResource) -> list[str] | None:
+def _get_primary_keys(resource: Any) -> list[str] | None:
     primary_keys = resource._hints.get("primary_key")
 
     if primary_keys is None:
@@ -105,7 +104,7 @@ def _get_primary_keys(resource: DltResource) -> list[str] | None:
     raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
 
 
-def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
+def _get_column_hints(resource: Any) -> dict[str, TDataType | None] | None:
     columns = resource._hints.get("columns")
 
     if columns is None:

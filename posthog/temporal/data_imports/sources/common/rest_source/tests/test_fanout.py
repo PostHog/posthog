@@ -5,13 +5,12 @@ from typing import Any
 import pytest
 from unittest.mock import Mock, patch
 
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-
 from posthog.temporal.data_imports.sources.common.rest_source import _make_paginate_dependent_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
     build_dependent_resource,
 )
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
 
 
