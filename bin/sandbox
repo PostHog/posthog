@@ -13,7 +13,6 @@ docker-compose.sandbox.yml. See `sandbox --help` for usage.
 from __future__ import annotations
 
 import os
-import re
 import sys
 import json
 import time
@@ -28,7 +27,6 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import NoReturn
 
 try:
     import yaml
@@ -37,22 +35,33 @@ except ImportError:
     print("  Or activate the flox environment first.", file=sys.stderr)
     sys.exit(1)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _sandbox_lib import (  # noqa: E402
+    PORT_BASE,
+    REGISTRY_DIR,
+    REPO_ROOT,
+    error,
+    fatal,
+    info,
+    run,
+    slugify,
+    success,
+    warn,
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
 HOST_GIT_DIR = REPO_ROOT / ".git"
 GIT_HELPER_IMAGE = "alpine/git:latest"
 SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
 
-REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 CONFIG_FILE = REGISTRY_DIR / "config.json"
-
-PORT_BASE = 48001
 
 INFRA_SERVICES = [
     "db",
@@ -148,45 +157,6 @@ def resolve_docker_profiles(intents_csv: str) -> list[str]:
         profiles.update(cap.get("docker_profiles", []))
 
     return sorted(profiles)
-
-
-# ---------------------------------------------------------------------------
-# Output helpers
-# ---------------------------------------------------------------------------
-
-_COLORS = {"red": "31", "green": "32", "yellow": "33", "blue": "34"}
-
-
-def _colored(color: str, text: str, *, stream: object = sys.stdout) -> str:
-    if not hasattr(stream, "isatty") or not stream.isatty():
-        return text
-    code = _COLORS.get(color, "0")
-    return f"\033[{code}m{text}\033[0m"
-
-
-def _ts() -> str:
-    return time.strftime("%H:%M:%S", time.gmtime())
-
-
-def info(msg: str) -> None:
-    print(f"[{_ts()}] {_colored('blue', msg)}")
-
-
-def success(msg: str) -> None:
-    print(f"[{_ts()}] {_colored('green', f'✓ {msg}')}")
-
-
-def warn(msg: str) -> None:
-    print(f"[{_ts()}] {_colored('yellow', f'Warning: {msg}', stream=sys.stderr)}", file=sys.stderr)
-
-
-def error(msg: str) -> None:
-    print(f"[{_ts()}] {_colored('red', f'Error: {msg}', stream=sys.stderr)}", file=sys.stderr)
-
-
-def fatal(msg: str) -> NoReturn:
-    error(msg)
-    sys.exit(1)
 
 
 def dump_container_logs(container: str, *, tail: int = 200) -> None:
@@ -291,35 +261,6 @@ class Registry:
 # ---------------------------------------------------------------------------
 # Shell / Docker helpers
 # ---------------------------------------------------------------------------
-
-
-# --- Shell runner ---
-
-
-def run(
-    cmd: list[str],
-    *,
-    check: bool = True,
-    capture: bool = False,
-    env_extra: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess:
-    """Run a subprocess, optionally merging extra env vars."""
-    full_env = {**os.environ, **(env_extra or {})} if env_extra else None
-    return subprocess.run(
-        cmd,
-        check=check,
-        capture_output=capture,
-        text=capture,
-        env=full_env,
-    )
-
-
-# --- Naming ---
-
-
-def slugify(branch: str) -> str:
-    return re.sub(r"[^a-z0-9-]", "-", branch.lower().replace("/", "-"))
-
 
 
 def project_name(slug: str) -> str:
@@ -1867,9 +1808,8 @@ def _dispatch_cloud(args: argparse.Namespace) -> None:
         build_parser().parse_args(["cloud", "--help"])
         return
 
-    # Lazy import — cloud module has extra deps (boto3 via AWS CLI) and
-    # shouldn't block local sandbox usage if missing.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    # Lazy import — cloud module has extra deps and shouldn't block
+    # local sandbox usage if missing.
     from sandbox_cloud import (
         cmd_cloud_build_cache,
         cmd_cloud_code,
