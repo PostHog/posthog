@@ -73,11 +73,16 @@ def discover_migrations() -> list[str]:
         # Match NNNN_name.py or NNNN_name/ (directory migrations)
         if entry.startswith("0") and not entry.startswith("__"):
             name = entry.removesuffix(".py")
-            # Only include .py files and directories with __init__.py
+            # Accept .py files, legacy dir migrations with __init__.py, and
+            # new-style manifest directories with a manifest.yaml. Earlier
+            # this only matched __init__.py, so manifest-only migrations
+            # silently disappeared from legacy discovery.
             entry_path = MIGRATIONS_DIR / entry
             if entry_path.is_file() and entry.endswith(".py"):
                 migrations.append(name)
-            elif entry_path.is_dir() and (entry_path / "__init__.py").exists():
+            elif entry_path.is_dir() and (
+                (entry_path / "__init__.py").exists() or (entry_path / "manifest.yaml").exists()
+            ):
                 migrations.append(name)
 
     return migrations

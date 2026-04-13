@@ -70,13 +70,9 @@ def _resolve_setting(key: str) -> str:
         if val:
             return ",".join(val) if isinstance(val, list) else str(val)
     if key == "kafka_broker_list":
-        logger.warning(
-            "Setting %s (Django attr %s) is unset, falling back to kafka:9092", key, attr or key
-        )
+        logger.warning("Setting %s (Django attr %s) is unset, falling back to kafka:9092", key, attr or key)
         return "kafka:9092"
-    logger.warning(
-        "Setting %s (Django attr %s) is unset, returning empty string", key, attr or key
-    )
+    logger.warning("Setting %s (Django attr %s) is unset, returning empty string", key, attr or key)
     return ""
 
 
@@ -1102,20 +1098,31 @@ def diff_state(
             # Default kind/expression changes → MODIFY COLUMN.
             # Normalize semantically: CH lowercases function names in system.columns
             # and converts toIntervalX(N) to INTERVAL N X. See _normalize_default().
+            # When the YAML drops `default:` but the live column still has one,
+            # emit `MODIFY COLUMN <name> <type> REMOVE DEFAULT` so reconcile
+            # actually removes it. Earlier the short-circuit on `desired_default`
+            # being empty made removals silently ignored.
             desired_default = f"{desired_col.default_kind} {desired_col.default_expression}".strip()
             current_default = f"{current_col.default_kind} {current_col.default_expression}".strip()
 
-            if desired_default and _normalize_default(desired_default) != _normalize_default(current_default):
-                kind = desired_col.default_kind or "DEFAULT"
-                modify_clause = f"{col_name} {desired_col.type} {kind} {desired_col.default_expression}"
+            normalized_desired = _normalize_default(desired_default) if desired_default else ""
+            normalized_current = _normalize_default(current_default) if current_default else ""
+
+            if normalized_desired != normalized_current:
+                if desired_default:
+                    kind = desired_col.default_kind or "DEFAULT"
+                    modify_clause = f"{col_name} {desired_col.type} {kind} {desired_col.default_expression}"
+                    detail = (
+                        f"Modify column {col_name} default on {table_name}: {current_default!r} -> {desired_default!r}"
+                    )
+                else:
+                    modify_clause = f"{col_name} {desired_col.type} REMOVE DEFAULT"
+                    detail = f"Remove default from column {col_name} on {table_name}: {current_default!r} -> (none)"
                 alters.append(
                     StateDiff(
                         action="alter_modify_column",
                         table=table_name,
-                        detail=(
-                            f"Modify column {col_name} default on {table_name}: "
-                            f"{current_default!r} -> {desired_default!r}"
-                        ),
+                        detail=detail,
                         sql=f"ALTER TABLE {db}.{table_name} MODIFY COLUMN {modify_clause}",
                         node_roles=desired_table.on_nodes,
                         sharded=desired_table.sharded,

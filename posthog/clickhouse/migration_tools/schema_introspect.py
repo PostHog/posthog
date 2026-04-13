@@ -16,6 +16,7 @@ class ColumnSchema:
     default_kind: str = ""
     default_expression: str = ""
     position: int = 0
+    codec: str = ""  # compression codec expression, e.g. "CODEC(ZSTD(3))"
 
 
 @dataclass
@@ -134,7 +135,7 @@ def dump_schema(client: Any, database: str) -> dict[str, TableSchema]:
     )
 
     columns_rows = client.execute(
-        "SELECT table, name, type, default_kind, default_expression, position "
+        "SELECT table, name, type, default_kind, default_expression, position, compression_codec "
         "FROM system.columns WHERE database = %(database)s "
         "ORDER BY table, position",
         {"database": database},
@@ -165,7 +166,7 @@ def dump_schema(client: Any, database: str) -> dict[str, TableSchema]:
             as_select=as_select or "",
         )
 
-    for table, col_name, col_type, default_kind, default_expression, position in columns_rows:
+    for table, col_name, col_type, default_kind, default_expression, position, codec in columns_rows:
         if table in schema:
             schema[table].columns.append(
                 ColumnSchema(
@@ -174,6 +175,7 @@ def dump_schema(client: Any, database: str) -> dict[str, TableSchema]:
                     default_kind=default_kind,
                     default_expression=default_expression,
                     position=position,
+                    codec=codec or "",
                 )
             )
 
