@@ -52,8 +52,14 @@ func parseMatchTokens(query string) []matchToken {
 // lineMatchesTokens returns true if the line satisfies all token conditions:
 //   - every positive token must match
 //   - no negative token may match
+//
+// Plain tokens match case-insensitively via a lowered copy of the line; regex
+// tokens match against the original (ANSI-stripped) line so character classes
+// like [A-Z] or Unicode properties like \p{Lu} behave as users expect. Case
+// insensitivity for regex is handled by the (?i) flag injected at parse time.
 func lineMatchesTokens(line string, tokens []matchToken) bool {
-	stripped := strings.ToLower(ansi.Strip(line))
+	stripped := ansi.Strip(line)
+	strippedLower := strings.ToLower(stripped)
 	for _, t := range tokens {
 		var matches bool
 		if t.isRegex {
@@ -62,7 +68,7 @@ func lineMatchesTokens(line string, tokens []matchToken) bool {
 			}
 			// invalid regex → no match
 		} else {
-			matches = strings.Contains(stripped, t.pattern)
+			matches = strings.Contains(strippedLower, t.pattern)
 		}
 		if t.negative && matches {
 			return false

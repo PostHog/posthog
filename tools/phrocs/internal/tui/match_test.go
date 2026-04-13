@@ -138,6 +138,13 @@ func TestLineMatchesTokens(t *testing.T) {
 
 		{"invalid positive regex never matches", "re:[bad", "anything", false},
 		{"ansi codes are stripped before matching", "error", "\x1b[31merror\x1b[0m: red text", true},
+
+		// Regex matches on the case-preserved line so users can opt out of
+		// case-insensitivity via (?-i) and use Unicode classes meaningfully.
+		{"regex with (?-i) override matches only uppercase", "re:(?-i)[A-Z]+", "HELLO world", true},
+		{"regex with (?-i) override rejects lowercase", "re:(?-i)[A-Z]+", "hello world", false},
+		{"regex on Unicode uppercase class", "re:(?-i)\\p{Lu}", "Hello", true},
+		{"regex on Unicode uppercase class rejects all-lowercase", "re:(?-i)\\p{Lu}", "hello", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
