@@ -46,6 +46,17 @@ export const integrationsLogic = kea<integrationsLogicType>([
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
         loadGitHubRepositories: (integrationId: number) => ({ integrationId }),
+        loadGitHubRepositoriesPage: (integrationId: number, offset: number) => ({ integrationId, offset }),
+        loadGitHubRepositoriesPageSuccess: (
+            integrationId: number,
+            repositories: GitHubRepoApi[],
+            hasMore: boolean
+        ) => ({
+            integrationId,
+            repositories,
+            hasMore,
+        }),
+        loadGitHubRepositoriesPageFailure: (integrationId: number) => ({ integrationId }),
     }),
     reducers({
         newIntegrationModalKind: [
@@ -74,6 +85,29 @@ export const integrationsLogic = kea<integrationsLogicType>([
             {
                 openSetupModal: (_, { integration }) => integration ?? null,
                 closeSetupModal: () => null,
+            },
+        ],
+        githubRepositories: [
+            {} as Record<number, GitHubRepoApi[]>,
+            {
+                loadGitHubRepositories: (state, { integrationId }) => ({
+                    ...state,
+                    [integrationId]: [],
+                }),
+                loadGitHubRepositoriesPageSuccess: (state, { integrationId, repositories }) => {
+                    const existing = state[integrationId] || []
+                    const seenIds = new Set(existing.map((r) => r.id))
+                    const newRepos = repositories.filter((r) => !seenIds.has(r.id))
+                    return { ...state, [integrationId]: [...existing, ...newRepos] }
+                },
+            },
+        ],
+        githubRepositoriesLoading: [
+            false,
+            {
+                loadGitHubRepositories: () => true,
+                loadGitHubRepositoriesPageSuccess: (_, { hasMore }) => hasMore,
+                loadGitHubRepositoriesPageFailure: () => false,
             },
         ],
     }),
@@ -127,23 +161,29 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 },
             },
         ],
-        githubRepositories: [
-            {} as Record<number, GitHubRepoApi[]>,
-            {
-                loadGitHubRepositories: async ({ integrationId }) => {
-                    const response = await integrationsGithubReposRetrieve(
-                        String(values.currentProjectId),
-                        integrationId
-                    )
-                    return {
-                        ...values.githubRepositories,
-                        [integrationId]: response.repositories || [],
-                    }
-                },
-            },
-        ],
     })),
     listeners(({ actions, values }) => ({
+        loadGitHubRepositories: ({ integrationId }) => {
+            actions.loadGitHubRepositoriesPage(integrationId, 0)
+        },
+        loadGitHubRepositoriesPageSuccess: ({ integrationId, hasMore }) => {
+            if (hasMore) {
+                const currentRepos = values.githubRepositories[integrationId] || []
+                actions.loadGitHubRepositoriesPage(integrationId, currentRepos.length)
+            }
+        },
+        loadGitHubRepositoriesPage: async ({ integrationId, offset }, breakpoint) => {
+            try {
+                const response = await integrationsGithubReposRetrieve(String(values.currentProjectId), integrationId, {
+                    limit: 100,
+                    offset,
+                })
+                await breakpoint()
+                actions.loadGitHubRepositoriesPageSuccess(integrationId, response.repositories, response.has_more)
+            } catch {
+                actions.loadGitHubRepositoriesPageFailure(integrationId)
+            }
+        },
         handleGithubCallback: async ({ searchParams }) => {
             const { state, installation_id } = searchParams
             const { next, token } = fromParamsGivenUrl(state ?? '')
