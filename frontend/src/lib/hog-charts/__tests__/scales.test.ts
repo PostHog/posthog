@@ -174,19 +174,13 @@ describe('hog-charts scales', () => {
             expect(left(1)).not.toBeCloseTo(right(1), 0)
         })
 
-        it('assigns left to DEFAULT_Y_AXIS_ID and right to the second axis', () => {
-            const a = makeSeries({ key: 'a', data: [10], yAxisId: DEFAULT_Y_AXIS_ID })
-            const b = makeSeries({ key: 'b', data: [20], yAxisId: 'y1' })
+        it.each([
+            ['DEFAULT_Y_AXIS_ID first', [DEFAULT_Y_AXIS_ID, 'y1']],
+            ['non-default first', ['y1', DEFAULT_Y_AXIS_ID]],
+        ] as const)('assigns left to DEFAULT_Y_AXIS_ID regardless of series order (%s)', (_, [firstId, secondId]) => {
+            const a = makeSeries({ key: 'a', data: [10], yAxisId: firstId })
+            const b = makeSeries({ key: 'b', data: [20], yAxisId: secondId })
             const result = createScales([a, b], ['x'], dimensions)
-            expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('left')
-            expect(result.yAxes!.y1.position).toBe('right')
-        })
-
-        it('keeps DEFAULT_Y_AXIS_ID on the left even when a non-default series appears first', () => {
-            // Series order reversed: the 'y1' series comes first, 'left' second.
-            const b = makeSeries({ key: 'b', data: [20], yAxisId: 'y1' })
-            const a = makeSeries({ key: 'a', data: [10], yAxisId: DEFAULT_Y_AXIS_ID })
-            const result = createScales([b, a], ['x'], dimensions)
             expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('left')
             expect(result.yAxes!.y1.position).toBe('right')
         })

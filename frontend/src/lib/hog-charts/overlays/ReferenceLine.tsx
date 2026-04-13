@@ -89,7 +89,8 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
     const { orientation = 'horizontal', variant = 'goal', style } = props
     const resolved = useMemo(
         () => resolveStyle(variant, style),
-        [variant, style?.color, style?.stroke, style?.width, style]
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [variant, style?.color, style?.stroke, style?.width]
     )
 
     const common: ResolvedProps = {
