@@ -95,6 +95,8 @@ tables:
               type: String
             - name: timestamp
               type: "DateTime64(3, 'UTC')"
+            - name: inserted_at
+              type: "DateTime64(3, 'UTC')"
             - name: content
               type: String
             - name: metadata

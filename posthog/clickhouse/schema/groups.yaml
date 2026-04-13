@@ -28,6 +28,8 @@ tables:
               type: DateTime
             - name: _offset
               type: UInt64
+            - name: is_deleted
+              type: Bool
 
     writable_groups:
         engine: Distributed
