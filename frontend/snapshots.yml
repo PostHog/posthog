@@ -5425,9 +5425,9 @@ snapshots:
     scenes-app-posthog-ai--thread-with-billing-limit-exceeded--light:
         hash: v1.k794b7964.a012bf841d734acbd3b4cd9424e2385534c2d59196bd4c1709bd6bf9e5c68c5f.QLPXYzVlS3O4KjC54ubjxNnhhszWNO2HSMhZX6TZzPk
     scenes-app-posthog-ai--thread-with-conversation-loading--dark:
-        hash: v1.k794b7964.fa4f8ee851808077ba09cc4611748320b827b50ffd2b880bacb8559b77bfc9c4.hYA2wSGW-rBBXvYCx0oguU8cI3HMmwcULhQy8G5VcZQ
+        hash: v1.k794b7964.7298c47f772fa5b28587217fd26e2c21e35155e31ad4464a335a66b033f55845.cNP3kjcpvkcBpd6a-87g4YDVa1QB88svhbz4FgYynAY
     scenes-app-posthog-ai--thread-with-conversation-loading--light:
-        hash: v1.k794b7964.e660161d9e46920cae2b7ac94087f097e392fa00c8dca07a18117bccc76901e1.poxfiBAApcPKbMWxAZAQq5CnzwVlCDm09J7-FraM-yo
+        hash: v1.k794b7964.7facda42e977ccfa857abc632112687cf21b0f18b0049694a85e5dd5f72e193e.UL9qSQDBGobbIv8zuaDVbV5ZWbbsZy9daZ8MG2OFHgY
     scenes-app-posthog-ai--thread-with-empty-conversation--dark:
         hash: v1.k794b7964.7298c47f772fa5b28587217fd26e2c21e35155e31ad4464a335a66b033f55845.KnOVGNqNAwZbGSIM7-cuGNGdSq-c5mSSYVPtDOpDITQ
     scenes-app-posthog-ai--thread-with-empty-conversation--light:
@@ -5441,9 +5441,9 @@ snapshots:
     scenes-app-posthog-ai--thread-with-form--light:
         hash: v1.k794b7964.ec4f2f11cd67eacba7f42e24157e02f5562b69c88509deeb296ed21b52f72e04.Fjx0ny_7OAh2JXolEdsxjjj_FSX_FRVVgXQ7aH0D0ns
     scenes-app-posthog-ai--thread-with-in-progress-conversation--dark:
-        hash: v1.k794b7964.dc209931dc33db4f576b24bec81b7f1999dc54815b36d8109714dc662ff18691.dZTptDzAnXLhxk6G9E3f5sw2QXVfhRHA2_tfTy_nP0s
+        hash: v1.k794b7964.c545e10132bd0da32a4554b5c67c73d47b5e16ea6100efeb19fea93ef2737c2e.u6uZiKBRohqh8eH5D_KJDixwBvpsGcKu5WHKw2URCa4
     scenes-app-posthog-ai--thread-with-in-progress-conversation--light:
-        hash: v1.k794b7964.2e3cbb2a4ac48cfec45f87b0624f0bec4453ed5f67c906ed624645ff74d1c0ac.k5GM7zmkHfJM6jvVxIJJ93VaUgqhfQvEB8PeibYqX2A
+        hash: v1.k794b7964.9faf996d486a0b3a1c602157d62a3460d780f36bfe4bc0651e83ebb7a158fcba.MqLckhxn2jKEIjQ2zygT_DA2-3o76M4G2Ol4xV7yJ_Q
     scenes-app-posthog-ai--thread-with-mixed-field-type-form--dark:
         hash: v1.k794b7964.79b9192b0a8da03089db9c961062ab172c6d6179154add0bd2d4bbd656aa9ec4.cPgH7kZkjvnsv8SFsd46RfA7i0yEkF5XhRlqgR1QBZI
     scenes-app-posthog-ai--thread-with-mixed-field-type-form--light:

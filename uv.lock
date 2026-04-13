@@ -8,11 +8,12 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-01T17:42:25.707178Z"
+exclude-newer = "2026-04-06T11:51:55.03675Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
 posthoganalytics = false
+pixelhog = false
 hogql-parser = false
 
 [[package]]
@@ -4874,12 +4875,18 @@ wheels = [
 ]
 
 [[package]]
-name = "pixelmatch"
-version = "0.3.1"
+name = "pixelhog"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/62/76/7fc321f805117ab1de302aed3f5b97a502195351efee3e5fa97a1d3c417a/pixelmatch-0.3.1.tar.gz", hash = "sha256:cbae6f7fedcc6e77c36783c2638f1e956c26c0d0179b4186bb1b81098e4e66fc", size = 6800, upload-time = "2026-03-01T06:45:15.811Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/56/f462f024d9342a8c22edc319c4ef69eccce1067f571120ac7b9985aefeba/pixelhog-1.0.0.tar.gz", hash = "sha256:c52eb35d02dffd539f9c9570ad8b06f514f14287583036ea92c37227f6c90d74", size = 20347, upload-time = "2026-04-13T11:03:55.391Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/b5/b7e17147c329e294f8675461630bd3db5d78d46c1256c4cbce82defc8476/pixelmatch-0.3.1-py3-none-any.whl", hash = "sha256:d53de8a09ff34ca3ffd86c1144a7015ccb096c8b6b8fb168edd2d9033da7f722", size = 9275, upload-time = "2026-03-01T06:45:14.654Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/91/b5f58c8abc2f931a8f3b298148ee66f8ea1bfde0371a23fd792172091b34/pixelhog-1.0.0-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6809cdb8242e7f934adaad8c1849ee6a2da75a84b8ed7b7648b693c7ee023dea", size = 453294, upload-time = "2026-04-13T11:03:57.708Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/4a/a7053f4c590fa337c601de2af7ce43beea7a95c7429d18dabe3160f4d5a0/pixelhog-1.0.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:9c0c08067e14ea3baeadaf0cc830d5fa0829b69ab6be9f99a74b807e877958ec", size = 441509, upload-time = "2026-04-13T11:04:00.181Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/fa/557469fafd80389e077fabc16d80e9034bdf8cf78cddc30fcc80265c463f/pixelhog-1.0.0-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6e706c23e9c7a58c38fbad531380cc5f7de22f5d4dd9d209b4f3af6b3778f165", size = 471762, upload-time = "2026-04-13T11:04:01.185Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/4f/3d191ce7e1874dd51bea8e0daed075c237f59680dd53464f6db70eeeb36b/pixelhog-1.0.0-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b69cacd91f7286084ff787f14ccc208e13ab337c13ba63ea52a738b84ee93863", size = 506511, upload-time = "2026-04-13T11:03:58.921Z" },
+    { url = "https://files.pythonhosted.org/packages/08/b5/602e77e784e39061a2fd10e3ae8d57566861b94d19f3c1191341caac3b2a/pixelhog-1.0.0-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:20e73ad915e25229cf41dc637a9ea81dc55cecdb4ec16ef6467e2d18127fb2ba", size = 648118, upload-time = "2026-04-13T11:04:03.644Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/20/e636acaaa82f34817567579311857095d4acd2353f2cad5f2e518b1dc8d7/pixelhog-1.0.0-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:091a3f222e0792efdae5e5170ed89e95ccc264a6486d5529dd9fddd97e32baf1", size = 702723, upload-time = "2026-04-13T11:04:02.536Z" },
+    { url = "https://files.pythonhosted.org/packages/83/b1/f01f99bcfdf16d4a1dc55b5c0c2bebc70df76cacaa065ba569201da14d5c/pixelhog-1.0.0-cp312-abi3-win_amd64.whl", hash = "sha256:12f09811f77d9d5b364926cc128db423dea01781e586006ed4450c54e9adab1d", size = 390313, upload-time = "2026-04-13T11:03:56.387Z" },
 ]
 
 [[package]]
@@ -5103,7 +5110,7 @@ dependencies = [
     { name = "pandas" },
     { name = "paramiko" },
     { name = "pillow" },
-    { name = "pixelmatch" },
+    { name = "pixelhog" },
     { name = "playwright" },
     { name = "polars" },
     { name = "posthoganalytics" },
@@ -5361,7 +5368,7 @@ requires-dist = [
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "==3.4.1" },
     { name = "pillow", specifier = "==12.1.1" },
-    { name = "pixelmatch", specifier = ">=0.3.1" },
+    { name = "pixelhog", specifier = "~=1.0.0" },
     { name = "playwright", specifier = "~=1.54.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthoganalytics", specifier = "==7.10.2" },
