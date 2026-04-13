@@ -1207,7 +1207,12 @@ class InsightViewSet(
     def safely_get_object(self, queryset: QuerySet) -> Insight | None:
         lookup_value = self.kwargs[self.lookup_field]
         if isinstance(lookup_value, str) and lookup_value.isdigit():
-            return queryset.filter(pk=int(lookup_value)).first()
+            # A numeric lookup is ambiguous: usually it's a primary key, but a small number of
+            # legacy rows have numeric-only short_ids. Try pk first (preserving existing behavior)
+            # and fall back to short_id so those legacy insights stay retrievable.
+            pk_match = queryset.filter(pk=int(lookup_value)).first()
+            if pk_match is not None:
+                return pk_match
         return queryset.filter(short_id=lookup_value).first()
 
     def order_queryset(self, queryset: QuerySet) -> QuerySet:
