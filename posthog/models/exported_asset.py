@@ -54,16 +54,21 @@ class ExportedAsset(models.Model):
         GIF = "image/gif", "image/gif"
         JSON = "application/json", "application/json"
 
-    SUPPORTED_FORMATS = [
-        ExportFormat.PNG,
-        ExportFormat.PDF,
-        ExportFormat.CSV,
-        ExportFormat.XLSX,
-        ExportFormat.WEBM,
-        ExportFormat.MP4,
-        ExportFormat.GIF,
-        ExportFormat.JSON,
-    ]
+    # Format routing for the standard exporter dispatch (`posthog/tasks/exporter.py`).
+    # Tabular formats are fed to csv_exporter; visual formats go through image_exporter.
+    TABULAR_FORMATS = frozenset({ExportFormat.CSV, ExportFormat.XLSX})
+    VISUAL_FORMATS = frozenset({ExportFormat.PNG})
+    DISPATCHABLE_FORMATS = TABULAR_FORMATS | VISUAL_FORMATS
+
+    # Formats routed by separate code paths that bypass the standard dispatch:
+    #   - PDF          -> separate sharing/embed flow
+    #   - WEBM/MP4/GIF -> VideoExportWorkflow (session recordings only)
+    EXTERNALLY_HANDLED_FORMATS = frozenset({ExportFormat.PDF, ExportFormat.WEBM, ExportFormat.MP4, ExportFormat.GIF})
+    VIDEO_FORMATS = frozenset({ExportFormat.WEBM, ExportFormat.MP4, ExportFormat.GIF})
+
+    # JSON is in ExportFormat.choices but has no working dispatch — rejected at
+    # the serializer to stop polluting the export SLO.
+    SUPPORTED_FORMATS = list(DISPATCHABLE_FORMATS | EXTERNALLY_HANDLED_FORMATS | {ExportFormat.JSON})
 
     # Relations
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -111,9 +116,9 @@ class ExportedAsset(models.Model):
 
     @classmethod
     def get_expiry_delta(cls, export_format: str) -> timedelta:
-        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
+        if export_format in cls.TABULAR_FORMATS:
             return SEVEN_DAYS
-        elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
+        elif export_format in cls.VIDEO_FORMATS:
             return TWELVE_MONTHS
         return SIX_MONTHS
 
