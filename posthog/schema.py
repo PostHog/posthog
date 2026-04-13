@@ -4096,6 +4096,7 @@ class SignalSourceProduct(StrEnum):
     GITHUB = "github"
     LINEAR = "linear"
     ZENDESK = "zendesk"
+    CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
 
 
