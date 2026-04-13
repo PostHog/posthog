@@ -205,9 +205,9 @@ def _export_to_png(
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
-            # URL-encode the page and data URLs so their own query strings (e.g.
-            # `?width=1024` on screenshot content URLs) don't corrupt the `/exporter`
-            # query string.
+            # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
+            # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt
+            # the `/exporter` query string.
             encoded_page_url = quote(heatmap_url, safe="")
             encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
