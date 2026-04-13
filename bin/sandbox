@@ -1521,8 +1521,8 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
-    """Exec into the tmux session (replaces current process)."""
+def _attach_zellij(container: str) -> None:
+    """Exec into the zellij session (replaces current process)."""
     os.execvp(
         "docker",
         [
@@ -1532,20 +1532,17 @@ def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
             "-u",
             f"{os.getuid()}:{os.getgid()}",
             container,
-            "tmux",
-            "-L",
-            "sandbox",
-            "attach-session",
-            "-t",
-            target,
+            "zellij",
+            "attach",
+            "posthog",
         ],
     )
 
 
 def _attach_with_health_poll(container: str, health_url: str) -> None:
-    """Attach to tmux; open browser in background when healthy."""
+    """Attach to zellij; open browser in background when healthy."""
     # Launch a detached process to poll health and open the browser.
-    # Separate process so the main process can execvp into tmux with a clean TTY.
+    # Separate process so the main process can execvp into zellij with a clean TTY.
     url = health_url.replace("/_health", "")
     script = textwrap.dedent(f"""\
         import time, webbrowser, urllib.request
@@ -1566,9 +1563,9 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
         start_new_session=True,
     )
 
-    # Wait for tmux then attach (replaces this process).
-    # Tmux starts within seconds of boot; this loop is usually very short.
-    info("Waiting for tmux... (showing entrypoint progress)")
+    # Wait for zellij then attach (replaces this process).
+    # Zellij starts within seconds of boot; this loop is usually very short.
+    info("Waiting for zellij... (showing entrypoint progress)")
     seen_steps: set[str] = set()
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
@@ -1579,17 +1576,13 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
                 "-u",
                 f"{os.getuid()}:{os.getgid()}",
                 container,
-                "tmux",
-                "-L",
-                "sandbox",
-                "has-session",
-                "-t",
-                "posthog",
+                "zellij",
+                "list-sessions",
             ],
             check=False,
             capture=True,
         )
-        if result.returncode == 0:
+        if result.returncode == 0 and "posthog" in (result.stdout or ""):
             break
 
         # Show entrypoint progress from the container's progress file.
@@ -1606,9 +1599,9 @@ def _attach_with_health_poll(container: str, health_url: str) -> None:
 
         time.sleep(2)
     else:
-        fatal("Timed out waiting for tmux. Run `sandbox logs <branch>` to investigate.")
-    info("Attaching to Claude... (detach with Ctrl-b d, Ctrl-b 1 for setup log, Ctrl-b 2 for phrocs)")
-    _attach_tmux(container)
+        fatal("Timed out waiting for zellij. Run `sandbox logs <branch>` to investigate.")
+    info("Attaching to Claude... (detach with Ctrl-o d, Alt-2 for setup log, Alt-3 for phrocs)")
+    _attach_zellij(container)
 
 
 def cmd_shell(branch: str) -> None:
@@ -1616,12 +1609,12 @@ def cmd_shell(branch: str) -> None:
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to Claude in {container}... (detach with Ctrl-b d, Ctrl-b 2 for phrocs)")
-    _attach_tmux(container)
+    info(f"Attaching to Claude in {container}... (detach with Ctrl-o d, Alt-3 for phrocs)")
+    _attach_zellij(container)
 
 
 def cmd_ssh(branch: str) -> None:
-    """Open a login shell in the sandbox (outside tmux, with SSH agent forwarded)."""
+    """Open a login shell in the sandbox (outside zellij, with SSH agent forwarded)."""
     registry = Registry()
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
@@ -1645,13 +1638,13 @@ def cmd_ssh(branch: str) -> None:
 
 
 def cmd_phrocs(branch: str) -> None:
-    """Attach directly to the phrocs tmux window."""
+    """Attach to the sandbox (phrocs is in tab 3, use Alt-3 to navigate)."""
     registry = Registry()
     entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
-    info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d, Ctrl-b 0 for Claude)")
-    _attach_tmux(container, target="posthog:phrocs")
+    info(f"Attaching to sandbox in {container}... (Alt-3 for phrocs, Alt-1 for Claude, detach with Ctrl-o d)")
+    _attach_zellij(container)
 
 
 def cmd_logs(branch: str) -> None:

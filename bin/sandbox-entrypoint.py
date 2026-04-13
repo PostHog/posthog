@@ -6,11 +6,11 @@ Four modes, dispatched at the bottom of this file:
 
   1. Root phase (UID 0): create sandbox user, seed SSH/git config, re-exec
      as the sandbox user. Workspace is already populated by bin/sandbox.
-  2. User phase (default): launch tmux with claude immediately in window 0
-     and a setup window in window 1; PID 1 poll-blocks on the tmux session.
-  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 1. Installs deps
+  2. User phase (default): exec into zellij with a layout that starts
+     claude in tab 1 and the setup entrypoint in tab 2.
+  3. Setup phase (SANDBOX_MODE=setup): runs in zellij tab 2. Installs deps
      (Python/Node/Rust in parallel), migrates, seeds demo data, spawns the
-     phrocs window, then exec's into bash -l so the window stays usable.
+     phrocs tab, then exec's into bash -l so the tab stays usable.
   4. Cache-init phase (SANDBOX_MODE=cache-init): one-shot cache warming for
      `bin/sandbox create` — installs deps, migrates, generates demo data,
      pre-builds Rust, then exits so the host can snapshot databases.
@@ -34,7 +34,7 @@ WORKSPACE = Path("/workspace")
 SANDBOX_HOME = Path("/tmp/sandbox-home")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
-# Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
+# Shown in the setup tab name via zellij action rename-tab.
 STATUS_FILE = Path("/tmp/sandbox-status")
 
 # ---------------------------------------------------------------------------
@@ -79,11 +79,17 @@ def write_file_if_missing(path: Path, content: str) -> None:
 
 
 def _write_status(step: str) -> None:
-    """Update the tmux status bar label. Swallows OSError — purely cosmetic."""
+    """Update the setup tab name in zellij. Swallows errors — purely cosmetic."""
     try:
         STATUS_FILE.write_text(step)
     except OSError:
         pass
+    # If running inside a Zellij session, rename the current tab to show progress.
+    if os.environ.get("ZELLIJ"):
+        subprocess.run(
+            ["zellij", "action", "rename-tab", f"setup: {step}"],
+            capture_output=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +141,7 @@ def _configure_ssh_agent_env() -> None:
 
 
 def configure_user_ssh(uid: int, gid: int) -> None:
-    """Seed ~/.ssh/config so git push doesn't hang on a host-key prompt in tmux."""
+    """Seed ~/.ssh/config so git push doesn't hang on a host-key prompt."""
     ssh_dir = SANDBOX_HOME / ".ssh"
     ssh_dir.mkdir(parents=True, exist_ok=True)
     config = ssh_dir / "config"
@@ -402,7 +408,7 @@ def setup_jetbrains_background() -> None:
     if pid != 0:
         return  # Parent continues
 
-    # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
+    # Child: redirect stdio to log so late writes don't clobber the zellij pane.
     log_path = "/tmp/sandbox-jetbrains.log"
     log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.dup2(log_fd, 1)
@@ -530,68 +536,28 @@ def _run_parallel(tasks: dict[str, Callable[[], None]]) -> None:
 
 
 def user_phase() -> None:
-    """PID 1: launch tmux (claude + setup windows), then poll-block on the session."""
+    """PID 1: exec into zellij with the sandbox layout (claude + setup tabs)."""
     _setup_user_env()
     install_geoip()
 
     _write_status("booting")
 
-    # Window 0: claude (launched immediately, may lack hogli until uv sync finishes)
-    # Window 1: setup (deps, migrations, then spawns phrocs in window 2)
-    tmux = ["tmux", "-L", "sandbox"]
-    run(
-        [
-            *tmux,
-            "-f",
-            "/etc/tmux.sandbox.conf",
-            "new-session",
-            "-d",
-            "-s",
-            "posthog",
-            "-c",
-            "/workspace",
-            "-n",
-            "claude",
-            "claude",
-        ]
+    # The layout starts two tabs:
+    #   Tab 1 (claude): auto-restarts claude on crash via a bash loop
+    #   Tab 2 (setup): runs this entrypoint with SANDBOX_MODE=setup
+    # Zellij's server persists as PID 1; `docker exec ... zellij attach`
+    # creates additional clients.
+    os.execvp(
+        "zellij",
+        ["zellij", "--session", "posthog", "--layout", "/etc/zellij.sandbox.kdl"],
     )
-    # Auto-respawn on crash (pairs with pane-died hook in tmux.sandbox.conf).
-    # Scoped to claude window only so setup/phrocs close normally.
-    run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
-
-    run(
-        [
-            *tmux,
-            "new-window",
-            "-t",
-            "posthog:",
-            "-n",
-            "setup",
-            "-e",
-            "SANDBOX_MODE=setup",
-            f"{sys.executable} {__file__}",
-        ]
-    )
-    run([*tmux, "select-window", "-t", "posthog:claude"])
-
-    # Block on tmux session. Exit non-zero when it dies so compose's
-    # restart: on-failure brings the container back.
-    while (
-        subprocess.run(
-            [*tmux, "has-session", "-t", "posthog"],
-            capture_output=True,
-        ).returncode
-        == 0
-    ):
-        time.sleep(2)
-    sys.exit(1)
 
 
 def run_setup() -> None:
-    """Tmux window 1: install deps, migrate, seed data, spawn phrocs, exec bash.
+    """Zellij tab 2: install deps, migrate, seed data, spawn phrocs, exec bash.
 
-    On failure, writes "SETUP FAILED" to the status bar and drops into bash
-    so the user can diagnose. Claude keeps running in window 0 either way.
+    On failure, writes "SETUP FAILED" to the tab name and drops into bash
+    so the user can diagnose. Claude keeps running in tab 1 either way.
     """
     _setup_user_env()
     _write_status("setup starting")
@@ -630,24 +596,28 @@ def run_setup() -> None:
 
         _write_status("sandbox ready")
 
-        # Spawn phrocs in its own tmux window.
-        run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
+        # Spawn phrocs in its own zellij tab.
+        phrocs_layout = Path("/tmp/phrocs-tab.kdl")
+        phrocs_layout.write_text(
+            'pane command="bash" {\n    args "-lc" "exec bin/start --phrocs"\n    cwd "/workspace"\n}\n'
+        )
+        run(["zellij", "action", "new-tab", "--layout", str(phrocs_layout), "--name", "phrocs"])
 
         print(  # noqa: T201
-            "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
+            "\nSetup complete — phrocs running in tab 3 (Alt-3), Claude in tab 1 (Alt-1).\n",
             flush=True,
         )
     except Exception:
         traceback.print_exc()
-        _write_status("!! SETUP FAILED — see window 1")
+        _write_status("!! SETUP FAILED — see tab 2")
         print(  # noqa: T201
-            "\n\n!!! Setup failed — traceback above. This window is now a bash shell;"
-            "\n!!! claude is still running in window 0 against whatever managed to come up."
-            "\n!!! Re-run the failing step manually, then `tmux new-window bin/start --phrocs` when ready.\n",
+            "\n\n!!! Setup failed — traceback above. This tab is now a bash shell;"
+            "\n!!! claude is still running in tab 1 against whatever managed to come up."
+            "\n!!! Re-run the failing step manually, then start phrocs in a new tab when ready.\n",
             flush=True,
         )
 
-    # Exec into bash so this window stays usable (both success and failure).
+    # Exec into bash so this tab stays usable (both success and failure).
     os.execvp("bash", ["bash", "-l"])
 
 

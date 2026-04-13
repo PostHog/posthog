@@ -36,7 +36,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     postgresql-client \
     protobuf-compiler \
-    tmux \
     unzip \
     vim \
     zlib1g-dev \
@@ -73,6 +72,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://github.com/redpanda-data/redpanda/releases/download/v25.1.9/rpk-linux-${ARCH}.zip" \
     -o /tmp/rpk.zip && unzip -o /tmp/rpk.zip -d /usr/local/bin/ rpk && rm /tmp/rpk.zip
 
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "${ARCH}" in \
+        amd64) ZELLIJ_ARCH='x86_64';; \
+        arm64) ZELLIJ_ARCH='aarch64';; \
+        *) echo "unsupported: ${ARCH}"; exit 1;; \
+    esac && \
+    curl -fsSL "https://github.com/zellij-org/zellij/releases/download/v0.42.2/zellij-${ZELLIJ_ARCH}-unknown-linux-musl.tar.gz" \
+    | tar xz -C /usr/local/bin/
+
 # --- Changes occasionally: npm global packages ---
 RUN npm install -g @anthropic-ai/claude-code
 
@@ -86,15 +94,14 @@ RUN mkdir -p /share && \
 
 # --- Static config ---
 RUN echo 'export PATH="/cache/python/bin:/usr/local/cargo/bin:$PATH"' > /etc/profile.d/sandbox.sh
-RUN printf 'set -g default-terminal "xterm-256color"\nset -g extended-keys on\nset -as terminal-features "xterm*:extkeys"\nset -g allow-passthrough on\n' > /etc/tmux.conf
 RUN mkdir -p /cache/uv /cache/pnpm /cache/python /run/sshd \
     && chmod 777 /cache/uv /cache/pnpm /cache/python \
     && ssh-keygen -A
 
 WORKDIR /workspace
 
-# --- Changes often: entrypoint + sandbox tmux shim ---
-COPY bin/sandbox-shims/tmux.sandbox.conf /etc/tmux.sandbox.conf
+# --- Changes often: entrypoint + sandbox zellij layout ---
+COPY bin/sandbox-shims/zellij.sandbox.kdl /etc/zellij.sandbox.kdl
 COPY --chmod=755 bin/sandbox-entrypoint.py /usr/local/bin/sandbox-entrypoint.py
 
 ENTRYPOINT ["python3", "/usr/local/bin/sandbox-entrypoint.py"]
