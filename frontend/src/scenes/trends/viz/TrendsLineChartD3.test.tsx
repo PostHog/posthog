@@ -133,7 +133,7 @@ describe('TrendsLineChartD3', () => {
             expect(tooltip.element.querySelector('.graph-series-glyph')).not.toBeInTheDocument()
         })
 
-        it('excludes zero-count series', async () => {
+        it('shows zero-count series alongside active ones', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
@@ -144,7 +144,7 @@ describe('TrendsLineChartD3', () => {
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('ActiveSeries')).toContain('3')
-            expect(tooltip.row('EmptySeries')).toBeUndefined()
+            expect(tooltip.row('EmptySeries')).toContain('0')
         })
 
         it('renders correctly when series has no action metadata', async () => {

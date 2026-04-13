@@ -125,6 +125,8 @@ describe('rasterizeRecordingActivity', () => {
             expect.stringContaining('ph-video-'),
             playerHtml,
             expect.any(Function),
+            // Progress object — phase transitions to 'upload' after capture completes.
+            { phase: 'upload', frame: 0, estimatedTotalFrames: 0 },
             undefined,
             expect.any(Object)
         )
