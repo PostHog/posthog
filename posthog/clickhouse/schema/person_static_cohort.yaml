@@ -22,3 +22,8 @@ tables:
               type: Int64
             - name: team_id
               type: Int64
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64

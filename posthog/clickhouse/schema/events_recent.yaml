@@ -65,31 +65,198 @@ tables:
               type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
             - name: historical_migration
               type: Bool
+            # Kafka virtual columns (materialized on sharded table)
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
             - name: inserted_at
               type: "DateTime64(6, 'UTC')"
               default_expression: 'NOW64()'
               default_kind: DEFAULT
 
+    # writable_events_recent has no inserted_at column in legacy (it's a write
+    # target, not a source), so we can't inherit from sharded. 25 cols total.
     writable_events_recent:
         engine: Distributed
         source: sharded_events_recent
         sharding_key: 'sipHash64(distinct_id)'
         on_nodes: COORDINATOR
-        columns: inherit sharded_events_recent
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: person_id
+              type: UUID
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_properties
+              type: String
+            - name: group0_properties
+              type: String
+            - name: group1_properties
+              type: String
+            - name: group2_properties
+              type: String
+            - name: group3_properties
+              type: String
+            - name: group4_properties
+              type: String
+            - name: group0_created_at
+              type: DateTime64(3)
+            - name: group1_created_at
+              type: DateTime64(3)
+            - name: group2_created_at
+              type: DateTime64(3)
+            - name: group3_created_at
+              type: DateTime64(3)
+            - name: group4_created_at
+              type: DateTime64(3)
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+            - name: historical_migration
+              type: Bool
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
 
+    # events_recent and distributed_events_recent have inserted_at as Nullable
+    # (different from sharded where it's non-null with DEFAULT NOW64()).
     events_recent:
         engine: Distributed
         source: sharded_events_recent
         sharding_key: 'sipHash64(distinct_id)'
         on_nodes: ALL
-        columns: inherit sharded_events_recent
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: person_id
+              type: UUID
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_properties
+              type: String
+            - name: group0_properties
+              type: String
+            - name: group1_properties
+              type: String
+            - name: group2_properties
+              type: String
+            - name: group3_properties
+              type: String
+            - name: group4_properties
+              type: String
+            - name: group0_created_at
+              type: DateTime64(3)
+            - name: group1_created_at
+              type: DateTime64(3)
+            - name: group2_created_at
+              type: DateTime64(3)
+            - name: group3_created_at
+              type: DateTime64(3)
+            - name: group4_created_at
+              type: DateTime64(3)
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+            - name: historical_migration
+              type: Bool
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: inserted_at
+              type: "Nullable(DateTime64(6, 'UTC'))"
+              default_expression: 'NOW64()'
+              default_kind: DEFAULT
 
     distributed_events_recent:
         engine: Distributed
         source: sharded_events_recent
         sharding_key: 'sipHash64(distinct_id)'
         on_nodes: ALL
-        columns: inherit sharded_events_recent
+        columns:
+            - name: uuid
+              type: UUID
+            - name: event
+              type: String
+            - name: properties
+              type: String
+            - name: timestamp
+              type: "DateTime64(6, 'UTC')"
+            - name: team_id
+              type: Int64
+            - name: distinct_id
+              type: String
+            - name: elements_chain
+              type: String
+            - name: created_at
+              type: "DateTime64(6, 'UTC')"
+            - name: person_id
+              type: UUID
+            - name: person_created_at
+              type: DateTime64(3)
+            - name: person_properties
+              type: String
+            - name: group0_properties
+              type: String
+            - name: group1_properties
+              type: String
+            - name: group2_properties
+              type: String
+            - name: group3_properties
+              type: String
+            - name: group4_properties
+              type: String
+            - name: group0_created_at
+              type: DateTime64(3)
+            - name: group1_created_at
+              type: DateTime64(3)
+            - name: group2_created_at
+              type: DateTime64(3)
+            - name: group3_created_at
+              type: DateTime64(3)
+            - name: group4_created_at
+              type: DateTime64(3)
+            - name: person_mode
+              type: "Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)"
+            - name: historical_migration
+              type: Bool
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: inserted_at
+              type: "Nullable(DateTime64(6, 'UTC'))"
+              default_expression: 'NOW64()'
+              default_kind: DEFAULT
 
     events_recent_json_mv:
         engine: MaterializedView
