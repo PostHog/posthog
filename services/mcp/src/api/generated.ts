@@ -5769,6 +5769,33 @@ export namespace Schemas {
     }
 
     /**
+     * Discovered detail fields and their value distributions.
+     */
+    export type AvailableFiltersResponseDetailFields = {[key: string]: unknown};
+
+    export type StaticFiltersUsersItem = {[key: string]: unknown};
+
+    export type StaticFiltersScopesItem = {[key: string]: unknown};
+
+    export type StaticFiltersActivitiesItem = {[key: string]: unknown};
+
+    export interface StaticFilters {
+      /** Users who have logged activity. */
+      users: StaticFiltersUsersItem[];
+      /** Available activity scopes. */
+      scopes: StaticFiltersScopesItem[];
+      /** Available activity types. */
+      activities: StaticFiltersActivitiesItem[];
+    }
+
+    export interface AvailableFiltersResponse {
+      /** Pre-computed filter options for scopes, activities, and users. */
+      static_filters: StaticFilters;
+      /** Discovered detail fields and their value distributions. */
+      detail_fields: AvailableFiltersResponseDetailFields;
+    }
+
+    /**
      * * `ingest_first_event` - ingest_first_event
     * `set_up_reverse_proxy` - set_up_reverse_proxy
     * `create_first_insight` - create_first_insight
@@ -6399,6 +6426,13 @@ export namespace Schemas {
        * @nullable
        */
       records_completed?: number | null;
+      /**
+       * The number of records that failed downstream processing (e.g. hog function execution errors).
+       * @minimum -2147483648
+       * @maximum 2147483647
+       * @nullable
+       */
+      records_failed?: number | null;
       /**
        * The latest error that occurred during this run.
        * @nullable
@@ -14751,13 +14785,13 @@ export namespace Schemas {
       metrics_secondary?: unknown | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      allow_unknown_events?: boolean;
       _create_in_folder?: string;
       conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
-      exposure_preaggregation_enabled?: boolean;
       only_count_matured_users?: boolean;
       readonly status: ExperimentStatusEnum | NullEnum | null;
       /**
@@ -23678,13 +23712,13 @@ export namespace Schemas {
       metrics_secondary?: unknown | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      allow_unknown_events?: boolean;
       _create_in_folder?: string;
       conclusion?: ExperimentConclusionEnum | BlankEnum | NullEnum | null;
       /** @nullable */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
-      exposure_preaggregation_enabled?: boolean;
       only_count_matured_users?: boolean;
       readonly status?: ExperimentStatusEnum | NullEnum | null;
       /**
@@ -34084,6 +34118,26 @@ export namespace Schemas {
       Ticket: 'Ticket',
     } as const;
 
+    export type AdvancedActivityLogsListParams = {
+    activities?: string[];
+    detail_filters?: string;
+    end_date?: string;
+    hogql_filter?: string;
+    /**
+     * @nullable
+     */
+    is_system?: boolean | null;
+    item_ids?: string[];
+    scopes?: string[];
+    search_text?: string;
+    start_date?: string;
+    users?: string[];
+    /**
+     * @nullable
+     */
+    was_impersonated?: boolean | null;
+    };
+
     export type AlertsListParams = {
     /**
      * Number of results to return per page.
@@ -34186,6 +34240,26 @@ export namespace Schemas {
      * The pagination cursor value.
      */
     cursor?: string;
+    /**
+     * Filter by the ID of the resource being commented on.
+     * @minLength 1
+     */
+    item_id?: string;
+    /**
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * @minLength 1
+     */
+    scope?: string;
+    /**
+     * Full-text search within comment content.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Filter replies to a specific parent comment.
+     * @minLength 1
+     */
+    source_comment?: string;
     };
 
     export type ConversationsTicketsListParams = {
@@ -36403,6 +36477,11 @@ export namespace Schemas {
      * @maximum 5000
      */
     limit?: number;
+    /**
+     * Zero-based offset into the filtered log entries
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type TasksRepositoryReadinessRetrieveParams = {

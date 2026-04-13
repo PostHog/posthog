@@ -19,9 +19,9 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -291,6 +291,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     actions(() => ({
+        setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => ({
+            tablesAndColumns,
+        }),
         setQueryInput: (queryInput: string | null) => ({ queryInput }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
@@ -399,6 +402,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        selectedQueryTablesAndColumns: [
+            {} as Record<string, Record<string, boolean>>,
+            {
+                setSelectedQueryTablesAndColumns: (_, { tablesAndColumns }) => tablesAndColumns,
+            },
+        ],
         finishedLoading: [
             true,
             {
@@ -845,6 +854,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.setFinishedLoading(false)
         },
         setQueryInput: async ({ queryInput }, breakpoint) => {
+            const tablesAndColumns = await parseQueryTablesAndColumns(queryInput)
+            await breakpoint()
+            actions.setSelectedQueryTablesAndColumns(tablesAndColumns)
+            cache.updateActiveQueryDecoration?.()
+
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
@@ -1300,6 +1314,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
+            actions.setInsightLoading(true)
+
             const insightName = values.activeTab?.name
             const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
@@ -1308,7 +1324,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 query: currentVisualizationQuery,
             }
 
-            const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+            let savedInsight: QueryBasedInsightModel
+            try {
+                savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+            } catch (e) {
+                actions.setInsightLoading(false)
+                if (e instanceof ApiError) {
+                    lemonToast.error(e.detail ?? 'Could not update insight')
+                } else {
+                    lemonToast.error('Could not update insight')
+                }
+                throw e
+            }
+            actions.setInsightLoading(false)
 
             if (values.activeTab) {
                 actions.updateTab({
@@ -1824,17 +1852,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
 
-        selectedQueryTablesAndColumns: [
-            (s) => [s.queryInput],
-            (queryInput: string | null): Record<string, Record<string, boolean>> => {
-                return parseQueryTablesAndColumns(queryInput)
-            },
-        ],
         selectedQueryColumns: [
-            (s) => [s.queryInput],
-            (queryInput: string | null): Record<string, boolean> => {
-                const tablesAndColumns = parseQueryTablesAndColumns(queryInput)
-
+            (s) => [s.selectedQueryTablesAndColumns],
+            (tablesAndColumns: Record<string, Record<string, boolean>>): Record<string, boolean> => {
                 return Object.fromEntries(
                     Object.entries(tablesAndColumns).flatMap(([table, columns]) => {
                         return Object.keys(columns).map((column) => [`${table}.${column}`, true])
