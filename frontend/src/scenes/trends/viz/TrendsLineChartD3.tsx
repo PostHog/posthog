@@ -91,8 +91,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
                         key: `${r.id}`,
                         label: r.label ?? '',
                         data: r.data,
-                        color:
-                            r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
+                        color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
                         fillArea: display === ChartDisplayType.ActionsAreaGraph,
                         dashedFromIndex,
                         yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
