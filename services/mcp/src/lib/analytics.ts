@@ -1,32 +1,17 @@
 import { env } from 'cloudflare:workers'
 import { PostHog } from 'posthog-node'
 
-const POSTHOG_API_KEY = 'sTMFPsFhdP1Ssg'
-const POSTHOG_HOST = 'https://us.i.posthog.com'
-
-const DEV_POSTHOG_API_KEY: string | undefined = env.POSTHOG_ANALYTICS_API_KEY ?? POSTHOG_API_KEY
-const DEV_POSTHOG_HOST: string | undefined = env.POSTHOG_ANALYTICS_HOST ?? POSTHOG_HOST
-
 let _client: PostHog | undefined
 
 export enum AnalyticsEvent {
     MCP_INIT = 'mcp init',
-    MCP_TOOL_CALL = 'mcp tool call',
-    MCP_TOOL_RESPONSE = 'mcp tool response',
-    AI_TRACE = '$ai_trace',
-    AI_SPAN = '$ai_span',
 }
 
-export function generateId(): string {
-    return crypto.randomUUID()
-}
-
-export const getPostHogClient = (devMode?: boolean): PostHog => {
+export const getPostHogClient = (): PostHog => {
     if (!_client) {
-        const apiKey = devMode ? DEV_POSTHOG_API_KEY : POSTHOG_API_KEY
-        const host = devMode ? DEV_POSTHOG_HOST : POSTHOG_HOST
-        _client = new PostHog(apiKey, {
-            host,
+        _client = new PostHog(env.POSTHOG_ANALYTICS_API_KEY, {
+            disabled: !env.POSTHOG_ANALYTICS_API_KEY || !env.POSTHOG_ANALYTICS_HOST, // Disable if the API key or host is not set
+            host: env.POSTHOG_ANALYTICS_HOST,
             flushAt: 1,
             flushInterval: 0,
         })
@@ -35,13 +20,9 @@ export const getPostHogClient = (devMode?: boolean): PostHog => {
     return _client
 }
 
-export async function isFeatureFlagEnabled(
-    flagKey: string,
-    distinctId: string,
-    devMode?: boolean
-): Promise<boolean> {
+export async function isFeatureFlagEnabled(flagKey: string, distinctId: string): Promise<boolean> {
     try {
-        const client = getPostHogClient(devMode)
+        const client = getPostHogClient()
         const result = await client.isFeatureEnabled(flagKey, distinctId)
         return result === true
     } catch {

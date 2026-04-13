@@ -109,7 +109,10 @@ export function IntegrationView({
                                     <div className="text-xs text-muted">
                                         <IconBranch className="inline mr-1 text-sm" />
                                         {repositories.length} repositor
-                                        {repositories.length === 1 ? 'y' : 'ies'} allowed: {repositories.join(', ')}
+                                        {repositories.length === 1 ? 'y' : 'ies'} allowed:{' '}
+                                        {repositories.length <= 3
+                                            ? repositories.join(', ')
+                                            : `${repositories.slice(0, 3).join(', ')} and ${repositories.length - 3} more`}
                                     </div>
                                     <LemonButton
                                         size="xxsmall"
@@ -118,10 +121,13 @@ export function IntegrationView({
                                         onClick={() => {
                                             const installationId = integration.config?.installation_id
                                             if (installationId) {
-                                                window.open(
-                                                    `https://github.com/settings/installations/${installationId}`,
-                                                    '_blank'
-                                                )
+                                                const accountType = integration.config?.account?.type
+                                                const accountName = integration.config?.account?.name
+                                                const basePath =
+                                                    accountType === 'Organization' && accountName
+                                                        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                                                        : `https://github.com/settings/installations/${installationId}`
+                                                window.open(basePath, '_blank')
                                             }
                                         }}
                                         tooltip="Manage repository access on GitHub"
@@ -140,10 +146,13 @@ export function IntegrationView({
                                         onClick={() => {
                                             const installationId = integration.config?.installation_id
                                             if (installationId) {
-                                                window.open(
-                                                    `https://github.com/settings/installations/${installationId}`,
-                                                    '_blank'
-                                                )
+                                                const accountType = integration.config?.account?.type
+                                                const accountName = integration.config?.account?.name
+                                                const basePath =
+                                                    accountType === 'Organization' && accountName
+                                                        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                                                        : `https://github.com/settings/installations/${installationId}`
+                                                window.open(basePath, '_blank')
                                             }
                                         }}
                                         tooltip="Configure repository access"

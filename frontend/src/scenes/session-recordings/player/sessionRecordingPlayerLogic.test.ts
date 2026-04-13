@@ -325,6 +325,38 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.unmount()
             expect(logic.cache.hasInitialized).toBeFalsy()
         })
+
+        // Seeking past the end of a recording should not leave the player
+        // stuck buffering. See #53686, #53893.
+        it('handles out-of-range ?t= parameter without getting stuck', async () => {
+            logic.unmount()
+            router.actions.push('/replay/2', { t: '999' })
+
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes
+                        .loadRecordingMetaSuccess,
+                    'initializePlayerFromStart',
+                ])
+                .toFinishAllListeners()
+
+            // The player must have a valid timestamp and not be stuck in
+            // an unrecoverable state. endReached may legitimately be true
+            // here — updateAnimation detects end-of-recording after the
+            // normal BUFFER → load cycle completes. The important thing
+            // is the player initialized (didn't get stuck before
+            // tryInitReplayer) and isn't permanently buffering.
+            const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
+            expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
+            expect(logic.values.isBuffering).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {

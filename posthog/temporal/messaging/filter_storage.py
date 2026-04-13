@@ -8,8 +8,8 @@ TTL Considerations:
 - Individual activities have start_to_close_timeout=12h with maximum_attempts=3
 - Coordinator workflows spawn multiple child workflows with batch delays
 - Total workflow execution time in worst case: 3 retries × 12h + batch delays ≈ 40-48h
-- TTL set to 72h (3 days) provides safety margin for retries and delays
-- If workflows consistently exceed 48h, consider TTL refresh logic in get_filters()
+- TTL set to 168h (7 days) provides generous safety margin for retries and delays
+- If workflows consistently approach TTL (7d), consider TTL refresh logic in get_filters()
 """
 
 import json
@@ -25,8 +25,8 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, Operation
 
 KEY_PREFIX = "backfill_person_properties_filters:"
 # TTL sizing: Worst case workflow duration ~48h (3 × 12h retries + batch delays)
-# 72h provides 50% safety margin. Increase if workflows consistently run longer.
-DEFAULT_TTL = 72 * 60 * 60  # 3 days
+# 168h provides generous safety margin for complex backfill operations that may run longer.
+DEFAULT_TTL = 168 * 60 * 60  # 7 days
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +123,7 @@ def get_filters_and_properties(storage_key: str) -> tuple[list[PersonPropertyFil
         Tuple of (filters, person_properties, combined_bytecode), or None if not found
 
     Note:
-        If workflows consistently exceed 48h and TTL becomes an issue,
+        If workflows consistently approach TTL (7d) and expiration becomes an issue,
         consider adding TTL refresh logic here using Redis EXPIRE command.
     """
     data = get_client().get(storage_key)

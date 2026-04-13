@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../../../src/config/kafka-topics'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../../../src/ingestion/analytics/outputs'
 import { IngestionOutputs } from '../../../../../src/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../../../../../src/ingestion/outputs/single-ingestion-output'
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
@@ -52,10 +53,13 @@ describe('PostgresPersonRepository', () => {
             throw new Error('Failed to create person')
         }
         const personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-            [PERSON_DISTINCT_IDS_OUTPUT]: [
-                { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-            ],
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                hub.kafkaProducer,
+                'test'
+            ),
         })
         await Promise.all(
             result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
@@ -388,10 +392,13 @@ describe('PostgresPersonRepository', () => {
             const kafkaMessages = result.messages
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-                [PERSON_DISTINCT_IDS_OUTPUT]: [
-                    { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-                ],
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    KAFKA_PERSON_DISTINCT_ID,
+                    hub.kafkaProducer,
+                    'test'
+                ),
             })
             await Promise.all(
                 kafkaMessages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
@@ -1722,10 +1729,13 @@ describe('PostgresPersonRepository', () => {
             const targetPerson = result2.person
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-                [PERSON_DISTINCT_IDS_OUTPUT]: [
-                    { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-                ],
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    KAFKA_PERSON_DISTINCT_ID,
+                    hub.kafkaProducer,
+                    'test'
+                ),
             })
             await Promise.all(
                 kafkaMessagesSourcePerson.map((msg) =>

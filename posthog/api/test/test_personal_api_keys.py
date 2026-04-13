@@ -20,6 +20,8 @@ from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, Person
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
+from products.error_tracking.backend.models import ErrorTrackingIssue
+
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
@@ -614,6 +616,36 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_allows_action_with_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_allows_custom_error_tracking_read_action(self):
+        self.key.scopes = ["error_tracking:read"]
+        self.key.save()
+        ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/values?key=name&value=Type",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [{"name": "TypeError"}], "refreshing": False}
+
+    def test_allows_custom_error_tracking_write_action(self):
+        self.key.scopes = ["error_tracking:write"]
+        self.key.save()
+        target_issue = ErrorTrackingIssue.objects.create(team=self.team)
+        source_issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{target_issue.id}/merge",
+            {"ids": [str(source_issue.id)]},
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
+        assert ErrorTrackingIssue.objects.filter(team=self.team).count() == 1
 
     def test_errors_for_action_without_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")

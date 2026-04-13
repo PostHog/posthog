@@ -19,7 +19,7 @@ import {
     PersonRepository,
 } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '../../worker/ingestion/persons/repositories/person-repository-transaction'
-import { PersonHogClient, shouldUseGrpc } from './client'
+import { PersonHogClient, shouldUseGrpcForTeam, shouldUseGrpcForTeamItems } from './client'
 import { timedGrpc, timedPostgres } from './metrics'
 
 export class PersonHogPersonRepository implements PersonRepository {
@@ -27,6 +27,7 @@ export class PersonHogPersonRepository implements PersonRepository {
         private postgres: PersonRepository,
         private grpcClient: PersonHogClient,
         private grpcPercentage: number,
+        private rolloutTeamIds: ReadonlySet<number>,
         private clientLabel: string
     ) {}
 
@@ -38,7 +39,11 @@ export class PersonHogPersonRepository implements PersonRepository {
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined> {
         // Only route to gRPC for eventually-consistent replica reads
-        if (options?.forUpdate || !options?.useReadReplica || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            options?.forUpdate ||
+            !options?.useReadReplica ||
+            !shouldUseGrpcForTeam(this.rolloutTeamIds, teamId, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchPerson', () =>
                 this.postgres.fetchPerson(teamId, distinctId, options)
             )
@@ -68,7 +73,10 @@ export class PersonHogPersonRepository implements PersonRepository {
         useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]> {
         // Default matches PostgresPersonRepository (useReadReplica=true)
-        if (useReadReplica === false || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            useReadReplica === false ||
+            !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
             )
@@ -94,7 +102,10 @@ export class PersonHogPersonRepository implements PersonRepository {
         useReadReplica?: boolean
     ): Promise<InternalPerson[]> {
         // Default matches PostgresPersonRepository (useReadReplica=true)
-        if (useReadReplica === false || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            useReadReplica === false ||
+            !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
             )
