@@ -336,6 +336,122 @@ def sample_generation_details(
 
 
 @tool
+def get_generation_detail(
+    state: Annotated[dict, InjectedState],
+    generation_id: str,
+) -> str:
+    """Get full details for a single generation — no truncation.
+
+    Use this to deep-dive into a specific generation when the 500-char preview
+    from sample_generation_details isn't enough to understand what happened.
+    Returns the complete input, output, all properties, and eval results.
+
+    Args:
+        generation_id: The generation event UUID to look up
+    """
+    team_id = state["team_id"]
+
+    if not _UUID_RE.fullmatch(generation_id):
+        return json.dumps({"error": "Invalid generation ID format"})
+
+    # Timestamp window for ClickHouse partition pruning.
+    # Generations predate their evals, so widen the start by 7 days.
+    # End is period_end + 1 day buffer for eval lag.
+    from datetime import datetime, timedelta
+
+    try:
+        ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
+    except (ValueError, TypeError, KeyError):
+        ts_start = _ch_ts(state.get("period_start", "2020-01-01T00:00:00+00:00"))
+    try:
+        ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
+    except (ValueError, TypeError, KeyError):
+        ts_end = _ch_ts(state.get("period_end", "2099-01-01T00:00:00+00:00"))
+
+    # Full generation event data
+    gen_rows = _execute_hogql(
+        team_id,
+        f"""
+        SELECT
+            toString(uuid) as generation_id,
+            properties.$ai_model as model,
+            properties.$ai_provider as provider,
+            properties.$ai_input as input,
+            coalesce(
+                nullIf(properties.$ai_output, ''),
+                properties.$ai_output_choices
+            ) as output,
+            properties.$ai_input_tokens as input_tokens,
+            properties.$ai_output_tokens as output_tokens,
+            properties.$ai_total_cost_usd as cost,
+            properties.$ai_latency as latency,
+            properties.$ai_trace_id as trace_id,
+            properties.$ai_base_url as base_url,
+            timestamp
+        FROM events
+        WHERE event = '$ai_generation'
+            AND toString(uuid) = '{generation_id}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
+        LIMIT 1
+        """,
+    )
+
+    if not gen_rows:
+        return json.dumps({"error": f"Generation {generation_id} not found"})
+
+    row = gen_rows[0]
+
+    # Also fetch eval results for this generation
+    eval_rows = _execute_hogql(
+        team_id,
+        f"""
+        SELECT
+            properties.$ai_evaluation_id as eval_id,
+            properties.$ai_evaluation_result as result,
+            properties.$ai_evaluation_reasoning as reasoning,
+            properties.$ai_evaluation_applicable as applicable
+        FROM events
+        WHERE event = '$ai_evaluation'
+            AND properties.$ai_target_event_id = '{generation_id}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
+        ORDER BY timestamp DESC
+        LIMIT 20
+        """,
+    )
+
+    evals = []
+    for er in eval_rows:
+        applicable = er[3]
+        evals.append(
+            {
+                "evaluation_id": str(er[0]) if er[0] else "",
+                "result": None if applicable is False else er[1],
+                "reasoning": er[2] or "",
+            }
+        )
+
+    result = {
+        "generation_id": str(row[0]) if row[0] else "",
+        "model": str(row[1]) if row[1] else "",
+        "provider": str(row[2]) if row[2] else "",
+        "input": str(row[3]) if row[3] else "",
+        "output": str(row[4]) if row[4] else "",
+        "input_tokens": row[5],
+        "output_tokens": row[6],
+        "cost": row[7],
+        "latency": row[8],
+        "trace_id": str(row[9]) if row[9] else "",
+        "base_url": str(row[10]) if row[10] else "",
+        "timestamp": str(row[11]) if row[11] else "",
+        "eval_results": evals,
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
 def get_recent_reports(
     state: Annotated[dict, InjectedState],
     limit: int = 3,
@@ -526,6 +642,7 @@ EVAL_REPORT_TOOLS = [
     get_pass_rate_over_time,
     sample_eval_results,
     sample_generation_details,
+    get_generation_detail,
     get_recent_reports,
     get_top_failure_reasons,
     # Output tools (mutate state["report"])
