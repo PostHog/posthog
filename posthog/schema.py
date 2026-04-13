@@ -1726,6 +1726,16 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class Kind(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+
+
+class StartHandling(StrEnum):
+    FIRST_SEEN = "first_seen"
+    LAST_SEEN = "last_seen"
+
+
 class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"
@@ -1805,11 +1815,6 @@ class PrecomputationMode(StrEnum):
     DIRECT = "direct"
 
 
-class StartHandling(StrEnum):
-    FIRST_SEEN = "first_seen"
-    LAST_SEEN = "last_seen"
-
-
 class ExperimentSignificanceCode(StrEnum):
     SIGNIFICANT = "significant"
     NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
@@ -1827,6 +1832,18 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+
+
+class ExperimentVariant(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Variant key, e.g. 'control', 'test', 'variant_a'.")
+    name: str | None = Field(default=None, description="Human-readable variant name.")
+    rollout_percentage: float = Field(
+        ...,
+        description=("Percentage of users assigned to this variant (0–100). All variants must sum to 100."),
+    )
 
 
 class ExperimentVariantFunnelsBaseStats(BaseModel):
@@ -6376,6 +6393,71 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
+class ExperimentApiEventSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = Field(default=None, description="Event name, e.g. '$pageview'.")
+    kind: Kind
+    properties: list[EventPropertyFilter] | None = Field(
+        default=None,
+        description="Event property filters to narrow which events are counted.",
+    )
+
+
+class ExperimentApiExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str = Field(..., description="Custom exposure event name.")
+    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    properties: list[EventPropertyFilter] = Field(
+        ...,
+        description="Event property filters. Pass an empty array if no filters needed.",
+    )
+
+
+class ExperimentApiExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: ExperimentApiExposureConfig | None = None
+    filterTestAccounts: bool | None = None
+
+
+class ExperimentApiMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: ExperimentApiEventSource | None = Field(
+        default=None, description="For retention metrics: completion event."
+    )
+    conversion_window: int | None = Field(default=None, description="Conversion window duration.")
+    denominator: ExperimentApiEventSource | None = Field(
+        default=None, description="For ratio metrics: denominator source."
+    )
+    goal: ExperimentMetricGoal | None = Field(
+        default=None, description="Whether higher or lower values indicate success."
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: ExperimentMetricType
+    name: str | None = Field(default=None, description="Human-readable metric name.")
+    numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
+    retention_window_end: int | None = None
+    retention_window_start: int | None = None
+    retention_window_unit: FunnelConversionWindowTimeUnit | None = None
+    series: list[ExperimentApiEventSource] | None = Field(
+        default=None,
+        description="For funnel metrics: array of EventsNode/ActionsNode steps.",
+    )
+    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
+    start_event: ExperimentApiEventSource | None = Field(
+        default=None, description="For retention metrics: start event."
+    )
+    start_handling: StartHandling | None = None
+    uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6403,6 +6485,23 @@ class ExperimentMetricBaseProperties(BaseModel):
     sharedMetricId: float | None = None
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentParameters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    feature_flag_variants: list[ExperimentVariant] | None = Field(
+        default=None,
+        description=("Experiment variants. If not specified, defaults to a 50/50 control/test split."),
+    )
+    minimum_detectable_effect: float | None = Field(
+        default=None,
+        description=(
+            "Minimum detectable effect as a percentage. Lower values need more users"
+            " but catch smaller changes. Suggest 20–30% for most experiments."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):

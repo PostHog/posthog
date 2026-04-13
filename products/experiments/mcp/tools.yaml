@@ -14,7 +14,7 @@ ui_apps:
     experiment-list:
         type: list
         detail_tool: experiment-get
-        detail_args: '{ experimentId: item.id }'
+        detail_args: '{ id: item.id }'
     experiment-results:
         type: detail
         view_prop: data

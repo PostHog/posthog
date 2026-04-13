@@ -15909,6 +15909,136 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "ExperimentApiEventSource": {
+            "additionalProperties": false,
+            "description": "Slim event/action source for experiment API payloads.",
+            "properties": {
+                "event": {
+                    "description": "Event name, e.g. '$pageview'.",
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["EventsNode", "ActionsNode"],
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters to narrow which events are counted.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "ExperimentApiExposureConfig": {
+            "additionalProperties": false,
+            "description": "Slim exposure config for experiment API payloads.",
+            "properties": {
+                "event": {
+                    "description": "Custom exposure event name.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentEventExposureConfig",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters. Pass an empty array if no filters needed.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "event", "properties"],
+            "type": "object"
+        },
+        "ExperimentApiExposureCriteria": {
+            "additionalProperties": false,
+            "description": "Exposure criteria for experiment API payloads.",
+            "properties": {
+                "exposure_config": {
+                    "$ref": "#/definitions/ExperimentApiExposureConfig"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "ExperimentApiMetric": {
+            "additionalProperties": false,
+            "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
+            "properties": {
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For retention metrics: completion event."
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversion window duration."
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For ratio metrics: denominator source."
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal",
+                    "description": "Whether higher or lower values indicate success."
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "$ref": "#/definitions/ExperimentMetricType"
+                },
+                "name": {
+                    "description": "Human-readable metric name.",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For ratio metrics: numerator source."
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "series": {
+                    "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentApiEventSource"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For mean metrics: event source."
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For retention metrics: start event."
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                },
+                "uuid": {
+                    "description": "Unique identifier. Auto-generated if omitted.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "metric_type"],
+            "type": "object"
+        },
         "ExperimentBreakdownResult": {
             "additionalProperties": false,
             "description": "Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.",
@@ -16744,6 +16874,23 @@
                 }
             ]
         },
+        "ExperimentParameters": {
+            "additionalProperties": false,
+            "properties": {
+                "feature_flag_variants": {
+                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariant"
+                    },
+                    "type": "array"
+                },
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentQuery": {
             "additionalProperties": false,
             "properties": {
@@ -17281,6 +17428,25 @@
                 "p_value",
                 "credible_intervals"
             ],
+            "type": "object"
+        },
+        "ExperimentVariant": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Human-readable variant name.",
+                    "type": "string"
+                },
+                "rollout_percentage": {
+                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
+                    "type": "number"
+                }
+            },
+            "required": ["key", "rollout_percentage"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {

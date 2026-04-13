@@ -3285,6 +3285,84 @@ export interface ExperimentEventExposureConfig extends Node {
     properties: AnyPropertyFilter[]
 }
 
+// ── Slim API types for experiment create/update ──────────────────────
+// These are intentionally simplified versions of the full query types.
+// The full types (EventsNode, ExperimentMeanMetric, …) pull in
+// AnyPropertyFilter (18-subtype union) which explodes the OpenAPI/MCP
+// schema via inline expansion. These slim types use EventPropertyFilter
+// directly, keeping the generated schema compact.
+
+/** Slim event/action source for experiment API payloads. */
+export interface ExperimentApiEventSource {
+    kind: 'EventsNode' | 'ActionsNode'
+    /** Event name, e.g. '$pageview'. */
+    event?: string
+    /** Event property filters to narrow which events are counted. */
+    properties?: EventPropertyFilter[]
+}
+
+/** Experiment metric for API create/update. All metric-type-specific
+ *  fields are optional; discriminated by metric_type at runtime. */
+export interface ExperimentApiMetric {
+    kind: NodeKind.ExperimentMetric
+    metric_type: ExperimentMetricType
+    /** Human-readable metric name. */
+    name?: string
+    /** Unique identifier. Auto-generated if omitted. */
+    uuid?: string
+    /** Whether higher or lower values indicate success. */
+    goal?: ExperimentMetricGoal
+    /** Conversion window duration. */
+    conversion_window?: integer
+    /** For mean metrics: event source. */
+    source?: ExperimentApiEventSource
+    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
+    series?: ExperimentApiEventSource[]
+    /** For ratio metrics: numerator source. */
+    numerator?: ExperimentApiEventSource
+    /** For ratio metrics: denominator source. */
+    denominator?: ExperimentApiEventSource
+    /** For retention metrics: start event. */
+    start_event?: ExperimentApiEventSource
+    /** For retention metrics: completion event. */
+    completion_event?: ExperimentApiEventSource
+    retention_window_start?: integer
+    retention_window_end?: integer
+    retention_window_unit?: FunnelConversionWindowTimeUnit
+    start_handling?: 'first_seen' | 'last_seen'
+}
+
+export interface ExperimentVariant {
+    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    key: string
+    /** Human-readable variant name. */
+    name?: string
+    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
+    rollout_percentage: number
+}
+
+export interface ExperimentParameters {
+    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    feature_flag_variants?: ExperimentVariant[]
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
+    minimum_detectable_effect?: number
+}
+
+/** Slim exposure config for experiment API payloads. */
+export interface ExperimentApiExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    /** Custom exposure event name. */
+    event: string
+    /** Event property filters. Pass an empty array if no filters needed. */
+    properties: EventPropertyFilter[]
+}
+
+/** Exposure criteria for experiment API payloads. */
+export interface ExperimentApiExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentApiExposureConfig
+}
+
 export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',

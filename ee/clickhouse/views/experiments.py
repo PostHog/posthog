@@ -5,10 +5,13 @@ from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, ExperimentParameters
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import extend_schema_field
@@ -49,198 +52,24 @@ from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
-EVENT_PROPERTY_FILTER_SCHEMA = {
-    "type": "object",
-    "required": ["key"],
-    "description": "Event property filter, e.g. {key: '$browser', value: 'Chrome', operator: 'exact', type: 'event'}.",
-    "properties": {
-        "key": {"type": "string", "description": "Property key to filter on."},
-        "value": {
-            "description": "Value to match against.",
-            "anyOf": [
-                {
-                    "anyOf": [
-                        {"type": "string"},
-                        {"type": "number"},
-                        {"type": "array", "items": {"type": "string"}},
-                        {"type": "array", "items": {"type": "number"}},
-                    ]
-                },
-                {"type": "null"},
-            ],
-        },
-        "operator": {
-            "type": "string",
-            "description": "Comparison operator (e.g. 'exact', 'is_not', 'icontains', 'gt', 'lt').",
-        },
-        "type": {
-            "type": "string",
-            "description": "Filter type, usually 'event'.",
-        },
-    },
-}
 
-EVENTS_NODE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "kind": {"type": "string", "enum": ["EventsNode", "ActionsNode"]},
-        "event": {"type": "string", "description": "Event name, e.g. '$pageview'."},
-        "properties": {
-            "type": "array",
-            "description": "Event property filters to narrow which events are counted.",
-            "items": EVENT_PROPERTY_FILTER_SCHEMA,
-        },
-    },
-}
+class _ExperimentApiMetricsList(PydanticRootModel):
+    """List wrapper for OpenAPI schema generation — the field stores an array of metrics."""
 
-EXPERIMENT_METRIC_SCHEMA = {
-    "type": "object",
-    "description": (
-        "Experiment metric. Set kind to 'ExperimentMetric' and metric_type to one of: "
-        "'mean' (requires source with EventsNode), "
-        "'funnel' (requires series array of EventsNode/ActionsNode steps), "
-        "'ratio' (requires numerator and denominator EventsNode). "
-        "Optional fields: name, uuid, conversion_window, goal ('increase' or 'decrease')."
-    ),
-    "required": ["kind", "metric_type"],
-    "properties": {
-        "kind": {
-            "type": "string",
-            "enum": ["ExperimentMetric"],
-            "description": "Must be 'ExperimentMetric'.",
-        },
-        "metric_type": {
-            "type": "string",
-            "enum": ["mean", "funnel", "ratio", "retention"],
-            "description": "Type of metric measurement.",
-        },
-        "name": {
-            "type": "string",
-            "description": "Human-readable metric name.",
-        },
-        "uuid": {
-            "type": "string",
-            "description": "Unique identifier for the metric. Auto-generated if not provided.",
-        },
-        "source": {
-            **EVENTS_NODE_SCHEMA,
-            "description": "For mean metrics: EventsNode with 'kind' and 'event' fields.",
-        },
-        "series": {
-            "type": "array",
-            "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
-            "items": EVENTS_NODE_SCHEMA,
-        },
-        "numerator": {
-            **EVENTS_NODE_SCHEMA,
-            "description": "For ratio metrics: the numerator EventsNode.",
-        },
-        "denominator": {
-            **EVENTS_NODE_SCHEMA,
-            "description": "For ratio metrics: the denominator EventsNode.",
-        },
-        "goal": {
-            "type": "string",
-            "enum": ["increase", "decrease"],
-            "description": "Whether higher or lower values indicate success.",
-        },
-        "conversion_window": {
-            "type": "integer",
-            "description": "Conversion window duration.",
-        },
-    },
-}
+    root: list[ExperimentApiMetric]
 
 
-@extend_schema_field(
-    {
-        "type": "array",
-        "nullable": True,
-        "items": EXPERIMENT_METRIC_SCHEMA,
-    }
-)
+@extend_schema_field(_ExperimentApiMetricsList)  # type: ignore[arg-type]
 class ExperimentMetricsField(serializers.JSONField):
-    """JSONField annotated with the ExperimentMetric schema for OpenAPI generation."""
-
     pass
 
 
-EXPERIMENT_PARAMETERS_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "description": "Configuration object containing variant definitions and minimum detectable effect.",
-    "properties": {
-        "feature_flag_variants": {
-            "type": "array",
-            "description": "Experiment variants. If not specified, defaults to 50/50 control/test split.",
-            "items": {
-                "type": "object",
-                "required": ["key", "rollout_percentage"],
-                "properties": {
-                    "key": {
-                        "type": "string",
-                        "description": "Variant key (e.g., 'control', 'variant_a', 'new_design').",
-                    },
-                    "name": {
-                        "type": "string",
-                        "description": "Human-readable variant name.",
-                    },
-                    "rollout_percentage": {
-                        "type": "number",
-                        "minimum": 0,
-                        "maximum": 100,
-                        "description": "Percentage of users to show this variant.",
-                    },
-                },
-            },
-        },
-        "minimum_detectable_effect": {
-            "type": "number",
-            "description": "Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30%% for most experiments.",
-        },
-    },
-}
-
-
-@extend_schema_field(EXPERIMENT_PARAMETERS_SCHEMA)
+@extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
 class ExperimentParametersField(serializers.JSONField):
     pass
 
 
-EXPERIMENT_EXPOSURE_CRITERIA_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "description": "Exposure configuration for the experiment.",
-    "properties": {
-        "filterTestAccounts": {
-            "type": "boolean",
-            "description": "Whether to filter out internal test accounts.",
-        },
-        "exposure_config": {
-            "type": "object",
-            "description": "Custom exposure event configuration. Requires kind, event, and properties (can be empty array).",
-            "required": ["kind", "event", "properties"],
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["ExperimentEventExposureConfig"],
-                },
-                "event": {
-                    "type": "string",
-                    "description": "Custom exposure event name.",
-                },
-                "properties": {
-                    "type": "array",
-                    "description": "Event property filters for the exposure event. Pass an empty array if no filters are needed.",
-                    "items": EVENT_PROPERTY_FILTER_SCHEMA,
-                },
-            },
-        },
-    },
-}
-
-
-@extend_schema_field(EXPERIMENT_EXPOSURE_CRITERIA_SCHEMA)
+@extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
 class ExperimentExposureCriteriaField(serializers.JSONField):
     pass
 
