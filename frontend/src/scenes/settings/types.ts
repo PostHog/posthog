@@ -81,6 +81,7 @@ export type SettingId =
     | 'conversations-email'
     | 'conversations-widget'
     | 'conversations-workflows'
+    | 'conversations-teams'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'

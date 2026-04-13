@@ -860,7 +860,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "widget_public_token" in value:
             value.pop("widget_public_token")
         # Integration state is managed only by dedicated endpoints, not user input
-        for managed_key in ("slack_bot_token", "slack_team_id", "slack_enabled", "email_enabled"):
+        for managed_key in (
+            "slack_bot_token",
+            "slack_team_id",
+            "slack_enabled",
+            "email_enabled",
+            "teams_enabled",
+            "teams_tenant_id",
+        ):
             value.pop(managed_key, None)
         icon_url = value.get("slack_bot_icon_url")
         if icon_url is not None:

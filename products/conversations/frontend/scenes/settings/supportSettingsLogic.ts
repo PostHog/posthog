@@ -58,6 +58,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setSlackBotDisplayNameValue: (value: string | null) => ({ value }),
         saveSlackBotSettings: true,
         disconnectSlack: true,
+        // Teams channel settings
+        connectTeams: (nextPath: string) => ({ nextPath }),
+        disconnectTeams: true,
+        setTeamsTeam: (teamId: string | null, teamName: string | null) => ({ teamId, teamName }),
+        setTeamsChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
+        loadTeamsTeamsWithToken: true,
+        loadTeamsChannelsForTeam: (teamId: string) => ({ teamId }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
@@ -239,6 +246,36 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             },
         ],
+        teamsTeams: [
+            [] as { id: string; name: string }[],
+            {
+                loadTeamsTeamsWithToken: async () => {
+                    try {
+                        const response = await api.create('api/conversations/v1/teams/teams', {})
+                        return response.teams || []
+                    } catch {
+                        lemonToast.error('Failed to load Teams groups')
+                        return values.teamsTeams
+                    }
+                },
+            },
+        ],
+        teamsChannels: [
+            [] as { id: string; name: string }[],
+            {
+                loadTeamsChannelsForTeam: async ({ teamId }) => {
+                    try {
+                        const response = await api.create('api/conversations/v1/teams/channels', {
+                            team_id: teamId,
+                        })
+                        return response.channels || []
+                    } catch {
+                        lemonToast.error('Failed to load Teams channels')
+                        return values.teamsChannels
+                    }
+                },
+            },
+        ],
     })),
     selectors({
         conversationsDomains: [
@@ -278,6 +315,26 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam): string | null => currentTeam?.conversations_settings?.slack_bot_display_name ?? null,
         ],
         emailConnected: [(s) => [s.emailConfigs], (emailConfigs): boolean => emailConfigs.length > 0],
+        teamsConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.teams_enabled,
+        ],
+        teamsTeamId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_team_id ?? null,
+        ],
+        teamsTeamName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_team_name ?? null,
+        ],
+        teamsChannelId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_id ?? null,
+        ],
+        teamsChannelName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.teams_channel_name ?? null,
+        ],
     }),
     listeners(({ values, actions }) => ({
         connectSlack: async ({ nextPath }) => {
@@ -528,6 +585,60 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             })
             lemonToast.success('Slack disconnected')
         },
+        connectTeams: async ({ nextPath }) => {
+            try {
+                const query = encodeURIComponent(nextPath)
+                const response = await api.get(`api/conversations/v1/teams/authorize?next=${query}`)
+                window.location.href = response.url
+            } catch {
+                lemonToast.error('Failed to start Microsoft Teams authorization')
+            }
+        },
+        disconnectTeams: async () => {
+            try {
+                await api.create('api/conversations/v1/teams/disconnect', {})
+            } catch {
+                lemonToast.error('Failed to disconnect Microsoft Teams')
+                return
+            }
+
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    teams_enabled: false,
+                    teams_team_id: null,
+                    teams_team_name: null,
+                    teams_channel_id: null,
+                    teams_channel_name: null,
+                },
+            })
+            lemonToast.success('Microsoft Teams disconnected')
+        },
+        setTeamsTeam: ({ teamId, teamName }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    teams_enabled: true,
+                    teams_team_id: teamId,
+                    teams_team_name: teamName,
+                    teams_channel_id: null,
+                    teams_channel_name: null,
+                },
+            })
+            if (teamId) {
+                actions.loadTeamsChannelsForTeam(teamId)
+            }
+        },
+        setTeamsChannel: ({ channelId, channelName }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    teams_enabled: true,
+                    teams_channel_id: channelId,
+                    teams_channel_name: channelName,
+                },
+            })
+        },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
@@ -541,6 +652,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     afterMount(({ values, actions }) => {
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
+        }
+        if (values.teamsConnected) {
+            actions.loadTeamsTeamsWithToken()
+            const teamsTeamId = values.teamsTeamId
+            if (teamsTeamId) {
+                actions.loadTeamsChannelsForTeam(teamsTeamId)
+            }
         }
         // Always load email configs to populate the list
         actions.loadEmailConfigs()

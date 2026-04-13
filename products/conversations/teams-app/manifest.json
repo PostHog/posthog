@@ -1,0 +1,46 @@
+{
+    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.16",
+    "version": "1.0.0",
+    "id": "{{SUPPORT_TEAMS_APP_ID}}",
+    "developer": {
+        "name": "PostHog Inc.",
+        "websiteUrl": "https://posthog.com",
+        "privacyUrl": "https://posthog.com/privacy",
+        "termsOfUseUrl": "https://posthog.com/terms"
+    },
+    "name": {
+        "short": "SupportHog",
+        "full": "SupportHog - PostHog Support Bot"
+    },
+    "description": {
+        "short": "Create and manage support tickets from Microsoft Teams",
+        "full": "SupportHog connects your Microsoft Teams channels to PostHog Support. Messages in a configured channel automatically create tickets. @mention the bot in any channel to create a ticket. Agent replies from PostHog sync back to the Teams thread."
+    },
+    "icons": {
+        "color": "color.png",
+        "outline": "outline.png"
+    },
+    "accentColor": "#1D4AFF",
+    "bots": [
+        {
+            "botId": "{{SUPPORT_TEAMS_APP_ID}}",
+            "scopes": ["team"],
+            "supportsFiles": false,
+            "isNotificationOnly": false,
+            "commandLists": []
+        }
+    ],
+    "permissions": ["identity", "messageTeamMembers"],
+    "validDomains": ["eu.posthog.com", "us.posthog.com", "posthog.com"],
+    "authorization": {
+        "permissions": {
+            "resourceSpecific": [
+                {
+                    "name": "ChannelMessage.Read.Group",
+                    "type": "Application"
+                }
+            ]
+        }
+    }
+}

@@ -35,10 +35,16 @@ from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MA
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
+SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:teams:event:"
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
     key = f"{SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX}{event_id}"
+    return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
+def _is_duplicate_teams_event(activity_id: str) -> bool:
+    key = f"{SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX}{activity_id}"
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
 
 
@@ -489,3 +495,103 @@ def send_email_reply(
         to=ticket.email_from,
         message_id=outbound_message_id,
     )
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: str = "") -> None:
+    """Process an inbound Teams Bot Framework activity."""
+    from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
+
+    if activity_id and _is_duplicate_teams_event(activity_id):
+        logger.info("supporthog_teams_event_duplicate_skipped", activity_id=activity_id)
+        return
+
+    from products.conversations.backend.models import TeamConversationsTeamsConfig
+
+    config = (
+        TeamConversationsTeamsConfig.objects.filter(teams_tenant_id=tenant_id, teams_graph_access_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    if not config:
+        logger.warning("supporthog_teams_no_team", tenant_id=tenant_id)
+        return
+
+    team = config.team
+    support_settings = team.conversations_settings or {}
+    if not support_settings.get("teams_enabled"):
+        logger.info("supporthog_teams_not_configured", team_id=team.id, tenant_id=tenant_id)
+        return
+
+    try:
+        if _is_bot_mention(activity):
+            handle_teams_mention(activity, team, tenant_id)
+        else:
+            handle_teams_message(activity, team, tenant_id)
+    except Exception as e:
+        logger.exception("supporthog_teams_event_handler_failed", error=str(e))
+        raise cast(Any, process_teams_event).retry(exc=e)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def post_reply_to_teams(
+    ticket_id: str,
+    team_id: int,
+    content: str,
+    rich_content: dict | None,
+    author_name: str,
+    teams_service_url: str,
+    teams_conversation_id: str,
+) -> None:
+    """Post a support agent's reply to the corresponding Teams conversation thread."""
+    from products.conversations.backend.support_teams import get_bot_framework_token
+    from products.conversations.backend.teams_formatting import rich_content_to_teams_html
+
+    if not Team.objects.filter(id=team_id).exists():
+        logger.warning("teams_reply_team_not_found", team_id=team_id)
+        return
+
+    try:
+        bot_token = get_bot_framework_token()
+    except ValueError:
+        logger.warning("teams_reply_no_bot_token", team_id=team_id)
+        return
+
+    reply_html = rich_content_to_teams_html(rich_content, content)
+    display_text = f"{author_name}: {content[:200]}" if author_name else content[:200]
+
+    payload: dict[str, Any] = {
+        "type": "message",
+        "from": {"id": ""},
+        "conversation": {"id": teams_conversation_id},
+        "text": reply_html,
+        "textFormat": "html",
+        "summary": display_text,
+    }
+
+    url = f"{teams_service_url.rstrip('/')}/v3/conversations/{teams_conversation_id}/activities"
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {bot_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=15,
+        )
+        if resp.status_code not in (200, 201):
+            logger.warning(
+                "teams_reply_post_failed",
+                ticket_id=ticket_id,
+                status=resp.status_code,
+                body=resp.text[:200],
+            )
+            raise cast(Any, post_reply_to_teams).retry(
+                exc=Exception(f"Teams reply failed with status {resp.status_code}")
+            )
+
+        logger.info("teams_reply_posted", ticket_id=ticket_id, conversation_id=teams_conversation_id)
+    except requests.RequestException as e:
+        logger.exception("teams_reply_post_error", ticket_id=ticket_id, error=str(e))
+        raise cast(Any, post_reply_to_teams).retry(exc=e)
