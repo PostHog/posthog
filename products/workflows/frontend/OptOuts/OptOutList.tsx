@@ -10,7 +10,8 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { MessageCategory } from './optOutCategoriesLogic'
-import { OptOutEntry, optOutListLogic } from './optOutListLogic'
+import { optOutListLogic } from './optOutListLogic'
+import { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
