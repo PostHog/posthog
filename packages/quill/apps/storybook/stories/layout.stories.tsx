@@ -44,8 +44,8 @@ export const Default: Story = {
             <aside className="p-2 rounded-lg w-[200px] [--theme-hue:570]">
                 <ul className="flex flex-col gap-px [&>li]:w-full [&_button]:w-full bg-muted p-4 rounded-lg">
                     <li><MenuLabel>Sidenav</MenuLabel></li>
-                    <li><Button left>Help</Button></li>
-                    <li><Button left>Settings</Button></li>
+                    <li><Button left variant="primary">Help</Button></li>
+                    <li><Button left aria-selected>Settings</Button></li>
                     <li><Button left>Contact</Button></li>
                 </ul>
             </aside>

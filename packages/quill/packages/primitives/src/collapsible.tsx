@@ -53,7 +53,7 @@ function CollapsibleTrigger({
             data-slot="collapsible-trigger"
             data-variant={variant}
             className={cn(
-                `w-full group/collapsible-trigger px-2 flex items-center gap-2 text-xs/relaxed **:data-[slot=collapsible-trigger-icon]:size-4 **:data-[slot=collapsible-trigger-icon]:text-muted-foreground justify-start`,
+                `w-full group/collapsible-trigger aria-expanded:bg-fill-selected px-2 flex items-center gap-2 text-xs/relaxed **:data-[slot=collapsible-trigger-icon]:size-4 **:data-[slot=collapsible-trigger-icon]:text-muted-foreground justify-start`,
                 variant !== 'folder' && 'aria-expanded:bg-transparent',
                 className
             )}
