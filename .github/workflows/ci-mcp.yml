@@ -37,8 +37,13 @@ jobs:
                         - 'products/*/mcp/**'
                         # PostHog API surface (MCP wraps the REST API)
                         - 'posthog/api/**'
+                        # Models shape API responses via signals, managers, and custom querysets
+                        - 'posthog/models/**'
                         # Migrations (integration tests run manage.py migrate)
                         - 'posthog/migrations/**'
+                        # EE RBAC viewsets (roles_list, roles_retrieve, roles_role_memberships_list)
+                        - 'ee/api/rbac/**'
+                        - 'ee/urls.py'
                         # Product API endpoints wrapped by MCP tools
                         - 'products/*/backend/**'
                         # Query schemas used by MCP analytics tools
@@ -47,6 +52,12 @@ jobs:
                         - 'common/mosaic/**'
                         # Code generation tooling
                         - 'tools/openapi-codegen/**'
+                        # Python dependencies (build + integration-tests run `uv sync --frozen`)
+                        - pyproject.toml
+                        - uv.lock
+                        # Node runtime + workspace dependencies
+                        - .nvmrc
+                        - pnpm-lock.yaml
                         # Integration tests run docker compose for services
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
