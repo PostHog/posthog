@@ -1550,6 +1550,8 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1639,6 +1641,8 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     // Test with realtime cohort evaluation ENABLED
@@ -1673,6 +1677,8 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();

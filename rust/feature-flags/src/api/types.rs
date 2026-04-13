@@ -974,6 +974,7 @@ mod tests {
                     description: None,
                     payload: Some(json!({"key": "value"})),
                 },
+                conditions: None,
             },
         );
 
@@ -996,6 +997,7 @@ mod tests {
                     description: None,
                     payload: None,
                 },
+                conditions: None,
             },
         );
 
@@ -1018,6 +1020,7 @@ mod tests {
                     description: None,
                     payload: Some(Value::Null),
                 },
+                conditions: None,
             },
         );
 

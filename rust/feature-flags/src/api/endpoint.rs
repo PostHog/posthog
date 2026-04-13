@@ -612,6 +612,8 @@ mod tests {
             config: None,
             compression: None,
             lib_version: None,
+            detailed_analysis: None,
+            only_use_override_person_properties: None,
             sent_at: None,
             only_evaluate_survey_feature_flags: None,
         };
