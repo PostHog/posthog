@@ -1019,6 +1019,10 @@ class TestDistributedClusterResolution(unittest.TestCase):
         self.assertIn("Distributed('unknown_thing',", sql)
 
     def test_distributed_satellite_cluster_resolves(self) -> None:
+        from unittest.mock import patch
+
+        from django.conf import settings as _settings
+
         from posthog.clickhouse.migration_tools.state_diff import _generate_create_sql
 
         table = DesiredTable(
@@ -1029,8 +1033,11 @@ class TestDistributedClusterResolution(unittest.TestCase):
             source="sharded_sessions",
             sharding_key="rand()",
         )
-        sql = _generate_create_sql(table, database="posthog", cluster="sessions")
-        # 'sessions' should resolve to CLICKHOUSE_SESSIONS_CLUSTER (test stub: 'posthog_sessions')
+        # Patch setting so the test is deterministic regardless of whether the
+        # Django-free _stubs module installed its SimpleNamespace (stubs skip
+        # when Django is already configured).
+        with patch.object(_settings, "CLICKHOUSE_SESSIONS_CLUSTER", "posthog_sessions"):
+            sql = _generate_create_sql(table, database="posthog", cluster="sessions")
         self.assertIn("Distributed('posthog_sessions',", sql)
 
 
