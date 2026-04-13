@@ -106,6 +106,7 @@ devbox:
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:cleanup:disk: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -752,6 +753,10 @@ environment:
     telemetry:status:
         description: Show current telemetry settings
     sandbox:
+        bin_script: sandbox
+        description: Manage isolated dev sandboxes
+        hidden: true
+    sandybox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
     start:stripe:mock:

@@ -373,6 +373,9 @@ export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transfor
 
         // Optional holdout
         holdout_id: input.holdout_id || null,
+
+        // Event validation bypass
+        ...(input.allow_unknown_events !== undefined && { allow_unknown_events: input.allow_unknown_events }),
     }
 })
 

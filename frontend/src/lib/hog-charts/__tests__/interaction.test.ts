@@ -1,8 +1,8 @@
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../core/interaction'
-import type { ResolveValueFn, Series } from '../core/types'
+import type { ResolveValueFn } from '../core/types'
 import { dimensions, makeSeries } from '../test-helpers'
 
-const defaultResolveValue: ResolveValueFn = (s: Series, i: number): number => s.data[i]
+const defaultResolveValue: ResolveValueFn = (s, i) => s.data[i]
 
 const fakeCanvasBounds = {
     x: 0,
@@ -148,6 +148,26 @@ describe('hog-charts interaction', () => {
             expect(result?.seriesData[0].series.key).toBe('v')
         })
 
+        it('excludes hideFromTooltip series from seriesData but still uses their values for position.y', () => {
+            const shown = makeSeries({ key: 'shown', data: [10] })
+            const hiddenFromTooltip = makeSeries({ key: 'hft', data: [50], hideFromTooltip: true })
+            const alsoShown = makeSeries({ key: 'also', data: [20] })
+            // yScale: 10 -> 80, 20 -> 60, 50 -> 5. position.y is min(yPixels)
+            // — if the hideFromTooltip series contributes, result is 5; otherwise 60.
+            const yScale = (v: number): number => ({ 10: 80, 20: 60, 50: 5 })[v] ?? 0
+            const result = buildTooltipContext(
+                0,
+                [shown, hiddenFromTooltip, alsoShown],
+                ['a'],
+                xConst,
+                yScale,
+                fakeCanvasBounds,
+                defaultResolveValue
+            )
+            expect(result?.seriesData.map((d) => d.series.key)).toEqual(['shown', 'also'])
+            expect(result?.position.y).toBe(5)
+        })
+
         it('includes correct pixel position from xScale and minimum yScale output', () => {
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [50] })
@@ -226,7 +246,7 @@ describe('hog-charts interaction', () => {
         it('uses the resolveValue function for both value and crossSeriesData', () => {
             const s1 = makeSeries({ key: 's1', data: [0] })
             const s2 = makeSeries({ key: 's2', data: [0] })
-            const customResolve: ResolveValueFn = (s: Series): number => (s.key === 's1' ? 111 : 222)
+            const customResolve: ResolveValueFn = (s) => (s.key === 's1' ? 111 : 222)
             const result = buildPointClickData(0, [s1, s2], ['a'], customResolve)
             expect(result?.value).toBe(111)
             expect(result?.crossSeriesData[0].value).toBe(111)

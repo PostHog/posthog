@@ -10,7 +10,12 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.services.sandbox import (
+    Sandbox,
+    SandboxConfig,
+    SandboxTemplate,
+    parse_sandbox_repo_mount_map,
+)
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
@@ -253,7 +258,16 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         if has_repo and not used_snapshot:
             assert repository is not None
-            emit_agent_log(ctx.run_id, "info", f"Cloning {repository} into sandbox")
+            local_bind = parse_sandbox_repo_mount_map().get(repository.lower())
+            # Bind mounts are only applied for Docker sandboxes; Modal ignores SANDBOX_REPO_MOUNT_MAP.
+            if local_bind is not None and getattr(settings, "SANDBOX_PROVIDER", None) == "docker":
+                emit_agent_log(
+                    ctx.run_id,
+                    "info",
+                    f"Using local checkout for {repository} at {local_bind} (SANDBOX_REPO_MOUNT_MAP); skipping clone from GitHub",
+                )
+            else:
+                emit_agent_log(ctx.run_id, "info", f"Cloning {repository} into sandbox")
             with StepTimer("repository_clone", used_snapshot=used_snapshot):
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:

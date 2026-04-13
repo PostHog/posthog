@@ -4,7 +4,7 @@ import json
 import uuid
 import string
 import secrets
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -28,6 +28,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
 
@@ -199,6 +200,7 @@ class Task(DeletedMetaFields, models.Model):
             state=state,
             branch=branch,
         )
+        task_run.publish_stream_state_event()
         self.capture_event(
             "task_run_created",
             {
@@ -514,6 +516,7 @@ class TaskRun(models.Model):
         self.status = self.Status.COMPLETED
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "completed_at"])
+        self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
@@ -525,6 +528,7 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+        self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",
             {
@@ -532,6 +536,26 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+
+    def build_stream_state_event(self) -> dict[str, Any]:
+        return {
+            "type": "task_run_state",
+            "run_id": str(self.id),
+            "task_id": str(self.task_id),
+            "status": self.status,
+            "stage": self.stage,
+            "output": self.output,
+            "branch": self.branch,
+            "error_message": self.error_message,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def publish_stream_event(self, event: dict[str, Any]) -> None:
+        publish_task_run_stream_event(str(self.id), event)
+
+    def publish_stream_state_event(self) -> None:
+        self.publish_stream_event(self.build_stream_state_event())
 
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
@@ -549,6 +573,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
@@ -567,6 +592,7 @@ class TaskRun(models.Model):
             },
         }
         self.append_log([event])
+        self.publish_stream_event(event)
 
     @property
     def is_terminal(self) -> bool:

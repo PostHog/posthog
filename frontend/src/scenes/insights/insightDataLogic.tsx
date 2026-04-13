@@ -122,7 +122,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
                     try {
                         const query =
-                            insightQuery.kind === NodeKind.ActorsQuery
+                            insightQuery.kind === NodeKind.ActorsQuery || insightQuery.kind === NodeKind.EventsQuery
                                 ? insightQuery
                                 : { kind: NodeKind.InsightVizNode, source: insightQuery }
                         const response = await api.insights.generateMetadata(query)
@@ -251,6 +251,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
                 return undefined
             },
+        ],
+        canEditInSqlEditor: [
+            (s) => [s.hogQL, s.query],
+            (hogQL, query): boolean =>
+                // We need a resolved hogql string, and the insight must not already be SQL-authored
+                // (otherwise "Edit in SQL editor" is a no-op).
+                hogQL != null &&
+                !isHogQLQuery(query) &&
+                !(isDataVisualizationNode(query) && isHogQLQuery(query.source)),
         ],
     }),
 

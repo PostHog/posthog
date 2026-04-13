@@ -1575,6 +1575,231 @@
             "readOnlyHint": true
         }
     },
+    "change-requests-list": {
+        "description": "List approval requests (change requests) for the current project. Returns pending, approved, rejected, and expired requests with vote status and staleness info. Useful for understanding what governance actions are waiting for review.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List pending and resolved approval requests.",
+        "title": "List pending and resolved approval requests.",
+        "required_scopes": ["approvals:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "change-request-get": {
+        "description": "Get a specific change request by ID, including the full intent, policy snapshot, approval votes, and current state.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get details of a specific approval request.",
+        "title": "Get details of a specific approval request.",
+        "required_scopes": ["approvals:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "approval-policies-list": {
+        "description": "List all approval policies configured for this project. Shows which actions require approval, who can approve, and bypass rules.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List approval policies for the project.",
+        "title": "List approval policies for the project.",
+        "required_scopes": ["approvals:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "approval-policy-get": {
+        "description": "Get details of an approval policy including conditions, approver configuration, quorum requirements, and bypass rules.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get a specific approval policy.",
+        "title": "Get a specific approval policy.",
+        "required_scopes": ["approvals:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "comments-list": {
+        "description": "List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight, etc.) and item_id to find discussions on specific resources. Returns comment content, author, and threading info.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List comments and discussion threads.",
+        "title": "List comments and discussion threads.",
+        "required_scopes": ["comment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "comment-get": {
+        "description": "Get a specific comment by ID including its content, rich content with mentions, and metadata.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get a specific comment.",
+        "title": "Get a specific comment.",
+        "required_scopes": ["comment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "comment-thread": {
+        "description": "Get the full thread of replies for a parent comment. Useful for reading complete discussions on a resource.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get all replies in a comment thread.",
+        "title": "Get all replies in a comment thread.",
+        "required_scopes": ["comment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "comment-count": {
+        "description": "Get the count of comments, optionally filtered by scope and item_id.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get comment counts.",
+        "title": "Get comment counts.",
+        "required_scopes": ["comment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "activity-log-list": {
+        "description": "List recent activity log entries for the project. Shows who did what and when — feature flag changes, dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List recent activity in the project.",
+        "title": "List recent activity in the project.",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "advanced-activity-logs-list": {
+        "description": "List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by scope, activity type, user, date range, and search text.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List activity logs with advanced filtering.",
+        "title": "List activity logs with advanced filtering.",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "advanced-activity-logs-filters": {
+        "description": "Get the available filter options for activity logs — scopes, activity types, and users that have logged activity. Useful for building filter UIs or understanding what kinds of activity are tracked.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get available activity log filter options.",
+        "title": "Get available activity log filter options.",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "org-members-list": {
+        "description": "List all members of the current organization with their names, emails, membership levels (member, admin, owner), and last login times.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organization members.",
+        "title": "List organization members.",
+        "required_scopes": ["organization_member:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "roles-list": {
+        "description": "List all roles defined in the organization. Roles group members and can be used in approval policies and access control rules.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List organization roles.",
+        "title": "List organization roles.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "role-get": {
+        "description": "Get details of a specific role including its name, creation date, and creator.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get a specific role.",
+        "title": "Get a specific role.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "role-members-list": {
+        "description": "List all members assigned to a specific role. Shows who has which role in the organization.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "List members of a role.",
+        "title": "List members of a role.",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content.",
         "category": "Prompts",
