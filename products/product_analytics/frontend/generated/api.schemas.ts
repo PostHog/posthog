@@ -549,9 +549,9 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type KeyApi = (typeof KeyApi)[keyof typeof KeyApi]
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
-export const KeyApi = {
+export const Key10Api = {
     TagName: 'tag_name',
     Text: 'text',
     Href: 'href',
@@ -566,7 +566,7 @@ export const ElementPropertyFilterApiType = {
 } as const
 
 export interface ElementPropertyFilterApi {
-    key: KeyApi
+    key: Key10Api
     /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
@@ -5618,11 +5618,64 @@ export interface FunnelCorrelationActorsQueryApi {
     version?: number | null
 }
 
+export type ExperimentEventExposureConfigApiKind =
+    (typeof ExperimentEventExposureConfigApiKind)[keyof typeof ExperimentEventExposureConfigApiKind]
+
+export const ExperimentEventExposureConfigApiKind = {
+    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentEventExposureConfigApiResponse = { [key: string]: unknown } | null | null
+
+export interface ExperimentEventExposureConfigApi {
+    event: string
+    kind?: ExperimentEventExposureConfigApiKind
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | ElementPropertyFilterApi
+        | EventMetadataPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+        | RecordingPropertyFilterApi
+        | LogEntryPropertyFilterApi
+        | GroupPropertyFilterApi
+        | FeaturePropertyFilterApi
+        | FlagPropertyFilterApi
+        | HogQLPropertyFilterApi
+        | EmptyPropertyFilterApi
+        | DataWarehousePropertyFilterApi
+        | DataWarehousePersonPropertyFilterApi
+        | ErrorTrackingIssueFilterApi
+        | LogPropertyFilterApi
+        | SpanPropertyFilterApi
+        | RevenueAnalyticsPropertyFilterApi
+        | WorkflowVariablePropertyFilterApi
+    )[]
+    /** @nullable */
+    response?: ExperimentEventExposureConfigApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
 export type ExperimentActorsQueryApiKind =
     (typeof ExperimentActorsQueryApiKind)[keyof typeof ExperimentActorsQueryApiKind]
 
 export const ExperimentActorsQueryApiKind = {
     ExperimentActorsQuery: 'ExperimentActorsQuery',
+} as const
+
+export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]
+
+export const MultipleVariantHandlingApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
 } as const
 
 export type ExperimentQueryApiKind = (typeof ExperimentQueryApiKind)[keyof typeof ExperimentQueryApiKind]
@@ -6163,6 +6216,13 @@ export interface ExperimentQueryApi {
 }
 
 export interface ExperimentActorsQueryApi {
+    /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
+    exposureConfig?: ExperimentEventExposureConfigApi | ActionsNodeApi | null
+    /**
+     * Feature flag key for breakdown filtering.
+     * @nullable
+     */
+    featureFlagKey?: string | null
     /**
      * Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons.
      * @nullable
@@ -6175,6 +6235,8 @@ export interface ExperimentActorsQueryApi {
     kind?: ExperimentActorsQueryApiKind
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** How to handle users with multiple variant exposures. */
+    multipleVariantHandling?: MultipleVariantHandlingApi | null
     response?: ActorsQueryResponseApi | null
     source: ExperimentQueryApi
     tags?: QueryLogTagsApi | null
