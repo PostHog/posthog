@@ -185,6 +185,7 @@ rules:
                               |EmailChannel
                               |Text
                               |Threshold
+                              |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
                               |ReviewQueue
@@ -374,6 +375,7 @@ rules:
                         |EmailChannel
                         |Text
                         |Threshold
+                        |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
                         |ReviewQueue

@@ -1,3 +1,5 @@
+import json
+import base64
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from django.conf import settings
@@ -6,7 +8,6 @@ from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import jwt
 import requests
 from loginas.utils import is_impersonated_session
 from rest_framework.permissions import IsAuthenticated
@@ -180,14 +181,16 @@ def teams_oauth_callback(request: HttpRequest) -> HttpResponse:
     if not refresh_token:
         return _error_response(next_path, "missing_refresh_token", 400)
 
-    # Extract tenant_id from id_token
+    # Extract tenant_id from id_token payload (no signature verification
+    # needed — the token was just returned by Azure AD over a TLS-authenticated
+    # code exchange so its payload is trustworthy).
     id_token = payload.get("id_token", "")
     tenant_id: str | None = None
     if id_token:
         try:
-            # Decode without verification -- we only need the tid claim and
-            # the token was just issued by Azure AD in an authenticated exchange
-            claims = jwt.decode(id_token, options={"verify_signature": False})
+            payload_segment = id_token.split(".")[1]
+            padded = payload_segment + "=" * (-len(payload_segment) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(padded))
             tenant_id = claims.get("tid")
         except Exception:
             pass

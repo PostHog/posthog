@@ -1,3 +1,5 @@
+import re
+
 import requests
 import structlog
 from rest_framework.permissions import IsAuthenticated
@@ -14,6 +16,8 @@ logger = structlog.get_logger(__name__)
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
 
 class TeamsTeamsView(APIView):
     """List MS Teams groups the authenticated user has joined."""
@@ -27,8 +31,9 @@ class TeamsTeamsView(APIView):
 
         try:
             token = get_graph_token(user.current_team)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=400)
+        except ValueError:
+            logger.exception("teams_list_teams_token_error")
+            return Response({"error": "Failed to get Teams access token"}, status=400)
 
         try:
             resp = requests.get(
@@ -63,13 +68,14 @@ class TeamsChannelsView(APIView):
             return Response({"error": "No current team selected"}, status=400)
 
         teams_team_id = request.data.get("team_id")
-        if not teams_team_id or not isinstance(teams_team_id, str):
-            return Response({"error": "team_id is required"}, status=400)
+        if not teams_team_id or not isinstance(teams_team_id, str) or not _UUID_RE.match(teams_team_id):
+            return Response({"error": "team_id must be a valid UUID"}, status=400)
 
         try:
             token = get_graph_token(user.current_team)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=400)
+        except ValueError:
+            logger.exception("teams_list_channels_token_error")
+            return Response({"error": "Failed to get Teams access token"}, status=400)
 
         try:
             resp = requests.get(

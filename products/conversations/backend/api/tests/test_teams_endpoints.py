@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
@@ -238,9 +239,12 @@ class TestTeamsOAuthEndpoints(APIBaseTest):
         assert response.status_code == 200
         data = response.json()
         assert "url" in data
-        assert "login.microsoftonline.com" in data["url"]
-        assert "app-id-123" in data["url"]
-        assert "offline_access" in data["url"]
+        parsed = urlparse(data["url"])
+        assert parsed.scheme == "https"
+        assert parsed.hostname == "login.microsoftonline.com"
+        qs = parse_qs(parsed.query)
+        assert qs["client_id"] == ["app-id-123"]
+        assert "offline_access" in qs.get("scope", [""])[0]
 
     @patch("products.conversations.backend.api.teams_oauth.get_instance_settings")
     def test_authorize_not_configured_returns_503(self, mock_settings):
