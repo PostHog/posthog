@@ -1,7 +1,7 @@
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import ClassVar, Optional, Union
 
 from posthog.schema import (
     AttributionMode,
@@ -90,6 +90,12 @@ class ConversionGoalProcessor:
     index: int
     team: Team
     config: MarketingAnalyticsConfig
+
+    _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
+        MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
+        MarketingAnalyticsDrillDownLevel.CONTENT: "content",
+        MarketingAnalyticsDrillDownLevel.TERM: "term",
+    }
 
     def get_cte_name(self) -> str:
         """Get unique CTE name for this conversion goal"""
@@ -1425,13 +1431,7 @@ class ConversionGoalProcessor:
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
-            # UTM-only levels: group by the respective UTM field
-            utm_field_map = {
-                MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
-                MarketingAnalyticsDrillDownLevel.CONTENT: "content",
-                MarketingAnalyticsDrillDownLevel.TERM: "term",
-            }
-            utm_expr = field_exprs[utm_field_map[level]]
+            utm_expr = field_exprs[self._UTM_LEVEL_FIELD_MAP[level]]
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                 ast.Alias(alias=self.config.campaign_field, expr=utm_expr),
@@ -1444,7 +1444,6 @@ class ConversionGoalProcessor:
             ]
             group_by = [utm_expr]
         else:
-            # Campaign level (default)
             # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=campaign_expr),
@@ -1606,12 +1605,7 @@ class ConversionGoalProcessor:
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
-            utm_field_map = {
-                MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
-                MarketingAnalyticsDrillDownLevel.CONTENT: "content",
-                MarketingAnalyticsDrillDownLevel.TERM: "term",
-            }
-            utm_expr = field_exprs[utm_field_map[level]]
+            utm_expr = field_exprs[self._UTM_LEVEL_FIELD_MAP[level]]
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                 ast.Alias(alias=self.config.campaign_field, expr=utm_expr),
@@ -1621,7 +1615,6 @@ class ConversionGoalProcessor:
             ]
             group_by = [utm_expr]
         else:
-            # Campaign level (default)
             select_columns = [
                 ast.Alias(alias=self.config.match_key_field, expr=campaign_expr),
                 ast.Alias(alias=self.config.campaign_field, expr=campaign_expr),
