@@ -137,62 +137,420 @@
             },
             "required": ["experimentId", "refresh"]
         },
-        "InsightCreateSchema": {
+        "ExperimentUpdateInputSchema": {
             "type": "object",
             "properties": {
+                "name": {
+                    "description": "Update experiment name",
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Update experiment description",
+                    "type": "string"
+                },
+                "primary_metrics": {
+                    "description": "Update primary metrics",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "description": "Human-readable metric name",
+                                "type": "string"
+                            },
+                            "metric_type": {
+                                "type": "string",
+                                "enum": ["mean", "funnel", "ratio"],
+                                "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
+                            },
+                            "event_name": {
+                                "type": "string",
+                                "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"
+                            },
+                            "funnel_steps": {
+                                "description": "For funnel metrics only: Array of event names for each funnel step",
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "properties": {
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"]
+                                }
+                            },
+                            "description": {
+                                "description": "What this metric measures",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["metric_type", "event_name"]
+                    }
+                },
+                "secondary_metrics": {
+                    "description": "Update secondary metrics",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "description": "Human-readable metric name",
+                                "type": "string"
+                            },
+                            "metric_type": {
+                                "type": "string",
+                                "enum": ["mean", "funnel", "ratio"],
+                                "description": "Metric type"
+                            },
+                            "event_name": {
+                                "type": "string",
+                                "description": "PostHog event name"
+                            },
+                            "funnel_steps": {
+                                "description": "For funnel metrics only: Array of event names",
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "properties": {
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "number"
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["key"]
+                                }
+                            },
+                            "description": {
+                                "description": "What this metric measures",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["metric_type", "event_name"]
+                    }
+                },
+                "minimum_detectable_effect": {
+                    "description": "Update minimum detectable effect in percentage",
+                    "type": "number"
+                },
+                "launch": {
+                    "description": "Launch experiment (set start_date) or keep as draft",
+                    "type": "boolean"
+                },
+                "conclude": {
+                    "description": "Conclude experiment with result",
+                    "type": "string",
+                    "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"]
+                },
+                "conclusion_comment": {
+                    "description": "Comment about experiment conclusion",
+                    "type": "string"
+                },
+                "restart": {
+                    "description": "Restart concluded experiment as draft (clears start_date, end_date, and conclusion)",
+                    "type": "boolean"
+                },
+                "archive": {
+                    "description": "Archive or unarchive experiment",
+                    "type": "boolean"
+                }
+            }
+        },
+        "ExperimentUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "experimentId": {
+                    "type": "number",
+                    "description": "The ID of the experiment to update"
+                },
                 "data": {
                     "type": "object",
                     "properties": {
                         "name": {
+                            "description": "Update experiment name",
                             "type": "string"
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
-                                }
-                            },
-                            "required": ["kind", "source"]
                         },
                         "description": {
+                            "description": "Update experiment description",
                             "type": "string"
                         },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "tags": {
+                        "primary_metrics": {
+                            "description": "Update primary metrics",
                             "type": "array",
                             "items": {
-                                "type": "string"
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "description": "Human-readable metric name",
+                                        "type": "string"
+                                    },
+                                    "metric_type": {
+                                        "type": "string",
+                                        "enum": ["mean", "funnel", "ratio"],
+                                        "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
+                                    },
+                                    "event_name": {
+                                        "type": "string",
+                                        "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"
+                                    },
+                                    "funnel_steps": {
+                                        "description": "For funnel metrics only: Array of event names for each funnel step",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "operator": {
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"]
+                                        }
+                                    },
+                                    "description": {
+                                        "description": "What this metric measures",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["metric_type", "event_name"]
                             }
+                        },
+                        "secondary_metrics": {
+                            "description": "Update secondary metrics",
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "description": "Human-readable metric name",
+                                        "type": "string"
+                                    },
+                                    "metric_type": {
+                                        "type": "string",
+                                        "enum": ["mean", "funnel", "ratio"],
+                                        "description": "Metric type"
+                                    },
+                                    "event_name": {
+                                        "type": "string",
+                                        "description": "PostHog event name"
+                                    },
+                                    "funnel_steps": {
+                                        "description": "For funnel metrics only: Array of event names",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "properties": {
+                                        "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                {
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "number"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "operator": {
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"]
+                                        }
+                                    },
+                                    "description": {
+                                        "description": "What this metric measures",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["metric_type", "event_name"]
+                            }
+                        },
+                        "minimum_detectable_effect": {
+                            "description": "Update minimum detectable effect in percentage",
+                            "type": "number"
+                        },
+                        "launch": {
+                            "description": "Launch experiment (set start_date) or keep as draft",
+                            "type": "boolean"
+                        },
+                        "conclude": {
+                            "description": "Conclude experiment with result",
+                            "type": "string",
+                            "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"]
+                        },
+                        "conclusion_comment": {
+                            "description": "Comment about experiment conclusion",
+                            "type": "string"
+                        },
+                        "restart": {
+                            "description": "Restart concluded experiment as draft (clears start_date, end_date, and conclusion)",
+                            "type": "boolean"
+                        },
+                        "archive": {
+                            "description": "Archive or unarchive experiment",
+                            "type": "boolean"
                         }
                     },
-                    "required": ["name", "query", "favorited"]
+                    "description": "The experiment data to update using user-friendly format"
                 }
             },
-            "required": ["data"]
-        },
-        "InsightDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
+            "required": ["experimentId", "data"]
         },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
@@ -205,109 +563,21 @@
             },
             "required": ["question"]
         },
-        "InsightGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "number"
-                        },
-                        "offset": {
-                            "type": "number"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "search": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "InsightGetSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "The insight ID or short_id to run."
+                },
+                "format": {
+                    "default": "optimized",
+                    "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "type": "string",
+                    "enum": ["optimized", "json"]
                 }
             },
             "required": ["insightId"]
-        },
-        "InsightUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "propertyNames": {
-                                "type": "string"
-                            },
-                            "additionalProperties": {}
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused"
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "dashboards": {
-                            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
-                            "type": "array",
-                            "items": {
-                                "type": "number"
-                            }
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["insightId", "data"]
         },
         "LLMAnalyticsGetCostsSchema": {
             "type": "object",
