@@ -1936,3 +1936,198 @@ class TestDiffStatePlaceholderMvNotDropped(unittest.TestCase):
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         drops = [d for d in diffs if d.action == "drop"]
         self.assertEqual(drops, [], f"Trailing-dots placeholder MV should not be dropped: {[d.table for d in drops]}")
+
+
+class TestComputeDiffsConvergencePreserved(unittest.TestCase):
+    """Regression guard: when every desired table is already present in the
+    live cluster and there are no orphans, _compute_diffs must return an
+    empty diff list. The previous round-2 attempt to detect orphans across
+    ecosystems leaked spurious DROPs and broke this property."""
+
+    def test_no_diffs_when_desired_matches_current_no_orphans(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        events_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+        heatmaps_state = DesiredState(
+            ecosystem="heatmaps",
+            cluster="main",
+            tables={
+                "sharded_heatmaps": _make_desired_table(
+                    "sharded_heatmaps",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        main_cluster = MagicMock(name="main-cluster")
+
+        def fake_dump(_cluster_obj, _database):
+            return {
+                "host1": {
+                    "sharded_events": _make_table_schema(
+                        "sharded_events",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    "sharded_heatmaps": _make_table_schema(
+                        "sharded_heatmaps",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    # Tracking tables exist in live but should never trigger drops.
+                    "clickhouse_schema_migrations": _make_table_schema(
+                        "clickhouse_schema_migrations",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                }
+            }
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[events_state, heatmaps_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                return_value=main_cluster,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        self.assertEqual(diffs, [], f"Expected no diffs, got: {[(d.action, d.table) for d in diffs]}")
+
+
+class TestApplyRoutesStepsToCorrectCluster(unittest.TestCase):
+    """P1-3 (Codex round 2): handle_apply must call execute_migration_step
+    with the cluster object that matches the StateDiff.cluster tag, not
+    always with the migrations cluster. Without this, every step runs against
+    the main cluster — including logs-cluster steps that target tables which
+    don't exist there."""
+
+    def test_step_executes_against_step_cluster(self) -> None:
+        import tempfile
+
+        from unittest.mock import MagicMock, patch
+
+        from posthog.clickhouse.migration_tools.manifest import ManifestStep
+        from posthog.management.commands.ch_migrate import Command
+
+        # Two steps: one for `main`, one for `logs`.
+        steps = [
+            (
+                ManifestStep(
+                    sql="_reconcile:create_main_t",
+                    node_roles=["ALL"],
+                    comment="create main_t",
+                    cluster="main",
+                ),
+                "CREATE TABLE main_t (id UInt64) ENGINE = MergeTree ORDER BY id",
+            ),
+            (
+                ManifestStep(
+                    sql="_reconcile:create_logs_t",
+                    node_roles=["ALL"],
+                    comment="create logs_t",
+                    cluster="logs",
+                ),
+                "CREATE TABLE logs_t (id UInt64) ENGINE = MergeTree ORDER BY id",
+            ),
+        ]
+
+        # Drive _compute_diffs to produce one diff so handle_apply takes the
+        # apply path. The actual diff content gets replaced by `steps` via the
+        # generate_manifest_steps patch.
+        diffs = [
+            StateDiff(
+                action="create",
+                table="main_t",
+                detail="create main_t",
+                sql="CREATE TABLE main_t (id UInt64) ENGINE = MergeTree ORDER BY id",
+                node_roles=["ALL"],
+                cluster="main",
+            )
+        ]
+
+        migrations_cluster = MagicMock(name="migrations-cluster")
+        main_cluster = MagicMock(name="main-cluster")
+        logs_cluster = MagicMock(name="logs-cluster")
+        cluster_lookup = {"main": main_cluster, "logs": logs_cluster}
+
+        executed: list[tuple[object, str]] = []
+
+        def fake_execute(cluster_obj, step, _sql):
+            executed.append((cluster_obj, step.cluster))
+
+        def fake_get_cluster_by_name(name: str, **_kw):
+            return cluster_lookup[name]
+
+        # handle_apply checks `schema_dir.exists()` and returns early if not —
+        # use a real temp dir so the apply flow runs.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch(
+                    "posthog.clickhouse.client.migration_tools.get_migrations_cluster",
+                    return_value=migrations_cluster,
+                ),
+                patch(
+                    "posthog.management.commands.ch_migrate._any_client",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                    side_effect=fake_get_cluster_by_name,
+                ),
+                patch.object(Command, "_compute_diffs", return_value=(diffs, None)),
+                patch(
+                    "posthog.clickhouse.migration_tools.plan_generator.generate_manifest_steps",
+                    return_value=steps,
+                ),
+                patch(
+                    "posthog.clickhouse.migration_tools.runner.execute_migration_step",
+                    side_effect=fake_execute,
+                ),
+                patch(
+                    "posthog.clickhouse.migration_tools.tracking.acquire_apply_lock",
+                    return_value=(True, ""),
+                ),
+                patch(
+                    "posthog.clickhouse.migration_tools.tracking.release_apply_lock",
+                ),
+                patch("posthog.clickhouse.migration_tools.tracking._record_step"),
+                patch("posthog.clickhouse.migration_tools.tracking.record_schema_version"),
+            ):
+                cmd = Command()
+                cmd.handle_apply({"yes": True, "schema_dir": tmpdir})
+
+        self.assertEqual(len(executed), 2, f"Expected 2 executions, got: {executed}")
+        # Step 0 went through the main cluster.
+        self.assertIs(executed[0][0], main_cluster, "main step routed to wrong cluster")
+        # Step 1 went through the logs cluster, NOT the migrations cluster.
+        self.assertIs(executed[1][0], logs_cluster, "logs step routed to wrong cluster")
+        self.assertIsNot(executed[1][0], migrations_cluster, "logs step incorrectly hit migrations cluster")

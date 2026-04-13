@@ -137,6 +137,37 @@ def _drop_stmt(engine: str, database: str, table: str) -> str:
     return f"DROP TABLE IF EXISTS {database}.{table}"
 
 
+# Tracking tables are bookkeeping infrastructure managed by `bootstrap`,
+# never declared in any YAML. Both `diff_state` and the cluster-wide orphan
+# scan in `_compute_diffs` exclude them so we never emit a DROP for the
+# tool's own state tables.
+TRACKING_TABLES: frozenset[str] = frozenset(
+    {
+        "clickhouse_schema_migrations",
+        "infi_clickhouse_orm_migrations",
+        "infi_clickhouse_orm_migrations_distributed",
+    }
+)
+
+
+def has_placeholder_select(t: DesiredTable) -> bool:
+    """True if a desired MV's SELECT body contains a `...` placeholder.
+
+    The YAML baseline for several ecosystems was mechanically generated and
+    left the SELECT body as a sentinel for later hand-filling. These MVs
+    stay managed by legacy `migrate_clickhouse` until the YAML grows real
+    bodies. Two variants observed in the wild:
+      - `SELECT ... FROM source`             (full body stubbed)
+      - `SELECT col1, col2, ... FROM source` (trailing cols stubbed)
+    The trailing `...` in a valid SELECT list is not legal ClickHouse
+    syntax, so this check won't accidentally skip real MVs.
+    """
+    if not _is_mv(t.engine) or not t.select:
+        return False
+    select_body = t.select
+    return "SELECT ..." in select_body or ", ..." in select_body or ",..." in select_body
+
+
 # ClickHouse normalizes toIntervalX(N) → INTERVAL N X in system.columns,
 # but YAML may use either form. Map function names to interval units.
 _INTERVAL_FUNCS = {
@@ -634,25 +665,8 @@ def diff_state(
     alters: list[StateDiff] = []
     recreates: list[StateDiff] = []
 
-    # Skip MaterializedViews whose SELECT body contains a literal `...`
-    # placeholder. The YAML baseline was generated mechanically from the live
-    # schema for some ecosystems and left the SELECT body as a sentinel for
-    # later hand-filling. Two variants observed in the wild:
-    #   - `SELECT ... FROM source`             (full body stubbed)
-    #   - `SELECT col1, col2, ... FROM source` (trailing cols stubbed)
-    # Both render into invalid SQL. These MVs stay managed by legacy
-    # `migrate_clickhouse` until the YAML grows real bodies. The trailing
-    # `...` in a valid SELECT list is not legal ClickHouse syntax, so this
-    # check won't accidentally skip real MVs.
-    def _has_placeholder_select(t: DesiredTable) -> bool:
-        if not _is_mv(t.engine) or not t.select:
-            return False
-        select_body = t.select
-        # `SELECT ...` at the start (F11 original) or `, ...` before FROM
-        # (person_query_log MVs discovered in 2026-04-11 reverify).
-        return "SELECT ..." in select_body or ", ..." in select_body or ",..." in select_body
-
-    skipped_placeholder_mvs = [name for name, t in desired.tables.items() if _has_placeholder_select(t)]
+    # See `has_placeholder_select` (module level) for why these are skipped.
+    skipped_placeholder_mvs = [name for name, t in desired.tables.items() if has_placeholder_select(t)]
     if skipped_placeholder_mvs:
         logger.warning(
             "ch_migrate: skipping %d MV(s) with placeholder SELECT body — "
@@ -661,10 +675,7 @@ def diff_state(
             ", ".join(skipped_placeholder_mvs),
         )
 
-    def _should_skip(name: str, t: DesiredTable) -> bool:
-        return _has_placeholder_select(t)
-
-    desired_without_skipped = {name: t for name, t in desired.tables.items() if not _should_skip(name, t)}
+    desired_without_skipped = {name: t for name, t in desired.tables.items() if not has_placeholder_select(t)}
 
     desired_names = set(desired_without_skipped.keys())
     current_names = set(current.keys())
@@ -677,12 +688,7 @@ def diff_state(
     # Tracking tables are bookkeeping infrastructure managed by bootstrap,
     # not declared in any YAML. If they're in current they belong there —
     # never emit DROP for them (would delete the tool's own state).
-    _TRACKING_TABLES = {
-        "clickhouse_schema_migrations",
-        "infi_clickhouse_orm_migrations",
-        "infi_clickhouse_orm_migrations_distributed",
-    }
-    current_names -= _TRACKING_TABLES
+    current_names -= TRACKING_TABLES
 
     # Tables to drop (in current but not in desired)
     for table_name in sorted(current_names - desired_names):
