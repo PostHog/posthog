@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 
 # Cooldown period before a ticket is eligible for signal emission.
 # Vibes, ensures some conversation context has accumulated.
+# TODO: Use last_message_at instead of created_at so we snapshot after the thread goes quiet, not just after creation.
 TICKET_COOLDOWN_HOURS = 1
 
 
