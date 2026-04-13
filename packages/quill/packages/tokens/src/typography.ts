@@ -4,20 +4,20 @@
 
 import { fontFamilyValue } from './css'
 
-const ROOT_FONT_SIZE = 14
+const ROOT_FONT_SIZE = 16
 
 function rem(px: number): string {
     return `${px / ROOT_FONT_SIZE}rem`
 }
 
 export const fontSize = {
-    xxs: [rem(10), { lineHeight: rem(12) }], // 0.7143rem (10px)
-    xs: [rem(12), { lineHeight: rem(16) }], // 0.8571rem (12px)
-    sm: [rem(14), { lineHeight: rem(14) }], // 1rem (14px)
-    base: [rem(16), { lineHeight: rem(24) }], // 1.1429rem (16px)
-    lg: [rem(18), { lineHeight: rem(28) }], // 1.2857rem (18px)
-    xl: [rem(20), { lineHeight: rem(28) }], // 1.4286rem (20px)
-    '2xl': [rem(24), { lineHeight: rem(32) }], // 1.7143rem (24px)
+    xxs: [rem(10), { lineHeight: rem(12) }],   // 0.625rem (10px), 0.75rem (12px)
+    xs: [rem(12), { lineHeight: rem(16) }],    // 0.75rem (12px), 1rem (16px)
+    sm: [rem(14), { lineHeight: rem(20) }],    // 0.875rem (14px), 1.25rem (20px)
+    base: [rem(16), { lineHeight: rem(24) }],  // 1rem (16px), 1.5rem (24px)
+    lg: [rem(18), { lineHeight: rem(28) }],    // 1.125rem (18px), 1.75rem (28px)
+    xl: [rem(20), { lineHeight: rem(28) }],    // 1.25rem (20px), 1.75rem (28px)
+    '2xl': [rem(24), { lineHeight: rem(32) }], // 1.5rem (24px), 2rem (32px)
 } as const
 
 export const fontFamily = {

@@ -187,6 +187,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
+    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -923,6 +924,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],

@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "allow_unknown_events": {
+            "description": "Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.",
+            "type": "boolean"
+        },
         "description": {
             "description": "Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes",
             "type": "string"

@@ -134,16 +134,20 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | (string | number)[] | undefined>
+        query?: Record<string, string | number | boolean | (string | number)[] | null | undefined>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
-                if (v !== undefined) {
-                    searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
+                if (v === undefined || v === null) {
+                    continue
                 }
+                if (Array.isArray(v) && v.length === 0) {
+                    continue
+                }
+                searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
             }
         }
         const qs = searchParams.toString()
