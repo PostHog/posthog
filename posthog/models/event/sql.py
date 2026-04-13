@@ -216,7 +216,7 @@ MATERIALIZE INDEX `minmax_inserted_at`
 # this is an added safety mechanism given we control payloads to this topic
 
 
-def KAFKA_EVENTS_TABLE_JSON_SQL():
+def KAFKA_EVENTS_TABLE_JSON_SQL(on_cluster=True):
     return (
         EVENTS_TABLE_BASE_SQL
         + """
@@ -224,7 +224,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
 """
     ).format(
         table_name="kafka_events_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),

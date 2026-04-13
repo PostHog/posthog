@@ -1,5 +1,3 @@
-import re
-
 from posthog.clickhouse.client.migration_tools import NodeRole, run_sql_with_exceptions
 from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 
@@ -15,11 +13,6 @@ DROP_KAFKA_EVENTS_TABLE_JSON = """
 DROP_EVENTS_TABLE_JSON_MV = """
     DROP TABLE IF EXISTS events_json_mv
 """
-
-
-def _strip_on_cluster(sql: str) -> str:
-    return re.sub(r"\s*ON CLUSTER '[^']*'", "", sql)
-
 
 operations = [
     # First drop the materialized view
@@ -46,7 +39,7 @@ operations = [
         is_alter_on_replicated_table=False,
     ),
     # Recreate the kafka table (without ON CLUSTER, migration framework handles distribution)
-    run_sql_with_exceptions(_strip_on_cluster(KAFKA_EVENTS_TABLE_JSON_SQL())),
+    run_sql_with_exceptions(KAFKA_EVENTS_TABLE_JSON_SQL(on_cluster=False)),
     # Recreate the materialized view
-    run_sql_with_exceptions(_strip_on_cluster(EVENTS_TABLE_JSON_MV_SQL())),
+    run_sql_with_exceptions(EVENTS_TABLE_JSON_MV_SQL(on_cluster=False)),
 ]
