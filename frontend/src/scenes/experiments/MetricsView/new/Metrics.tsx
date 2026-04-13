@@ -79,7 +79,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end flex items-center gap-2">
                                 {metrics.length >= 3 && (
-                                    <Tooltip title="More metrics means more comparisons. Make sure each metric has a clear hypothesis so you can tell real effects from noise.">
+                                    <Tooltip title="Each additional metric is another result to interpret. Make sure each has a clear hypothesis.">
                                         <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
                                 )}
