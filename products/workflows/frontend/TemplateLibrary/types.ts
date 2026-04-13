@@ -1,5 +1,4 @@
-// eslint-disable-next-line import/no-cycle
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { UserBasicType } from '~/types'
 
