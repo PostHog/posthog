@@ -249,9 +249,9 @@ function TimelineTimestampCell({
     )
 }
 
-function TimelineRowMenu({ menuItems }: { menuItems: TimelineMenuItem[] }): JSX.Element {
+function TimelineRowMenu({ menuItems }: { menuItems: TimelineMenuItem[] }): JSX.Element | null {
     if (menuItems.length === 0) {
-        return <span className="w-7 shrink-0 border-l border-transparent" />
+        return null
     }
 
     return (

@@ -1,6 +1,8 @@
+import { render } from '@testing-library/react'
+
 import { dayjs } from 'lib/dayjs'
 
-import { ExceptionStepLoader } from './exceptionSteps'
+import { ExceptionStepLoader, exceptionStepRenderer } from './exceptionSteps'
 
 describe('ExceptionStepLoader', () => {
     it('skips malformed steps and keeps valid steps sorted by timestamp', async () => {
@@ -60,5 +62,41 @@ describe('ExceptionStepLoader', () => {
 
         expect(after.items.map((item) => item.payload.message)).toEqual(['Step B'])
         expect(before.items.map((item) => item.payload.message)).toEqual(['Step B'])
+    })
+
+    it('preserves flattened custom step properties', async () => {
+        const loader = new ExceptionStepLoader('exception-uuid', {
+            $lib: 'web',
+            $exception_steps: [
+                {
+                    message: 'Payment attempted',
+                    timestamp: '2024-07-09T12:00:01.000Z',
+                    type: 'checkout',
+                    retry_count: 2,
+                    provider: 'stripe',
+                    cart_total: 12900,
+                },
+            ],
+        } as any)
+
+        const before = await loader.loadBefore(dayjs.utc('2024-07-09T12:00:02.000Z'), 10)
+        const item = before.items[0]
+        const renderExpanded = exceptionStepRenderer.renderExpanded
+
+        expect(before.items).toHaveLength(1)
+        expect(item.payload.stepProperties).toMatchObject({
+            retry_count: 2,
+            provider: 'stripe',
+            cart_total: 12900,
+        })
+
+        expect(renderExpanded).toBeTruthy()
+
+        const { getByText } = render(renderExpanded!({ item, sessionId: 'session-id' }))
+
+        expect(getByText('provider')).toBeTruthy()
+        expect(getByText('stripe')).toBeTruthy()
+        expect(getByText('cart_total')).toBeTruthy()
+        expect(getByText('12900')).toBeTruthy()
     })
 })
