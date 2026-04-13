@@ -281,6 +281,7 @@ export interface PaginatedTicketViewListApi {
  * * `widget` - Widget
  * `email` - Email
  * `slack` - Slack
+ * `teams` - Microsoft Teams
  */
 export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
 
@@ -288,12 +289,15 @@ export const ChannelSourceEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 /**
  * * `slack_channel_message` - Channel message
  * `slack_bot_mention` - Bot mention
  * `slack_emoji_reaction` - Emoji reaction
+ * `teams_channel_message` - Teams channel message
+ * `teams_bot_mention` - Teams bot mention
  * `widget_embedded` - Widget
  * `widget_api` - API
  */
@@ -303,6 +307,8 @@ export const ChannelDetailEnumApi = {
     SlackChannelMessage: 'slack_channel_message',
     SlackBotMention: 'slack_bot_mention',
     SlackEmojiReaction: 'slack_emoji_reaction',
+    TeamsChannelMessage: 'teams_channel_message',
+    TeamsBotMention: 'teams_bot_mention',
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
 } as const
