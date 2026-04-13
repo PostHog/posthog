@@ -163,7 +163,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
                     <div className="text-center p-8">
-                        <Spinner />
+                        <Spinner captureTime />
                     </div>
                 ) : (
                     <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
@@ -289,6 +289,22 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 </strong>
                             )
                         },
+                    },
+                    'properties.$ai_input[-1]': {
+                        ...llmAnalyticsColumnRenderers['properties.$ai_input[-1]'],
+                        renderTitle: () => (
+                            <Tooltip title="The last message in the input array sent to the LLM for this generation.">
+                                <span>Input</span>
+                            </Tooltip>
+                        ),
+                    },
+                    'properties.$ai_output_choices': {
+                        ...llmAnalyticsColumnRenderers['properties.$ai_output_choices'],
+                        renderTitle: () => (
+                            <Tooltip title="The LLM's response for this generation.">
+                                <span>Output</span>
+                            </Tooltip>
+                        ),
                     },
                     person: llmAnalyticsColumnRenderers.person,
                     "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],

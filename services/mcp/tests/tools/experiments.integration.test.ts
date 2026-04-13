@@ -78,6 +78,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Minimal Test Experiment',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -100,6 +101,7 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 type: 'web' as const,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -123,6 +125,7 @@ describe('Experiments', { concurrent: false }, () => {
                     { key: 'variant_b', name: 'Variant B', rollout_percentage: 34 },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -151,6 +154,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -177,6 +181,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -202,6 +207,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -244,6 +250,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -255,6 +262,25 @@ describe('Experiments', { concurrent: false }, () => {
             expect(experiment.metrics_secondary).toHaveLength(2)
         })
 
+        it('should reject unknown event names when allow_unknown_events is not set', async () => {
+            const flagKey = generateUniqueKey('exp-flag-unknown-event')
+
+            const params = {
+                name: 'Unknown Event Experiment',
+                feature_flag_key: flagKey,
+                primary_metrics: [
+                    {
+                        name: 'Nonexistent Event Metric',
+                        metric_type: 'mean' as const,
+                        event_name: 'totally_nonexistent_event',
+                    },
+                ],
+                draft: true,
+            }
+
+            await expect(createTool.handler(context, params as any)).rejects.toThrow(/not found/)
+        })
+
         it('should create an experiment with minimum detectable effect', async () => {
             const flagKey = generateUniqueKey('exp-flag-mde')
 
@@ -263,6 +289,7 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 minimum_detectable_effect: 15,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -280,6 +307,7 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 filter_test_accounts: true,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -295,6 +323,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Auto-Create Flag Experiment',
                 feature_flag_key: generateUniqueKey('auto-created-flag'),
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -319,6 +348,7 @@ describe('Experiments', { concurrent: false }, () => {
                     name: `List Test Experiment ${i}`,
                     feature_flag_key: flagKey,
                     draft: true,
+                    allow_unknown_events: true,
                 }
 
                 const result = await createTool.handler(context, params as any)
@@ -389,6 +419,7 @@ describe('Experiments', { concurrent: false }, () => {
                 description: 'Test experiment for get operation',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -430,6 +461,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -467,6 +499,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -528,6 +561,7 @@ describe('Experiments', { concurrent: false }, () => {
                 minimum_detectable_effect: 20,
                 filter_test_accounts: true,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -588,6 +622,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -611,6 +646,7 @@ describe('Experiments', { concurrent: false }, () => {
                     cohort: 'early_adopters',
                 },
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -628,6 +664,7 @@ describe('Experiments', { concurrent: false }, () => {
                 feature_flag_key: flagKey,
                 // Not setting holdout_id (as it may not exist)
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -650,6 +687,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'No Metrics Experiment',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -687,6 +725,7 @@ describe('Experiments', { concurrent: false }, () => {
                     { key: 'test', rollout_percentage: 60 }, // Total > 100%
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             // This might succeed or fail depending on API validation
@@ -715,6 +754,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -740,6 +780,7 @@ describe('Experiments', { concurrent: false }, () => {
                     },
                 ],
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -757,6 +798,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: longName,
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             try {
@@ -783,6 +825,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Experiment to Delete',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -833,6 +876,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Experiment Already Deleted',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -893,6 +937,7 @@ describe('Experiments', { concurrent: false }, () => {
                 description: 'Original description',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -927,6 +972,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Launch Test Experiment',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -958,6 +1004,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Stop Test Experiment',
                 feature_flag_key: flagKey,
                 draft: false, // Create as launched
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -989,6 +1036,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Restart Test Experiment',
                 feature_flag_key: flagKey,
                 draft: false,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -1034,6 +1082,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Restart as Draft Test',
                 feature_flag_key: flagKey,
                 draft: false,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -1074,6 +1123,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Archive Test Experiment',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -1115,6 +1165,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Variants Update Test',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
                 variants: [
                     { key: 'control', rollout_percentage: 50 },
                     { key: 'test', rollout_percentage: 50 },
@@ -1176,6 +1227,7 @@ describe('Experiments', { concurrent: false }, () => {
                 description: 'Original description',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -1209,6 +1261,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Draft Status Experiment',
                 feature_flag_key: flagKey,
                 draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -1225,6 +1278,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Immediate Launch Experiment',
                 feature_flag_key: flagKey,
                 draft: false,
+                allow_unknown_events: true,
             }
 
             try {

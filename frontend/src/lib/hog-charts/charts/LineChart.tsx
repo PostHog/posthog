@@ -17,18 +17,18 @@ import type {
     TooltipContext,
 } from '../core/types'
 
-export interface LineChartProps {
-    series: Series[]
+export interface LineChartProps<Meta = unknown> {
+    series: Series<Meta>[]
     labels: string[]
     config?: LineChartConfig
     theme: ChartTheme
-    tooltip?: (ctx: TooltipContext) => React.ReactNode
-    onPointClick?: (data: PointClickData) => void
+    tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
+    onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
 }
 
-export function LineChart({
+export function LineChart<Meta = unknown>({
     series,
     labels,
     config,
@@ -37,8 +37,8 @@ export function LineChart({
     onPointClick,
     className,
     children,
-}: LineChartProps): React.ReactElement {
-    const { yScaleType = 'linear', percentStackView = false, showGrid = false, goalLines } = config ?? {}
+}: LineChartProps<Meta>): React.ReactElement {
+    const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
     const hasAreaFill = useMemo(() => series.some((s) => s.fillArea), [series])
 
@@ -106,10 +106,7 @@ export function LineChart({
             }
 
             if (showGrid) {
-                drawGrid(drawCtx, {
-                    gridColor: theme.gridColor,
-                    goalLineValues: goalLines?.map((g) => g.value),
-                })
+                drawGrid(drawCtx, { gridColor: theme.gridColor })
             }
 
             for (const s of coloredSeries) {
@@ -141,7 +138,7 @@ export function LineChart({
                 }
             }
         },
-        [showGrid, goalLines, stackedData]
+        [showGrid, stackedData]
     )
 
     const resolveValue = useMemo(() => {

@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    DeletePersonsRequest, GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+    DeletePersonsBatchForTeamRequest, DeletePersonsRequest, GetGroupRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -179,6 +180,65 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids,
+        }))
+        .await;
+
+    assert!(result.is_ok());
+}
+
+// ============================================================
+// DeletePersonsBatchForTeam tests
+// ============================================================
+
+#[rstest]
+#[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
+#[case::pool_exhausted(FailingStorage::with_pool_exhausted(), tonic::Code::Unavailable)]
+#[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_storage_error(
+    #[case] storage: FailingStorage,
+    #[case] expected_code: tonic::Code,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(storage));
+
+    let result = service
+        .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
+            team_id: 1,
+            batch_size: 100,
+        }))
+        .await;
+
+    assert_eq!(result.unwrap_err().code(), expected_code);
+}
+
+#[rstest]
+#[case::zero(0)]
+#[case::negative(-1)]
+#[case::exceeds_max(50001)]
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_size: i64) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
+            team_id: 1,
+            batch_size,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("batch_size"));
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .delete_persons_batch_for_team(Request::new(DeletePersonsBatchForTeamRequest {
+            team_id: 1,
+            batch_size: 1000,
         }))
         .await;
 
