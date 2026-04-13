@@ -70,7 +70,7 @@ export const Directions: Story = {
             <TooltipProvider>
                 <div className="relative grid grid-cols-3 grid-rows-3 w-80 h-80 border rounded-md p-12">
                     <div className="col-start-2 row-start-1 flex items-start justify-center pt-2">
-                        <Tooltip open={isVisible} onOpenChange={setIsVisible}>
+                        <Tooltip open={true}>
                             <TooltipTrigger render={<Button variant="outline">Default</Button>} />
                             <TooltipContent side="top">
                                 <button>top</button>
@@ -78,7 +78,7 @@ export const Directions: Story = {
                         </Tooltip>
                     </div>
                     <div className="col-start-3 row-start-2 flex items-center justify-end pr-2">
-                        <Tooltip open={isVisible} onOpenChange={setIsVisible}>
+                        <Tooltip open={true}>
                             <TooltipTrigger render={<Button variant="outline">Right</Button>} />
                             <TooltipContent side="right">
                                 <button>right</button>
@@ -86,7 +86,7 @@ export const Directions: Story = {
                         </Tooltip>
                     </div>
                     <div className="col-start-2 row-start-3 flex items-end justify-center pb-2">
-                        <Tooltip open={isVisible} onOpenChange={setIsVisible}>
+                        <Tooltip open={true}>
                             <TooltipTrigger render={<Button variant="outline">Bottom</Button>} />
                             <TooltipContent side="bottom">
                                 <button>bottom</button>
@@ -94,7 +94,7 @@ export const Directions: Story = {
                         </Tooltip>
                     </div>
                     <div className="col-start-1 row-start-2 flex items-center justify-start pl-2">
-                        <Tooltip open={isVisible} onOpenChange={setIsVisible}>
+                        <Tooltip open={true}>
                             <TooltipTrigger render={<Button variant="outline">Left</Button>} />
                             <TooltipContent side="left">
                                 <button>left</button>
