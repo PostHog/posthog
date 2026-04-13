@@ -10,6 +10,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
+CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
 def _build_event_filter(obj) -> tuple[str, dict]:
@@ -261,7 +262,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             extra_context["is_draft"] = obj.status == RequestStatus.DRAFT
             extra_context["submit_url"] = reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk])
             extra_context["can_approve"] = (
-                obj.status == RequestStatus.PENDING and request.user.groups.filter(name="ClickHouse Team").exists()
+                obj.status == RequestStatus.PENDING and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["approve_url"] = reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk])
             extra_context["can_revert_to_draft"] = obj.status in (RequestStatus.PENDING, RequestStatus.APPROVED)
@@ -379,7 +380,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if not obj:
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
 
-        if not request.user.groups.filter(name="ClickHouse Team").exists():
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 

@@ -1,12 +1,13 @@
-from django.contrib.auth.models import Group
 from django.db import migrations
 
 
 def create_clickhouse_team_group(apps, schema_editor):
+    Group = apps.get_model("auth", "Group")
     Group.objects.get_or_create(name="ClickHouse Team")
 
 
 def reverse_create_clickhouse_team_group(apps, schema_editor):
+    Group = apps.get_model("auth", "Group")
     Group.objects.filter(name="ClickHouse Team").delete()
 
 
