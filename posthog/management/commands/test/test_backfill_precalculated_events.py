@@ -14,7 +14,7 @@ from posthog.management.commands.backfill_precalculated_events import (
     compute_backfill_days,
     extract_behavioral_filters,
 )
-from posthog.models import Cohort
+from posthog.models import Cohort, Team
 from posthog.models.cohort.cohort import CohortType
 from posthog.temporal.messaging.types import BehavioralEventFilter
 
@@ -651,3 +651,137 @@ class TestBackfillPrecalculatedEventsCommand(BaseTest):
                 "-1",
                 stdout=self.command_output,
             )
+
+    def test_team_ids_processes_multiple_teams(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        Cohort.objects.create(
+            team=self.team,
+            name="Cohort Team 1",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": "30",
+                            "time_interval": "day",
+                            "conditionHash": "hash_t1",
+                            "bytecode": ["_H", 1, "op1"],
+                        }
+                    ],
+                }
+            },
+        )
+
+        Cohort.objects.create(
+            team=team2,
+            name="Cohort Team 2",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "purchase",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": "14",
+                            "time_interval": "day",
+                            "conditionHash": "hash_t2",
+                            "bytecode": ["_H", 1, "op2"],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with patch(
+            "posthog.management.commands.backfill_precalculated_events.Command.run_temporal_workflow"
+        ) as mock_workflow:
+            mock_workflow.return_value = "test-workflow-id"
+            call_command(
+                "backfill_precalculated_events",
+                "--team-ids",
+                str(self.team.id),
+                str(team2.id),
+                stdout=self.command_output,
+            )
+
+        self.assertEqual(mock_workflow.call_count, 2)
+        team_ids_called = sorted(call[1]["team_id"] for call in mock_workflow.call_args_list)
+        self.assertEqual(team_ids_called, sorted([self.team.id, team2.id]))
+
+    def test_cohort_id_restricts_to_specific_cohort(self):
+        target_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Target Cohort",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": "30",
+                            "time_interval": "day",
+                            "conditionHash": "target_hash",
+                            "bytecode": ["_H", 1, "op1"],
+                        }
+                    ],
+                }
+            },
+        )
+
+        Cohort.objects.create(
+            team=self.team,
+            name="Other Cohort",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "purchase",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": "7",
+                            "time_interval": "day",
+                            "conditionHash": "other_hash",
+                            "bytecode": ["_H", 1, "op2"],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with patch(
+            "posthog.management.commands.backfill_precalculated_events.Command.run_temporal_workflow"
+        ) as mock_workflow:
+            mock_workflow.return_value = "test-workflow-id"
+            call_command(
+                "backfill_precalculated_events",
+                "--team-id",
+                str(self.team.id),
+                "--cohort-id",
+                str(target_cohort.id),
+                stdout=self.command_output,
+            )
+
+        self.assertTrue(mock_workflow.called)
+        call_args = mock_workflow.call_args[1]
+        filters = call_args["filters"]
+        cohort_ids = call_args["cohort_ids"]
+
+        self.assertEqual(len(filters), 1)
+        self.assertEqual(filters[0].condition_hash, "target_hash")
+        self.assertEqual(cohort_ids, [target_cohort.id])

@@ -160,6 +160,9 @@ def combine_event_filter_bytecodes(filters: list[BehavioralEventFilter]) -> list
     Same strategy as combine_filter_bytecodes: strips headers, interleaves condition_hash keys,
     and appends a DICT opcode. The resulting bytecode returns {condition_hash: bool_result, ...}
     when executed with event globals.
+
+    Malformed filters (bytecode length <= 2) are silently skipped with a warning log. If all
+    filters are malformed, the result is a valid bytecode that produces an empty dict.
     """
     combined: list[Any] = [HOGQL_BYTECODE_IDENTIFIER, 1]
 
