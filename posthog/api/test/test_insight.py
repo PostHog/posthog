@@ -606,6 +606,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/notthere/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_retrieve_insight_by_numeric_short_id_falls_back_to_short_id(self) -> None:
+        # A small number of legacy insights have numeric-only short_ids — they must remain retrievable
+        # when no insight matches the value as a primary key.
+        numeric_short_id = "99999999999"
+        assert not Insight.objects.filter(pk=int(numeric_short_id)).exists()
+        insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=self.team,
+            short_id=numeric_short_id,
+            name="numeric-short-id",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{numeric_short_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], insight.id)
+        self.assertEqual(response.json()["short_id"], numeric_short_id)
+        self.assertEqual(response.json()["name"], "numeric-short-id")
+
     def test_basic_results(self) -> None:
         """
         The `skip_results` query parameter can be passed so that only a list of objects is returned, without
