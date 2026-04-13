@@ -1,5 +1,21 @@
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { Region } from '~/types'
+
+// Hostname → cloud region, used for status page URLs and incident filtering.
+// Shared single source of truth — sidePanelStatusIncidentIoLogic derives its
+// group name from this map via getCloudRegionFromHostname().
+const HOSTNAME_REGION_MAP: Record<string, Region> = {
+    'us.posthog.com': Region.US,
+    'eu.posthog.com': Region.EU,
+    localhost: Region.US,
+    '127.0.0.1': Region.US,
+}
+
+export function getCloudRegionFromHostname(): Region | null {
+    return HOSTNAME_REGION_MAP[window.location.hostname] ?? null
+}
+
 // Raw incident.io API types
 export type IncidentIoComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
 export type IncidentIoImpact = 'partial_outage' | 'degraded_performance' | 'full_outage'
@@ -53,7 +69,7 @@ export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
 export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export function getStatusPageUrl(): string {
-    const region = preflightLogic.findMounted()?.values.preflight?.region
+    const region = preflightLogic.findMounted()?.values.preflight?.region ?? getCloudRegionFromHostname()
     if (region) {
         return `${INCIDENT_IO_STATUS_PAGE_BASE}/${region.toLowerCase()}`
     }

@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 
 import {
+    getCloudRegionFromHostname,
     INCIDENT_IO_STATUS_PAGE_BASE,
     IncidentIoAffectedComponent,
     IncidentIoIncident,
@@ -14,19 +15,18 @@ import {
     REFRESH_INTERVAL,
     setIncidentStatus,
 } from '~/layout/navigation-3000/incident/incidentStatus'
+import { Region } from '~/types'
 
 import type { sidePanelStatusIncidentIoLogicType } from './sidePanelStatusIncidentIoLogicType'
 
-// Map hostname to the group_name used in incident.io
-const RELEVANT_GROUP_NAME_MAP: Record<string, string> = {
-    'us.posthog.com': 'US Cloud 🇺🇸',
-    'eu.posthog.com': 'EU Cloud 🇪🇺',
-    localhost: 'US Cloud 🇺🇸', // Default to US for local dev
-    '127.0.0.1': 'US Cloud 🇺🇸', // Storybook CI runs at 127.0.0.1:6006
+const REGION_GROUP_NAME: Record<Region, string> = {
+    [Region.US]: 'US Cloud 🇺🇸',
+    [Region.EU]: 'EU Cloud 🇪🇺',
 }
 
 function getRelevantGroupName(): string | null {
-    return RELEVANT_GROUP_NAME_MAP[window.location.hostname] || null
+    const region = getCloudRegionFromHostname()
+    return region ? REGION_GROUP_NAME[region] : null
 }
 
 function hasRelevantComponents(affectedComponents: IncidentIoAffectedComponent[]): boolean {
