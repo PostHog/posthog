@@ -65,10 +65,7 @@ pub fn router(
         // Without these, unmatched requests fall through with the raw URI as the metric label,
         // creating a unique time series for every distinct 404 path (tokens, locales, probes, etc.).
         // With explicit routes, axum sets MatchedPath so metrics get clean parameterized labels.
-        .route(
-            "/array/:token/*rest",
-            any(|| ready(StatusCode::NOT_FOUND)),
-        )
+        .route("/array/:token/*rest", any(|| ready(StatusCode::NOT_FOUND)))
         .route("/array/*rest", any(|| ready(StatusCode::NOT_FOUND)))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
