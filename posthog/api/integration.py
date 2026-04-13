@@ -62,12 +62,33 @@ class GitHubRepoSerializer(serializers.Serializer):
     full_name = serializers.CharField()
 
 
+class GitHubReposQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of repositories to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of repositories to skip before returning results.",
+    )
+
+
 class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
+    has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
 
 
 class GitHubBranchesQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="Repository in owner/repo format")
+    limit = serializers.IntegerField(
+        required=False, default=100, min_value=1, max_value=1000, help_text="Maximum number of branches to return"
+    )
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of branches to skip")
 
 
 class GitHubBranchesResponseSerializer(serializers.Serializer):
@@ -75,6 +96,7 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
     default_branch = serializers.CharField(
         help_text="The default branch of the repository", required=False, allow_null=True
     )
+    has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
 
 
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -558,10 +580,21 @@ class IntegrationViewSet(
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
 
-    @action(methods=["GET"], detail=True, url_path="github_repos", responses=GitHubReposResponseSerializer)
+    @extend_schema(
+        parameters=[GitHubReposQuerySerializer],
+        responses={200: GitHubReposResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repos")
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubReposQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         github = GitHubIntegration(self.get_object())
-        return Response({"repositories": github.list_all_repositories()})
+        repositories, has_more = github.list_repositories(limit=limit, offset=offset)
+
+        return Response({"repositories": repositories, "has_more": has_more})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
@@ -569,9 +602,13 @@ class IntegrationViewSet(
     )
     @action(methods=["GET"], detail=True, url_path="github_branches")
     def github_branches(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        repo = request.query_params.get("repo")
-        if not repo:
-            raise ValidationError("repo query parameter is required")
+        params = GitHubBranchesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        repo: str = params.validated_data["repo"]
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
+
         parts = repo.split("/")
         if (
             len(parts) != 2
@@ -581,19 +618,24 @@ class IntegrationViewSet(
             or parts[1] in (".", "..")
         ):
             raise ValidationError("repo must be in owner/repo format")
+
         github = GitHubIntegration(self.get_object())
-        branches = github.list_branches(repo)
+        branches, has_more = github.list_branches(repo, limit=limit, offset=offset)
+
         try:
             default_branch = github.get_default_branch(repo)
         except Exception:
             default_branch = None
 
-        # Default branch first
-        if default_branch and default_branch in branches:
-            branches.remove(default_branch)
-            branches.insert(0, default_branch)
+        # The default branch is always shown first on page 1 and removed
+        # from all other pages to avoid duplicates.
+        if default_branch:
+            if default_branch in branches:
+                branches.remove(default_branch)
+            if offset == 0:
+                branches.insert(0, default_branch)
 
-        return Response({"branches": branches, "default_branch": default_branch})
+        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
