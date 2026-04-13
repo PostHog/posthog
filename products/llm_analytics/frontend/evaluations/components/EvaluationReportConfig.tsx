@@ -125,7 +125,8 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
                 <div>
                     <h3 className="text-lg font-semibold mb-1">Scheduled reports</h3>
                     <p className="text-muted text-sm">
-                        Get periodic AI-generated analysis of evaluation results delivered via email or Slack.
+                        AI-generated analysis of evaluation results. Reports are always available in the Reports tab.
+                        Optionally add email or Slack to get notified.
                     </p>
                 </div>
                 <LemonSwitch
@@ -260,7 +261,8 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                 <div>
                     <h3 className="text-lg font-semibold mb-1">Scheduled reports</h3>
                     <p className="text-muted text-sm">
-                        Get periodic AI-generated analysis of evaluation results delivered via email or Slack.
+                        AI-generated analysis of evaluation results. Reports are always available in the Reports tab.
+                        Optionally add email or Slack to get notified.
                     </p>
                 </div>
                 <LemonSwitch

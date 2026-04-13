@@ -78,8 +78,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_delivery_targets(self, value: list) -> list:
-        if not isinstance(value, list) or len(value) == 0:
-            raise serializers.ValidationError("At least one delivery target is required.")
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Delivery targets must be a list.")
         for target in value:
             if not isinstance(target, dict):
                 raise serializers.ValidationError("Each delivery target must be an object.")

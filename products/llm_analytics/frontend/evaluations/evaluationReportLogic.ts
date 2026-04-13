@@ -28,13 +28,13 @@ export interface PendingReportConfig {
 }
 
 const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
-    enabled: false,
+    enabled: true,
     frequency: 'every_n',
     emailValue: '',
     slackIntegrationId: null,
     slackChannelValue: '',
     reportPromptGuidance: '',
-    triggerThreshold: 50,
+    triggerThreshold: 100,
 }
 
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
@@ -218,16 +218,18 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     channel: pendingConfig.slackChannelValue,
                 })
             }
-            if (targets.length === 0) {
-                return
+            // The backend auto-creates a default report config on eval creation.
+            // If the user configured delivery targets or custom settings, update
+            // the auto-created report after creation via the existing reports list.
+            if (targets.length > 0 || pendingConfig.reportPromptGuidance.trim()) {
+                actions.createReport({
+                    evaluationId,
+                    frequency: pendingConfig.frequency,
+                    delivery_targets: targets,
+                    report_prompt_guidance: pendingConfig.reportPromptGuidance,
+                    trigger_threshold: pendingConfig.frequency === 'every_n' ? pendingConfig.triggerThreshold : null,
+                })
             }
-            actions.createReport({
-                evaluationId,
-                frequency: pendingConfig.frequency,
-                delivery_targets: targets,
-                report_prompt_guidance: pendingConfig.reportPromptGuidance,
-                trigger_threshold: pendingConfig.frequency === 'every_n' ? pendingConfig.triggerThreshold : null,
-            })
         },
     })),
 

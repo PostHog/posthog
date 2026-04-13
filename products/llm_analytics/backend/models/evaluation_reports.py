@@ -77,7 +77,7 @@ class EvaluationReport(UUIDTModel):
     trigger_threshold = models.IntegerField(
         null=True,
         blank=True,
-        default=50,
+        default=100,
         help_text="Number of new eval results that triggers a report",
     )
     cooldown_minutes = models.IntegerField(
