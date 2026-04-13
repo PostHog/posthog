@@ -763,7 +763,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'logs-retention',
                 title: 'Retention',
                 description:
-                    'How long to retain logs before they are automatically deleted. You can only change this setting at most once per 24 hours.',
+                    'How long to retain logs before they are automatically deleted. Changes only affect the retention period for future ingested logs. You can only change this setting at most once per 24 hours.',
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
