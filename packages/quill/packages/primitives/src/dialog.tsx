@@ -1,4 +1,6 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
+import { mergeProps } from '@base-ui/react/merge-props'
+import { useRender } from '@base-ui/react/use-render'
 import { XIcon } from 'lucide-react'
 import * as React from 'react'
 
@@ -51,10 +53,9 @@ function DialogContent({
             <DialogPrimitive.Popup
                 data-slot="dialog-content"
                 className={cn(
-                    'fixed top-[calc(50%+1.25rem*var(--nested-dialogs))] start-1/2 z-50 grid w-full max-w-[calc(100vw-3rem)] -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 scale-[calc(1-0.1*var(--nested-dialogs))] gap-4 rounded-xl bg-background p-4 text-xs/relaxed ring-1 ring-foreground/10 outline-none transition-all duration-150 sm:max-w-sm',
+                    'fixed top-[calc(50%+1.25rem*var(--nested-dialogs))] start-1/2 z-50 grid w-full max-w-[calc(100vw-3rem)] -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 scale-[calc(1-0.1*var(--nested-dialogs))] gap-4 rounded-xl bg-background text-xs/relaxed ring-1 ring-foreground/10 outline-none transition-all duration-150 sm:max-w-sm',
                     'data-[starting-style]:scale-90 data-[starting-style]:opacity-0 data-[ending-style]:scale-90 data-[ending-style]:opacity-0',
                     'data-[nested-dialog-open]:after:absolute data-[nested-dialog-open]:after:inset-0 data-[nested-dialog-open]:after:rounded-[inherit] data-[nested-dialog-open]:after:bg-black/5',
-                    '[&>[data-slot=scroll-area]]:-mx-[calc((var(--spacing)*4)-var(--spacing)))] [&>[data-slot=scroll-area]]:px-4 [&>[data-slot=scroll-area]]:rounded [&>[data-slot=scroll-area]]:overflow-hidden',
                     className
                 )}
                 {...props}
@@ -75,7 +76,7 @@ function DialogContent({
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="dialog-header" className={cn('flex flex-col gap-1', className)} {...props} />
+    return <div data-slot="dialog-header" className={cn('flex flex-col gap-1 px-4 pt-4 has-[~[data-slot=dialog-body]]:pb-4 has-[~[data-slot=dialog-body]]:border-b', className)} {...props} />
 }
 
 function DialogFooter({
@@ -89,7 +90,7 @@ function DialogFooter({
     return (
         <div
             data-slot="dialog-footer"
-            className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
+            className={cn('bg-muted/30 px-4 py-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end border-t', className)}
             {...props}
         >
             {children}
@@ -98,6 +99,21 @@ function DialogFooter({
             )}
         </div>
     )
+}
+
+function DialogBody({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+    return useRender({
+        defaultTagName: 'div',
+        props: mergeProps<'div'>(
+            {
+                // If the dialog body renders as a scroll area, we need to add some negative margin to the dialog body to compensate for gap in the dialog, and then add the padding of the scroll area to the viewport
+                className: cn('px-4 data-[component=scroll-area]:-my-4 data-[component=scroll-area]:[&>[data-slot=scroll-area-viewport]]:py-4', className),
+            },
+            props
+        ),
+        render,
+        state: { slot: 'dialog-body' },
+    })
 }
 
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props): React.ReactElement {
@@ -126,6 +142,7 @@ export {
     DialogDescription,
     DialogFooter,
     DialogHeader,
+    DialogBody,
     DialogOverlay,
     DialogPortal,
     DialogTitle,

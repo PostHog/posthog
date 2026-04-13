@@ -81,7 +81,44 @@ function App() {
 
 `ThemeProvider` exposes a `useTheme()` hook for reading and setting the theme programmatically.
 
-### 5. Use components
+### 5. Theme the palette (optional)
+
+Quill's surface and brand colours are driven by four CSS custom properties. Override them at `:root` to reskin the whole app, or on any element to reskin just that subtree — no rebuild, no JS.
+
+| Variable           | Default | What it controls                                                                               |
+| ------------------ | ------- | ---------------------------------------------------------------------------------------------- |
+| `--theme-hue`      | `90`    | OKLCH hue for **light-mode surfaces**: background, card, popover, muted, accent, border, input |
+| `--theme-dark-hue` | `264`   | OKLCH hue for **dark-mode surfaces**                                                           |
+| `--theme-tint`     | `0.006` | OKLCH chroma intensity for neutral surface tinting (`0` = pure grey)                           |
+| `--primary-hue`    | `37.89` | OKLCH hue for the brand / primary colour                                                       |
+
+Global override — reskin the entire app:
+
+```css
+:root {
+  --theme-hue: 200; /* cool blue neutrals */
+  --primary-hue: 145; /* green brand */
+}
+```
+
+Not recommended! Subtree override — theme one section differently. Any valid CSS selector works, and Tailwind v4 arbitrary properties let you do it inline:
+
+```tsx
+<aside className="[--theme-hue:300] bg-muted">
+  {/* every quill surface inside this aside shifts to a magenta tint */}
+</aside>
+```
+
+**What is and isn't themeable:**
+
+- ✅ **Surfaces** (background, card, popover, muted, accent, border, input) and their foregrounds — derived from `--theme-hue` + `--theme-tint`
+- ✅ **Primary / brand** — derived from `--primary-hue`
+- ❌ **Status colours** (destructive, success, warning, info) — fixed by semantic meaning; a red error should stay red regardless of brand hue
+- ❌ **Secondary** — neutral dark by design
+
+Subtree overrides cascade per light/dark mode: override `--theme-hue` to retheme light-mode surfaces and `--theme-dark-hue` for dark-mode surfaces. If you want both modes to track the same local hue, set both vars on the same element.
+
+### 6. Use components
 
 ```tsx
 import { Button, Card, CardHeader, CardTitle, CardContent } from '@posthog/quill'
@@ -112,7 +149,11 @@ pnpm add @posthog/quill-tokens
 ```
 
 ```ts
-import { semanticColors, spacing, shadow } from '@posthog/quill-tokens'
+import { semanticColors, spacing, spacingPx, shadow } from '@posthog/quill-tokens'
+
+// spacing is a function that computes at any step, not a lookup table:
+spacing(4) // '1rem'  — for CSS-in-JS
+spacingPx(4) // 16      — for React Native / Figma plugins
 ```
 
 Most apps won't need this — the CSS custom properties (`var(--primary)`, `var(--background)`, `var(--border)`, etc.) from the main stylesheet are usually enough.
@@ -135,10 +176,10 @@ The key property this gives you: **quill's primitive sizing cannot be overridden
 
 The aggregate ships **two** stylesheets, exposed as separate package exports, because they answer two different questions:
 
-| Export                      | Built how                                                                                           | What it gives you                                                                                                                                                                                                                                                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@posthog/quill/styles.css` | Pre-compiled by `@tailwindcss/cli` at lib build time. Closed set.                                   | Every utility class quill's own primitives, components, and blocks reference. The colour-system `:root` / `.dark` blocks. Resets. Animations. Variant macros expanded. **Renders quill components out of the box with no consumer Tailwind required.**                                                                                     |
-| `@posthog/quill/theme.css`  | Raw `@theme inline` block, copied verbatim from `@posthog/quill-tokens/tailwind-lib.css`. Open set. | Registers every quill design token (`--color-*`, `--text-*`, `--leading-*`, `--radius-*`, `--shadow-*`, `--spacing-*`) with the **consumer's** Tailwind v4 instance, so consumer code authoring `bg-fill-active`, `text-muted-foreground`, etc. compiles correctly. **Opt-in. Only meaningful if the consumer is also using Tailwind v4.** |
+| Export                      | Built how                                                                                           | What it gives you                                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@posthog/quill/styles.css` | Pre-compiled by `@tailwindcss/cli` at lib build time. Closed set.                                   | Every utility class quill's own primitives, components, and blocks reference. The colour-system `:root` / `.dark` blocks. Resets. Animations. Variant macros expanded. **Renders quill components out of the box with no consumer Tailwind required.**                                                                                   |
+| `@posthog/quill/theme.css`  | Raw `@theme inline` block, copied verbatim from `@posthog/quill-tokens/tailwind-lib.css`. Open set. | Registers every quill design token (`--color-*`, `--text-*`, `--leading-*`, `--radius-*`, `--shadow-*`, `--spacing`) with the **consumer's** Tailwind v4 instance, so consumer code authoring `bg-fill-active`, `text-muted-foreground`, etc. compiles correctly. **Opt-in. Only meaningful if the consumer is also using Tailwind v4.** |
 
 The reason these have to be two files: a pre-compiled stylesheet is opaque to a downstream Tailwind compiler — it sees CSS, not theme metadata, so consumer-authored utilities can't resolve quill tokens. Shipping the raw `@theme` block as a separate export lets consumers opt back into the open-set ergonomics without giving up the closed-set guarantee on quill's own primitive sizing.
 
