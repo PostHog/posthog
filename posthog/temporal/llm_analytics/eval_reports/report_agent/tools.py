@@ -203,6 +203,64 @@ def get_pass_rate_over_time(
 
 
 @tool
+def list_all_eval_results(
+    state: Annotated[dict, InjectedState],
+    max_reasoning_length: int = 80,
+) -> str:
+    """Get a compact overview of ALL evaluation results in the period.
+
+    Returns every result as a condensed row: generation_id, pass/fail/na verdict,
+    and a truncated reasoning string. Use this as your first scan to spot patterns
+    before drilling into specific examples with sample_generation_details.
+
+    Args:
+        max_reasoning_length: Truncate reasoning strings to this many characters (default 80)
+    """
+    team_id = state["team_id"]
+    evaluation_id = state["evaluation_id"]
+    ts_start = _ch_ts(state["period_start"])
+    ts_end = _ch_ts(state["period_end"])
+
+    rows = _execute_hogql(
+        team_id,
+        f"""
+        SELECT
+            properties.$ai_target_event_id as generation_id,
+            properties.$ai_evaluation_result as result,
+            properties.$ai_evaluation_applicable as applicable,
+            properties.$ai_evaluation_reasoning as reasoning
+        FROM events
+        WHERE event = '$ai_evaluation'
+            AND properties.$ai_evaluation_id = '{evaluation_id}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
+        ORDER BY timestamp ASC
+        """,
+    )
+
+    max_reasoning_length = min(max(20, max_reasoning_length), 200)
+    lines = []
+    for row in rows:
+        gen_id = str(row[0]) if row[0] else "?"
+        applicable = row[2]
+        if applicable is False:
+            verdict = "na"
+        elif row[1] is True:
+            verdict = "pass"
+        elif row[1] is False:
+            verdict = "fail"
+        else:
+            verdict = "?"
+        reasoning = (row[3] or "")[:max_reasoning_length]
+        if row[3] and len(row[3]) > max_reasoning_length:
+            reasoning += "..."
+        lines.append(f"{verdict} | {gen_id} | {reasoning}")
+
+    header = f"Total: {len(lines)} results\n"
+    return header + "\n".join(lines)
+
+
+@tool
 def sample_eval_results(
     state: Annotated[dict, InjectedState],
     filter: str = "all",
@@ -750,6 +808,7 @@ EVAL_REPORT_TOOLS = [
     # Query tools (read-only, agent calls as needed)
     get_summary_metrics,
     get_pass_rate_over_time,
+    list_all_eval_results,
     sample_eval_results,
     sample_generation_details,
     get_generation_detail,

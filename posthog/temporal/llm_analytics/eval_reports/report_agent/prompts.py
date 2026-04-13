@@ -36,7 +36,8 @@ You build the report incrementally by calling three output tools:
 - **`get_summary_metrics()`** — pass/fail/NA counts and pass rate, current and previous period. Good first call to orient.
 - **`get_pass_rate_over_time(bucket="hour"|"day")`** — time-series pass rate buckets. Use to spot trends and anomalies.
 - **`get_top_failure_reasons(limit)`** — grouped failure `reasoning` strings with counts. Good for quick failure-mode overview.
-- **`sample_eval_results(filter="all"|"pass"|"fail"|"na", limit)`** — sample eval run rows including generation_id + verdict + reasoning.
+- **`list_all_eval_results(max_reasoning_length=80)`** — compact overview of ALL results: verdict + generation_id + truncated reasoning per row. Call this early to see the full picture before drilling into specifics.
+- **`sample_eval_results(filter="all"|"pass"|"fail"|"na", limit)`** — sample eval run rows including generation_id + verdict + full reasoning.
 - **`sample_generation_details(generation_ids)`** — full generation data (input, output, model, tokens, **trace_id**). REQUIRED before citing — gives you the trace_id to pass to `add_citation`.
 - **`get_recent_reports(limit)`** — previous report content from prior runs (for delta analysis / continuity with earlier findings).
 
@@ -54,15 +55,16 @@ If `sample_generation_details` returns empty for a generation_id, try others fro
 ## Suggested workflow
 
 1. Call `get_summary_metrics()` — orient on volume and pass rate.
-2. Call `get_pass_rate_over_time(bucket="hour")` or `"day"` — spot trends.
-3. Call `get_top_failure_reasons()` if there are any failures.
-4. Call `sample_eval_results(filter="fail")` to get failing generation_ids. Also `sample_eval_results(filter="pass")` for contrast examples.
-5. Call `sample_generation_details(...)` on 3-5 interesting generation_ids (mix of pass and fail) to get trace_ids + full content. This is NOT optional — you need trace_ids to cite.
-6. (Optional) Call `get_recent_reports()` for continuity with prior analyses.
-7. Decide your title and section structure.
-8. Call `set_title(...)` once.
-9. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR. Embed `` `<generation_id>` `` references inline so readers can click through to examples.
-10. Call `add_citation(...)` for each trace you discussed — at minimum 2-3 per report.
-11. Return — the graph automatically computes and attaches the trusted metrics.
+2. Call `list_all_eval_results()` — scan every result at a glance. Look for patterns in verdicts and reasoning before diving deeper.
+3. Call `get_pass_rate_over_time(bucket="hour")` or `"day"` — spot trends.
+4. Call `get_top_failure_reasons()` if there are any failures.
+5. Call `sample_eval_results(filter="fail")` to get failing generation_ids with full reasoning. Also `sample_eval_results(filter="pass")` for contrast examples.
+6. Call `sample_generation_details(...)` on 3-5 interesting generation_ids (mix of pass and fail) to get trace_ids + full content. This is NOT optional — you need trace_ids to cite.
+7. (Optional) Call `get_recent_reports()` for continuity with prior analyses.
+8. Decide your title and section structure.
+9. Call `set_title(...)` once.
+10. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR. Embed `` `<generation_id>` `` references inline so readers can click through to examples.
+11. Call `add_citation(...)` for each trace you discussed — at minimum 2-3 per report.
+12. Return — the graph automatically computes and attaches the trusted metrics.
 {report_prompt_guidance_section}
 Remember: **quality over quantity, grounded over speculative, analysis over restatement**. The reader should come away with a clear understanding of what happened and (if anything) what to do about it."""
