@@ -605,10 +605,11 @@ class TestDevboxCommands:
             lambda name, workspaces=None: {"name": name, "outdated": True, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {"dotfiles_uri": "https://github.com/user/dotfiles"})
         monkeypatch.setattr(
             devbox_cli,
             "update_workspace",
-            lambda name, verbose=False: captured.update({"name": name}),
+            lambda name, parameters=None, verbose=False: captured.update({"name": name, "parameters": parameters}),
         )
 
         result = runner.invoke(cli, ["devbox:update"])
@@ -616,6 +617,7 @@ class TestDevboxCommands:
         assert result.exit_code == 0
         assert "Updating" in result.output
         assert captured["name"] == "devbox-test-user"
+        assert captured["parameters"] == {"dotfiles_uri": "https://github.com/user/dotfiles"}
 
     def test_devbox_update_skips_when_up_to_date(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -819,17 +821,17 @@ class TestDevboxList:
 class TestKeychain:
     """Test macOS Keychain helpers."""
 
-    def test_read_returns_none_on_non_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "fn,args,expected",
+        [
+            (keychain.read, ("test-service",), None),
+            (keychain.write, ("test-service", "value"), False),
+            (keychain.delete, ("test-service",), False),
+        ],
+    )
+    def test_operations_return_sentinel_on_non_macos(self, monkeypatch: pytest.MonkeyPatch, fn, args, expected) -> None:
         monkeypatch.setattr(keychain, "_is_macos", lambda: False)
-        assert keychain.read("test-service") is None
-
-    def test_write_returns_false_on_non_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(keychain, "_is_macos", lambda: False)
-        assert keychain.write("test-service", "value") is False
-
-    def test_delete_returns_false_on_non_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(keychain, "_is_macos", lambda: False)
-        assert keychain.delete("test-service") is False
+        assert fn(*args) == expected
 
     def test_is_supported_reflects_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(keychain, "_is_macos", lambda: True)

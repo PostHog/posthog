@@ -146,7 +146,7 @@ def _workspace_label_suffix(name: str) -> str:
 
 def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Return a workspace or exit with a consistent message when missing."""
-    workspace = get_workspace(name, workspaces or None)
+    workspace = get_workspace(name, workspaces)
     if workspace is not None:
         return workspace
     _fail("No devbox found. Run 'hogli devbox:start' to create one.")
@@ -204,12 +204,13 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
     _print_connection_info(name)
 
 
-def _prompt_for_claude_token() -> str | None:
+def _prompt_for_claude_token(*, skip_pause: bool = False) -> str | None:
     """Prompt for a Claude OAuth token and save it to Keychain."""
-    click.echo("Run `claude setup-token` in another terminal to generate a token.")
-    click.pause("Press Enter when you have the token ready...")
+    if not skip_pause:
+        click.echo("Run `claude setup-token` in another terminal to generate a token.")
+        click.pause("Press Enter when you have the token ready...")
     token = click.prompt(
-        "Claude OAuth token",
+        "Claude OAuth token (Enter to skip)",
         default="",
         hide_input=True,
         show_default=False,
@@ -218,7 +219,9 @@ def _prompt_for_claude_token() -> str | None:
         return None
 
     if keychain.write(_CLAUDE_TOKEN_SERVICE, token):
-        click.echo("Saved to Keychain for future workspaces.")
+        click.echo("Saved to Keychain.")
+    else:
+        click.echo(click.style("Failed to save to Keychain.", fg="red"))
     return token
 
 
@@ -377,21 +380,8 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     click.echo("  You can also skip this and pass --claude-oauth-token later, or set CLAUDE_OAUTH_TOKEN.")
     click.echo()
 
-    token = click.prompt(
-        "Claude OAuth token (Enter to skip)",
-        default="",
-        hide_input=True,
-        show_default=False,
-    ).strip()
-
-    if not token:
+    if not _prompt_for_claude_token(skip_pause=True):
         click.echo("No token provided. Skipping.")
-        return
-
-    if keychain.write(_CLAUDE_TOKEN_SERVICE, token):
-        click.echo("Saved to Keychain.")
-    else:
-        click.echo(click.style("Failed to save to Keychain.", fg="red"))
 
 
 @cli.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
@@ -480,7 +470,7 @@ def devbox_start(
     """Start or create the remote devbox."""
     ensure_runtime_ready()
     name, workspaces = resolve_workspace_name(workspace_label)
-    ws = get_workspace(name, workspaces or None)
+    ws = get_workspace(name, workspaces)
 
     if ws is not None:
         _start_existing_workspace(name, ws, verbose=verbose)
@@ -547,8 +537,12 @@ def devbox_update(workspace_label: str | None, verbose: bool) -> None:
     if not ws.get("outdated"):
         click.echo(f"Devbox '{name}' is already up to date.")
         return
+    config = load_config()
+    params: dict[str, str] = {}
+    if dotfiles_uri := config.get("dotfiles_uri"):
+        params[DOTFILES_URI_PARAMETER] = dotfiles_uri
     click.echo(f"Updating '{name}' to the latest template...")
-    update_workspace(name, verbose=verbose)
+    update_workspace(name, parameters=params, verbose=verbose)
     click.echo("Updated.")
     _print_connection_info(name)
 
@@ -608,7 +602,7 @@ def devbox_destroy(workspace_label: str | None, verbose: bool) -> None:
     ensure_runtime_ready()
     name, workspaces = resolve_workspace_name(workspace_label)
 
-    ws = get_workspace(name, workspaces or None)
+    ws = get_workspace(name, workspaces)
     if ws is None:
         click.echo("No devbox found.")
         return
@@ -628,7 +622,7 @@ def devbox_status(workspace_label: str | None) -> None:
     ensure_runtime_ready()
     name, workspaces = resolve_workspace_name(workspace_label)
 
-    ws = get_workspace(name, workspaces or None)
+    ws = get_workspace(name, workspaces)
     if ws is None:
         click.echo("No devbox found. Run 'hogli devbox:start' to create one.")
         return

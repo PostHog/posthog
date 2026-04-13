@@ -529,10 +529,16 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
         raise SystemExit(result.returncode)
 
 
-def update_workspace(name: str, *, verbose: bool = False) -> None:
+def update_workspace(
+    name: str,
+    parameters: dict[str, str] | None = None,
+    *,
+    verbose: bool = False,
+) -> None:
     """Update a workspace to the latest template version."""
+    merged = {**_TEMPLATE_PARAMETER_DEFAULTS, **(parameters or {})}
     args = ["coder", "update", name]
-    result = _run_with_rich_parameters(args, _TEMPLATE_PARAMETER_DEFAULTS, verbose=verbose)
+    result = _run_with_rich_parameters(args, merged, verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
