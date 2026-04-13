@@ -63,7 +63,6 @@ jobs:
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
-                  NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 
@@ -75,7 +74,6 @@ jobs:
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
-                  NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 
