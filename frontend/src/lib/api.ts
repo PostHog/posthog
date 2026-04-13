@@ -227,7 +227,7 @@ import type {
 } from 'products/session_summaries/frontend/types'
 import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
+import { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import {
