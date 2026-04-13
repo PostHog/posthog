@@ -481,9 +481,9 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_retries_transient_slack_errors_and_exhausts(
         self,
-        slack_error_code: str,
         mock_sleep: AsyncMock,
         MockSlackIntegration: MagicMock,
+        slack_error_code: str,
     ) -> None:
         mock_async_client = self._setup_async_mock(MockSlackIntegration)
 
@@ -541,9 +541,9 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_async_delivery_fails_fast_on_non_retryable_slack_errors(
         self,
-        slack_error_code: str,
         mock_sleep: AsyncMock,
         MockSlackIntegration: MagicMock,
+        slack_error_code: str,
     ) -> None:
         """Permanent Slack errors (config issues) should NOT be retried — fail on first attempt."""
         mock_async_client = self._setup_async_mock(MockSlackIntegration)
