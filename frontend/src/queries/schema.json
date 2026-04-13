@@ -33503,7 +33503,7 @@
                     "type": ["string", "null"]
                 },
                 "eventProperties": {
-                    "description": "Event property filters - only applies when event or actionId is set",
+                    "description": "Event property filters - filters sessions that contain events matching these properties",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },

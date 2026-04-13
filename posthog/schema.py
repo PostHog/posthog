@@ -19956,7 +19956,7 @@ class SessionsQuery(BaseModel):
         | None
     ) = Field(
         default=None,
-        description="Event property filters - filters sessions that contain events matching these properties",
+        description=("Event property filters - filters sessions that contain events matching these properties"),
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
