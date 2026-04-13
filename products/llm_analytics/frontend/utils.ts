@@ -38,6 +38,8 @@ import {
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
+    VercelSDKToolCallMessage,
+    VercelSDKToolResultMessage,
     MultiModalContentItem,
 } from './types'
 
@@ -428,6 +430,23 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
         input.type === 'input_text' &&
         'text' in input &&
         typeof input.text === 'string'
+    )
+}
+
+export function isVercelSDKToolCallMessage(input: unknown): input is VercelSDKToolCallMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-call' &&
+        (('function' in input && typeof input.function === 'object' && input.function !== null) ||
+            ('toolName' in input && typeof input.toolName === 'string'))
+    )
+}
+
+export function isVercelSDKToolResultMessage(input: unknown): input is VercelSDKToolResultMessage {
+    return (
+        !!input && typeof input === 'object' && 'type' in input && input.type === 'tool-result' && 'toolName' in input
     )
 }
 
@@ -972,11 +991,73 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Reasoning
     if (isOpenAIResponsesReasoning(rawMessage)) {
-        const summaryText = Array.isArray(rawMessage.summary) ? rawMessage.summary.map((s) => s.text).join('\n') : ''
+        let summaryText = ''
+        if (Array.isArray(rawMessage.summary)) {
+            summaryText = rawMessage.summary.map((s) => s.text).join('\n')
+        } else if (typeof rawMessage.text === 'string') {
+            summaryText = rawMessage.text
+        }
         return [
             {
                 role: normalizeRole('assistant (thinking)', roleToUse),
                 content: summaryText,
+            },
+        ]
+    }
+    // Vercel AI SDK tool call
+    if (isVercelSDKToolCallMessage(rawMessage)) {
+        let toolName: string
+        let toolArgs: Record<string, unknown> | string = {}
+        let toolId: string | undefined
+
+        if (rawMessage.function) {
+            toolName = rawMessage.function.name
+            toolArgs = rawMessage.function.arguments
+            toolId = rawMessage.id
+        } else {
+            toolName = rawMessage.toolName!
+            toolArgs = (rawMessage.input ?? {}) as Record<string, unknown> | string
+            toolId = rawMessage.toolCallId
+        }
+
+        let parsedArguments: Record<string, unknown> | string = toolArgs
+        if (typeof toolArgs === 'string') {
+            try {
+                parsedArguments = JSON.parse(toolArgs)
+            } catch {
+                parsedArguments = toolArgs
+            }
+        }
+        return [
+            {
+                role: roleToUse,
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: toolId,
+                        function: {
+                            name: toolName,
+                            arguments: parsedArguments,
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Vercel AI SDK tool result
+    if (isVercelSDKToolResultMessage(rawMessage)) {
+        let content = ''
+        if (typeof rawMessage.output === 'string') {
+            content = rawMessage.output
+        } else if (rawMessage.output !== undefined) {
+            content = JSON.stringify(rawMessage.output)
+        }
+        return [
+            {
+                role: normalizeRole('assistant (tool result)', roleToUse),
+                content,
+                tool_call_id: rawMessage.toolCallId,
             },
         ]
     }

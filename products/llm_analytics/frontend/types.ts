@@ -117,6 +117,27 @@ export interface VercelSDKInputTextMessage {
     text: string
 }
 
+export interface VercelSDKToolCallMessage {
+    type: 'tool-call'
+    id?: string
+    function?: {
+        name: string
+        arguments: string | Record<string, unknown>
+    }
+    toolCallId?: string
+    toolName?: string
+    input?: unknown
+    [key: string]: unknown
+}
+
+export interface VercelSDKToolResultMessage {
+    type: 'tool-result'
+    toolCallId?: string
+    toolName: string
+    output?: unknown
+    [key: string]: unknown
+}
+
 export interface AnthropicToolCallMessage {
     type: 'tool_use'
     id: string

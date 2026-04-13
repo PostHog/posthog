@@ -425,6 +425,173 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
+        it('handles Vercel AI SDK reasoning with text field', () => {
+            const message = {
+                type: 'reasoning',
+                text: 'Let me think about this step by step.',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: 'Let me think about this step by step.',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-call format', () => {
+            const message = {
+                type: 'tool-call',
+                id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                function: {
+                    name: 'queryModel',
+                    arguments: '{"query": "relevant data"}',
+                },
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                            function: {
+                                name: 'queryModel',
+                                arguments: { query: 'relevant data' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-call with object arguments', () => {
+            const message = {
+                type: 'tool-call',
+                id: 'call_123',
+                function: {
+                    name: 'get_weather',
+                    arguments: { location: 'NYC' },
+                },
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_123',
+                            function: {
+                                name: 'get_weather',
+                                arguments: { location: 'NYC' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles native Vercel AI SDK tool-call format (toolName/input/toolCallId)', () => {
+            const message = {
+                type: 'tool-call',
+                toolCallId: 'tc_native_123',
+                toolName: 'get_weather',
+                input: { location: 'NYC' },
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_native_123',
+                            function: {
+                                name: 'get_weather',
+                                arguments: { location: 'NYC' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result format', () => {
+            const message = {
+                type: 'tool-result',
+                toolCallId: 'tc_123',
+                toolName: 'get_weather',
+                output: { temperature: 72, unit: 'F' },
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '{"temperature":72,"unit":"F"}',
+                    tool_call_id: 'tc_123',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with string output', () => {
+            const message = {
+                type: 'tool-result',
+                toolCallId: 'tc_456',
+                toolName: 'search',
+                output: 'Found 3 results',
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: 'Found 3 results',
+                    tool_call_id: 'tc_456',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK mixed content array with reasoning + text + tool-call', () => {
+            const message = {
+                role: 'assistant',
+                content: [
+                    { type: 'reasoning', text: 'I should use a tool to look up the data.' },
+                    { type: 'text', text: 'Let me check that for you.' },
+                    {
+                        type: 'tool-call',
+                        id: 'toolu_vrtx_abc',
+                        function: { name: 'queryModel', arguments: '{"query":"data"}' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: 'I should use a tool to look up the data.',
+                },
+                {
+                    role: 'assistant',
+                    content: 'Let me check that for you.',
+                },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_vrtx_abc',
+                            function: { name: 'queryModel', arguments: { query: 'data' } },
+                        },
+                    ],
+                },
+            ])
+        })
+
         it.each([
             ['web_search_call', 'ws_123', { type: 'web_search_call', id: 'ws_123', status: 'completed' }],
             [
