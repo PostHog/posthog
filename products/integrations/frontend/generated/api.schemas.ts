@@ -267,9 +267,9 @@ export type IntegrationsGithubBranchesRetrieveParams = {
 
 export type IntegrationsGithubReposRetrieveParams = {
     /**
-     * Maximum number of repositories to return per request (max 100, matching GitHub's page size).
+     * Maximum number of repositories to return per request (max 500).
      * @minimum 1
-     * @maximum 100
+     * @maximum 500
      */
     limit?: number
     /**
