@@ -70,10 +70,10 @@ DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-STRIPE_APP_NAME = "PostHog Stripe App"
-STRIPE_PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
+LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
+PROVISIONED_PAT_LABEL_PREFIX = "Provisioning"
 
-ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600  # keep existing expiry; reduce after verifying Stripe handles refresh
+ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600
 
 
@@ -968,7 +968,7 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value."""
     try:
         api_key_value = generate_random_token_personal()
-        label = f"{STRIPE_PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
+        label = f"{PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
 
         PersonalAPIKey.objects.create(
             user=user,
@@ -1645,7 +1645,7 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
-def _get_stripe_oauth_app():
+def _get_legacy_stripe_oauth_app():
     if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
         try:
             return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
@@ -1658,7 +1658,7 @@ def _get_stripe_oauth_app():
     from oauthlib.common import generate_token
 
     return OAuthApplication.objects.create(
-        name=STRIPE_APP_NAME,
+        name=LEGACY_STRIPE_APP_NAME,
         client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
         client_secret="",
         client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -1701,7 +1701,7 @@ def _get_oauth_app_for_code(code_data: dict):
     """Resolve the OAuthApplication for a token exchange.
 
     If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the Stripe Projects app lookup.
+    Otherwise fall back to the legacy Stripe Projects app lookup.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:
@@ -1710,7 +1710,7 @@ def _get_oauth_app_for_code(code_data: dict):
         except OAuthApplication.DoesNotExist:
             pass
 
-    return _get_stripe_oauth_app()
+    return _get_legacy_stripe_oauth_app()
 
 
 def _region_to_host(region: str) -> str:
