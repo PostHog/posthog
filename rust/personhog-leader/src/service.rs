@@ -177,11 +177,8 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
         let proto = cached_person_to_proto(&updated_person);
 
-        // Update cache, then produce to Kafka for durability.
-        // If the produce fails, rollback the cache to the previous state.
-        self.cache
-            .put(req.partition, cache_key.clone(), updated_person);
-
+        // Produce to Kafka first, then update the cache on success.
+        // Readers only ever see durably committed state.
         if let Err(e) =
             produce_person_changelog(&self.producer, &self.changelog_topic, &proto).await
         {
@@ -189,14 +186,14 @@ impl PersonHogLeader for PersonHogLeaderService {
                 team_id = cache_key.team_id,
                 person_id = cache_key.person_id,
                 error = %e,
-                "failed to produce person state changelog, rolling back cache"
+                "failed to produce person state changelog"
             );
-            self.cache.put(req.partition, cache_key, (*person).clone());
             return Err(Status::internal(format!(
                 "failed to durably store person state: {e}"
             )));
         }
 
+        self.cache.put(req.partition, cache_key, updated_person);
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {

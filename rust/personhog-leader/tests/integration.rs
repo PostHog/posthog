@@ -512,12 +512,12 @@ async fn update_produces_person_state_to_kafka() {
 }
 
 // ============================================================
-// Test 6: Kafka produce failure rolls back cache and returns error
+// Test 6: Kafka produce failure leaves cache unchanged and returns error
 // (no etcd needed)
 // ============================================================
 
 #[tokio::test]
-async fn kafka_produce_failure_rolls_back_cache() {
+async fn kafka_produce_failure_leaves_cache_unchanged() {
     let cache = Arc::new(PartitionedCache::new(100));
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
@@ -571,13 +571,13 @@ async fn kafka_produce_failure_rolls_back_cache() {
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().code(), tonic::Code::Internal);
 
-    // Cache should still have the original person (version 1, no "name" property)
+    // Cache was never updated since the produce failed before the cache write
     let cache_key = personhog_leader::cache::PersonCacheKey {
         team_id: 1,
         person_id: 42,
     };
     let CacheLookup::Found(cached) = cache.get(0, &cache_key) else {
-        panic!("expected person in cache after rollback");
+        panic!("expected original person in cache");
     };
     assert_eq!(cached.version, 1);
     assert_eq!(cached.properties["email"], "test@example.com");
