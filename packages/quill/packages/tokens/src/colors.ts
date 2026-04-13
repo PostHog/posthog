@@ -90,7 +90,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
 
-        accent: [surface(0.923, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'bg-accent'],
+        accent: [surface(0.87, 0.8, 'light'), surface(0.35, 1.2, 'dark'), 'bg-accent'],
         'accent-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-accent-foreground'],
 
         // ── Brand (driven by --primary-hue) ─────────
@@ -139,8 +139,8 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         'fill-active': ['var(--accent)', 'var(--accent)', 'bg-fill-active'],
         'fill-expanded': ['var(--muted)', 'var(--muted)', 'bg-fill-expanded'],
         'fill-selected': [
-            'color-mix(in oklch, var(--fill-hover) 50%, transparent)',
-            'color-mix(in oklch, var(--accent) 50%, transparent)',
+            'color-mix(in oklch, var(--fill-hover) 80%, transparent)',
+            'color-mix(in oklch, var(--accent) 80%, transparent)',
             'bg-fill-selected',
         ],
     } as const
