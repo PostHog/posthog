@@ -4,10 +4,11 @@ import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-u
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { billingLogic } from './billingLogic'
 import { CODE_PLAN_PRO } from './constants'
-import { isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
+import { isProPlanKey, seatBillingLogic } from './seatBillingLogic'
 import type { SeatData } from './types'
 
 function planLabel(planKey: string): string {
@@ -42,35 +43,11 @@ function statusColor(status: string): 'success' | 'warning' | 'muted' | 'primary
     }
 }
 
-const STATUS_PRIORITY: Record<string, number> = {
-    active: 0,
-    canceling: 1,
-    pending_payment: 2,
-    pending: 3,
-    expired: 4,
-    withdrawn: 5,
-}
-
 export function CodeSeatsSection(): JSX.Element {
-    const { orgSeats, orgSeatsLoading, isAdmin, members } = useValues(seatBillingLogic)
+    const { displaySeats, orgSeatsLoading, isAdmin, members, activeCount, cancelingCount, monthlyTotal } =
+        useValues(seatBillingLogic)
     const { adminCancelSeat, adminUpgradeSeat, adminReactivateSeat } = useActions(seatBillingLogic)
     const { billing } = useValues(billingLogic)
-
-    const displaySeats = Object.values(
-        orgSeats.reduce<Record<string, SeatData>>((acc, seat) => {
-            const existing = acc[seat.user_distinct_id]
-            if (!existing || (STATUS_PRIORITY[seat.status] ?? 99) < (STATUS_PRIORITY[existing.status] ?? 99)) {
-                acc[seat.user_distinct_id] = seat
-            }
-            return acc
-        }, {})
-    )
-
-    const activeCount = displaySeats.filter((s) => s.status === 'active').length
-    const cancelingCount = displaySeats.filter((s) => s.status === 'canceling').length
-    const monthlyTotal = displaySeats
-        .filter((s) => s.status === 'active')
-        .reduce((sum, s) => sum + seatPriceFromPlanKey(s.plan_key), 0)
 
     function getUserInfo(seat: SeatData): { name: string; email: string } | null {
         if (!members) {
@@ -89,8 +66,8 @@ export function CodeSeatsSection(): JSX.Element {
                 <div>
                     <h3 className="mb-1 text-lg font-semibold">Code seats</h3>
                     <span className="text-muted text-sm">
-                        {activeCount} active{cancelingCount > 0 ? `, ${cancelingCount} canceling` : ''} &middot; $
-                        {monthlyTotal}/mo
+                        {activeCount} active{cancelingCount > 0 ? `, ${cancelingCount} canceling` : ''} &middot;{' '}
+                        <Tooltip title="Reflects the monthly rate, not prorated charges">${monthlyTotal}/mo</Tooltip>
                     </span>
                 </div>
             </div>
@@ -163,9 +140,22 @@ export function CodeSeatsSection(): JSX.Element {
                                             {canUpgrade && (
                                                 <LemonButton
                                                     fullWidth
-                                                    onClick={() =>
-                                                        adminUpgradeSeat(seat.user_distinct_id, CODE_PLAN_PRO)
-                                                    }
+                                                    onClick={() => {
+                                                        LemonDialog.open({
+                                                            title: 'Upgrade this seat to Pro?',
+                                                            description:
+                                                                'A prorated charge will be applied for the remainder of the billing period. This cannot be reverted without canceling.',
+                                                            primaryButton: {
+                                                                children: 'Upgrade to Pro',
+                                                                onClick: () =>
+                                                                    adminUpgradeSeat(
+                                                                        seat.user_distinct_id,
+                                                                        CODE_PLAN_PRO
+                                                                    ),
+                                                            },
+                                                            secondaryButton: { children: 'Cancel' },
+                                                        })
+                                                    }}
                                                 >
                                                     Upgrade to Pro
                                                 </LemonButton>
@@ -206,6 +196,9 @@ export function CodeSeatsSection(): JSX.Element {
                     },
                 ]}
             />
+            {isAdmin && !billing?.has_active_subscription && (
+                <p className="text-muted text-sm mt-2">Subscribe to a paid plan to manage Pro seats.</p>
+            )}
         </div>
     )
 }

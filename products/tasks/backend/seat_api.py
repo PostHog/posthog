@@ -15,6 +15,8 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+# TODO: Centralize billing proxy through BillingManager (ee/billing/) to avoid
+# duplicating auth header construction and keep all billing communication in one place
 from ee.billing.billing_manager import build_billing_token
 from ee.settings import BILLING_SERVICE_URL
 

@@ -4,7 +4,8 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -21,6 +22,7 @@ export function isFreePlanKey(planKey: string | null | undefined): boolean {
     return !!planKey && planKey.startsWith(CODE_FREE_PLAN_PREFIX)
 }
 
+// TODO: Replace with `seat.price` once billing exposes it via SeatSerializer
 export function seatPriceFromPlanKey(planKey: string): number {
     if (isFreePlanKey(planKey)) {
         return 0
@@ -31,7 +33,7 @@ export function seatPriceFromPlanKey(planKey: string): number {
 
 function seatErrorMessage(e: unknown, fallback: string): string {
     if (e instanceof ApiError) {
-        return e.detail || e.data?.detail || fallback
+        return e.detail || e.data?.detail || e.data?.error || fallback
     }
     return fallback
 }
@@ -39,7 +41,16 @@ function seatErrorMessage(e: unknown, fallback: string): string {
 export const seatBillingLogic = kea<seatBillingLogicType>([
     path(['scenes', 'billing', 'seatBillingLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization'], userLogic, ['user'], membersLogic, ['members']],
+        values: [
+            organizationLogic,
+            ['currentOrganization'],
+            userLogic,
+            ['user'],
+            membersLogic,
+            ['members'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     })),
     actions({
@@ -99,6 +110,46 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         ],
         canCancel: [(s) => [s.mySeat], (mySeat): boolean => !!mySeat && mySeat.status === 'active'],
         canReactivate: [(s) => [s.mySeat], (mySeat): boolean => !!mySeat && mySeat.status === 'canceling'],
+        displaySeats: [
+            (s) => [s.orgSeats],
+            (orgSeats): SeatData[] => {
+                const STATUS_PRIORITY: Record<string, number> = {
+                    active: 0,
+                    canceling: 1,
+                    pending_payment: 2,
+                    pending: 3,
+                    expired: 4,
+                    withdrawn: 5,
+                }
+                return Object.values(
+                    orgSeats.reduce<Record<string, SeatData>>((acc, seat) => {
+                        const existing = acc[seat.user_distinct_id]
+                        if (
+                            !existing ||
+                            (STATUS_PRIORITY[seat.status] ?? 99) < (STATUS_PRIORITY[existing.status] ?? 99)
+                        ) {
+                            acc[seat.user_distinct_id] = seat
+                        }
+                        return acc
+                    }, {})
+                )
+            },
+        ],
+        activeCount: [
+            (s) => [s.displaySeats],
+            (displaySeats): number => displaySeats.filter((s: SeatData) => s.status === 'active').length,
+        ],
+        cancelingCount: [
+            (s) => [s.displaySeats],
+            (displaySeats): number => displaySeats.filter((s: SeatData) => s.status === 'canceling').length,
+        ],
+        monthlyTotal: [
+            (s) => [s.displaySeats],
+            (displaySeats): number =>
+                displaySeats
+                    .filter((s: SeatData) => s.status === 'active')
+                    .reduce((sum: number, s: SeatData) => sum + seatPriceFromPlanKey(s.plan_key), 0),
+        ],
     }),
     listeners(({ actions, values }) => ({
         upgradeSeat: async ({ planKey }) => {
@@ -158,6 +209,9 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 await api.delete(`api/seats/${userDistinctId}/?product_key=${CODE_PRODUCT_KEY}`)
                 lemonToast.success('Seat canceled')
                 actions.loadOrgSeats()
+                if (userDistinctId === values.user?.distinct_id) {
+                    actions.loadMySeat()
+                }
             } catch (e) {
                 lemonToast.error(seatErrorMessage(e, 'Failed to cancel seat'))
             }
@@ -170,6 +224,9 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 })
                 lemonToast.success('Seat upgraded')
                 actions.loadOrgSeats()
+                if (userDistinctId === values.user?.distinct_id) {
+                    actions.loadMySeat()
+                }
             } catch (e) {
                 lemonToast.error(seatErrorMessage(e, 'Failed to upgrade seat'))
             }
@@ -181,12 +238,18 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 })
                 lemonToast.success('Seat reactivated')
                 actions.loadOrgSeats()
+                if (userDistinctId === values.user?.distinct_id) {
+                    actions.loadMySeat()
+                }
             } catch (e) {
                 lemonToast.error(seatErrorMessage(e, 'Failed to reactivate seat'))
             }
         },
     })),
     afterMount(({ actions, values }) => {
+        if (!values.featureFlags[FEATURE_FLAGS.POSTHOG_CODE_BILLING]) {
+            return
+        }
         actions.loadMySeat()
         actions.ensureAllMembersLoaded()
         if (values.isAdmin) {
