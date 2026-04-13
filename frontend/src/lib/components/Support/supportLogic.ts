@@ -188,14 +188,9 @@ const TARGET_AREA_TO_NAME_GENERAL = [
 
 const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
-        value: 'data_warehouse',
-        'data-attr': `support-form-target-area-data_warehouse`,
-        label: 'Data warehouse (sources)',
-    },
-    {
-        value: 'data_modeling',
-        'data-attr': `support-form-target-area-data_modeling`,
-        label: 'Data modeling (views, matviews, endpoints)',
+        value: 'apps',
+        'data-attr': `support-form-target-area-apps`,
+        label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
     },
     {
         value: 'batch_exports',
@@ -206,6 +201,16 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'cdp_destinations',
         'data-attr': `support-form-target-area-cdp_destinations`,
         label: 'Destinations (real-time)',
+    },
+    {
+        value: 'data_modeling',
+        'data-attr': `support-form-target-area-data_modeling`,
+        label: 'Data modeling (views, matviews, endpoints)',
+    },
+    {
+        value: 'data_warehouse',
+        'data-attr': `support-form-target-area-data_warehouse`,
+        label: 'Data warehouse (sources)',
     },
     {
         value: 'error_tracking',
@@ -258,11 +263,6 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'MCP Server',
     },
     {
-        value: 'workflows',
-        'data-attr': `support-form-target-area-workflows`,
-        label: 'Workflows / Messaging',
-    },
-    {
         value: 'analytics',
         'data-attr': `support-form-target-area-analytics`,
         label: 'Product analytics (incl. insights, dashboards, etc.)',
@@ -291,6 +291,11 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'web_analytics',
         'data-attr': `support-form-target-area-web_analytics`,
         label: 'Web analytics',
+    },
+    {
+        value: 'workflows',
+        'data-attr': `support-form-target-area-workflows`,
+        label: 'Workflows / Messaging',
     },
 ] as const satisfies LemonSelectOptions<string>
 
