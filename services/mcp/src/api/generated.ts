@@ -21108,6 +21108,8 @@ export namespace Schemas {
       repositories?: string[];
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      internal?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -25019,6 +25021,8 @@ export namespace Schemas {
       readonly has_environment_variables?: boolean;
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      readonly internal?: boolean;
       /** Computed domain allowlist based on network_access_level and allowed_domains */
       readonly effective_domains?: readonly string[];
       readonly created_by?: UserBasic;
@@ -29942,6 +29946,8 @@ export namespace Schemas {
       readonly has_environment_variables: boolean;
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      readonly internal: boolean;
       /** Computed domain allowlist based on network_access_level and allowed_domains */
       readonly effective_domains: readonly string[];
       readonly created_by: UserBasic;
