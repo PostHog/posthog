@@ -17,6 +17,7 @@ import {
 } from '~/types'
 
 import {
+    buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
@@ -164,12 +165,6 @@ describe('survey utils', () => {
                         type: 'events',
                         properties: [
                             {
-                                key: SurveyEventProperties.SURVEY_RESPONSE,
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
-                            {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
@@ -195,12 +190,6 @@ describe('survey utils', () => {
                         type: 'events',
                         properties: [
                             {
-                                key: SurveyEventProperties.SURVEY_RESPONSE,
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
-                            {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
@@ -209,6 +198,59 @@ describe('survey utils', () => {
                         ],
                     },
                 ],
+            })
+        })
+    })
+
+    describe('buildSurveyExampleInvocationGlobals', () => {
+        it('builds a survey sent example payload with question response properties', () => {
+            const globals = buildSurveyExampleInvocationGlobals({
+                survey: {
+                    id: 'survey-123',
+                    name: 'Onboarding survey',
+                    questions: [
+                        { id: 'q1', type: SurveyQuestionType.Open, question: 'Tell us more' },
+                        {
+                            id: 'q2',
+                            type: SurveyQuestionType.SingleChoice,
+                            question: 'How did you hear about us?',
+                            choices: ['Twitter', 'Word of mouth'],
+                        },
+                        {
+                            id: 'q3',
+                            type: SurveyQuestionType.MultipleChoice,
+                            question: 'What do you use most?',
+                            choices: ['Funnels', 'Session replay', 'Feature flags'],
+                        },
+                        {
+                            id: 'q4',
+                            type: SurveyQuestionType.Rating,
+                            question: 'How satisfied are you?',
+                            scale: 10,
+                            display: 'number',
+                            lowerBoundLabel: 'Low',
+                            upperBoundLabel: 'High',
+                        },
+                    ],
+                } as Survey,
+                projectId: 1,
+                projectName: 'Project',
+                projectUrl: 'https://app.posthog.com/project/1',
+                timestamp: '2026-04-13T12:00:00.000Z',
+                eventUuid: 'event-uuid',
+                distinctId: 'person-distinct-id',
+            })
+
+            expect(globals.event.event).toEqual(SurveyEventName.SENT)
+            expect(globals.event.properties).toEqual({
+                $survey_id: 'survey-123',
+                $survey_name: 'Onboarding survey',
+                $survey_completed: true,
+                $survey_submission_id: 'survey-submission-id',
+                $survey_response_q1: 'Tell us more',
+                $survey_response_q2: 'Twitter',
+                $survey_response_q3: ['Funnels', 'Session replay'],
+                $survey_response_q4: '9',
             })
         })
     })
