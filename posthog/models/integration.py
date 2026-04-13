@@ -125,6 +125,9 @@ class Integration(models.Model):
         JIRA = "jira"
         PINTEREST_ADS = "pinterest-ads"
         STRIPE = "stripe"
+        CUSTOMERIO_APP = "customerio-app"
+        CUSTOMERIO_WEBHOOK = "customerio-webhook"
+        CUSTOMERIO_TRACK = "customerio-track"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
