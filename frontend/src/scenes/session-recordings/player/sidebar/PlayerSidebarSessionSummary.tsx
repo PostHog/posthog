@@ -763,7 +763,7 @@ function SessionSummaryFeedbackSurvey(): JSX.Element | null {
     return (
         <div className="border rounded p-3 mt-3">
             <div className="flex items-start justify-between">
-                <strong className="text-sm">{question?.question ?? 'What could be better about this summary?'}</strong>
+                <strong className="text-sm">{question?.question}</strong>
                 <LemonButton size="xsmall" icon={<IconX />} onClick={() => setShowFeedbackSurvey(false)} />
             </div>
             {submitted ? (
