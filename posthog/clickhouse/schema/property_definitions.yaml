@@ -12,9 +12,11 @@ tables:
         order_by:
             - team_id
             - type
-            - "COALESCE(event, '')"
+            # CH lowercases COALESCE in sorting_key, so match that rendering
+            # to avoid a perpetual ORDER BY diff on every apply.
+            - "coalesce(event, '')"
             - name
-            - "COALESCE(group_type_index, 255)"
+            - "coalesce(group_type_index, 255)"
         columns:
             - name: team_id
               type: UInt32
@@ -37,4 +39,6 @@ tables:
             - name: version
               type: UInt64
               default_kind: MATERIALIZED
-              default_expression: "(bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))"
+              # No outer parens — CH strips them during DDL parse, so align
+              # the YAML with how system.columns reports the expression.
+              default_expression: "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))"
