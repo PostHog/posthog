@@ -505,7 +505,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return final_result, has_more
 
-    def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
+    def build_series_response(
+        self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int
+    ) -> list[dict[str, Any]]:
         def get_value(name: str, val: Any):
             if name not in ["date", "total", "breakdown_value"]:
                 raise Exception("Column not found in hogql results")

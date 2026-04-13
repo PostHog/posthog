@@ -134,7 +134,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                         case 'any-user':
                             return 'Hide all viewed recordings'
                         default:
-                            return 'Show all recordings'
+                            return 'Viewed and unviewed recordings'
                     }
                 }
             },

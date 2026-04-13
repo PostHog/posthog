@@ -158,6 +158,7 @@ from . import (
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
+from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
@@ -321,6 +322,13 @@ environments_router.register(
     r"column_configurations",
     ColumnConfigurationViewSet,
     "environment_column_configurations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"event_filter",
+    EventFilterConfigViewSet,
+    "environment_event_filter",
     ["team_id"],
 )
 
@@ -1039,6 +1047,10 @@ projects_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"conversations/views", conversations.TicketViewViewSet, "environment_conversations_views", ["team_id"]
+)
+
 projects_router.register(
     r"hog_function_templates",
     hog_function_template.PublicHogFunctionTemplateViewSet,
@@ -1209,6 +1221,13 @@ environments_router.register(
     r"revenue_analytics/taxonomy",
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
     "environment_revenue_analytics_taxonomy",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/joins",
+    revenue_analytics.RevenueAnalyticsJoinViewSet,
+    "environment_revenue_analytics_joins",
     ["team_id"],
 )
 

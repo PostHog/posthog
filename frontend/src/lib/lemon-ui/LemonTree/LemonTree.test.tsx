@@ -143,7 +143,7 @@ describe('LemonTree virtualization', () => {
             },
         ]
 
-        render(
+        const { container } = render(
             <div>
                 <div style={{ height: 120 }} />
                 <div ref={outerScrollRef}>
@@ -185,19 +185,12 @@ describe('LemonTree virtualization', () => {
             toJSON: () => ({}),
         })
 
-        act(() => {
-            outerScroll.dispatchEvent(new Event('scroll'))
-        })
-
-        act(() => {
-            outerScroll.scrollTop = 120 + 31 * 40
-            outerScroll.dispatchEvent(new Event('scroll'))
-        })
+        await scrollViewport(outerScroll, 120 + 31 * 40)
 
         await waitFor(() => {
-            expect(screen.getByLabelText('tree item: child-40')).toBeInTheDocument()
+            expect(within(container).getByLabelText('tree item: child-40')).toBeInTheDocument()
         })
-    })
+    }, 10000)
 
     it('supports an overridden virtualized row height', async () => {
         const data: TreeDataItem[] = [

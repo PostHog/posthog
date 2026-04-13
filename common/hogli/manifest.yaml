@@ -2,8 +2,6 @@ metadata:
     devbox:
         coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
-        - key: devbox
-          title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
         - key: core
@@ -30,6 +28,8 @@ metadata:
           title: Developer tools and utilities
         - key: utilities
           title: Git worktrees and admin
+        - key: devbox
+          title: Remote development environment (devbox)
         - key: environment
           title: Environment and shell
     services:
@@ -100,12 +100,16 @@ devbox:
     devbox:setup: null
     devbox:start: null
     devbox:stop: null
+    devbox:restart: null
+    devbox:update: null
+    devbox:list: null
     devbox:ssh: null
     devbox:open: null
     devbox:logs: null
     devbox:destroy: null
     devbox:status: null
     devbox:forward: null
+    devbox:cleanup:disk: null
 devenv:
     dev:setup: null
     dev:generate: null
@@ -614,6 +618,9 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
+    clickhouse:ai:init:
+        bin_script: clickhouse-ai-events-init
+        description: Create ai_events ClickHouse tables for local development
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'
@@ -749,6 +756,10 @@ environment:
     telemetry:status:
         description: Show current telemetry settings
     sandbox:
+        bin_script: sandbox
+        description: Manage isolated dev sandboxes
+        hidden: true
+    sandybox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
     start:stripe:mock:

@@ -12,7 +12,7 @@ import { createLogger } from '../logger'
 import { RasterizationMetrics } from '../metrics'
 import { computeVideoTimestamps } from '../postprocess'
 import { uploadToS3 } from '../storage'
-import { ActivityTimings, RasterizeRecordingInput, RasterizeRecordingOutput } from '../types'
+import { ActivityTimings, RasterizationProgress, RasterizeRecordingInput, RasterizeRecordingOutput } from '../types'
 import { elapsed } from '../utils'
 
 function toActivityError(err: unknown): Error {
@@ -45,10 +45,23 @@ async function rasterizeRecordingActivity(
 
     const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, upload_s: 0 }
 
-    const onProgress = () => Context.current().heartbeat()
+    // Mutated in place by recorder.ts and capture.ts so each heartbeat carries
+    // the latest phase and frame count. Temporal exposes this via
+    // `pending_activities[].heartbeat_details` for the parent workflow to read.
+    const progress: RasterizationProgress = { phase: 'setup', frame: 0, estimatedTotalFrames: 0 }
+    const onProgress = (): void => Context.current().heartbeat(progress)
 
     try {
-        const result = await rasterizeRecording(pool, input, outputPath, playerHtml, onProgress, undefined, log)
+        const result = await rasterizeRecording(
+            pool,
+            input,
+            outputPath,
+            playerHtml,
+            onProgress,
+            progress,
+            undefined,
+            log
+        )
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)
@@ -56,6 +69,8 @@ async function rasterizeRecordingActivity(
 
         const periods = computeVideoTimestamps(result.inactivity_periods)
 
+        progress.phase = 'upload'
+        onProgress()
         const uploadStart = process.hrtime()
         const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id, onProgress)
         timings.upload_s = elapsed(uploadStart)

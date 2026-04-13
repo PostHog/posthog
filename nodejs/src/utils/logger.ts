@@ -107,6 +107,8 @@ export class Logger {
     }
 }
 
+// TODO: remove defaultConfig import — it creates circular imports when config files
+// import anything that transitively reaches this module. The logger should not depend on config.
 export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')
 
 export function serializeError(error: unknown): Record<string, unknown> | unknown {

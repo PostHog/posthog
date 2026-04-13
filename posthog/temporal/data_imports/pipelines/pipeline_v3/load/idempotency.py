@@ -14,7 +14,7 @@ IDEMPOTENCY_TTL_SECONDS = 72 * 60 * 60  # 3 days (72 hours) same as the topic re
 
 
 @contextmanager
-def _get_redis_client():
+def get_redis_client():
     """Get a Redis client for the data warehouse Redis instance."""
     redis_client = None
     try:
@@ -41,7 +41,7 @@ def get_idempotency_key(team_id: int, schema_id: str, run_uuid: str, batch_index
 
 def is_batch_already_processed(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> bool:
     """Check if a batch has already been processed."""
-    with _get_redis_client() as redis_client:
+    with get_redis_client() as redis_client:
         if redis_client is None:
             return False
 
@@ -51,7 +51,7 @@ def is_batch_already_processed(team_id: int, schema_id: str, run_uuid: str, batc
 
 def mark_batch_as_processed(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> None:
     """Mark a batch as processed in the cache."""
-    with _get_redis_client() as redis_client:
+    with get_redis_client() as redis_client:
         if redis_client is None:
             logger.warning(
                 "failed_to_mark_batch_processed",

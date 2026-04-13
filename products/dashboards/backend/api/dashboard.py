@@ -46,7 +46,7 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import create_from_template
+from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -73,7 +73,6 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
     DashboardTemplateCreationJSONSchemaParser,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
 
@@ -1453,9 +1452,16 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = DashboardTemplate(**request.data["template"])
+            dashboard_template = dashboard_template_from_creation_payload(request.data["template"])
             creation_context = request.data.get("creation_context")
             create_from_template(dashboard, dashboard_template, cast(User, request.user))
+
+            template_body = request.data["template"]
+            raw_scope = template_body.get("scope")
+            if raw_scope is None or raw_scope == "":
+                template_scope_props: dict[str, str | None] = {"template_scope": None}
+            else:
+                template_scope_props = {"template_scope": raw_scope if isinstance(raw_scope, str) else str(raw_scope)}
 
             report_user_action(
                 request.user,
@@ -1464,6 +1470,7 @@ class DashboardsViewSet(
                     **dashboard.get_analytics_metadata(),
                     "from_template": True,
                     "template_key": dashboard_template.template_name,
+                    **template_scope_props,
                     "duplicated": False,
                     "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,

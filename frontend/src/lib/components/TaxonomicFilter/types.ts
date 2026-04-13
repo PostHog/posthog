@@ -69,6 +69,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    schemaColumnsLoading?: boolean
     endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
@@ -99,6 +100,8 @@ export interface TaxonomicFilterProps {
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     /** Override the group-level minSearchQueryLength for all groups in this instance. */
     minSearchQueryLength?: number
+    /** Override the "Suggested filters" tab label for specific contexts. */
+    suggestedFiltersLabel?: string
 }
 
 export interface DataWarehousePopoverField {
