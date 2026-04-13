@@ -39,6 +39,7 @@ from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.github import get_github_login
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
@@ -567,7 +568,7 @@ class UserViewSet(
     @action(methods=["GET"], detail=True, url_path="github_login")
     def github_login(self, request, **kwargs):
         user = self.get_object()
-        return Response({"github_login": user.get_github_login()})
+        return Response({"github_login": get_github_login(user)})
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

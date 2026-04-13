@@ -137,44 +137,6 @@ def get_org_member_github_login_to_user_map(team_id: int) -> dict[str, Any] | No
     return login_to_user
 
 
-def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str]) -> dict[str, str]:
-    """Build a mapping of PostHog user UUID string -> GitHub login for org members on the team."""
-    if not user_uuids:
-        return {}
-
-    try:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-    except Team.DoesNotExist:
-        return {}
-
-    org_member_user_ids = OrganizationMembership.objects.filter(
-        organization_id=org_id,
-        user__uuid__in=user_uuids,
-    ).values_list("user_id", flat=True)
-
-    social_auths = (
-        UserSocialAuth.objects.filter(
-            provider="github",
-            user_id__in=org_member_user_ids,
-        )
-        .only("extra_data", "user__uuid", "user_id")
-        .select_related("user")
-        .order_by("user_id", "-id")
-        .distinct("user_id")
-    )
-
-    user_uuid_to_login: dict[str, str] = {}
-    for sa in social_auths:
-        extra = sa.extra_data
-        if not isinstance(extra, dict):
-            continue
-        login = extra.get("login")
-        if login:
-            user_uuid_to_login[str(sa.user.uuid)] = login.lower()
-
-    return user_uuid_to_login
-
-
 def enrich_reviewer_dicts_with_org_members(
     team_id: int,
     reviewer_dicts: list[dict],

@@ -37,6 +37,7 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.api.github import get_github_login, get_org_member_github_logins_by_user_uuid
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team
@@ -54,10 +55,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalSourceConfig,
 )
-from products.signals.backend.report_generation.resolve_reviewers import (
-    get_org_member_github_login_to_user_map,
-    get_org_member_github_logins_by_user_uuid,
-)
+from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_login_to_user_map
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportSerializer,
@@ -513,7 +511,7 @@ class SignalReportViewSet(
 
     @staticmethod
     def _get_github_login(user) -> str | None:
-        login = user.get_github_login()
+        login = get_github_login(user)
         return login.lower() if login else None
 
     def get_serializer_context(self):
