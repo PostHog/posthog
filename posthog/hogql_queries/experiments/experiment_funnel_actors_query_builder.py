@@ -166,33 +166,14 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
             ),
         )
 
-        # Add step columns dynamically (same pattern as parent class)
-        step_columns = self._build_step_columns()
+        # Add step columns dynamically using parent class method
+        # Parent's _build_funnel_step_columns() returns [step_0, step_1, step_2, ...]
+        # We skip step_0 (exposure) since it's not needed in metric_events CTE
+        all_step_columns = self._build_funnel_step_columns()
+        step_columns = all_step_columns[1:]  # Skip step_0, keep step_1, step_2, ...
         query.select.extend(step_columns)
 
         return query
-
-    def _build_step_columns(self) -> list[ast.Alias]:
-        """Build step_1, step_2, ... columns for metric events."""
-        from posthog.hogql_queries.experiments.base_query_utils import event_or_action_to_filter
-
-        # Ensure metric is ExperimentFunnelMetric (validated in parent constructor)
-        assert isinstance(self.metric, ExperimentFunnelMetric), "metric must be ExperimentFunnelMetric"
-
-        step_exprs = []
-        for i, step_node in enumerate(self.metric.series):
-            step_filter = event_or_action_to_filter(self.team, step_node)
-            step_exprs.append(
-                ast.Alias(
-                    alias=f"step_{i + 1}",
-                    expr=ast.Call(
-                        name="if",
-                        args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)],
-                    ),
-                )
-            )
-
-        return step_exprs
 
     def _build_entity_metrics_cte(self) -> ast.SelectQuery:
         """
@@ -272,6 +253,8 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
             recordings_fields = ""
 
         # Build the complete SELECT query
+        # Note: recordings_fields and temporal_filter are internally computed safe strings
+        # covered by semgrep exception (see .semgrep/rules/hogql-no-fstring.yaml line 114)
         query = cast(
             ast.SelectQuery,
             parse_select(
