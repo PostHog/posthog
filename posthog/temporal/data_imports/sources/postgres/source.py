@@ -351,11 +351,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             )
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
-        # Require SSL for sources created after the cutoff date, unless the
-        # user has explicitly opted out via the SSL toggle while using an SSH tunnel.
-        has_ssh_tunnel = config.ssh_tunnel.enabled if config.ssh_tunnel else False
-        ssl_enabled = config.ssl_enabled.enabled if config.ssl_enabled and has_ssh_tunnel else True
-        require_ssl = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE and ssl_enabled
+        has_ssh_tunnel = config.ssh_tunnel and config.ssh_tunnel.enabled
+        ssl_toggled_off = config.ssl_enabled and not config.ssl_enabled.enabled
+        is_after_cutoff = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE
+        require_ssl = is_after_cutoff and not (has_ssh_tunnel and ssl_toggled_off)
 
         return postgres_source(
             tunnel=ssh_tunnel,

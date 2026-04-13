@@ -498,9 +498,10 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Connection not found or has been deleted") from e
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
-        has_ssh_tunnel = source_config.ssh_tunnel.enabled if source_config.ssh_tunnel else False
-        ssl_enabled = source_config.ssl_enabled.enabled if source_config.ssl_enabled and has_ssh_tunnel else True
-        require_ssl = source.created_at >= SSL_REQUIRED_AFTER_DATE and ssl_enabled
+        has_ssh_tunnel = source_config.ssh_tunnel and source_config.ssh_tunnel.enabled
+        ssl_toggled_off = source_config.ssl_enabled and not source_config.ssl_enabled.enabled
+        is_after_cutoff = source.created_at >= SSL_REQUIRED_AFTER_DATE
+        require_ssl = is_after_cutoff and not (has_ssh_tunnel and ssl_toggled_off)
         settings = self._effective_direct_postgres_settings()
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
