@@ -211,3 +211,27 @@ impl<'a> TimingGuardLabels<'a> {
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_unmatched_path;
+
+    #[test]
+    fn test_normalize_unmatched_path() {
+        let cases = [
+            // (input, expected)
+            ("/array/phc_xxx/config.js", "/array/"),
+            ("/array/phc_xxx/en_GB/config.js", "/array/"),
+            ("/array/N/A/config", "/array/"),
+            ("/array/https:/us.i.posthog.com/config", "/array/"),
+            ("/api/surveys/blah", "/api/"),
+            ("/array/env", "/array/"),
+            ("/array/package.json", "/array/"),
+            ("/metrics", "/metrics"),
+            ("/", "/"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(normalize_unmatched_path(input), expected, "input: {input}");
+        }
+    }
+}
