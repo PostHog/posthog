@@ -1,7 +1,6 @@
 metadata:
     devbox:
         coder_url: https://coder.hedgehog-kitefin.ts.net
-        coder_version: '2.30.5'
     categories:
         - key: devenv
           title: Intent-based dev environment

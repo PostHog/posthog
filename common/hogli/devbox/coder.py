@@ -75,18 +75,29 @@ def get_coder_url() -> str:
     raise RuntimeError("Missing `metadata.devbox.coder_url` in common/hogli/manifest.yaml.")
 
 
-def get_coder_version() -> str:
-    """Resolve the expected Coder CLI version from env or manifest."""
+def _normalize_version(version: str) -> str:
+    """Strip leading ``v`` and semver build metadata (``+hash``)."""
+    return version.lstrip("v").split("+")[0]
+
+
+def get_server_version() -> str:
+    """Query the Coder deployment for its running version."""
     if version := os.environ.get("HOGLI_DEVBOX_CODER_VERSION"):
         return version
 
-    manifest = load_manifest()
-    metadata = manifest.get("metadata", {})
-    devbox_metadata = metadata.get("devbox", {})
-    if isinstance(devbox_metadata, dict) and isinstance(devbox_metadata.get("coder_version"), str):
-        return devbox_metadata["coder_version"]
+    coder_url = get_coder_url()
+    try:
+        import urllib.request
 
-    raise RuntimeError("Missing `metadata.devbox.coder_version` in common/hogli/manifest.yaml.")
+        with urllib.request.urlopen(f"{coder_url}/api/v2/buildinfo", timeout=5) as resp:
+            data = json.loads(resp.read())
+            raw = data.get("version", "")
+            if raw:
+                return _normalize_version(raw)
+    except Exception:
+        pass
+
+    raise RuntimeError(f"Could not determine server version from {coder_url}/api/v2/buildinfo.")
 
 
 def _coder_bin() -> str:
@@ -281,10 +292,7 @@ def get_installed_coder_version() -> str | None:
         version = data.get("version", "")
         if not version:
             return None
-        # Strip leading "v" and semver build metadata (+commit hash).
-        # The Coder CLI reports e.g. "v2.30.5+3b2ded6" but the manifest
-        # pins just "2.30.5" — build metadata is irrelevant for comparison.
-        return version.lstrip("v").split("+")[0]
+        return _normalize_version(version)
     except (json.JSONDecodeError, AttributeError):
         return None
 
@@ -292,7 +300,7 @@ def get_installed_coder_version() -> str | None:
 def _warn_version_mismatch() -> None:
     """Warn if the installed Coder CLI doesn't match the expected version."""
     try:
-        expected = get_coder_version()
+        expected = get_server_version()
     except RuntimeError:
         return
 
@@ -314,7 +322,7 @@ def _install_coder_cli() -> None:
     """Install the Coder CLI into ~/.hogli/bin from the deployment's install script."""
     coder_url = get_coder_url()
     try:
-        version = get_coder_version()
+        version = get_server_version()
         click.echo(f"Installing coder CLI v{version}...")
     except RuntimeError:
         version = None
@@ -335,7 +343,7 @@ def ensure_coder_installed() -> None:
         return
 
     try:
-        expected = get_coder_version()
+        expected = get_server_version()
     except RuntimeError:
         click.echo("coder CLI is installed.")
         return

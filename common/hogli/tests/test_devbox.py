@@ -187,14 +187,19 @@ class TestCoderConfig:
 class TestCoderVersion:
     """Test Coder CLI version pinning and mismatch warnings."""
 
-    def test_get_coder_version_falls_back_to_manifest(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_server_version_queries_buildinfo(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HOGLI_DEVBOX_CODER_VERSION", raising=False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
 
-        with patch(
-            "hogli.devbox.coder.load_manifest",
-            return_value={"metadata": {"devbox": {"coder_version": "1.0.0"}}},
-        ):
-            assert coder.get_coder_version() == "1.0.0"
+        response_body = json.dumps({"version": "v2.30.5+abc123"}).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            assert coder.get_server_version() == "2.30.5"
+            mock_urlopen.assert_called_once_with("https://coder.example.com/api/v2/buildinfo", timeout=5)
 
     @pytest.mark.parametrize(
         "raw_version, expected",
@@ -220,7 +225,7 @@ class TestCoderVersion:
     def test_warn_version_mismatch_prints_warning(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
         monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "2.0.0")
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
 
@@ -233,7 +238,7 @@ class TestCoderVersion:
     def test_warn_version_mismatch_silent_when_matching(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
         monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "1.0.0")
 
         coder._warn_version_mismatch()
@@ -244,7 +249,7 @@ class TestCoderVersion:
     ) -> None:
         monkeypatch.setattr(coder, "coder_installed", lambda: False)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
-        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
         monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
 
         captured_cmd: list[str] = []
@@ -264,7 +269,7 @@ class TestCoderVersion:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
-        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_server_version", lambda: "1.0.0")
         monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "2.0.0")
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
