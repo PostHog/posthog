@@ -8,7 +8,7 @@ import {
     ConversationsTicketsPartialUpdateParams,
     ConversationsTicketsRetrieveParams,
 } from '@/generated/conversations/api'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
@@ -44,18 +44,18 @@ const conversationsTicketsList = (): ToolBase<
         const filtered = {
             ...result,
             results: result.results.map((item: any) =>
-                omitResponseFields(item, [
-                    'anonymous_traits',
-                    'session_context',
-                    'person',
-                    'slack_channel_id',
-                    'slack_thread_ts',
-                    'slack_team_id',
-                    'email_from',
-                    'email_to',
-                    'email_subject',
-                    'distinct_id',
-                    'session_id',
+                pickResponseFields(item, [
+                    'id',
+                    'ticket_number',
+                    'status',
+                    'priority',
+                    'channel_source',
+                    'assignee',
+                    'last_message_text',
+                    'message_count',
+                    'unread_team_count',
+                    'created_at',
+                    'updated_at',
                 ])
             ),
         } as typeof result
@@ -77,21 +77,47 @@ const conversationsTicketsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${projectId}/conversations/tickets/${params.id}/`,
         })
-        return await withPostHogUrl(context, result, `/conversations/tickets/${result.id}`)
+        const filtered = pickResponseFields(result, [
+            'id',
+            'ticket_number',
+            'status',
+            'priority',
+            'channel_source',
+            'channel_detail',
+            'assignee',
+            'last_message_text',
+            'message_count',
+            'unread_team_count',
+            'tags',
+            'escalation_reason',
+            'sla_due_at',
+            'ai_resolved',
+            'anonymous_traits',
+            'session_context',
+            'session_id',
+            'person',
+            'email_from',
+            'email_to',
+            'email_subject',
+            'distinct_id',
+            'created_at',
+            'updated_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/conversations/tickets/${filtered.id}`)
     },
 })
 
-const ConversationsTicketsPartialUpdateSchema = ConversationsTicketsPartialUpdateParams.omit({
-    project_id: true,
-}).extend(ConversationsTicketsPartialUpdateBody.shape)
+const ConversationsTicketsUpdateSchema = ConversationsTicketsPartialUpdateParams.omit({ project_id: true }).extend(
+    ConversationsTicketsPartialUpdateBody.shape
+)
 
-const conversationsTicketsPartialUpdate = (): ToolBase<
-    typeof ConversationsTicketsPartialUpdateSchema,
+const conversationsTicketsUpdate = (): ToolBase<
+    typeof ConversationsTicketsUpdateSchema,
     WithPostHogUrl<Schemas.Ticket>
 > => ({
-    name: 'conversations-tickets-partial-update',
-    schema: ConversationsTicketsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsPartialUpdateSchema>) => {
+    name: 'conversations-tickets-update',
+    schema: ConversationsTicketsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.status !== undefined) {
@@ -121,5 +147,5 @@ const conversationsTicketsPartialUpdate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
-    'conversations-tickets-partial-update': conversationsTicketsPartialUpdate,
+    'conversations-tickets-update': conversationsTicketsUpdate,
 }

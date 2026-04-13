@@ -29,6 +29,7 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -325,9 +326,7 @@ def _create_session_recording_playlist(team: Team, label: str):
     return SessionRecordingPlaylist.objects.create(team=team, name=f"playlist_{label}", type="collection")
 
 
-def _create_support_ticket(team: Team, label: str):
-    from products.conversations.backend.models import Ticket
-
+def _create_support_ticket(team: Team, label: str) -> Ticket:
     return Ticket.objects.create_with_number(
         team=team,
         channel_source="widget",

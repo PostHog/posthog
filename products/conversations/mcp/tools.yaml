@@ -26,18 +26,18 @@ tools:
             Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including
             status, priority, message counts, and timestamps.
         response:
-            exclude:
-                - anonymous_traits
-                - session_context
-                - person
-                - slack_channel_id
-                - slack_thread_ts
-                - slack_team_id
-                - email_from
-                - email_to
-                - email_subject
-                - distinct_id
-                - session_id
+            include:
+                - id
+                - ticket_number
+                - status
+                - priority
+                - channel_source
+                - assignee
+                - last_message_text
+                - message_count
+                - unread_team_count
+                - created_at
+                - updated_at
     conversations-tickets-retrieve:
         operation: conversations_tickets_retrieve
         enabled: true
@@ -52,7 +52,33 @@ tools:
         description: >
             Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
             priority, assignee, message count, channel info, person data, and session context.
-    conversations-tickets-partial-update:
+        response:
+            include:
+                - id
+                - ticket_number
+                - status
+                - priority
+                - channel_source
+                - channel_detail
+                - assignee
+                - last_message_text
+                - message_count
+                - unread_team_count
+                - tags
+                - escalation_reason
+                - sla_due_at
+                - ai_resolved
+                - anonymous_traits
+                - session_context
+                - session_id
+                - person
+                - email_from
+                - email_to
+                - email_subject
+                - distinct_id
+                - created_at
+                - updated_at
+    conversations-tickets-update:
         operation: conversations_tickets_partial_update
         enabled: true
         scopes:
@@ -79,7 +105,7 @@ tools:
     conversations-tickets-unread-count-retrieve:
         operation: conversations_tickets_unread_count_retrieve
         enabled: false
-    conversations-tickets-update:
+    conversations-tickets-full-update:
         operation: conversations_tickets_update
         enabled: false
     conversations-tickets-destroy:
