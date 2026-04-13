@@ -16,7 +16,6 @@ pub enum CacheNamespace {
 }
 
 impl CacheNamespace {
-    /// Pre-built metric labels, avoiding per-request String allocations.
     fn metric_labels(self) -> &'static [(String, String)] {
         static SURVEYS: LazyLock<Vec<(String, String)>> =
             LazyLock::new(|| vec![("namespace".to_string(), "surveys".to_string())]);
@@ -32,23 +31,17 @@ impl CacheNamespace {
 
 /// Read cached data from HyperCache as raw JSON.
 ///
-/// Returns the data blob as-is without interpreting its structure.
+/// Returns `Some(value)` on cache hit, `None` on miss or infrastructure error.
 ///
-/// HyperCache handles infrastructure resilience internally (Redis → S3 fallback),
-/// converting operational errors to cache misses. This function only distinguishes:
-/// - `Some(value)` - Cache hit with JSON data
-/// - `None` - Cache miss (key not found, or infrastructure error handled by HyperCache)
-///
-/// When `negative_cache` is provided, keys confirmed missing are recorded so that
-/// repeated lookups return `None` without re-querying Redis or S3.
+/// When `negative_cache` is provided, confirmed misses are tombstoned so that
+/// repeated lookups return `None` without re-querying Redis or S3. Infrastructure
+/// errors are not tombstoned to avoid cache poisoning during outages.
 pub async fn get_cached_data(
     reader: &Arc<HyperCacheReader>,
     negative_cache: Option<&NegativeCache>,
     namespace: CacheNamespace,
     key: &str,
 ) -> Option<Value> {
-    // Short-circuit: if the negative cache already knows this key is missing,
-    // skip the Redis + S3 round trip entirely.
     if let Some(nc) = negative_cache {
         if nc.contains(key) {
             inc(NEGATIVE_CACHE_HIT_METRIC, namespace.metric_labels(), 1);
@@ -58,10 +51,8 @@ pub async fn get_cached_data(
 
     let cache_key = KeyType::string(key);
 
-    // HyperCacheReader::get distinguishes confirmed misses (CacheMiss) from
-    // infrastructure failures (Redis/S3/Timeout errors). Only confirmed misses
-    // are tombstoned in the negative cache. Infrastructure errors return None
-    // for this request but don't poison the cache for subsequent requests.
+    // Only confirmed misses are tombstoned; infrastructure errors return None
+    // without poisoning the negative cache.
     let value = match reader.get(&cache_key).await {
         Ok(v) => v,
         Err(HyperCacheError::CacheMiss) => {
@@ -69,8 +60,6 @@ pub async fn get_cached_data(
             return None;
         }
         Err(e) => {
-            // Transient infrastructure error — don't tombstone a key that may
-            // actually exist once the backing store recovers.
             tracing::warn!(key = %key, error = ?e, "HyperCache read failed");
             return None;
         }

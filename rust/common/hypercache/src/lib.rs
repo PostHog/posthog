@@ -357,7 +357,6 @@ impl HyperCacheReader {
                     "HyperCache Redis confirmed miss, trying S3"
                 );
                 confirmed_miss = true;
-                // Granular reason metrics are emitted inside try_get_from_redis
             }
             Ok(Err(e)) => {
                 debug!(
@@ -366,7 +365,6 @@ impl HyperCacheReader {
                     "HyperCache Redis infrastructure error, trying S3"
                 );
                 last_infra_error = Some(e);
-                // Granular reason metrics are emitted inside try_get_from_redis
             }
             Err(_) => {
                 debug!(
@@ -512,14 +510,9 @@ impl HyperCacheReader {
         Fut: std::future::Future<Output = Result<Option<Value>, E>>,
         E: From<HyperCacheError>,
     {
-        // First try to get from cache (Redis then S3)
         match self.get_with_source(key).await {
-            Ok((data, source)) => {
-                // Cache hit - return the cached data
-                Ok((data, source))
-            }
+            Ok((data, source)) => Ok((data, source)),
             Err(HyperCacheError::CacheMiss) => {
-                // Both cache tiers missed - try the fallback
                 debug!("Cache miss for key {}, trying fallback", key);
 
                 match fallback().await? {
@@ -555,10 +548,7 @@ impl HyperCacheReader {
                 }
             }
             Err(e) => {
-                // Infrastructure error (Redis/S3 down, timeouts, etc.) —
-                // still try the fallback as a resilience measure. This preserves
-                // the pre-existing behavior where callers like feature-flags fall
-                // back to Postgres when the cache layer is unreachable.
+                // Infrastructure error — try the fallback as a resilience measure.
                 debug!(
                     "Cache infrastructure error for key {}: {}, trying fallback",
                     key, e
@@ -593,7 +583,6 @@ impl HyperCacheReader {
         // so we receive Pickle(JSON) data directly.
         match self.redis_client.get_raw_bytes(cache_key.to_string()).await {
             Ok(raw_bytes) => {
-                // Deserialize Pickle(JSON) - the Redis client already decompressed zstd
                 match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
                     Ok(json_string) => {
                         if json_string == HYPER_CACHE_EMPTY_VALUE {
@@ -615,8 +604,7 @@ impl HyperCacheReader {
                                     ],
                                     1,
                                 );
-                                // Data exists but is corrupt — treat as a miss (S3 may
-                                // have a valid copy). Not an infrastructure error.
+                                // Corrupt data — fall through to S3.
                             }
                         }
                     }
@@ -634,12 +622,10 @@ impl HyperCacheReader {
                             ],
                             1,
                         );
-                        // Data exists but is corrupt — treat as a miss (same as above).
                     }
                 }
             }
             Err(common_redis::CustomRedisError::NotFound) => {
-                // Genuine miss — key doesn't exist in Redis.
                 debug!("Key not found in Redis for key '{}'", cache_key,);
                 inc(
                     HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
@@ -652,8 +638,8 @@ impl HyperCacheReader {
                 );
             }
             Err(e) => {
-                // Infrastructure error — key may exist but Redis can't serve it.
-                // Surface this so callers can distinguish it from a confirmed miss.
+                // Infrastructure error — surface it so callers can distinguish
+                // it from a confirmed miss.
                 debug!(
                     "Failed to get raw bytes from Redis for key '{}': {}",
                     cache_key, e
