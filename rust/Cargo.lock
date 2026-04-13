@@ -3497,6 +3497,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "flags-gin-benchmark"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "common-database",
+ "common-metrics",
+ "flags-consumer",
+ "rand 0.8.5",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

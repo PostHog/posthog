@@ -1,0 +1,23 @@
+[package]
+name = "flags-gin-benchmark"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+flags-consumer = { path = "../flags-consumer" }
+common-database = { path = "../common/database" }
+common-metrics = { path = "../common/metrics" }
+
+sqlx = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive", "env"] }
+
+[lints]
+workspace = true
