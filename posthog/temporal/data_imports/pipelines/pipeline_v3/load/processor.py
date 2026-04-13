@@ -191,7 +191,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
-        internal_schema.add_pyarrow_schema(delta_table.schema().to_arrow())  # type: ignore[arg-type]  # arro3 Schema
+        internal_schema.add_pyarrow_schema(delta_table.schema().to_arrow())
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
