@@ -189,7 +189,7 @@ impl KafkaSink {
         client_config
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
-            .set("partitioner", &config.kafka_partitioner)
+            .set("partitioner", &config.kafka_producer_partitioner)
             .set(
                 "metadata.max.age.ms",
                 config.kafka_metadata_max_age_ms.to_string(),
@@ -246,7 +246,9 @@ impl KafkaSink {
             )
             .set(
                 "queue.buffering.max.messages",
-                config.kafka_queue_buffering_max_messages.to_string(),
+                config
+                    .kafka_producer_queue_buffering_max_messages
+                    .to_string(),
             )
             .set(
                 "retry.backoff.max.ms",
@@ -612,10 +614,10 @@ mod tests {
             kafka_producer_max_in_flight_requests: 1000000,
             kafka_producer_sticky_partitioning_linger_ms: 10,
             kafka_producer_enable_idempotence: false,
-            kafka_partitioner: "murmur2_random".to_string(),
+            kafka_producer_partitioner: "murmur2_random".to_string(),
             kafka_broker_address_family: String::new(),
             kafka_log_connection_close: true,
-            kafka_queue_buffering_max_messages: 100000,
+            kafka_producer_queue_buffering_max_messages: 100000,
             kafka_retry_backoff_max_ms: 1000,
             kafka_socket_send_buffer_bytes: 0,
             kafka_socket_receive_buffer_bytes: 0,

@@ -306,15 +306,15 @@ pub struct KafkaConfig {
     #[envconfig(default = "false")] // librdkafka default
     pub kafka_producer_enable_idempotence: bool, // enable.idempotence
     #[envconfig(default = "murmur2_random")]
-    pub kafka_partitioner: String, // partitioner - WarpStream prefers consistent_random
+    pub kafka_producer_partitioner: String, // partitioner
     #[envconfig(default = "")]
     pub kafka_broker_address_family: String, // broker.address.family - v4, v6, any; empty = don't set
     #[envconfig(default = "true")] // librdkafka default
-    pub kafka_log_connection_close: bool, // log.connection.close - WarpStream recommends false
+    pub kafka_log_connection_close: bool, // log.connection.close
     #[envconfig(default = "100000")] // librdkafka default
-    pub kafka_queue_buffering_max_messages: u32, // queue.buffering.max.messages
+    pub kafka_producer_queue_buffering_max_messages: u32, // queue.buffering.max.messages
     #[envconfig(default = "1000")] // librdkafka default
-    pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms - WarpStream recommends 60000
+    pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms
     #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
     pub kafka_socket_send_buffer_bytes: i32, // socket.send.buffer.bytes
     #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
