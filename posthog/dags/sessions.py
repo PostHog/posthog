@@ -569,7 +569,7 @@ def _do_experimental_backfill(
     num_chunks, chunk_desc, chunk_where_fn = _get_experimental_chunking(config)
 
     # Determine start chunk from Redis progress (unless force_fresh_restart is set)
-    asset_name = "experimental_sessions_v3_backfill"
+    asset_name = context.asset_key.path[-1]
     partition_key = partition_range.start
 
     if config.force_fresh_restart:
@@ -585,6 +585,7 @@ def _do_experimental_backfill(
 
     if start_chunk >= num_chunks:
         context.log.info(f"All {num_chunks} chunks already completed, nothing to do")
+        _clear_progress(asset_name, partition_key)
         return
 
     context.log.info(

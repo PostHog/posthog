@@ -43,6 +43,10 @@ class TestTagsForSessionsPartition:
         }
 
 
+ASSET_NAME = "experimental_sessions_v3_backfill"
+PARTITION_KEY = "2025-06-15"
+
+
 def _make_context(start: str = "2025-06-15", end: str = "2025-06-16") -> MagicMock:
     context = MagicMock()
     context.partition_time_window.start = datetime.strptime(start, "%Y-%m-%d")
@@ -50,6 +54,7 @@ def _make_context(start: str = "2025-06-15", end: str = "2025-06-16") -> MagicMo
     context.partition_key_range.start = start
     context.partition_key_range.end = end
     context.run_id = "test-run-id"
+    context.asset_key.path = [ASSET_NAME]
     return context
 
 
@@ -116,16 +121,23 @@ class TestExperimentalBackfillChunking:
                 )
 
 
-ASSET_NAME = "experimental_sessions_v3_backfill"
-PARTITION_KEY = "2025-06-15"
-
-
 class TestExperimentalBackfillResume:
-    def test_resume_from_saved_progress(self):
-        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
+    @parameterized.expand(
+        [
+            # (redis_get_return, force_fresh_restart, expected_call_count)
+            ("saved_progress_chunk1", b"1", False, 2),
+            ("no_saved_progress", None, False, 4),
+            ("force_fresh_restart", b"1", True, 4),
+            ("all_chunks_completed", b"3", False, 0),
+        ]
+    )
+    def test_resume_call_count(self, _name, redis_val, force_fresh, expected_count):
+        config = ExperimentalSessionsBackfillConfig(
+            distinct_id_chunks=4, client_overrides={}, force_fresh_restart=force_fresh
+        )
         context = _make_context()
 
-        with _patch_experimental_backfill_deps(redis_get_return=b"1") as (mock_sync_execute, mock_redis):
+        with _patch_experimental_backfill_deps(redis_get_return=redis_val) as (mock_sync_execute, _mock_redis):
             _do_experimental_backfill(
                 sql_template=_sql_template_stub,
                 timestamp_field="timestamp",
@@ -133,36 +145,7 @@ class TestExperimentalBackfillResume:
                 config=config,
             )
 
-        # Chunks 0 and 1 skipped, only 2 and 3 executed
-        assert mock_sync_execute.call_count == 2
-
-    def test_no_saved_progress_starts_from_zero(self):
-        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
-        context = _make_context()
-
-        with _patch_experimental_backfill_deps(redis_get_return=None) as (mock_sync_execute, _mock_redis):
-            _do_experimental_backfill(
-                sql_template=_sql_template_stub,
-                timestamp_field="timestamp",
-                context=context,
-                config=config,
-            )
-
-        assert mock_sync_execute.call_count == 4
-
-    def test_force_fresh_restart_ignores_saved_progress(self):
-        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={}, force_fresh_restart=True)
-        context = _make_context()
-
-        with _patch_experimental_backfill_deps(redis_get_return=b"1") as (mock_sync_execute, _mock_redis):
-            _do_experimental_backfill(
-                sql_template=_sql_template_stub,
-                timestamp_field="timestamp",
-                context=context,
-                config=config,
-            )
-
-        assert mock_sync_execute.call_count == 4
+        assert mock_sync_execute.call_count == expected_count
 
     def test_progress_saved_after_each_chunk(self):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=3, client_overrides={})
@@ -198,12 +181,12 @@ class TestExperimentalBackfillResume:
 
         mock_redis.delete.assert_called_once_with(key)
 
-    def test_all_chunks_completed_is_noop(self):
+    def test_all_chunks_completed_clears_progress(self):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
         context = _make_context()
+        key = _progress_key(ASSET_NAME, PARTITION_KEY)
 
-        # last_completed=3 means all 4 chunks (0-3) are done
-        with _patch_experimental_backfill_deps(redis_get_return=b"3") as (mock_sync_execute, _mock_redis):
+        with _patch_experimental_backfill_deps(redis_get_return=b"3") as (_mock_sync_execute, mock_redis):
             _do_experimental_backfill(
                 sql_template=_sql_template_stub,
                 timestamp_field="timestamp",
@@ -211,7 +194,7 @@ class TestExperimentalBackfillResume:
                 config=config,
             )
 
-        assert mock_sync_execute.call_count == 0
+        mock_redis.delete.assert_called_once_with(key)
 
     def test_non_oom_error_raises_dagster_failure_with_metadata(self):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
