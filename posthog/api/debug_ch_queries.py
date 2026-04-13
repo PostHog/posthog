@@ -220,6 +220,30 @@ class DebugCHQueries(viewsets.ViewSet):
             response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
 
+    @action(detail=False, methods=["GET"], url_path="precomputation_teams")
+    def precomputation_teams(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view precomputation teams.")
+
+        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
+        configs = (
+            TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
+            .select_related("team", "team__organization")
+            .order_by("team__name")
+        )
+
+        return Response(
+            [
+                {
+                    "team_id": config.team_id,
+                    "team_name": config.team.name,
+                    "organization_name": config.team.organization.name if config.team.organization else None,
+                }
+                for config in configs
+            ]
+        )
+
     @action(detail=False, methods=["POST"])
     def profile(self, request):
         if not request.user.is_staff:
