@@ -26,9 +26,8 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
         throw new Error(`Failed to query insight: ${queryResult.error.message}`)
     }
 
-    const baseUrl = context.api.getProjectBaseUrl(projectId)
     const queryParam = encodeURIComponent(JSON.stringify(query))
-    const path = `${baseUrl}/insights/new?q=${queryParam}`
+    const path = `/insights/new?q=${queryParam}`
 
     const queryInfo = analyzeQuery(query)
 
