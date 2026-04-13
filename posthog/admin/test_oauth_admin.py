@@ -1,8 +1,9 @@
+from posthog.test.base import BaseTest
+
 from django.contrib.admin import AdminSite
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, OAuthApplicationForm
 from posthog.models.oauth import OAuthApplication
-from posthog.test.base import BaseTest
 
 
 class TestOAuthApplicationAdmin(BaseTest):
