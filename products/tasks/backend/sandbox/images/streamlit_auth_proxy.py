@@ -42,7 +42,12 @@ LISTEN_PORT = 8080
 BRIDGE_LISTEN_PORT = 8181  # 127.0.0.1-only; never tunneled by Modal
 UPSTREAM = "http://localhost:8501"
 POSTHOG_SITE_URL = os.environ.get("POSTHOG_SITE_URL", "")
-POSTHOG_TEAM_ID = int(os.environ.get("POSTHOG_TEAM_ID", "0") or "0")
+# POSTHOG_TEAM_ID and POSTHOG_STREAMLIT_CLIENT_ID are intentionally read inside
+# create_app() (not at module import) so that:
+# 1. Missing or invalid values trigger a startup RuntimeError instead of
+#    silently falling back to values that would match no real token, and
+# 2. Tests can call create_app() in different environment states without
+#    having to reload the module.
 BRIDGE_TOKEN_PATH = "/run/bridge_token"
 
 INTROSPECTION_CACHE_TTL = 60.0  # 60s — short revocation window without per-request overhead
@@ -344,12 +349,24 @@ def _circuit_open() -> bool:
     return time.monotonic() < _introspection_circuit["open_until"]
 
 
-async def _introspect_token(session: ClientSession, token: str) -> dict | None:
+async def _introspect_token(
+    session: ClientSession,
+    token: str,
+    *,
+    team_id: int,
+    expected_client_id: str,
+) -> dict | None:
     """Validate an OAuth token via PostHog's introspection endpoint, with caching.
 
     Uses self-introspection: the token introspects itself, so no extra credentials
     or 'introspection' scope is needed. Results are cached for INTROSPECTION_CACHE_TTL
     seconds keyed by token hash.
+
+    Rejects tokens that fail any of:
+      - scoped_teams does not include team_id (per-sandbox team binding)
+      - application client_id does not match expected_client_id (cross-application
+        token rejection — tokens minted against any other first-party OAuth app
+        must not unlock this sandbox even if they share team scope)
 
     A circuit breaker fast-fails all requests after a few consecutive upstream
     failures so we don't pile load on a degraded PostHog API; the breaker
@@ -408,11 +425,25 @@ async def _introspect_token(session: ClientSession, token: str) -> dict | None:
             # Per-sandbox team binding: refuse tokens that don't include the team
             # this sandbox was minted for. Without this check, ANY OAuth token
             # the proxy can introspect (any team in PostHog) would unlock the app.
-            if POSTHOG_TEAM_ID and POSTHOG_TEAM_ID not in scoped_teams:
+            if team_id not in scoped_teams:
                 log.warning(
                     "introspect: token team mismatch expected=%d scoped=%s",
-                    POSTHOG_TEAM_ID,
+                    team_id,
                     scoped_teams,
+                )
+                _record_introspection_success()
+                return None
+            # Per-application binding: even a token from a first-party PostHog
+            # OAuth app that *does* carry matching scoped_teams must still be
+            # rejected if it was minted against a different application. This
+            # prevents e.g. an MCP-app token with query:read scope from
+            # unlocking a streamlit sandbox.
+            token_client_id = data.get("client_id")
+            if token_client_id != expected_client_id:
+                log.warning(
+                    "introspect: token client_id mismatch expected=%s got=%s",
+                    expected_client_id,
+                    token_client_id,
                 )
                 _record_introspection_success()
                 return None
@@ -479,7 +510,12 @@ async def proxy_handler(request: web.Request) -> web.StreamResponse:
         return web.Response(status=401, text="Authentication required")
 
     session = request.app["client_session"]
-    introspection = await _introspect_token(session, token)
+    introspection = await _introspect_token(
+        session,
+        token,
+        team_id=request.app["posthog_team_id"],
+        expected_client_id=request.app["posthog_streamlit_client_id"],
+    )
     if not introspection:
         return web.Response(status=403, text="Invalid or expired token")
 
@@ -662,6 +698,30 @@ async def _close_client_session(app: web.Application) -> None:
         await session.close()
 
 
+def _read_required_config() -> tuple[int, str]:
+    """Read the two per-sandbox config values that MUST be set for auth to work.
+
+    Fails loudly (RuntimeError) at startup rather than silently. Prior code
+    defaulted POSTHOG_TEAM_ID to 0 and then guarded the mismatch check with
+    `if POSTHOG_TEAM_ID and ...` — a bug where a misconfigured sandbox would
+    silently accept ANY team's token. We now refuse to even start the proxy
+    if either value is missing.
+    """
+    team_id_raw = os.environ.get("POSTHOG_TEAM_ID", "").strip()
+    try:
+        team_id = int(team_id_raw)
+    except ValueError:
+        team_id = 0
+    if team_id <= 0:
+        raise RuntimeError(f"POSTHOG_TEAM_ID env var must be a positive integer (got {team_id_raw!r})")
+
+    client_id = os.environ.get("POSTHOG_STREAMLIT_CLIENT_ID", "").strip()
+    if not client_id:
+        raise RuntimeError("POSTHOG_STREAMLIT_CLIENT_ID env var must be set")
+
+    return team_id, client_id
+
+
 def create_app() -> web.Application:
     # OTEL setup runs synchronously before the event loop starts. The
     # BatchLogRecordProcessor spawns its own background thread, so it doesn't
@@ -670,7 +730,13 @@ def create_app() -> web.Application:
     # Read the bridge token from /run/bridge_token, then unlink the file.
     _load_bridge_token()
 
+    # Read per-sandbox config from env. Raises if either value is missing so a
+    # misconfigured sandbox exits immediately rather than accepting bad tokens.
+    team_id, client_id = _read_required_config()
+
     app = web.Application()
+    app["posthog_team_id"] = team_id
+    app["posthog_streamlit_client_id"] = client_id
     app.router.add_get("/healthz", healthz)
     app.router.add_route("*", "/{path:.*}", proxy_handler)
     app.on_startup.append(_start_client_session)

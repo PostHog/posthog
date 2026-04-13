@@ -163,6 +163,37 @@ class TestAppRuntimeStartApp(BaseTest):
         assert len(proxy_calls) == 1
         assert len(streamlit_calls) == 1
 
+    def test_start_app_runs_streamlit_as_non_root(self, mock_get_sandbox_class, _mock_wait):
+        """Streamlit must be launched via `runuser -u streamlit` so user code
+        executes as a non-root uid. The auth proxy still runs as root so it can
+        read the mode-600 bridge token file, but the Streamlit process (which
+        runs arbitrary user code) must not have root privileges."""
+        mock_sandbox = _make_mock_sandbox()
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app, _version = self._create_app_with_version(snapshot_id="snap")
+
+        service = AppRuntimeService()
+        service.start_app(app)
+
+        execute_calls = [str(c) for c in mock_sandbox.execute.call_args_list]
+
+        # The streamlit-run invocation must go through runuser.
+        streamlit_calls = [c for c in execute_calls if "streamlit run" in c]
+        assert len(streamlit_calls) == 1
+        assert "runuser -u streamlit" in streamlit_calls[0]
+
+        # The auth proxy invocation must NOT go through runuser (it stays
+        # as root so it can read /run/bridge_token).
+        proxy_calls = [c for c in execute_calls if "streamlit_auth_proxy" in c]
+        assert len(proxy_calls) == 1
+        assert "runuser" not in proxy_calls[0]
+
+        # /app needs to be chown'd to streamlit before the streamlit process
+        # launches — otherwise the non-root user can't read uploaded files.
+        chown_calls = [c for c in execute_calls if "chown -R streamlit:streamlit /app" in c]
+        assert len(chown_calls) == 1
+
     def test_start_app_fails_when_proxy_not_ready(self, mock_get_sandbox_class, mock_wait):
         mock_wait.return_value = False
         mock_sandbox = _make_mock_sandbox()
@@ -362,6 +393,23 @@ class TestBuildSandboxConfig(BaseTest):
         assert "POSTHOG_BRIDGE_URL" not in config.environment_variables
         assert "POSTHOG_BRIDGE_TOKEN" not in config.environment_variables
         assert config.environment_variables["POSTHOG_TEAM_ID"] == str(app.team_id)
+
+    def test_config_injects_streamlit_client_id(self):
+        """The proxy needs POSTHOG_STREAMLIT_CLIENT_ID to reject tokens minted
+        against other OAuth applications even when they carry matching
+        scoped_teams. Missing this env var makes the proxy refuse to start."""
+        from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
+        from products.streamlit_apps.backend.services.oauth import STREAMLIT_OAUTH_CLIENT_ID, get_streamlit_oauth_app
+
+        # Clear the lru_cache from any earlier test so we get a fresh lookup.
+        get_streamlit_oauth_app.cache_clear()
+
+        app = StreamlitApp.objects.create(team=self.team, name="Test App")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+
+        config = _build_sandbox_config(app, version)
+        assert config.environment_variables is not None
+        assert config.environment_variables["POSTHOG_STREAMLIT_CLIENT_ID"] == STREAMLIT_OAUTH_CLIENT_ID
 
     def test_config_includes_otel_env_vars(self):
         from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config

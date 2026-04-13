@@ -58,7 +58,10 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None]:
     The legacy TimestampSigner bridge token path was deleted; OAuth is the
     only accepted credential. Tokens minted against any other OAuth
     application (e.g. an MCP integration) are rejected even if they have
-    `query:read` scope.
+    `query:read` scope. Bridge tokens must also be scoped to exactly one
+    team — we don't try to pick "the right" team from a multi-team token
+    because there's no well-defined answer, and silently picking the first
+    entry would let a token minted for team A run queries against team B.
     """
     from posthog.models.oauth import find_oauth_access_token
 
@@ -73,10 +76,18 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None]:
         return None, "Token expired."
     if not access_token.scoped_teams:
         return None, "Token has no team scope."
-    if "query:read" not in (access_token.scope or "").split():
+    scopes = (access_token.scope or "").split()
+    if "query:read" not in scopes:
         return None, "Insufficient scope."
+    # Require the bridge-specific scope suffix — iframe tokens (which carry
+    # streamlit:iframe) must not be reusable as bridge credentials even if
+    # they leak via Referer / browser history.
+    if "streamlit:bridge" not in scopes:
+        return None, "Token is not a bridge token."
     if access_token.application_id != get_streamlit_oauth_app().id:
         return None, "Invalid token application."
+    if len(access_token.scoped_teams) != 1:
+        return None, "Token must be scoped to exactly one team."
     return access_token.scoped_teams[0], None
 
 

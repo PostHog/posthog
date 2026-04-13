@@ -65,6 +65,8 @@ def _get_otel_logs_config(callback_url: str) -> tuple[str, str]:
 
 
 def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> SandboxConfig:
+    from products.streamlit_apps.backend.services.oauth import get_streamlit_oauth_app
+
     callback_url = _get_sandbox_callback_url()
     otel_endpoint, otel_token = _get_otel_logs_config(callback_url)
     otel_resource_attrs = ",".join(
@@ -88,6 +90,11 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
             # token whose scoped_teams doesn't include this id, so a token from
             # another team can't unlock this sandbox even if its bytes leak.
             "POSTHOG_TEAM_ID": str(app.team_id),
+            # Per-application binding — the auth proxy refuses tokens minted
+            # against any OAuth application other than the Streamlit Apps one,
+            # even if they have matching scoped_teams. This stops e.g. an
+            # MCP-app token with query:read scope from unlocking the sandbox.
+            "POSTHOG_STREAMLIT_CLIENT_ID": get_streamlit_oauth_app().client_id,
             # Standard OTEL env vars — the SDK reads these directly when the
             # proxy constructs OTLPLogExporter and Resource.create(). We don't
             # need to parse them in the proxy code.
@@ -162,8 +169,29 @@ def _start_auth_proxy(sandbox: SandboxProtocol) -> None:
 
 
 def _start_streamlit_process(sandbox: SandboxProtocol) -> None:
+    """Boot Streamlit as the non-root `streamlit` user.
+
+    Files uploaded via `sandbox.write_file` land in /app owned by root (the
+    Modal shell runs as root), so we chown the dir over to the streamlit user
+    before launching — Streamlit needs both read access on the app code and
+    write access on /app for its internal cache. The bridge token at
+    /run/bridge_token stays root-owned mode 600, which is the whole point:
+    unreadable to this uid.
+    """
+    chown_result = sandbox.execute(
+        f"chown -R streamlit:streamlit {STREAMLIT_APP_PATH}",
+        timeout_seconds=5,
+    )
+    if chown_result.exit_code != 0:
+        raise AppRuntimeError(f"Failed to chown {STREAMLIT_APP_PATH} to streamlit user: {chown_result.stderr}")
+
+    # `runuser -u streamlit --` is a non-interactive "become this user" wrapper
+    # from util-linux; preferred over `su` because it doesn't load the target
+    # user's login shell and doesn't need a tty. The setsid -f double-forks so
+    # the exec() returns immediately and the readiness poll below is the real
+    # health check.
     result = sandbox.execute(
-        "setsid -f sh -c '"
+        "setsid -f runuser -u streamlit -- sh -c '"
         f"streamlit run {STREAMLIT_APP_PATH}/app.py "
         f"--server.port {STREAMLIT_PORT} "
         f"--server.headless true "

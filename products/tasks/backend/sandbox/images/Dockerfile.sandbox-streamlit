@@ -6,6 +6,12 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Dedicated non-root user for the Streamlit runtime. The auth proxy still
+# starts as root (it needs to read mode-600 /run/bridge_token on boot), but
+# `streamlit run` is launched as this user so that user code inside the app
+# cannot read the bridge token, touch /proc/1, or otherwise escalate via uid 0.
+RUN useradd --create-home --shell /bin/bash streamlit
+
 WORKDIR /app
 
 # aiohttp pinned to >=3.10.11 — earlier 3.9.x had a header-injection CVE that
@@ -30,7 +36,11 @@ RUN pip install --no-cache-dir \
     opentelemetry-sdk==1.27.0 \
     opentelemetry-exporter-otlp-proto-http==1.27.0
 
-RUN mkdir -p /root/.streamlit && printf '[server]\nport = 8501\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n\n[client]\ntoolbarMode = "minimal"\nshowSidebarNavigation = false\n\n[browser]\ngatherUsageStats = false\n\n[theme]\nbase = "light"\n' > /root/.streamlit/config.toml
+# Streamlit reads config from $HOME/.streamlit, so the config lives under the
+# streamlit user's home now that we no longer run as root.
+RUN mkdir -p /home/streamlit/.streamlit && \
+    printf '[server]\nport = 8501\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n\n[client]\ntoolbarMode = "minimal"\nshowSidebarNavigation = false\n\n[browser]\ngatherUsageStats = false\n\n[theme]\nbase = "light"\n' > /home/streamlit/.streamlit/config.toml && \
+    chown -R streamlit:streamlit /home/streamlit/.streamlit
 
 COPY products/tasks/backend/sandbox/images/streamlit_auth_proxy.py /usr/local/bin/streamlit_auth_proxy.py
 

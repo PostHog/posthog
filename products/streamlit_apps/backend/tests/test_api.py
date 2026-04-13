@@ -420,7 +420,11 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         assert "https://abc.modal.run" in data["iframe_url"]
         assert "_posthog_token=" in data["iframe_url"]
         assert "_modal_connect_token=tok_123" in data["iframe_url"]
-        assert data["expires_in"] == 3600
+        # expires_in is the REAL remaining lifetime of the minted iframe token
+        # (max 3600s for a freshly minted token, strictly less once clock drifts).
+        # Allow a small tolerance because the token is minted and then the expires
+        # datetime is recomputed a few ms later in the view.
+        assert 3590 <= data["expires_in"] <= 3600
 
     def test_connect_info_not_running_returns_503(self):
         app = self._create_app_with_version()
@@ -473,7 +477,9 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         assert OAuthAccessToken.objects.filter(user=self.user).count() == initial_count + 1
         token = OAuthAccessToken.objects.filter(user=self.user).order_by("-id").first()
         assert token.scoped_teams == [self.team.id]
-        assert token.scope == "query:read"
+        # Iframe-scoped — must NOT be a bridge token, so a stolen iframe URL
+        # can't be replayed against the streamlit bridge endpoint.
+        assert token.scope == "query:read streamlit:iframe"
 
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
     def test_connect_info_reuses_existing_token(self, mock_runtime_cls):

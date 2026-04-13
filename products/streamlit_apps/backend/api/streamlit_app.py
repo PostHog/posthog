@@ -441,7 +441,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         sandbox_record.save(update_fields=["last_activity_at"])
 
         from products.streamlit_apps.backend.services.oauth import (
-            ACCESS_TOKEN_EXPIRY_SECONDS,
             create_streamlit_access_token,
             find_reusable_streamlit_access_token,
         )
@@ -460,15 +459,20 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # _posthog_modal_token: passed through to auth proxy, which captures it and injects
         #   into HTML so browser sub-requests carry _modal_connect_token automatically
         iframe_url = (
-            f"{modal_url}/?_posthog_token={access_token}"
+            f"{modal_url}/?_posthog_token={access_token.token}"
             f"&_modal_connect_token={modal_token}"
             f"&_posthog_modal_token={modal_token}"
         )
 
+        # Report the REAL remaining lifetime, not the minting TTL. The frontend
+        # uses this to schedule refresh — a stale value causes the iframe to
+        # either refresh too late (401 blip) or too early (wasted calls).
+        expires_in = max(0, int((access_token.expires - timezone.now()).total_seconds()))
+
         return Response(
             {
                 "iframe_url": iframe_url,
-                "expires_in": ACCESS_TOKEN_EXPIRY_SECONDS,
+                "expires_in": expires_in,
             }
         )
 

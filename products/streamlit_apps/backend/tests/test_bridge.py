@@ -59,9 +59,11 @@ class TestStreamlitBridgeView(APIBaseTest):
         return "/api/streamlit_bridge/query/"
 
     def _streamlit_token(self) -> str:
-        from products.streamlit_apps.backend.services.oauth import create_streamlit_access_token
+        """Mint a bridge-scoped token. Iframe-scoped tokens are refused by the
+        bridge, so happy-path bridge tests must mint the bridge variant."""
+        from products.streamlit_apps.backend.services.oauth import create_sandbox_bridge_token
 
-        return create_streamlit_access_token(user=self.user, team_id=self.team.id)
+        return create_sandbox_bridge_token(user=self.user, team_id=self.team.id)
 
     @parameterized.expand(
         [
@@ -165,7 +167,7 @@ class TestStreamlitBridgeView(APIBaseTest):
         from posthog.models.oauth import OAuthAccessToken
         from posthog.models.utils import generate_random_oauth_access_token
 
-        from products.streamlit_apps.backend.services.oauth import get_streamlit_oauth_app
+        from products.streamlit_apps.backend.services.oauth import BRIDGE_TOKEN_SCOPE, get_streamlit_oauth_app
 
         oauth_app = get_streamlit_oauth_app()
         token_value = generate_random_oauth_access_token(None)
@@ -174,7 +176,7 @@ class TestStreamlitBridgeView(APIBaseTest):
             token=token_value,
             user=self.user,
             expires=timezone.now() - timedelta(hours=1),
-            scope="query:read",
+            scope=BRIDGE_TOKEN_SCOPE,
             scoped_teams=[self.team.id],
         )
 
@@ -187,15 +189,69 @@ class TestStreamlitBridgeView(APIBaseTest):
         assert response.status_code == 401
         assert "expired" in response.json()["error"].lower()
 
+    def test_iframe_scoped_token_rejected(self):
+        """Iframe tokens (carrying `streamlit:iframe`) must not work as bridge
+        credentials even though they're in the same OAuth application. This is
+        the other half of the iframe-vs-bridge scope split."""
+        from products.streamlit_apps.backend.services.oauth import create_streamlit_access_token
+
+        iframe_token = create_streamlit_access_token(user=self.user, team_id=self.team.id)
+
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({"query": "SELECT 1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {iframe_token.token}",
+        )
+        assert response.status_code == 401
+        assert "bridge" in response.json()["error"].lower()
+
+    def test_multi_team_token_rejected(self):
+        """Bridge tokens must be scoped to exactly one team — picking the
+        first team from a multi-team list would let a token minted for team A
+        silently run queries against team B."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.models.oauth import OAuthAccessToken
+        from posthog.models.utils import generate_random_oauth_access_token
+
+        from products.streamlit_apps.backend.services.oauth import BRIDGE_TOKEN_SCOPE, get_streamlit_oauth_app
+
+        # Two teams, one token — the bridge should refuse even though the
+        # correct team is in the list.
+        other_team_id = self.team.id + 9999
+        token_value = generate_random_oauth_access_token(None)
+        OAuthAccessToken.objects.create(
+            application=get_streamlit_oauth_app(),
+            token=token_value,
+            user=self.user,
+            expires=timezone.now() + timedelta(hours=1),
+            scope=BRIDGE_TOKEN_SCOPE,
+            scoped_teams=[self.team.id, other_team_id],
+        )
+
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({"query": "SELECT 1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token_value}",
+        )
+        assert response.status_code == 401
+        assert "exactly one team" in response.json()["error"].lower()
+
     def test_oauth_token_from_other_application_rejected(self):
         """A token minted against any non-streamlit OAuth app must be rejected
-        even if it has query:read scope and a valid scoped_teams entry."""
+        even if it carries the streamlit:bridge scope and a valid scoped_teams."""
         from datetime import timedelta
 
         from django.utils import timezone
 
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication
         from posthog.models.utils import generate_random_oauth_access_token
+
+        from products.streamlit_apps.backend.services.oauth import BRIDGE_TOKEN_SCOPE
 
         other_app = OAuthApplication.objects.create(
             name="Some Other App",
@@ -211,7 +267,7 @@ class TestStreamlitBridgeView(APIBaseTest):
             token=token_value,
             user=self.user,
             expires=timezone.now() + timedelta(hours=1),
-            scope="query:read",
+            scope=BRIDGE_TOKEN_SCOPE,
             scoped_teams=[self.team.id],
         )
 
