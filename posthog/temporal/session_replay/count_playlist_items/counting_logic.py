@@ -7,7 +7,6 @@ from django.db.models import Count, F, Q
 from django.utils import timezone
 
 import posthoganalytics
-from celery import shared_task
 from prometheus_client import Counter, Gauge, Histogram
 from pydantic import ValidationError
 from structlog import get_logger
@@ -26,25 +25,10 @@ from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import filter_from_params_to_query, list_recordings_from_query
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
-from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
 
 THIRTY_SIX_HOURS_IN_SECONDS = 36 * 60 * 60
-TASK_EXPIRATION_TIME = (
-    # we definitely want to expire this task after a while,
-    # but we don't want to expire it too quickly
-    # so we multiply the schedule by some factor or fallback to a long time
-    settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS * 15
-    if settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS
-    else THIRTY_SIX_HOURS_IN_SECONDS
-)
-
-REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT = Counter(
-    "replay_playlist_with_filters_in_team_count",
-    "Count of session recording playlists with filters in a team",
-)
-
 REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED = Counter(
     "replay_playlist_count_succeeded",
     "when a count task for a playlist succeeds",
@@ -390,18 +374,37 @@ def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str,
     return False
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-    rate_limit="1/m",
-    expires=TASK_EXPIRATION_TIME,
-)
+def parse_expiry(expiry: str | None) -> datetime | None:
+    if expiry is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(expiry)
+        if parsed.tzinfo is None:
+            parsed = timezone.make_aware(parsed)
+        return parsed
+    except (ValueError, TypeError):
+        return None
+
+
+def is_session_unexpired(expiry: str | None, now: datetime) -> bool:
+    if expiry is None:
+        return True
+    parsed = parse_expiry(expiry)
+    if parsed is None:
+        return False
+    return parsed >= now
+
+
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
+    """Core sync counting logic for a single playlist.
+
+    Used by the Temporal activity and tests.
+    """
     playlist: SessionRecordingPlaylist | None = None
     query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
-            # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
+            # nosemgrep: idor-lookup-without-team (Internal scheduling, not user input)
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
 
@@ -422,12 +425,13 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             query = convert_playlist_to_recordings_query(playlist)
 
-            # if we already have some data and the query is sorted by start_time,
-            # we can query only new recordings, to (hopefully) reduce load on CH
-            has_existing_data = existing_value.get("refreshed_at", None)
-            can_query_only_new_recordings = query.order == "start_time"
+            should_query_incrementally = (
+                existing_value.get("refreshed_at", None)
+                and query.order == "start_time"
+                and existing_value.get("version") == 2
+            )
 
-            if has_existing_data and can_query_only_new_recordings:
+            if should_query_incrementally:
                 query.date_from = existing_value["refreshed_at"]
 
             (recordings, more_recordings_available, _, _) = list_recordings_from_query(
@@ -435,16 +439,23 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             )
 
             counted_at_date = timezone.now()
-            new_session_ids = [r.session_id for r in recordings]
+            new_sessions: dict[str, str | None] = {
+                r.session_id: r.expiry_time.isoformat() if r.expiry_time else None for r in recordings
+            }
 
-            if has_existing_data and can_query_only_new_recordings:
-                # these results are only used for counting and checking if unwatched
-                # so we can merge them without caring about order
-                new_session_ids = list(set(new_session_ids + existing_value["session_ids"]))
+            if should_query_incrementally:
+                existing_sessions = existing_value.get("sessions_with_expiry", {})
+                for sid, expiry in existing_sessions.items():
+                    if sid in new_sessions:
+                        continue
+                    if is_session_unexpired(expiry, counted_at_date):
+                        new_sessions[sid] = expiry
 
             value_to_set = json.dumps(
                 {
-                    "session_ids": new_session_ids,
+                    "version": 2,
+                    "session_ids": list(new_sessions.keys()),
+                    "sessions_with_expiry": new_sessions,
                     "has_more": more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
                     "refreshed_at": counted_at_date.isoformat(),
@@ -466,7 +477,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                     "team_id": playlist.team.pk,
                     "saved_filters_short_id": playlist.short_id,
                     "saved_filters_name": playlist.name or playlist.derived_name,
-                    "count": len(new_session_ids),
+                    "count": len(new_sessions),
                     "previous_count": len(existing_value.get("session_ids", [])),
                 },
             )
@@ -503,7 +514,8 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         try_to_store_error_count(playlist.short_id if playlist else None)
 
 
-def enqueue_recordings_that_match_playlist_filters() -> None:
+def fetch_playlists_to_count() -> list[int]:
+    """Fetch playlist IDs that need counting. Used by the Temporal activity and tests."""
     base_query = (
         SessionRecordingPlaylist.objects.filter(
             deleted=False,
@@ -517,16 +529,15 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
 
     total_playlists_count = base_query.count()
 
-    all_playlists = base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list("id", flat=True)[
-        : settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT
-    ]
+    all_playlist_ids = list(
+        base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list("id", flat=True)[
+            : settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT
+        ]
+    )
 
     cached_counted_playlists_count = count_playlists_in_redis()
 
-    # these two gauges let us see how "full" the cache is
     REPLAY_TOTAL_PLAYLISTS_GAUGE.set(total_playlists_count)
     REPLAY_PLAYLISTS_IN_REDIS_GAUGE.set(cached_counted_playlists_count)
 
-    for playlist_id in all_playlists:
-        count_recordings_that_match_playlist_filters.delay(playlist_id)
-        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()
+    return all_playlist_ids

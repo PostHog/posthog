@@ -1,12 +1,12 @@
 {
-    "name": "@posthog/quill",
+    "name": "@posthog/quill-workspace",
     "version": "0.0.1",
     "private": true,
     "type": "module",
     "scripts": {
         "dev": "pnpm --filter @posthog/quill-web dev",
-        "storybook": "pnpm build && (pnpm --filter @posthog/quill-tokens build:watch & pnpm --filter @posthog/quill-storybook storybook)",
-        "build": "pnpm -r --filter '@posthog/quill-*' build",
+        "storybook": "pnpm build && (pnpm --filter @posthog/quill-tokens build:watch & pnpm --filter @posthog/quill build:css:watch & pnpm --filter @posthog/quill-storybook storybook)",
+        "build": "pnpm -r --filter '@posthog/quill-*' --filter '@posthog/quill' build",
         "typecheck": "pnpm -r typecheck"
     },
     "devDependencies": {
