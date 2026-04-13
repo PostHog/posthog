@@ -57,7 +57,7 @@ class EvaluationReport(UUIDTModel):
         related_name="reports",
     )
 
-    frequency = models.CharField(max_length=10, choices=Frequency.choices)
+    frequency = models.CharField(max_length=10, choices=Frequency.choices, default=Frequency.EVERY_N)
     byweekday: ArrayField = ArrayField(
         models.CharField(max_length=10, choices=ByWeekDay.choices),
         null=True,
@@ -77,6 +77,7 @@ class EvaluationReport(UUIDTModel):
     trigger_threshold = models.IntegerField(
         null=True,
         blank=True,
+        default=50,
         help_text="Number of new eval results that triggers a report",
     )
     cooldown_minutes = models.IntegerField(

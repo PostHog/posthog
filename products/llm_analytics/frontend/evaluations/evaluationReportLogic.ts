@@ -29,12 +29,12 @@ export interface PendingReportConfig {
 
 const DEFAULT_PENDING_CONFIG: PendingReportConfig = {
     enabled: false,
-    frequency: 'daily',
+    frequency: 'every_n',
     emailValue: '',
     slackIntegrationId: null,
     slackChannelValue: '',
     reportPromptGuidance: '',
-    triggerThreshold: 100,
+    triggerThreshold: 50,
 }
 
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
