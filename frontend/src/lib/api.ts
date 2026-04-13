@@ -1232,6 +1232,10 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('issues')
     }
 
+    public errorTrackingIssuesExists(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent('exists')
+    }
+
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssues(teamId).addPathComponent(id)
     }

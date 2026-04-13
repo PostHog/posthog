@@ -12,8 +12,7 @@ export const exceptionIngestionLogic = kea<exceptionIngestionLogicType>([
             __default: undefined as boolean | undefined,
             loadExceptionIngestionState: async (): Promise<boolean> => {
                 const response = await new ApiRequest()
-                    .errorTrackingIssues()
-                    .addPathComponent('exists')
+                    .errorTrackingIssuesExists()
                     .get()
                     .catch(() => null)
 
