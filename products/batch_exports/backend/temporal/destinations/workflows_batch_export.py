@@ -248,7 +248,8 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         async with aiohttp.ClientSession(
             # The batch exports API resolves to a local address which our proxy blocks,
             # so we have to disable it by not reading the environment configuration.
-            trust_env=False,  # nosemgrep: aiohttp-missing-trust-env
+            # nosemgrep: aiohttp-missing-trust-env
+            trust_env=False,
             connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
             headers={
                 "Content-Type": "application/json",
