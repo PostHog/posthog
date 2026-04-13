@@ -39,7 +39,14 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery } from './utils/queryUtils'
+import { compareQuery, stripUnsupportedQueryFields } from './utils/queryUtils'
+
+const normalizeQuery = (query: Node | null): Node | null => {
+    if (query && isInsightVizNode(query) && isInsightQueryNode(query.source)) {
+        return { ...query, source: stripUnsupportedQueryFields(query.source) }
+    }
+    return query
+}
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -92,8 +99,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         internalQuery: [
             null as Node | null,
             {
-                setQuery: (_, { query }) => query,
-                syncQueryFromProps: (_, { query }) => query,
+                setQuery: (_, { query }) => normalizeQuery(query),
+                syncQueryFromProps: (_, { query }) => normalizeQuery(query),
             },
         ],
         showQueryEditor: [
