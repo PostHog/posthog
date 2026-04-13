@@ -286,6 +286,21 @@ export const preflightLogic = kea<preflightLogicType>([
                 return preflight?.is_debug
             },
         ],
+        deploymentLabel: [
+            (s) => [s.preflight],
+            (preflight): string => {
+                if (!preflight) {
+                    return ''
+                }
+                if (preflight.cloud) {
+                    return ' Cloud'
+                }
+                if (preflight.is_debug) {
+                    return ' (local dev)'
+                }
+                return ' (self-hosted)'
+            },
+        ],
         disableNavigationHooks: [
             (s) => [s.preflight],
             (preflight): boolean | undefined => {

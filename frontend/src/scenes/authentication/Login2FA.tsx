@@ -16,7 +16,7 @@ export function Login2FA(): JSX.Element {
     const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
         useValues(login2FALogic)
     const { beginPasskey2FA } = useActions(login2FALogic)
-    const { preflight } = useValues(preflightLogic)
+    const { deploymentLabel } = useValues(preflightLogic)
 
     return (
         <BridgePage
@@ -25,8 +25,7 @@ export function Login2FA(): JSX.Element {
             message={
                 <>
                     Welcome to
-                    <br /> PostHog
-                    {preflight?.cloud ? ' Cloud' : preflight?.is_debug ? ' (local dev)' : ' (self-hosted)'}!
+                    <br /> PostHog{deploymentLabel}!
                 </>
             }
         >
