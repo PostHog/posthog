@@ -125,6 +125,7 @@ pub async fn otel_handler(
     let raw_span_count = count_spans(&request);
 
     if raw_span_count == 0 {
+        counter!("capture_ai_otel_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
 
@@ -156,6 +157,7 @@ pub async fn otel_handler(
     }
 
     if span_count == 0 {
+        counter!("capture_ai_otel_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
     if span_count > MAX_SPANS_PER_REQUEST {

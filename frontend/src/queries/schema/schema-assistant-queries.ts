@@ -23,6 +23,8 @@ import {
     MultipleBreakdownType,
     Node,
     NodeKind,
+    type RecordingOrder,
+    type RecordingOrderDirection,
     RetentionFilterLegacy,
     StickinessComputationMode,
     StickinessFilterLegacy,
@@ -227,6 +229,36 @@ export interface AssistantFlagPropertyFilter {
     value: boolean | string
 }
 
+export type AssistantRecordingPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Recording
+    /**
+     * Recording metric to filter on.
+     * - `duration` — total recording duration in seconds.
+     * - `active_seconds` — seconds with user activity.
+     * - `inactive_seconds` — seconds without user activity.
+     * - `console_error_count` — number of console errors.
+     * - `console_log_count` — number of console log entries.
+     * - `console_warn_count` — number of console warnings.
+     * - `click_count` — number of clicks.
+     * - `keypress_count` — number of key presses.
+     * - `activity_score` — computed activity score (0-100).
+     * - `visited_page` — URL visited during the session.
+     * - `snapshot_source` — the recording source (e.g. "web", "mobile").
+     */
+    key:
+        | 'duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'console_log_count'
+        | 'console_warn_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'activity_score'
+        | 'visited_page'
+        | 'snapshot_source'
+}
+
 export type AssistantPropertyFilter =
     | AssistantGenericPropertyFilter
     | AssistantGroupPropertyFilter
@@ -234,6 +266,12 @@ export type AssistantPropertyFilter =
     | AssistantElementPropertyFilter
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
+
+/**
+ * Extended property filter union for recordings queries that also supports
+ * recording-specific metric filters (e.g. duration, click_count, activity_score).
+ */
+export type AssistantRecordingsQueryPropertyFilter = AssistantPropertyFilter | AssistantRecordingPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -1237,4 +1275,39 @@ export interface AssistantErrorTrackingQuery {
     volumeResolution?: integer
     limit?: integer
     offset?: integer
+}
+
+/**
+ * Simplified RecordingsQuery for MCP tool usage. Exposes the most useful
+ * filtering and pagination fields with LLM-friendly descriptions while
+ * hiding internal complexity (having_predicates, operand, actions, etc.).
+ */
+export interface AssistantRecordingsQuery {
+    kind: NodeKind.RecordingsQuery
+    /** Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d". */
+    date_from?: string | null
+    /** End of the date range. Supports relative dates or ISO 8601 format. Default: now. */
+    date_to?: string | null
+    /**
+     * Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.
+     *
+     * Supported types:
+     * - `person`: Filter by person properties (e.g. email, country).
+     * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
+     * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
+     * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     */
+    properties?: AssistantRecordingsQueryPropertyFilter[]
+    /** Exclude internal and test users. Default: false. */
+    filter_test_accounts?: boolean
+    /** Sort field. Options: "start_time", "duration", "activity_score", "console_error_count", "click_count". Default: "start_time". */
+    order?: RecordingOrder
+    /** Sort direction: "ASC" or "DESC". Default: "DESC". */
+    order_direction?: RecordingOrderDirection
+    /** Maximum number of recordings to return. */
+    limit?: integer
+    /** Cursor for pagination from a previous response's next_cursor field. */
+    after?: string
+    /** Filter recordings to a specific person by their UUID. */
+    person_uuid?: string
 }

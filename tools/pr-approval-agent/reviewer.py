@@ -267,9 +267,15 @@ class Reviewer:
                     "stamphog_commit_type": classification.get("commit_type") or "",
                     "stamphog_deny_categories": classification.get("deny_categories", []),
                     "stamphog_author_on_owning_team": classification.get("author_on_owning_team"),
-                    "stamphog_verdict": gate_context.get("gate_verdict", ""),
+                    "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
+                    "stamphog_llm_verdict": "",
                 },
             }
+
+        # Keep a reference so we can mutate it when the verdict arrives —
+        # the SDK sends the $ai_trace event after the generator completes,
+        # so updates here propagate to the trace.
+        props = posthog_kwargs.get("posthog_properties", {})
 
         structured_output = None
         async for message in query(prompt=prompt, options=options, **posthog_kwargs):
@@ -280,6 +286,8 @@ class Reviewer:
                     raise RuntimeError("Agent could not produce valid structured output after retries")
                 if message.structured_output:
                     structured_output = message.structured_output
+                    # Stamp the LLM verdict onto the trace properties
+                    props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, ToolUseBlock) and self.verbose:
