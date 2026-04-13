@@ -138,6 +138,11 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
+    environment = serializers.ChoiceField(
+        choices=["local", "cloud"],
+        required=False,
+        help_text="Execution environment",
+    )
 
 
 class TaskRunArtifactResponseSerializer(serializers.Serializer):

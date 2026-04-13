@@ -297,7 +297,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        if prepared.repository and prepared.branch and self.context.github_integration_id is not None:
+        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        if prepared.repository and prepared.branch and self.context.github_integration_id is not None and not is_resume:
             await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(

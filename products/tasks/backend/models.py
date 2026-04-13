@@ -395,6 +395,36 @@ class TaskRun(models.Model):
                 return None
         return env
 
+    def prepare_for_cloud_handoff(self) -> None:
+        """
+        Sets all state fields needed for the cloud agent server + Temporal
+        workflow to treat this as a resume (not a fresh run).
+        hack: This clears stale fields that would cause the initial task message to be re-sent.
+        """
+        self.status = self.Status.QUEUED
+        self.environment = self.Environment.CLOUD
+        self.completed_at = None
+        self.error_message = None
+
+        state = self.state or {}
+        state["resume_from_run_id"] = str(self.id)
+        state["mode"] = "interactive"
+        state.pop("pending_user_message", None)
+        state.pop("pending_user_message_ts", None)
+        self.state = state
+
+        self.save(
+            update_fields=[
+                "status",
+                "environment",
+                "completed_at",
+                "error_message",
+                "state",
+                "updated_at",
+            ]
+        )
+        self.publish_stream_state_event()
+
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
         """Get the Temporal workflow ID for a task run."""

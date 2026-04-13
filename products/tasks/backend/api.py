@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import asyncio
 import logging
 import traceback
 from collections.abc import AsyncGenerator
@@ -22,6 +23,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -32,6 +34,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
+from posthog.temporal.common.client import sync_connect
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -65,6 +68,7 @@ from .services.connection_token import create_sandbox_connection_token
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
 from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
+from .temporal.process_task.workflow import ProcessTaskInput
 
 logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
@@ -362,6 +366,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "session_logs",
             "command",
             "stream",
+            "resume_in_cloud",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -422,6 +427,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
 
             old_status = task_run.status
+            old_environment = task_run.environment
             old_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
 
             # Update fields from validated data
@@ -455,6 +461,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 new_status,
                 request.validated_data.get("error_message"),
             )
+        new_environment = request.validated_data.get("environment")
+        if new_environment == "local" and old_environment == TaskRun.Environment.CLOUD:
+            self._signal_workflow_completion(task_run, "cancelled", "handoff")
+
         new_pr_url = (task_run.output or {}).get("pr_url") if isinstance(task_run.output, dict) else None
         if new_pr_url and new_pr_url != old_pr_url:
             self._post_slack_update_for_pr(task_run)
@@ -681,7 +691,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         artifacts = request.validated_data["artifacts"]
 
         prefix = task_run.get_artifact_s3_prefix()
-        manifest = list(task_run.artifacts or [])
+        uploaded: list[dict] = []
 
         for artifact in artifacts:
             safe_name = os.path.basename(artifact["name"]).strip() or "artifact"
@@ -715,7 +725,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             uploaded_at = timezone.now().isoformat()
 
-            manifest.append(
+            uploaded.append(
                 {
                     "name": safe_name,
                     "type": artifact["type"],
@@ -736,8 +746,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
             )
 
-        task_run.artifacts = manifest
-        task_run.save(update_fields=["artifacts", "updated_at"])
+        with transaction.atomic():
+            task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+            manifest = list(task_run.artifacts or [])
+            manifest.extend(uploaded)
+            task_run.artifacts = manifest
+            task_run.save(update_fields=["artifacts", "updated_at"])
 
         serializer = TaskRunArtifactsUploadResponseSerializer(
             {"artifacts": manifest},
@@ -1095,6 +1109,68 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Run already active or workflow failed"),
+        },
+        summary="Resume task run in cloud",
+        description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="resume_in_cloud",
+        required_scopes=["task:write"],
+    )
+    def resume_in_cloud(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        is_cloud_active = task_run.environment == TaskRun.Environment.CLOUD and task_run.status in (
+            TaskRun.Status.QUEUED,
+            TaskRun.Status.IN_PROGRESS,
+        )
+        if is_cloud_active:
+            return Response(
+                ErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self._signal_workflow_completion(task_run, "cancelled", "handoff")
+        task_run.prepare_for_cloud_handoff()
+
+        logger.info(
+            "Resuming task run in cloud",
+            extra={
+                "task_run_id": str(task_run.id),
+                "task_id": str(task_run.task_id),
+            },
+        )
+
+        try:
+            client = sync_connect()
+            asyncio.run(
+                client.start_workflow(
+                    "process-task",
+                    ProcessTaskInput(run_id=str(task_run.id)),
+                    id=task_run.workflow_id,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    task_queue=settings.TASKS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to trigger handoff workflow",
+                extra={"task_run_id": str(task_run.id), "error": str(e)},
+            )
+            return Response(
+                ErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
     @staticmethod
     def _format_sse_event(data: dict, *, event_id: str | None = None, event_name: str | None = None) -> bytes:
