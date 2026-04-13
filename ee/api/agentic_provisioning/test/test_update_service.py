@@ -57,7 +57,7 @@ class TestProvisioningUpdateService(StripeProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "billing_activation_failed"
 
-    def test_update_service_without_spt(self):
+    def test_update_service_without_spt_to_free_succeeds(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
@@ -70,6 +70,18 @@ class TestProvisioningUpdateService(StripeProvisioningTestBase):
         assert data["service_id"] == "free"
         assert "api_key" in data["complete"]["access_configuration"]
         assert "host" in data["complete"]["access_configuration"]
+
+    def test_update_service_to_pay_as_you_go_without_spt_returns_error(self):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
+            data={"service_id": "pay_as_you_go"},
+            token=token,
+        )
+        assert res.status_code == 400
+        body = res.json()
+        assert body["status"] == "error"
+        assert body["error"]["code"] == "requires_payment_credentials"
 
     def test_update_service_rejects_unknown_service_id(self):
         token = self._get_bearer_token()
