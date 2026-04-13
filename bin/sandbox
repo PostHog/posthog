@@ -1521,7 +1521,7 @@ def cmd_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _attach_tmux(container: str, target: str = "posthog:claude") -> None:
+def _attach_tmux(container: str, target: str = "posthog") -> None:
     """Exec into the tmux session (replaces current process)."""
     os.execvp(
         "docker",
