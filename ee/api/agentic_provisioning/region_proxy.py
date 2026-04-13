@@ -19,7 +19,6 @@ from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_tok
 from posthog.utils import get_instance_region
 
 from . import AUTH_CODE_CACHE_PREFIX
-from .signature import verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
 
@@ -89,7 +88,7 @@ def _proxy_to_region(request: Request, target_domain: str) -> Response:
         )
 
         logger.info(
-            "stripe_app.proxy.success",
+            "provisioning.proxy.success",
             target_url=target_url,
             status_code=response.status_code,
         )
@@ -105,7 +104,7 @@ def _proxy_to_region(request: Request, target_domain: str) -> Response:
         return Response(data=data, status=response.status_code)
 
     except requests.exceptions.RequestException as e:
-        capture_exception(e, {"target_url": target_url, "step": "stripe_app.proxy.failed"})
+        capture_exception(e, {"target_url": target_url, "step": "provisioning.proxy.failed"})
         raise
 
 
@@ -175,7 +174,7 @@ _STRATEGY_CHECKS = {
 REGION_PROXY_REGISTRY: dict[str, str] = {}
 
 
-def stripe_region_proxy(strategy: str):
+def region_proxy(strategy: str):
     check_fn = _STRATEGY_CHECKS[strategy]
 
     def decorator(view_func):
@@ -183,11 +182,6 @@ def stripe_region_proxy(strategy: str):
 
         @functools.wraps(view_func)
         def wrapper(request: Request, *args, **kwargs) -> Response:
-            if request.META.get("HTTP_STRIPE_SIGNATURE"):
-                error = verify_stripe_signature(request)
-                if error:
-                    return error
-
             current = _current_region()
             if current is None or current in ("DEV", "LOCAL"):
                 return view_func(request, *args, **kwargs)
@@ -198,7 +192,7 @@ def stripe_region_proxy(strategy: str):
             if check_fn(request, current):
                 target = _other_region_domain(current)
                 logger.info(
-                    "stripe_app.proxy.routing",
+                    "provisioning.proxy.routing",
                     strategy=strategy,
                     current_region=current,
                     target_domain=target,
