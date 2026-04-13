@@ -597,9 +597,10 @@ def _wait_for_tailscale_ssh(hostname: str, instance_id: str, *, timeout: int = 1
 
 
 def _tail_boot_log_until_done(hostname: str, branch: str) -> bool:
-    """Stream /var/log/sandbox-boot.log until the completion marker appears.
+    """Stream /var/log/sandbox-boot.log until the sandbox is ready to attach.
 
-    Returns True on clean completion, False if the user detached with Ctrl-C.
+    Returns True when the container is running and tmux/Claude are live
+    (the app may still be booting). Returns False if the user Ctrl-C'd.
     Fatals if the stream ends without the marker (cloud-init crashed).
     """
     ssh_base = _ssh_cmd(hostname, connect_timeout=5)
@@ -614,7 +615,7 @@ def _tail_boot_log_until_done(hostname: str, branch: str) -> bool:
         assert proc.stdout is not None
         for line in proc.stdout:
             print(line, end="")
-            if "Cloud sandbox boot complete" in line:
+            if "Cloud sandbox ready" in line:
                 proc.terminate()
                 proc.wait()
                 return True
@@ -627,7 +628,7 @@ def _tail_boot_log_until_done(hostname: str, branch: str) -> bool:
         print(f"  Shell:     sandbox cloud shell {branch}")
         return False
 
-    fatal(f"Boot log ended without completion marker.\n  Check logs: sandbox cloud logs {branch}")
+    fatal(f"Boot log ended without ready marker.\n  Check logs: sandbox cloud logs {branch}")
 
 
 def _open_browser_detached(url: str) -> None:

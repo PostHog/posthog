@@ -354,24 +354,28 @@ else
     tailscale serve --bg --http=80 http://localhost:48001
 fi
 
-log "Waiting for app to be healthy..."
-HEALTH_DEADLINE=$((SECONDS + 600))
-HEALTH_OK=false
-while [ "$SECONDS" -lt "$HEALTH_DEADLINE" ]; do
-    if curl -sf "http://localhost:48001/_health" > /dev/null 2>&1; then
-        log "App is healthy"
-        HEALTH_OK=true
-        break
-    fi
-    sleep 5
-done
-if [ "$HEALTH_OK" != true ]; then
+# Container is running, tmux + Claude are live, tailscale serve is up.
+# Emit the ready marker so the CLI can attach immediately — the app is
+# still booting (migrations, deps) but the user can start working in
+# Claude while that happens, exactly like the local flow.
+log "Cloud sandbox ready — attach now, app still booting"
+log "PostHog will be available at $USER_URL once healthy"
+
+# Health poll runs in the background so it doesn't block the CLI attach.
+(
+    HEALTH_DEADLINE=$((SECONDS + 600))
+    while [ "$SECONDS" -lt "$HEALTH_DEADLINE" ]; do
+        if curl -sf "http://localhost:48001/_health" > /dev/null 2>&1; then
+            log "App is healthy (total boot time: ${SECONDS}s)"
+            BOOT_STATUS="complete"
+            echo "$BOOT_STATUS" > /var/log/sandbox-boot-status
+            exit 0
+        fi
+        sleep 5
+    done
     log "ERROR: App did not become healthy within 600s"
-    exit 1
-fi
+    BOOT_STATUS="failed"
+    echo "$BOOT_STATUS" > /var/log/sandbox-boot-status
+) &
 
 BOOT_STATUS="complete"
-log "Cloud sandbox boot complete at $(date)"
-log "Total boot time: ${SECONDS}s"
-log "Tailscale hostname: $SANDBOX_HOSTNAME"
-log "PostHog will be available at $USER_URL once healthy"
