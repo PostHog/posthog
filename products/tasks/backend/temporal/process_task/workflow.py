@@ -151,8 +151,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             else:
                 relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
 
-            is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
-            if not is_resume:
+            if self._should_forward_pending_user_message():
                 try:
                     await self._forward_pending_user_message()
                 except Exception as e:
@@ -365,6 +364,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+    def _should_forward_pending_user_message(self) -> bool:
+        if not self._context:
+            return False
+
+        is_resume = bool((self.context.state or {}).get("resume_from_run_id"))
+        return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict) -> None:
         track_input = TrackWorkflowEventInput(

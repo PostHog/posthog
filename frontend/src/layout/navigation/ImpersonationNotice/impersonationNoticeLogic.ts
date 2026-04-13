@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -106,6 +107,14 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 if (secondsAway > 30) {
                     actions.maximize()
                 }
+            }
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_params, _searchParams, _hashParams, { pathname }) => {
+            if (values.ticketContext && !pathname.startsWith('/support/tickets/')) {
+                actions.setTicketContext(null)
             }
         },
     })),
