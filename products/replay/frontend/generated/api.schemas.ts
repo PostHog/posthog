@@ -84,6 +84,7 @@ export interface SessionRecordingPlaylistApi {
     readonly id: number
     readonly short_id: string
     /**
+     * Human-readable name for the playlist.
      * @maxLength 400
      * @nullable
      */
@@ -93,16 +94,24 @@ export interface SessionRecordingPlaylistApi {
      * @nullable
      */
     derived_name?: string | null
+    /** Optional description of the playlist's purpose or contents. */
     description?: string
+    /** Whether this playlist is pinned to the top of the list. */
     pinned?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
+    /** Set to true to soft-delete the playlist. */
     deleted?: boolean
+    /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
     filters?: unknown
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
-    readonly type: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+    /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
+
+* `collection` - Collection
+* `filters` - Filters */
+    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
@@ -125,6 +134,7 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly id?: number
     readonly short_id?: string
     /**
+     * Human-readable name for the playlist.
      * @maxLength 400
      * @nullable
      */
@@ -134,16 +144,24 @@ export interface PatchedSessionRecordingPlaylistApi {
      * @nullable
      */
     derived_name?: string | null
+    /** Optional description of the playlist's purpose or contents. */
     description?: string
+    /** Whether this playlist is pinned to the top of the list. */
     pinned?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
+    /** Set to true to soft-delete the playlist. */
     deleted?: boolean
+    /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
     filters?: unknown
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
-    readonly type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+    /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
+
+* `collection` - Collection
+* `filters` - Filters */
+    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string

@@ -34,8 +34,8 @@ from posthog.rate_limit import (
 )
 from posthog.security.url_validation import is_url_allowed
 
-from .models import RECOMMENDED_SERVERS, MCPOAuthState, MCPServer, MCPServerInstallation, SensitiveConfig
-from .oauth import (
+from ..models import RECOMMENDED_SERVERS, MCPOAuthState, MCPServer, MCPServerInstallation, SensitiveConfig
+from ..oauth import (
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
@@ -43,7 +43,7 @@ from .oauth import (
     generate_pkce,
     register_dcr_client,
 )
-from .proxy import proxy_mcp_request, validate_installation_auth
+from ..proxy import proxy_mcp_request, validate_installation_auth
 
 _RECOMMENDED_URLS = [server["url"] for server in RECOMMENDED_SERVERS]
 

@@ -4,13 +4,8 @@ import { hasScopes } from '@/lib/api'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
-// Experiments
-import createExperiment from './experiments/create'
-import deleteExperiment from './experiments/delete'
-import getExperiment from './experiments/get'
-import getAllExperiments from './experiments/getAll'
+// Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
-import updateExperiment from './experiments/update'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -71,13 +66,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
 
-    // Experiments
-    'experiment-get-all': getAllExperiments,
-    'experiment-get': getExperiment,
+    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    'experiment-create': createExperiment,
-    'experiment-delete': deleteExperiment,
-    'experiment-update': updateExperiment,
 
     // Insights
     'insights-get-all': getAllInsights,

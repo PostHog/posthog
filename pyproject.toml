@@ -188,7 +188,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "confluent-kafka>=2.13.0",
     "blake3>=1.0.8",
-    "pixelmatch>=0.3.1",
+    "pixelhog~=1.0.0",
     "google-re2>=1.1.20251105",
 ]
 
@@ -271,7 +271,7 @@ sentiment = [
 [tool.uv]
 required-version = "~=0.10.2"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, posthoganalytics = false }
+exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false }
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
