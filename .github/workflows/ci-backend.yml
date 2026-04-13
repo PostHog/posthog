@@ -1769,17 +1769,18 @@ jobs:
                   path: junit.xml
 
     # Watchdog that force-cancels the run when pytest hangs on cancellation.
-    # Runs concurrently with all other jobs (no `needs:`). On normal cancel,
-    # `if: always()` keeps this job alive while the test jobs get SIGINT.
-    # The bash `sleep` gets interrupted, the trap fires, and we call
-    # force-cancel to kill any hung pytest processes immediately.
+    # Watchdog that force-cancels the run when pytest hangs on cancellation.
+    # Runs concurrently with all other jobs (no `needs:`). `if: always()` keeps
+    # it alive through normal cancel. Polls the jobs API every 15s — when it sees
+    # cancelled jobs alongside still-running jobs, it calls force-cancel to kill
+    # any hung pytest processes immediately.
     cancel-watchdog:
         name: Cancel watchdog
         runs-on: ubuntu-latest
         permissions:
             actions: write
         if: always()
-        timeout-minutes: 35
+        timeout-minutes: 60
         steps:
             - name: Force-cancel run if cancellation hangs
               env:
@@ -1788,8 +1789,9 @@ jobs:
               run: |
                   echo "Watchdog started — polling every 15s for stuck cancellation"
                   while true; do
-                      JOBS=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
-                          --jq '[.jobs[] | select(.name != env.WATCHDOG_JOB_NAME) | {status, conclusion}]')
+                      JOBS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
+                          --jq '[.jobs[] | select(.name != env.WATCHDOG_JOB_NAME) | {status, conclusion}]' \
+                          | jq -s 'add // []')
 
                       HAS_CANCELLED=$(echo "$JOBS" | jq '[.[] | select(.conclusion == "cancelled")] | length > 0')
                       STILL_RUNNING=$(echo "$JOBS" | jq '[.[] | select(.status == "in_progress")] | length > 0')
