@@ -1392,7 +1392,7 @@ def _sandbox_local_work(project: str) -> tuple[str, str] | None:
         == 0
     )
     if has_start_ref:
-        log_args.extend(["--not", "refs/sandbox/start"])
+        log_args.append("refs/sandbox/start")
 
     commits = run([*git_exec, *log_args], check=False, capture=True).stdout.strip()
     dirty = run([*git_exec, "status", "--porcelain"], check=False, capture=True).stdout.strip()
