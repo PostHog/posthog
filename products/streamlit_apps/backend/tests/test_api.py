@@ -5,6 +5,8 @@ import zipfile
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -446,6 +448,41 @@ class TestStreamlitAppSandboxControlAPI(APIBaseTest):
         self.client.get(self._url(app.short_id, "connect_info/"))
         sandbox_record.refresh_from_db()
         assert sandbox_record.last_activity_at is not None
+
+    @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
+    def test_connect_info_debounces_last_activity_writes(self, mock_runtime_cls):
+        """connect_info is polled every ~2 seconds by the frontend token
+        refresher; writing last_activity_at on every call used to translate
+        to a per-sandbox row update every 2 seconds per active viewer. The
+        write is now debounced to once per _LAST_ACTIVITY_DEBOUNCE_SECONDS."""
+        from datetime import timedelta
+
+        mock_runtime = MagicMock()
+        mock_runtime.get_connect_url.return_value = {"url": "https://x.modal.run", "token": "tok"}
+        mock_runtime_cls.return_value = mock_runtime
+
+        app = self._create_app_with_version()
+        recent = timezone.now() - timedelta(seconds=5)
+        sandbox_record = StreamlitAppSandbox.objects.create(
+            app=app,
+            version=app.active_version,
+            sandbox_id="sb_1",
+            status="running",
+            last_activity_at=recent,
+        )
+
+        self.client.get(self._url(app.short_id, "connect_info/"))
+        sandbox_record.refresh_from_db()
+        # last_activity_at is still the old value — the second call was
+        # within the debounce window and skipped the UPDATE.
+        assert sandbox_record.last_activity_at == recent
+
+        # Rewind the last_activity_at past the debounce window and retry.
+        stale = timezone.now() - timedelta(seconds=120)
+        StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(last_activity_at=stale)
+        self.client.get(self._url(app.short_id, "connect_info/"))
+        sandbox_record.refresh_from_db()
+        assert sandbox_record.last_activity_at > stale
 
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
     def test_connect_info_runtime_failure_returns_502(self, mock_runtime_cls):

@@ -56,6 +56,12 @@ INTROSPECTION_CACHE_MAX_ENTRIES = 1000
 INTROSPECTION_CIRCUIT_THRESHOLD = 3
 INTROSPECTION_CIRCUIT_OPEN_SECONDS = 30.0
 STREAM_CHUNK_SIZE = 64 * 1024
+# Hard cap on client uploads proxied upstream. Anything larger than this is
+# almost certainly an attempt to exhaust the sandbox's memory — we refuse with
+# 413 before reading the body. The previous `await request.read()` path would
+# buffer the full body before forwarding, turning a 1 GB upload into 1 GB of
+# resident memory per in-flight request.
+MAX_REQUEST_BODY_BYTES = 256 * 1024 * 1024  # 256 MB
 BRIDGE_QUERY_MAX_BODY_BYTES = 16 * 1024  # match the server-side limit
 BRIDGE_QUERY_TIMEOUT = ClientTimeout(total=60)
 
@@ -544,11 +550,23 @@ async def _proxy_http(request: web.Request, target: str) -> web.StreamResponse:
     # injects gets the token from THIS request.
     modal_connect_token = request.query.get("_posthog_modal_token")
 
+    # Refuse oversized uploads before touching the body. The Content-Length
+    # header is advisory (chunked transfers don't have one), but when it's
+    # present it's the cheapest possible guard.
+    content_length = request.content_length
+    if content_length is not None and content_length > MAX_REQUEST_BODY_BYTES:
+        return web.Response(status=413, text="Request body too large")
+
+    # Stream the request body upstream chunk-by-chunk via aiohttp's StreamReader
+    # instead of buffering the whole thing. A non-HTML upload that was 500 MB
+    # used to be fully resident in this process before the upstream got a byte.
+    body_stream = request.content if request.can_read_body else None
+
     async with client_session.request(
         method=request.method,
         url=target,
         headers=headers,
-        data=await request.read(),
+        data=body_stream,
         allow_redirects=False,
     ) as resp:
         response_headers = _filter_headers(resp.headers)

@@ -33,6 +33,14 @@ logger = structlog.get_logger(__name__)
 # one-per-window per sandbox.
 _STATUS_CACHE_TTL_SECONDS = 2
 
+# Minimum time between last_activity_at writes for a single sandbox.
+# connect_info is polled every ~2s by the token-refresh loop; writing on every
+# call turned into a sandbox_row UPDATE every 2 seconds per active viewer, for
+# no real gain (the field drives inactivity cleanup, which operates on minute
+# granularity anyway). The write is now debounced so it only fires once per
+# window per sandbox.
+_LAST_ACTIVITY_DEBOUNCE_SECONDS = 30
+
 
 # -- Serializers --
 
@@ -444,8 +452,17 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not connect_data:
             return Response({"detail": "Unable to connect to app."}, status=status.HTTP_502_BAD_GATEWAY)
 
-        sandbox_record.last_activity_at = timezone.now()
-        sandbox_record.save(update_fields=["last_activity_at"])
+        # Debounce the activity-tracking UPDATE — the 2-second connect_info
+        # poll was turning every active viewer into a constant stream of
+        # per-sandbox row writes. Once per _LAST_ACTIVITY_DEBOUNCE_SECONDS is
+        # plenty for the minute-granularity cleanup that consumes this field.
+        now = timezone.now()
+        if (
+            sandbox_record.last_activity_at is None
+            or (now - sandbox_record.last_activity_at).total_seconds() > _LAST_ACTIVITY_DEBOUNCE_SECONDS
+        ):
+            sandbox_record.last_activity_at = now
+            sandbox_record.save(update_fields=["last_activity_at"])
 
         from products.streamlit_apps.backend.services.oauth import (
             create_streamlit_access_token,

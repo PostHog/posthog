@@ -531,7 +531,18 @@ class TestSyncSandboxStatus(BaseTest):
 
 
 class TestBuildSandboxConfig(BaseTest):
-    def test_config_has_encrypted_auth_proxy_port(self):
+    def test_config_does_not_set_encrypted_ports_because_modal_connect_token_handles_it(self):
+        """Modal's connect-token flow exposes the auth proxy port via the
+        tunnel URL returned by get_connect_credentials(), so we intentionally
+        leave encrypted_ports unset. The previous test name implied the
+        opposite: that the config SHOULD set encrypted_ports. It doesn't —
+        populating it on top of the connect-token flow would be redundant and
+        risks conflicting with the Modal tunnel.
+
+        If we ever stop using connect tokens (e.g. switch to a direct public
+        ingress), this test must flip to asserting encrypted_ports=[8080] and
+        _build_sandbox_config must set it.
+        """
         from products.streamlit_apps.backend.services.app_runtime import _build_sandbox_config
 
         app = StreamlitApp.objects.create(team=self.team, name="Test App", cpu_cores=1.0, memory_gb=2.0)
