@@ -21,6 +21,8 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.utils import generate_short_id
 
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -224,8 +226,6 @@ class DebugCHQueries(viewsets.ViewSet):
     def precomputation_teams(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view precomputation teams.")
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
         configs = (
             TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
