@@ -208,6 +208,24 @@ class Command(BaseCommand):
         for ds in desired_states:
             by_cluster[ds.cluster].append(ds)
 
+        # Global desired-name and placeholder sets across all clusters.
+        # Pass 2's orphan scan uses these instead of per-cluster sets so a
+        # table owned by one logical cluster isn't emitted as an orphan
+        # against another that shares the same physical ClickHouse host
+        # (common in dev stacks where `main`, `aux`, `ops`, etc. all resolve
+        # to the same CLICKHOUSE_HOST). In production every logical cluster
+        # has a distinct physical host, so a table declared for `logs`
+        # wouldn't appear in `main`'s introspection at all — this global
+        # check is a no-op there. True orphans (live, declared nowhere) are
+        # still dropped.
+        all_desired_names: set[str] = set()
+        all_placeholder_names: set[str] = set()
+        for ds in desired_states:
+            for name, t in ds.tables.items():
+                all_desired_names.add(name)
+                if has_placeholder_select(t):
+                    all_placeholder_names.add(name)
+
         # Introspect each target cluster independently. Earlier versions
         # introspected only the migrations cluster once and reused that union
         # for every logical cluster — that's wrong when YAMLs target separate
@@ -323,22 +341,12 @@ class Command(BaseCommand):
             if used_fallback:
                 continue
 
-            cluster_desired_names: set[str] = set()
-            for desired in states:
-                cluster_desired_names.update(desired.tables.keys())
-
-            placeholder_names: set[str] = set()
-            for desired in states:
-                for name, t in desired.tables.items():
-                    if has_placeholder_select(t):
-                        placeholder_names.add(name)
-
             for table_name in sorted(current.keys()):
-                if table_name in cluster_desired_names:
+                if table_name in all_desired_names:
                     continue
                 if table_name in TRACKING_TABLES:
                     continue
-                if table_name in placeholder_names:
+                if table_name in all_placeholder_names:
                     continue
                 current_table = current[table_name]
                 all_diffs.append(
