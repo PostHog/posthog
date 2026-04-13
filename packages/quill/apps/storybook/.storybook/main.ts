@@ -15,11 +15,14 @@ function quillTokensWatcher(): Plugin {
     const tokensSrc = path.join(tokensRoot, 'src')
     let rebuildTimer: NodeJS.Timeout | null = null
     let rebuilding = false
+    let rebuildPending = false
 
     const rebuild = (server: ViteDevServer): void => {
         if (rebuilding) {
+            rebuildPending = true
             return
         }
+        rebuildPending = false
         rebuilding = true
         const proc = spawn('pnpm', ['exec', 'tsx', 'src/build.ts'], {
             cwd: tokensRoot,
@@ -30,6 +33,9 @@ function quillTokensWatcher(): Plugin {
             rebuilding = false
             if (code === 0) {
                 server.ws.send({ type: 'full-reload' })
+            }
+            if (rebuildPending) {
+                rebuild(server)
             }
         })
     }
