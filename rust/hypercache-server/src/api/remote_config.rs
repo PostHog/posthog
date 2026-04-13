@@ -50,7 +50,14 @@ fn parse_token(raw: &str) -> Result<Token, Response> {
 ///
 /// The `Token` type guarantees format validity at construction time.
 async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, Response> {
-    match get_cached_data(&state.config_hypercache_reader, token.as_str()).await {
+    match get_cached_data(
+        &state.config_hypercache_reader,
+        state.config_negative_cache.as_deref(),
+        "array",
+        token.as_str(),
+    )
+    .await
+    {
         Some(value) => {
             inc(
                 REMOTE_CONFIG_COUNTER,

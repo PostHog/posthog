@@ -80,7 +80,14 @@ pub async fn surveys_endpoint(
         Err(r) => return r,
     };
 
-    let value = match get_cached_data(&state.surveys_hypercache_reader, token.as_str()).await {
+    let value = match get_cached_data(
+        &state.surveys_hypercache_reader,
+        state.surveys_negative_cache.as_deref(),
+        "surveys",
+        token.as_str(),
+    )
+    .await
+    {
         Some(v) => v,
         None => return empty_surveys_response(),
     };

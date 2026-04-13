@@ -61,6 +61,8 @@ pub mod helpers {
         let state = State {
             surveys_hypercache_reader: surveys_reader,
             config_hypercache_reader: config_reader,
+            surveys_negative_cache: None,
+            config_negative_cache: None,
         };
 
         Router::new()

@@ -5,6 +5,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
+use common_cache::NegativeCache;
 use common_hypercache::HyperCacheReader;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use health::readiness_handler;
@@ -23,16 +24,22 @@ use crate::{
 pub struct State {
     pub surveys_hypercache_reader: Arc<HyperCacheReader>,
     pub config_hypercache_reader: Arc<HyperCacheReader>,
+    pub surveys_negative_cache: Option<Arc<NegativeCache>>,
+    pub config_negative_cache: Option<Arc<NegativeCache>>,
 }
 
 pub fn router(
     surveys_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
+    surveys_negative_cache: Option<Arc<NegativeCache>>,
+    config_negative_cache: Option<Arc<NegativeCache>>,
     config: Config,
 ) -> Router {
     let state = State {
         surveys_hypercache_reader,
         config_hypercache_reader,
+        surveys_negative_cache,
+        config_negative_cache,
     };
 
     // Permissive CORS policy matching the feature-flags service
