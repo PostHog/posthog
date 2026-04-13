@@ -1241,7 +1241,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if self._is_cdc_enabled() else None,
+                "cdc_available": schema.supports_cdc
+                if (self._is_cdc_enabled() and schema.source_supports_cdc)
+                else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,

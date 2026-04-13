@@ -616,7 +616,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
-            "cdc_available": schema.supports_cdc if self._is_cdc_enabled() else None,
+            "cdc_available": schema.supports_cdc if (self._is_cdc_enabled() and schema.source_supports_cdc) else None,
             "full_refresh_available": True,
             "supports_webhooks": schema.supports_webhooks,
         }

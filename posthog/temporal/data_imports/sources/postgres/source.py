@@ -223,6 +223,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     name=table_name,
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
+                    source_supports_cdc=True,
                     supports_cdc=table_name in tables_with_pks,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
