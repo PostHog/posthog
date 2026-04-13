@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -51,6 +51,7 @@ from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
+from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
@@ -60,6 +61,11 @@ from products.data_warehouse.backend.models.credential import get_or_create_data
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+)
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.event_definitions.backend.models.schema import (
@@ -110,6 +116,33 @@ class DemoDataWarehouseTableSpec:
     columns: dict[str, str]
     source_events: tuple[str, ...]
     row_builder: Callable[[SimEvent, int], tuple[Any, ...]]
+
+
+class ErrorTrackingDemoFrame(TypedDict):
+    raw_id: str
+    mangled_name: str
+    source: str
+    in_app: bool
+    resolved_name: str
+    lang: str
+    resolved: bool
+    synthetic: bool
+    suspicious: bool
+    line: int
+    column: int
+    pre_context: list[str]
+    context_line: str
+    post_context: list[str]
+
+
+class ErrorTrackingDemoIssueSpec(TypedDict):
+    name: str
+    description: str
+    fingerprint: str
+    type: str
+    value: str
+    frames: list[ErrorTrackingDemoFrame]
+    days_ago: list[int]
 
 
 class HedgeboxCluster(Cluster):
@@ -1665,6 +1698,8 @@ class HedgeboxMatrix(Matrix):
         except IntegrityError:
             pass
 
+        self._set_up_error_tracking_demo_data(team)
+
         if settings.OIDC_RSA_PRIVATE_KEY:
             try:
                 OAuthApplication.objects.create(
@@ -1680,6 +1715,304 @@ class HedgeboxMatrix(Matrix):
                 )
             except (IntegrityError, ValidationError):
                 pass
+
+    def _set_up_error_tracking_demo_data(self, team: "Team") -> None:
+        issue_specs: list[ErrorTrackingDemoIssueSpec] = [
+            {
+                "name": "Checkout API timeout",
+                "description": "Checkout requests occasionally time out while creating a payment session, preventing upgrades from completing.",
+                "fingerprint": "5f51cbfd904b08d668e02eb1cda7e4a822b8fe640135f94aa0eb20c7a8553cda74a1e9fac8c9fa23f1e0df72f7f6c9b3d7cb3b8337dfebf6d7eb0b9d89d2d1d",
+                "type": "TimeoutError",
+                "value": "Request timed out while creating checkout session",
+                "frames": [
+                    {
+                        "raw_id": "hedgebox-checkout-submit-payment/0",
+                        "mangled_name": "submitPayment",
+                        "source": "https://app.hedgebox.test/static/js/checkout.js",
+                        "in_app": True,
+                        "resolved_name": "submitPayment",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 128,
+                        "column": 24,
+                        "pre_context": [
+                            "    setIsSubmitting(true)",
+                            "    setError(undefined)",
+                            "    const plan = selectedPlan?.id",
+                        ],
+                        "context_line": "    const response = await submitPayment(plan)",
+                        "post_context": [
+                            "    setCheckoutResponse(response)",
+                            "    navigate(response.redirectUrl)",
+                            "}",
+                        ],
+                    },
+                    {
+                        "raw_id": "hedgebox-checkout-create-session/0",
+                        "mangled_name": "createCheckoutSession",
+                        "source": "https://app.hedgebox.test/static/js/api.js",
+                        "in_app": True,
+                        "resolved_name": "createCheckoutSession",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 87,
+                        "column": 18,
+                        "pre_context": [
+                            "export async function createCheckoutSession(plan) {",
+                            "    const payload = { plan }",
+                            "    const timeout = 8000",
+                        ],
+                        "context_line": "    return api.post('/api/billing/checkout', payload, { timeout })",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                ],
+                "days_ago": [2, 5, 11, 18],
+            },
+            {
+                "name": "File preview render failure",
+                "description": "Preview rendering fails for some uploaded PDFs, leaving customers unable to inspect files before sharing them.",
+                "fingerprint": "8f2c90d4c59cc4b379ae67dfc7b1f0f381d6ad55f24f4df9d0f5269a3ad991fe3f6e0db3af6c48b6d1c57f0ea01c6cb4f88d7836d4426437a6d8f0f66d8a92a6",
+                "type": "RenderError",
+                "value": "Failed to render PDF preview",
+                "frames": [
+                    {
+                        "raw_id": "hedgebox-preview-render-pdf/0",
+                        "mangled_name": "renderPdfPreview",
+                        "source": "https://app.hedgebox.test/static/js/file-preview.js",
+                        "in_app": True,
+                        "resolved_name": "renderPdfPreview",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 203,
+                        "column": 12,
+                        "pre_context": [
+                            "    const page = await pdf.getPage(pageNumber)",
+                            "    const viewport = page.getViewport({ scale: 1.25 })",
+                            "    canvas.width = viewport.width",
+                        ],
+                        "context_line": "    await page.render({ canvasContext: context, viewport }).promise",
+                        "post_context": [
+                            "    return canvas.toDataURL('image/png')",
+                            "}",
+                        ],
+                    },
+                    {
+                        "raw_id": "hedgebox-preview-load-document/0",
+                        "mangled_name": "loadDocument",
+                        "source": "https://app.hedgebox.test/static/js/workers/pdf.js",
+                        "in_app": True,
+                        "resolved_name": "loadDocument",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 61,
+                        "column": 9,
+                        "pre_context": [
+                            "export async function loadDocument(fileUrl) {",
+                            "    const task = pdfjsLib.getDocument(fileUrl)",
+                        ],
+                        "context_line": "    return await task.promise",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                ],
+                "days_ago": [1, 4, 9],
+            },
+            {
+                "name": "Team invite rejected",
+                "description": "Inviting teammates can fail when the invite form submits incomplete recipient data.",
+                "fingerprint": "2c6be0b6f6a0ea0ed8c6c0dfcfb2b1b6f3f6906b6e5c4f6440af14bb22e3f7457d515c8a1b5ed662fb6921fb3c5257f7e7cbff5bc0f5efc6f7a1f7df9f988b92",
+                "type": "TypeError",
+                "value": "Cannot read properties of undefined (reading 'email')",
+                "frames": [
+                    {
+                        "raw_id": "hedgebox-invite-submit/0",
+                        "mangled_name": "submitInvite",
+                        "source": "https://app.hedgebox.test/static/js/team-settings.js",
+                        "in_app": True,
+                        "resolved_name": "submitInvite",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 94,
+                        "column": 31,
+                        "pre_context": [
+                            "    const payload = buildInvitePayload(form.values)",
+                            "    setSubmitting(true)",
+                        ],
+                        "context_line": "    return client.team.invites.create(payload)",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                    {
+                        "raw_id": "hedgebox-invite-on-submit/0",
+                        "mangled_name": "onSubmit",
+                        "source": "https://app.hedgebox.test/static/js/forms/invite-form.js",
+                        "in_app": True,
+                        "resolved_name": "onSubmit",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 42,
+                        "column": 17,
+                        "pre_context": [
+                            "export function onSubmit(values) {",
+                            "    const normalizedValues = normalizeInviteValues(values)",
+                        ],
+                        "context_line": "    return submitInvite(normalizedValues)",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                ],
+                "days_ago": [3, 7],
+            },
+        ]
+
+        people = [
+            person for person in cast(list[HedgeboxPerson], self.people) if person.past_events and person.in_posthog_id
+        ]
+        if not people:
+            return
+
+        selected_people = sorted(people, key=lambda person: person.in_product_id)[:6]
+        self._upsert_error_tracking_stack_frames(team, issue_specs)
+
+        for issue_spec in issue_specs:
+            if ErrorTrackingIssueFingerprintV2.objects.filter(
+                team=team, fingerprint=issue_spec["fingerprint"]
+            ).exists():
+                continue
+
+            issue = ErrorTrackingIssue.objects.create(
+                team=team,
+                name=issue_spec["name"],
+                description=issue_spec["description"],
+            )
+            ErrorTrackingIssueFingerprintV2.objects.create(
+                team=team,
+                issue=issue,
+                fingerprint=issue_spec["fingerprint"],
+            )
+
+            for index, days_ago in enumerate(issue_spec["days_ago"]):
+                person = selected_people[index % len(selected_people)]
+                if not hasattr(person, "properties_at_now"):
+                    person.take_snapshot_at_now()
+
+                distinct_id = (
+                    sorted(person.distinct_ids_at_now)[0] if person.distinct_ids_at_now else person.in_product_id
+                )
+                timestamp = self.now - dt.timedelta(days=days_ago, hours=index % 5)
+                frames = issue_spec["frames"]
+                event_frames = [self._stack_frame_contents(frame) for frame in frames]
+                exception_type = issue_spec["type"]
+                exception_value = issue_spec["value"]
+                handled = False
+
+                create_event(
+                    event_uuid=uuid.uuid4(),
+                    event="$exception",
+                    team=team,
+                    distinct_id=distinct_id,
+                    timestamp=timestamp,
+                    properties={
+                        "$lib": "web",
+                        "$lib_version": "1.298.0",
+                        "$host": "app.hedgebox.test",
+                        "$pathname": "/app/files",
+                        "$current_url": "https://app.hedgebox.test/app/files",
+                        "$session_id": str(uuid.uuid4()),
+                        "$exception_level": "error",
+                        "$exception_handled": handled,
+                        "$exception_issue_id": str(issue.id),
+                        "$exception_fingerprint": issue_spec["fingerprint"],
+                        "$exception_proposed_fingerprint": issue_spec["fingerprint"],
+                        "$exception_fingerprint_record": [
+                            {
+                                "type": "manual",
+                            }
+                        ],
+                        "$exception_types": [exception_type],
+                        "$exception_values": [exception_value],
+                        "$exception_sources": [frame["source"] for frame in frames],
+                        "$exception_functions": [frame["resolved_name"] for frame in frames],
+                        "$exception_list": [
+                            {
+                                "type": exception_type,
+                                "value": exception_value,
+                                "mechanism": {
+                                    "handled": handled,
+                                    "synthetic": False,
+                                },
+                                "stacktrace": {
+                                    "type": "resolved",
+                                    "frames": event_frames,
+                                },
+                            }
+                        ],
+                    },
+                    person_id=person.in_posthog_id,
+                    person_properties=person.properties_at_now,
+                    person_created_at=person.first_seen_at or timestamp,
+                )
+
+    def _upsert_error_tracking_stack_frames(self, team: "Team", issue_specs: list[ErrorTrackingDemoIssueSpec]) -> None:
+        for issue_spec in issue_specs:
+            for frame in issue_spec["frames"]:
+                raw_id, part = self._split_frame_raw_id(str(frame["raw_id"]))
+                ErrorTrackingStackFrame.objects.update_or_create(
+                    team=team,
+                    raw_id=raw_id,
+                    part=part,
+                    defaults={
+                        "resolved": True,
+                        "contents": self._stack_frame_contents(frame),
+                        "context": self._stack_frame_context(frame),
+                    },
+                )
+
+    @staticmethod
+    def _split_frame_raw_id(raw_id: str) -> tuple[str, int]:
+        if "/" not in raw_id:
+            return raw_id, 0
+        hash_id, part = raw_id.rsplit("/", 1)
+        return hash_id, int(part)
+
+    @staticmethod
+    def _stack_frame_contents(frame: ErrorTrackingDemoFrame) -> dict[str, Any]:
+        return {
+            key: value for key, value in frame.items() if key not in {"pre_context", "context_line", "post_context"}
+        }
+
+    @staticmethod
+    def _stack_frame_context(frame: ErrorTrackingDemoFrame) -> dict[str, Any]:
+        context_line = frame["context_line"]
+        line_number = frame["line"]
+        pre_context = frame["pre_context"]
+        post_context = frame["post_context"]
+
+        return {
+            "before": [
+                {"number": line_number - len(pre_context) + index, "line": line}
+                for index, line in enumerate(pre_context)
+            ],
+            "line": {"number": line_number, "line": context_line},
+            "after": [{"number": line_number + index + 1, "line": line} for index, line in enumerate(post_context)],
+        }
 
     def _set_up_demo_data_warehouse_tables(self, team: "Team", user: "User") -> None:
         if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:

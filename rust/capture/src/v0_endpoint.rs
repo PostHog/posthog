@@ -74,6 +74,7 @@ pub async fn event(
                 state.token_dropper.clone(),
                 state.event_restriction_service.clone(),
                 state.historical_cfg.clone(),
+                state.global_rate_limiter_token_distinctid.clone(),
                 &events,
                 &context,
             )

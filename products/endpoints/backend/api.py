@@ -85,6 +85,10 @@ from products.data_warehouse.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.endpoints.backend.insight_transformers import (
+    MaterializedSeriesMismatchError,
+    transform_materialized_insight_response,
+)
 from products.endpoints.backend.materialization import (
     SUPPORTED_BUCKET_FUNCTIONS,
     VariablePlaceholderFinder,
@@ -1540,7 +1544,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             pagination: EndpointPagination | None = None
 
-            if limit is not None:
+            # Only paginate flat-row HogQL results. Insight types get transformed
+            # into nested structures where flat-row LIMIT/OFFSET is meaningless.
+            if limit is not None and query_kind == "HogQLQuery":
                 pagination = EndpointPagination(limit=limit, offset=offset or 0, ceiling=original_limit)
                 pagination.apply_to(select_query)
 
@@ -1615,6 +1621,27 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     debug=debug,
                     pagination=pagination,
                 )
+
+            INSIGHT_TRANSFORM_TYPES = {"TrendsQuery", "LifecycleQuery", "RetentionQuery"}
+            if query_kind in INSIGHT_TRANSFORM_TYPES:
+                try:
+                    transform_materialized_insight_response(
+                        result.data,
+                        query,
+                        self.team,
+                        now=saved_query.last_run_at,
+                    )
+                except MaterializedSeriesMismatchError:
+                    # Series drift: query was likely edited after materialization. Trigger a refresh
+                    # so the next request succeeds, but fail this one loudly rather than
+                    # returning wrong-labeled data.
+                    logger.warning(
+                        "Materialized endpoint series mismatch, triggering re-materialization",
+                        endpoint_name=endpoint.name,
+                        saved_query_id=saved_query.id,
+                    )
+                    trigger_saved_query_schedule(saved_query)
+                    raise
 
             return result
         except Exception as e:

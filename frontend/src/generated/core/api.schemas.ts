@@ -193,45 +193,6 @@ export interface PaginatedOrganizationInviteListApi {
     results: OrganizationInviteApi[]
 }
 
-export interface OrganizationMemberApi {
-    readonly id: string
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at: string
-    readonly updated_at: string
-    readonly is_2fa_enabled: boolean
-    readonly has_social_auth: boolean
-    readonly last_login: string
-}
-
-export interface PaginatedOrganizationMemberListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationMemberApi[]
-}
-
-export interface PatchedOrganizationMemberApi {
-    readonly id?: string
-    readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at?: string
-    readonly updated_at?: string
-    readonly is_2fa_enabled?: boolean
-    readonly has_social_auth?: boolean
-    readonly last_login?: string
-}
-
 /**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
@@ -765,97 +726,6 @@ export interface PatchedProjectBackwardCompatApi {
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
-}
-
-export type RoleApiMembersItem = { [key: string]: unknown }
-
-export interface RoleApi {
-    readonly id: string
-    /** @maxLength 200 */
-    name: string
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** Members assigned to this role */
-    readonly members: readonly RoleApiMembersItem[]
-    readonly is_default: boolean
-}
-
-export interface PaginatedRoleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RoleApi[]
-}
-
-export type PatchedRoleApiMembersItem = { [key: string]: unknown }
-
-export interface PatchedRoleApi {
-    readonly id?: string
-    /** @maxLength 200 */
-    name?: string
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** Members assigned to this role */
-    readonly members?: readonly PatchedRoleApiMembersItem[]
-    readonly is_default?: boolean
-}
-
-export interface CommentApi {
-    readonly id: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    deleted?: boolean | null
-    mentions?: number[]
-    slug?: string
-    /** @nullable */
-    content?: string | null
-    rich_content?: unknown | null
-    readonly version: number
-    readonly created_at: string
-    /**
-     * @maxLength 72
-     * @nullable
-     */
-    item_id?: string | null
-    item_context?: unknown | null
-    /** @maxLength 79 */
-    scope: string
-    /** @nullable */
-    source_comment?: string | null
-}
-
-export interface PaginatedCommentListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CommentApi[]
-}
-
-export interface PatchedCommentApi {
-    readonly id?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    deleted?: boolean | null
-    mentions?: number[]
-    slug?: string
-    /** @nullable */
-    content?: string | null
-    rich_content?: unknown | null
-    readonly version?: number
-    readonly created_at?: string
-    /**
-     * @maxLength 72
-     * @nullable
-     */
-    item_id?: string | null
-    item_context?: unknown | null
-    /** @maxLength 79 */
-    scope?: string
-    /** @nullable */
-    source_comment?: string | null
 }
 
 /**
@@ -1713,17 +1583,6 @@ export type InvitesListParams = {
     offset?: number
 }
 
-export type MembersListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.
@@ -1748,24 +1607,6 @@ export type List2Params = {
      * A search term.
      */
     search?: string
-}
-
-export type RolesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type CommentsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
 }
 
 export type ExportsListParams = {
