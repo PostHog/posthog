@@ -102,14 +102,7 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
                 metric_events AS ({metric_events_query}),
                 entity_metrics AS ({entity_metrics_query})
 
-            SELECT
-                entity_metrics.entity_id,
-                entity_metrics.variant,
-                entity_metrics.step_reached,
-                entity_metrics.exposure_event_uuid,
-                entity_metrics.uuid_to_session,
-                entity_metrics.uuid_to_timestamp
-            FROM entity_metrics
+            SELECT * FROM entity_metrics
             """,
                 placeholders={
                     "exposure_query": exposure_select_query,
@@ -363,8 +356,8 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
                 )
             )
 
-        # Filter by variant
-        if self.funnel_step_breakdown is not None:
+        # Filter by variant (skip if empty string or None)
+        if self.funnel_step_breakdown:
             if isinstance(self.funnel_step_breakdown, int | float):
                 variant_value = str(int(self.funnel_step_breakdown))
             else:
