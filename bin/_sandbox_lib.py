@@ -18,6 +18,7 @@ PORT_BASE = 48001
 CLOUD_CONFIG_FILE = REGISTRY_DIR / "cloud-config.json"
 CLOUD_INIT_TEMPLATE = REPO_ROOT / "infra" / "cloud-sandbox" / "cloud-init.sh"
 BUILD_CACHE_TEMPLATE = REPO_ROOT / "infra" / "cloud-sandbox" / "build-cache.sh"
+PROVISION_HOST_SNIPPET = REPO_ROOT / "infra" / "cloud-sandbox" / "provision-host.sh"
 
 _COLORS = {"red": "31", "green": "32", "yellow": "33", "blue": "34"}
 

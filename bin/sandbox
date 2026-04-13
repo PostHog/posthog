@@ -20,8 +20,9 @@ import time
 import fcntl
 import shutil
 import argparse
-import subprocess
 import textwrap
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -40,28 +41,28 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _sandbox_lib import (  # noqa: E402
-    REPO_ROOT,
-    REGISTRY_DIR,
     PORT_BASE,
-    info,
-    success,
-    warn,
+    REGISTRY_DIR,
+    REPO_ROOT,
     error,
     fatal,
+    info,
     run,
     slugify,
+    success,
+    warn,
 )
 from sandbox_cloud import (  # noqa: E402
+    cmd_cloud_build_cache,
+    cmd_cloud_code,
     cmd_cloud_create,
     cmd_cloud_destroy,
-    cmd_cloud_list,
-    cmd_cloud_shell,
-    cmd_cloud_open,
-    cmd_cloud_logs,
-    cmd_cloud_code,
     cmd_cloud_idea,
+    cmd_cloud_list,
+    cmd_cloud_logs,
+    cmd_cloud_open,
+    cmd_cloud_shell,
     cmd_cloud_upload_cache,
-    cmd_cloud_build_cache,
 )
 
 # ---------------------------------------------------------------------------
@@ -375,37 +376,47 @@ def _setup_jetbrains(product: str) -> None:
     success(f"{meta['name']} {version} installed into sandbox-{product} volume")
 
 
-def _ensure_jetbrains() -> None:
-    """Prompt for JetBrains IDE preference on first run and download if needed."""
+def _resolve_jetbrains_preference() -> str | None:
+    """Ensure the JetBrains preference is saved and return it.
+
+    Prompts on first run only. After this returns, config["jetbrains"] is
+    set (to "pycharm", "intellij", or None) — no later call can prompt.
+    Split out from _install_jetbrains_if_needed so the prompt can run
+    synchronously before the install is backgrounded.
+    """
     config = _load_config()
+    if "jetbrains" in config:
+        return config.get("jetbrains")
 
-    if "jetbrains" not in config:
-        if not sys.stdin.isatty():
-            config["jetbrains"] = None
-            _save_config(config)
-        else:
-            while True:
-                answer = input("Do you use JetBrains for development? (P)yCharm / (I)ntelliJ / (N)o: ").strip().lower()
-                if answer in ("p", "pycharm"):
-                    config["jetbrains"] = "pycharm"
-                    break
-                elif answer in ("i", "intellij"):
-                    config["jetbrains"] = "intellij"
-                    break
-                elif answer in ("n", "no"):
-                    config["jetbrains"] = None
-                    break
-                else:
-                    print("Please enter P, I, or N.")
-            _save_config(config)
+    if not sys.stdin.isatty():
+        config["jetbrains"] = None
+    else:
+        while True:
+            answer = input("Do you use JetBrains for development? (P)yCharm / (I)ntelliJ / (N)o: ").strip().lower()
+            if answer in ("p", "pycharm"):
+                config["jetbrains"] = "pycharm"
+                break
+            if answer in ("i", "intellij"):
+                config["jetbrains"] = "intellij"
+                break
+            if answer in ("n", "no"):
+                config["jetbrains"] = None
+                break
+            print("Please enter P, I, or N.")
+    _save_config(config)
+    return config.get("jetbrains")
 
-    if not config.get("jetbrains"):
+
+def _install_jetbrains_if_needed(wanted: str | None) -> None:
+    """Download the chosen IDE into its Docker volume if not already present.
+
+    Pure download path: never prompts. Safe to run from a background thread
+    while other setup (db cache, migration prompts) runs on the main thread.
+    """
+    if not wanted:
         return
 
-    wanted = config["jetbrains"]
     volume = f"sandbox-{wanted}"
-
-    # Check if the volume is already populated
     result = run(
         [
             "docker",
@@ -627,9 +638,18 @@ def _init_cache_cleanup(port: int, worktree: str) -> None:
     _remove_worktree(worktree)
 
 
-def init_cache_from_master() -> None:
-    """Run migrations, generate demo data, pre-build Rust, and snapshot databases."""
-    info("No database cache found. Building from master (one-time setup, ~10 min)...")
+def init_db_cache() -> None:
+    """Build the database cache from the current checkout of the main repo.
+
+    Runs migrations, generates demo data, pre-builds Rust, and snapshots
+    Postgres + ClickHouse into a shared volume. Uses HEAD rather than
+    origin/master so the cache builder instance (which checks out a specific
+    branch in cloud-init) picks up that branch's migrations.
+    """
+    current_branch = run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture=True, check=False
+    ).stdout.strip() or "HEAD"
+    info(f"No database cache found. Building from {current_branch} (one-time setup, ~10 min)...")
 
     init_project = "sandbox-cache-init"
     init_port = 47999
@@ -639,14 +659,13 @@ def init_cache_from_master() -> None:
     _init_cache_cleanup(init_port, init_worktree)
 
     run(["git", "fetch", "origin", "--quiet"], capture=True)
-    cache_branch = "HEAD"
     if (
         run(
-            ["git", "worktree", "add", "--force", "--detach", init_worktree, cache_branch], check=False, capture=True
+            ["git", "worktree", "add", "--force", "--detach", init_worktree, "HEAD"], check=False, capture=True
         ).returncode
         != 0
     ):
-        fatal("Could not check out cache branch for cache init.")
+        fatal("Could not check out HEAD for cache init.")
 
     try:
         # Run the entrypoint in cache-init mode. `compose run` handles building
@@ -950,29 +969,48 @@ def cmd_create(branch: str, base_branch: str = "master", no_attach: bool = False
     entry = registry.allocate(branch, slug, worktree_path, intents=intents)
     port = entry.port
     _ensure_cache_volumes()
-    _ensure_jetbrains()
 
-    # Build or verify the database cache
-    cache_ready = _is_cache_ready()
-    if not cache_ready:
-        init_cache_from_master()
-        cache_ready = True
+    # Resolve the IDE prompt synchronously so it doesn't race with the
+    # migration-staleness prompt below. After this returns, the config is
+    # pinned and subsequent IDE setup is a non-interactive download.
+    ide_choice = _resolve_jetbrains_preference()
 
-    # Let the user decide if the cache is stale relative to their branch
-    use_cache = cache_ready
-    if cache_ready:
-        stale = check_migration_staleness(worktree_path)
-        if stale:
-            choice = _prompt_migration_choice(stale)
-            if choice == "q":
-                registry.remove(branch)
-                sys.exit(0)
-            if choice == "f":
-                use_cache = False
+    # Background the IDE download so it overlaps with db cache restore and
+    # container build. The app container mounts /opt/idea at startup, so we
+    # must await this before _restore_and_start.
+    with ThreadPoolExecutor(max_workers=1) as ide_pool:
+        ide_future = ide_pool.submit(_install_jetbrains_if_needed, ide_choice)
 
-    profiles = resolve_docker_profiles(intents)
-    if profiles:
-        info(f"Docker profiles: {', '.join(profiles)}")
+        # Build or verify the database cache
+        cache_ready = _is_cache_ready()
+        if not cache_ready:
+            init_db_cache()
+            cache_ready = True
+
+        # Let the user decide if the cache is stale relative to their branch
+        use_cache = cache_ready
+        if cache_ready:
+            stale = check_migration_staleness(worktree_path)
+            if stale:
+                choice = _prompt_migration_choice(stale)
+                if choice == "q":
+                    registry.remove(branch)
+                    sys.exit(0)
+                if choice == "f":
+                    use_cache = False
+
+        profiles = resolve_docker_profiles(intents)
+        if profiles:
+            info(f"Docker profiles: {', '.join(profiles)}")
+
+        # Await the IDE download before starting containers. Loud but
+        # non-fatal on failure — the user can still use the sandbox, just
+        # without JetBrains Gateway.
+        try:
+            ide_future.result()
+        except Exception as e:
+            warn(f"JetBrains IDE setup failed: {e}. Gateway may not work.")
+
     _restore_and_start(project, port, worktree_path, use_cache, profiles=profiles)
 
     if no_attach:
@@ -1252,7 +1290,7 @@ def cmd_rebuild_cache() -> None:
     info("Clearing database cache...")
     clear_volume(DB_CACHE_VOLUME)
     docker_volume_run(DB_CACHE_VOLUME, "chmod 777 /data")
-    init_cache_from_master()
+    init_db_cache()
 
 
 def cmd_nuke() -> None:
@@ -1333,7 +1371,7 @@ examples:
     p.add_argument("--clean", action="store_true", help="Also delete the git worktree")
 
     sub.add_parser("list", aliases=["ls"], help="List all sandboxes")
-    sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
+    sub.add_parser("rebuild-cache", help="Rebuild the database cache from the current checkout")
     sub.add_parser("nuke", help="Destroy all sandboxes and clear the cache")
 
     # --- Cloud subcommands ---
@@ -1361,6 +1399,48 @@ examples:
     return parser
 
 
+def _dispatch_cloud(args: argparse.Namespace) -> None:
+    if not getattr(args, "cloud_command", None):
+        build_parser().parse_args(["cloud", "--help"])
+        return
+    table = {
+        "create": lambda: cmd_cloud_create(args.branch),
+        "destroy": lambda: cmd_cloud_destroy(args.branch),
+        "list": cmd_cloud_list,
+        "ls": cmd_cloud_list,
+        "shell": lambda: cmd_cloud_shell(args.branch),
+        "open": lambda: cmd_cloud_open(args.branch),
+        "logs": lambda: cmd_cloud_logs(args.branch),
+        "code": lambda: cmd_cloud_code(args.branch),
+        "idea": lambda: cmd_cloud_idea(args.branch),
+        "upload-cache": cmd_cloud_upload_cache,
+        "build-cache": cmd_cloud_build_cache,
+    }
+    table[args.cloud_command]()
+
+
+def _dispatch_local(args: argparse.Namespace) -> None:
+    if args.command == "create":
+        os.environ["SANDBOX_INTENTS"] = args.intents
+
+    table = {
+        "create": lambda: cmd_create(args.branch, args.base_branch, no_attach=args.no_attach),
+        "start": lambda: cmd_start(args.branch),
+        "stop": lambda: cmd_stop(args.branch),
+        "destroy": lambda: cmd_destroy(args.branch, clean=args.clean),
+        "rm": lambda: cmd_destroy(args.branch, clean=args.clean),
+        "list": cmd_list,
+        "ls": cmd_list,
+        "shell": lambda: cmd_shell(args.branch),
+        "code": lambda: cmd_code(args.branch),
+        "idea": lambda: cmd_idea(args.branch),
+        "logs": lambda: cmd_logs(args.branch),
+        "rebuild-cache": cmd_rebuild_cache,
+        "nuke": cmd_nuke,
+    }
+    table[args.command]()
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -1369,46 +1449,11 @@ def main() -> None:
         parser.print_help()
         return
 
-    if args.command == "cloud":
-        if not getattr(args, "cloud_command", None):
-            parser.parse_args(["cloud", "--help"])
-            return
-        cloud_dispatch = {
-            "create": lambda: cmd_cloud_create(args.branch),
-            "destroy": lambda: cmd_cloud_destroy(args.branch),
-            "list": cmd_cloud_list,
-            "ls": cmd_cloud_list,
-            "shell": lambda: cmd_cloud_shell(args.branch),
-            "open": lambda: cmd_cloud_open(args.branch),
-            "logs": lambda: cmd_cloud_logs(args.branch),
-            "code": lambda: cmd_cloud_code(args.branch),
-            "idea": lambda: cmd_cloud_idea(args.branch),
-            "upload-cache": cmd_cloud_upload_cache,
-            "build-cache": cmd_cloud_build_cache,
-        }
-        dispatch = {args.command: lambda: cloud_dispatch[args.cloud_command]()}
-    else:
-        if args.command == "create":
-            os.environ["SANDBOX_INTENTS"] = args.intents
-
-        dispatch = {
-            "create": lambda: cmd_create(args.branch, args.base_branch, no_attach=args.no_attach),
-            "start": lambda: cmd_start(args.branch),
-            "stop": lambda: cmd_stop(args.branch),
-            "destroy": lambda: cmd_destroy(args.branch, clean=args.clean),
-            "rm": lambda: cmd_destroy(args.branch, clean=args.clean),
-            "list": cmd_list,
-            "ls": cmd_list,
-            "shell": lambda: cmd_shell(args.branch),
-            "code": lambda: cmd_code(args.branch),
-            "idea": lambda: cmd_idea(args.branch),
-            "logs": lambda: cmd_logs(args.branch),
-            "rebuild-cache": cmd_rebuild_cache,
-            "nuke": cmd_nuke,
-        }
-
     try:
-        dispatch[args.command]()
+        if args.command == "cloud":
+            _dispatch_cloud(args)
+        else:
+            _dispatch_local(args)
     except KeyboardInterrupt:
         print()
         sys.exit(130)

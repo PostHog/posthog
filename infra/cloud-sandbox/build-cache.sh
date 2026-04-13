@@ -27,6 +27,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Shared host provisioning helpers (setup_nvme, install_docker_overlay2).
+# Inlined at render time by bin/sandbox_cloud.py::_render_template.
+__PROVISION_HOST__
+
 log "Cache build starting at $(date)"
 
 AWS_CREDENTIALS_B64="__AWS_CREDENTIALS_B64__"
@@ -39,63 +43,18 @@ if [ -n "$AWS_CREDENTIALS_B64" ]; then
 fi
 
 log "Setting up NVMe instance store..."
-
-ROOT_DEV=$(lsblk -no PKNAME "$(findmnt -n -o SOURCE /)" | head -1)
-NVME_DEV=""
-for dev in /dev/nvme*n1; do
-    name=$(basename "$dev")
-    if [ "$name" != "$ROOT_DEV" ] && [ -b "$dev" ]; then
-        NVME_DEV="$dev"
-        break
-    fi
-done
-
-USE_NVME=false
-if [ -n "$NVME_DEV" ]; then
-    log "Found NVMe instance store: $NVME_DEV ($(lsblk -no SIZE "$NVME_DEV"))"
-    # Tunings for an ephemeral store where crash consistency doesn't matter:
-    #   -O ^has_journal        skip the journal entirely
-    #   -E lazy_*_init=1       don't zero the inode table / journal up front
-    #   -m 0                   don't reserve 5% for root (reclaims ~20-30 GB)
-    # Mount with noatime,nodiratime,lazytime so atime/mtime/ctime updates
-    # stay in RAM instead of causing metadata writes on every file touch
-    # (cargo, pnpm, and tar extract all do millions of these).
-    mkfs.ext4 -F -m 0 -E lazy_itable_init=1,lazy_journal_init=1 -O ^has_journal -L nvme-docker "$NVME_DEV"
-    mkdir -p /mnt/nvme
-    mount -o noatime,nodiratime,lazytime "$NVME_DEV" /mnt/nvme
-    chown ubuntu:ubuntu /mnt/nvme
-    USE_NVME=true
-
+setup_nvme
+if [ "$USE_NVME" = true ]; then
     # Let bursty writes (tar pack, cargo compile output) buffer longer in
     # RAM before hitting the device, and keep the dentry/inode cache around
     # so cargo's per-file metadata lookups stay warm.
     sysctl -w vm.dirty_ratio=40 vm.vfs_cache_pressure=50 >/dev/null
-else
-    log "No NVMe instance store found, building on EBS"
 fi
 
-log "Installing Docker..."
-# Pin overlay2 storage driver. Docker CE 29+ defaults to containerd snapshotters
-# ("overlayfs"), which stores image layers outside /var/lib/docker/. We archive
-# /var/lib/docker/ for the sandbox cache, so we need overlay2 to keep everything there.
-mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<'DAEMONJSON'
-{
-  "features": {
-    "containerd-snapshotter": false
-  },
-  "storage-driver": "overlay2"
-}
-DAEMONJSON
+log "Installing base tools + Docker..."
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml unzip
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-apt-get update -qq
-apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
-usermod -aG docker ubuntu
+install_docker_overlay2
 log "Docker installed"
 
 if [ "$USE_NVME" = true ]; then

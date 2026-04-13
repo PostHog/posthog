@@ -32,11 +32,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Shared host provisioning helpers (setup_nvme, install_docker_overlay2).
+# Inlined at render time by bin/sandbox_cloud.py::_render_template.
+__PROVISION_HOST__
+
 log "Cloud sandbox boot starting at $(date)"
 
 SANDBOX_BRANCH="__SANDBOX_BRANCH__"
 SANDBOX_OWNER="__SANDBOX_OWNER__"
 SANDBOX_HOSTNAME="__SANDBOX_HOSTNAME__"
+SANDBOX_JETBRAINS="__SANDBOX_JETBRAINS__"
 CLAUDE_CREDENTIALS_B64="__CLAUDE_CREDENTIALS_B64__"
 CLAUDE_SETTINGS_B64="__CLAUDE_SETTINGS_B64__"
 CLAUDE_JSON_B64="__CLAUDE_JSON_B64__"
@@ -142,39 +147,9 @@ chown -R ubuntu:ubuntu "$CLAUDE_AUTH_DIR"
 
 # Set up NVMe before Docker so Docker data lands on fast local storage.
 log "Setting up NVMe instance store..."
+setup_nvme
 
-ROOT_DEV=$(lsblk -no PKNAME "$(findmnt -n -o SOURCE /)" | head -1)
-log "Root device: $ROOT_DEV"
-log "Available NVMe devices: $(ls /dev/nvme*n1 2>/dev/null || echo 'none')"
-
-NVME_DEV=""
-for dev in /dev/nvme*n1; do
-    name=$(basename "$dev")
-    if [ "$name" != "$ROOT_DEV" ] && [ -b "$dev" ]; then
-        NVME_DEV="$dev"
-        break
-    fi
-done
-
-if [ -z "$NVME_DEV" ]; then
-    log "WARNING: No NVMe instance store found, staying on EBS"
-else
-    log "Found NVMe instance store: $NVME_DEV"
-    log "NVMe device size: $(lsblk -no SIZE "$NVME_DEV")"
-
-    # Tunings for an ephemeral store where crash consistency doesn't matter:
-    #   -O ^has_journal        skip the journal entirely
-    #   -E lazy_*_init=1       don't zero the inode table / journal up front
-    #   -m 0                   don't reserve 5% for root (reclaims ~20-30 GB)
-    # Mount with noatime,nodiratime,lazytime so atime/mtime/ctime updates
-    # stay in RAM instead of causing metadata writes on every file touch
-    # (cargo, pnpm, and tar extract all do millions of these).
-    mkfs.ext4 -F -m 0 -E lazy_itable_init=1,lazy_journal_init=1 -O ^has_journal -L nvme-docker "$NVME_DEV"
-    mkdir -p /mnt/nvme
-    mount -o noatime,nodiratime,lazytime "$NVME_DEV" /mnt/nvme
-    chown ubuntu:ubuntu /mnt/nvme
-    log "NVMe mounted at /mnt/nvme ($(df -h /mnt/nvme | tail -1 | awk '{print $2}') total)"
-
+if [ "$USE_NVME" = true ]; then
     mkdir -p /mnt/nvme/docker
     rm -rf /var/lib/docker
     ln -s /mnt/nvme/docker /var/lib/docker
@@ -192,7 +167,7 @@ fi
 # node_modules are our hottest file-cache pages — losing them causes slow
 # rebuilds — while anon heap compresses ~2-3x for free in zswap. Keep file
 # cache alive, push anon into zswap.
-if [ -n "$NVME_DEV" ]; then
+if [ "$USE_NVME" = true ]; then
     log "Setting up 32G swapfile on NVMe..."
     fallocate -l 32G /mnt/nvme/swapfile
     chmod 600 /mnt/nvme/swapfile
@@ -224,25 +199,15 @@ vm.vfs_cache_pressure=50
 SYSCTL
     sysctl --system >/dev/null
 else
-    log "WARNING: no NVMe device, skipping swap setup"
+    log "No NVMe device, skipping swap setup"
 fi
 
 log "Installing base dependencies..."
-# Pin overlay2 storage driver to match the build-cache archive.
-mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<'DAEMONJSON'
-{
-  "features": {
-    "containerd-snapshotter": false
-  },
-  "storage-driver": "overlay2"
-}
-DAEMONJSON
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml aria2
 
 # Download to NVMe (or /tmp on EBS) so extraction is NVMe→NVMe.
-if [ -n "$NVME_DEV" ]; then
+if [ "$USE_NVME" = true ]; then
     ARCHIVE_DL_PATH="/mnt/nvme/docker-data.tar.zst"
 else
     ARCHIVE_DL_PATH="/tmp/docker-data.tar.zst"
@@ -274,7 +239,7 @@ fi
 
 log "Cloning PostHog repo (background)..."
 clone_repo() {
-    if [ -n "$NVME_DEV" ]; then
+    if [ "$USE_NVME" = true ]; then
         sudo -u ubuntu git clone https://github.com/PostHog/posthog.git /mnt/nvme/posthog
         ln -s /mnt/nvme/posthog "$REPO_DIR"
     else
@@ -285,13 +250,7 @@ clone_repo &
 CLONE_PID=$!
 
 log "Installing Docker..."
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-apt-get update -qq
-apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
-usermod -aG docker ubuntu
+install_docker_overlay2
 
 # Stop Docker — we need to populate /var/lib/docker from the S3 cache first.
 systemctl stop docker.socket docker
@@ -319,10 +278,17 @@ log "Waiting for repo clone..."
 wait $CLONE_PID || { log "ERROR: git clone failed"; exit 1; }
 log "Repo cloned"
 
-log "Pre-populating sandbox config..."
+log "Pre-populating sandbox config (jetbrains=${SANDBOX_JETBRAINS:-none})..."
 SANDBOX_CONFIG_DIR="/home/ubuntu/.posthog-sandboxes"
 mkdir -p "$SANDBOX_CONFIG_DIR"
-echo '{"jetbrains": null}' > "$SANDBOX_CONFIG_DIR/config.json"
+if [ -n "$SANDBOX_JETBRAINS" ]; then
+    # Skip the interactive prompt in _ensure_jetbrains and let it download the
+    # IDE into the shared volume during `bin/sandbox create`. The download runs
+    # in parallel with db cache restore and container build in cmd_create.
+    printf '{"jetbrains": "%s"}\n' "$SANDBOX_JETBRAINS" > "$SANDBOX_CONFIG_DIR/config.json"
+else
+    echo '{"jetbrains": null}' > "$SANDBOX_CONFIG_DIR/config.json"
+fi
 chown -R ubuntu:ubuntu "$SANDBOX_CONFIG_DIR"
 
 log "Fetching branch $SANDBOX_BRANCH..."
@@ -341,43 +307,51 @@ fi
 # extract, and git clone have been running in parallel for 60+s. If it isn't,
 # we block here for the remainder.
 #
-# We need the cert before `bin/sandbox create` so the SANDBOX_JS_URL gets
-# baked into JS bundles / HMR client. HTTP/2 requires TLS in browsers, and
-# Tailscale's ACME integration gives us a real Let's Encrypt cert for the
-# node's .ts.net FQDN — no self-signed cert warnings. The win: the browser
-# can multiplex ~2000 Vite asset requests over one connection instead of
-# hitting HTTP/1.1's 6-per-origin cap on a ~70ms tailnet RTT (the difference
-# between a 40s and a 5s page load).
-SANDBOX_JS_URL=""
-USER_URL="http://$SANDBOX_HOSTNAME:48001"
+# We need SANDBOX_JS_URL *before* `bin/sandbox create` because it's baked into
+# the JS bundle and used as Django's SITE_URL. Whatever value we pick here is
+# what the browser must hit for cookies + asset paths to line up, so it has
+# to match the tailscale serve listener below exactly.
+#
+# HTTPS path gives HTTP/2 multiplexing (~2000 Vite asset requests over one
+# connection instead of the HTTP/1.1 6-per-origin cap on a ~70ms tailnet RTT).
+# HTTP path is the fallback when the tailnet has no HTTPS cert issuance
+# enabled — still same-origin, just slower.
+HTTPS_OK=false
 if [ -n "$CERT_PID" ]; then
     log "Waiting for Tailscale HTTPS cert..."
     wait "$CERT_PID" || true
     if [ "$(cat "$CERT_STATUS_FILE" 2>/dev/null)" = "ok" ]; then
-        SANDBOX_JS_URL="https://$FQDN"
-        USER_URL="https://$FQDN"
+        HTTPS_OK=true
         log "Cert ready."
     else
-        log "WARNING: tailscale cert failed. Enable HTTPS in https://login.tailscale.com/admin/dns to get HTTP/2. Falling back to HTTP."
+        log "tailscale cert failed. Enable HTTPS in https://login.tailscale.com/admin/dns to get HTTP/2. Falling back to HTTP."
         cat "$CERT_LOG" 2>/dev/null || true
     fi
 fi
+
+if [ "$HTTPS_OK" = true ]; then
+    SANDBOX_JS_URL="https://$FQDN"
+else
+    # No port: tailscale serve --http=80 listens on 80, which is implicit in
+    # the browser URL. If we kept the :48001 here, assets would load from a
+    # different origin than the page and we'd lose the @vite same-origin
+    # routing that's the whole point of this branch.
+    SANDBOX_JS_URL="http://$SANDBOX_HOSTNAME"
+fi
+USER_URL="$SANDBOX_JS_URL"
 
 log "Creating sandbox via bin/sandbox create..."
 export SANDBOX_HOSTNAME SANDBOX_JS_URL
 sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
 
-# Now expose the running sandbox via Tailscale Serve. HTTPS path (if the
-# cert call above succeeded) gives us HTTP/2 multiplexing; HTTP path is the
-# same fallback we had before — slower but functional.
-if [ -n "$SANDBOX_JS_URL" ]; then
+# Now expose the running sandbox via Tailscale Serve. A failure here means
+# the sandbox is unreachable — let set -e propagate so BOOT_STATUS=failed.
+if [ "$HTTPS_OK" = true ]; then
     log "Enabling HTTPS + HTTP/2 via tailscale serve (port 443)..."
-    tailscale serve --bg --https=443 http://localhost:48001 \
-        || log "WARNING: tailscale serve --https failed"
+    tailscale serve --bg --https=443 http://localhost:48001
 else
     log "Exposing sandbox on port 80 via Tailscale Serve..."
-    tailscale serve --bg --http=80 http://localhost:48001 \
-        || log "WARNING: tailscale serve failed — fall back to http://$SANDBOX_HOSTNAME:48001"
+    tailscale serve --bg --http=80 http://localhost:48001
 fi
 
 log "Waiting for app to be healthy..."
