@@ -6,7 +6,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { ApiError, CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, Dayjs } from 'lib/dayjs'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -207,7 +207,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setTestResult: (result: TestResult | null) => ({ result }),
         setShowAllProperties: (showAll: boolean) => ({ showAll }),
         setDatePickerOpen: (open: boolean) => ({ open }),
-        setDatePickerValue: (value: ReturnType<typeof dayjs> | null) => ({ value }),
+        setDatePickerValue: (value: Dayjs | null) => ({ value }),
         clearTestForm: true,
     }),
     loaders(({ values }) => ({
@@ -373,12 +373,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         testError: [
             null as string | null,
             {
-                setTestError: (_, { error }) => error,
+                setTestError: (_, { error }: { error: string | null }) => error,
                 testFlagEvaluation: () => null,
-                testFlagEvaluationFailure: (_, { error }: { error: ApiError }) => {
+                testFlagEvaluationFailure: (_, { error, errorObject }: { error: string; errorObject?: any }) => {
                     // Extract meaningful error messages from server responses
-                    if (error?.detail) {
-                        const errorDetail = error.detail
+                    const apiError = errorObject as ApiError
+                    if (apiError?.detail) {
+                        const errorDetail = apiError.detail
 
                         // Check for person properties build failures at timestamp
                         if (errorDetail.includes('Failed to build person properties at specified timestamp')) {
@@ -399,7 +400,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
 
                     // Check error message for specific patterns
-                    const errorMessage = error.message || ''
+                    const errorMessage = apiError?.message || error || ''
                     if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
                         return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
                     }
@@ -429,7 +430,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
         datePickerValue: [
-            null as ReturnType<typeof dayjs> | null,
+            null as Dayjs | null,
             {
                 setDatePickerValue: (_, { value }) => {
                     // Return the value as-is, or null if it's undefined
