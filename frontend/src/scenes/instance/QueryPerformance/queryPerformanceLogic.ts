@@ -44,20 +44,21 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                         team_id: teamId,
                         experiment_precomputation_enabled: enabled,
                     })
-                    // Replace the updated team in the list
-                    return values.precomputationTeams.map((team) => (team.team_id === updated.team_id ? updated : team))
+                    const updatedList = values.precomputationTeams.map((team) =>
+                        team.team_id === updated.team_id ? updated : team
+                    )
+                    // If no search active, filter out disabled teams to match backend default
+                    return values.search
+                        ? updatedList
+                        : updatedList.filter((team) => team.experiment_precomputation_enabled)
                 },
             },
         ],
     })),
     listeners(({ actions }) => ({
-        setSearch: async ({ search }, breakpoint) => {
-            // Debounce: wait 300ms, then reload
+        setSearch: async (_, breakpoint) => {
             await breakpoint(300)
-            // If search is cleared, reload to show only enabled teams
-            if (search || search === '') {
-                actions.loadPrecomputationTeams()
-            }
+            actions.loadPrecomputationTeams()
         },
     })),
     afterMount(({ actions }) => {

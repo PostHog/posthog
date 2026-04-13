@@ -277,8 +277,8 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.ValidationError("team_id and experiment_precomputation_enabled are required.")
 
         try:
-            team = Team.objects.select_related("organization").get(id=team_id)
-        except Team.DoesNotExist:
+            team = Team.objects.select_related("organization").get(id=int(team_id))
+        except (Team.DoesNotExist, TypeError, ValueError):
             raise exceptions.NotFound(f"Team {team_id} not found.")
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
