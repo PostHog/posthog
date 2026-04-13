@@ -208,6 +208,24 @@ class Command(BaseCommand):
         for ds in desired_states:
             by_cluster[ds.cluster].append(ds)
 
+        # Global desired-name and placeholder sets across all clusters.
+        # Pass 2's orphan scan uses these instead of per-cluster sets so a
+        # table owned by one logical cluster isn't emitted as an orphan
+        # against another that shares the same physical ClickHouse host
+        # (common in dev stacks where `main`, `aux`, `ops`, etc. all resolve
+        # to the same CLICKHOUSE_HOST). In production every logical cluster
+        # has a distinct physical host, so a table declared for `logs`
+        # wouldn't appear in `main`'s introspection at all — this global
+        # check is a no-op there. True orphans (live, declared nowhere) are
+        # still dropped.
+        all_desired_names: set[str] = set()
+        all_placeholder_names: set[str] = set()
+        for ds in desired_states:
+            for name, t in ds.tables.items():
+                all_desired_names.add(name)
+                if has_placeholder_select(t):
+                    all_placeholder_names.add(name)
+
         # Introspect each target cluster independently. Earlier versions
         # introspected only the migrations cluster once and reused that union
         # for every logical cluster — that's wrong when YAMLs target separate
@@ -246,6 +264,7 @@ class Command(BaseCommand):
 
         all_diffs = []
         for cluster_name, states in by_cluster.items():
+            used_fallback = False
             try:
                 cluster_obj = get_cluster_by_name(cluster_name)
                 current = _union_from_cluster(cluster_obj)
@@ -284,6 +303,7 @@ class Command(BaseCommand):
                     )
                     try:
                         current = _fallback_union()
+                        used_fallback = True
                     except Exception as fallback_exc:
                         print(
                             f"Warning: fallback to migrations cluster also failed for "
@@ -310,22 +330,23 @@ class Command(BaseCommand):
             # Pass 2: cluster-wide orphan scan. A live table is a real orphan
             # only when no ecosystem on this cluster claims it. Tracking tables
             # and placeholder MVs are managed elsewhere — never drop them.
-            cluster_desired_names: set[str] = set()
-            for desired in states:
-                cluster_desired_names.update(desired.tables.keys())
-
-            placeholder_names: set[str] = set()
-            for desired in states:
-                for name, t in desired.tables.items():
-                    if has_placeholder_select(t):
-                        placeholder_names.add(name)
+            #
+            # Skip pass 2 when `current` came from the migrations-cluster
+            # fallback — those tables represent a different cluster's live
+            # state, so no ecosystem on *this* cluster claims any of them
+            # and every table would become a spurious DROP. The fallback is
+            # still useful for pass 1 (diff_state correctly emits creates for
+            # tables missing from the fallback union too), just not for
+            # cluster-scoped orphan detection.
+            if used_fallback:
+                continue
 
             for table_name in sorted(current.keys()):
-                if table_name in cluster_desired_names:
+                if table_name in all_desired_names:
                     continue
                 if table_name in TRACKING_TABLES:
                     continue
-                if table_name in placeholder_names:
+                if table_name in all_placeholder_names:
                     continue
                 current_table = current[table_name]
                 all_diffs.append(
