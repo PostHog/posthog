@@ -49,6 +49,7 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { queryExportContext } from '~/queries/query'
 import { Query } from '~/queries/Query/Query'
 import {
+    DataTableNode,
     DataVisualizationNode,
     DatabaseSchemaViewTable,
     FileSystemIconType,
@@ -158,6 +159,29 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
         ...sanitizedSourceQuery,
         source: normalizeRawQuerySource(sourceQuery.source),
     }
+}
+
+function toDataVisualizationNode(
+    query: QueryBasedInsightModel['query'] | null | undefined
+): DataVisualizationNode | undefined {
+    if (!query) {
+        return undefined
+    }
+    if (query.kind === NodeKind.DataVisualizationNode) {
+        return query as DataVisualizationNode
+    }
+    // Insights created from the old DataTableNode path store the HogQLQuery under `.source`.
+    // Wrap it so the SQL editor can render and save it through the visualization pipeline.
+    if (query.kind === NodeKind.DataTableNode) {
+        const source = (query as DataTableNode).source
+        if (source?.kind === NodeKind.HogQLQuery) {
+            return {
+                kind: NodeKind.DataVisualizationNode,
+                source: source as HogQLQuery,
+            }
+        }
+    }
+    return undefined
 }
 
 function getCurrentVisualizationQuery(
@@ -777,6 +801,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         createTab: async ({ query = '', view, insight, draft }) => {
             // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
+            const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
+            const insightVisualizationQuery = rawInsightVisualizationQuery
+                ? sanitizeSourceQuery(rawInsightVisualizationQuery)
+                : undefined
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
@@ -801,12 +829,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     view,
                     insight,
                     name: tabName,
-                    sourceQuery: insight?.query as DataVisualizationNode | undefined,
+                    sourceQuery: insightVisualizationQuery,
                     draft: draft,
                 })
             }
-            if (insight?.query?.kind === NodeKind.DataVisualizationNode) {
-                actions.setLastRunQuery(sanitizeSourceQuery(insight.query as DataVisualizationNode))
+            if (insightVisualizationQuery) {
+                actions.setLastRunQuery(insightVisualizationQuery)
             }
             if (query) {
                 actions.setQueryInput(query)
@@ -814,11 +842,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setQueryInput(draft.query.query)
             } else if (view) {
                 actions.setQueryInput(view.query?.query ?? '')
-            } else if (insight) {
-                const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
-                if (queryObject && 'query' in queryObject) {
-                    actions.setQueryInput(queryObject.query || '')
-                }
+            } else if (insightVisualizationQuery) {
+                actions.setQueryInput(insightVisualizationQuery.source.query || '')
             }
 
             // Focus the editor after creating a new tab
@@ -1648,10 +1673,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
 
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
+                // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
+                const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 
                 return (
                     updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsight.query))
+                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
                 )
             },
         ],
@@ -2063,15 +2090,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         return
                     }
 
-                    let query = ''
-                    if (insight.query?.kind === NodeKind.DataVisualizationNode) {
-                        query = (insight.query as DataVisualizationNode).source.query
-                    }
+                    const insightVisualizationQuery = toDataVisualizationNode(insight.query)
+                    const query = insightVisualizationQuery?.source.query ?? ''
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
-                    if (insight.query) {
-                        actions.setSourceQuery(insight.query as DataVisualizationNode)
+                    if (insightVisualizationQuery) {
+                        actions.setSourceQuery(insightVisualizationQuery)
                     }
                     actions.editInsight(queryToOpen, insight)
                     if (!outputTabFromUrl) {
@@ -2079,11 +2104,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
-                    if (
-                        insight.query?.kind === NodeKind.DataVisualizationNode &&
-                        insight.query &&
-                        !searchParams.open_query
-                    ) {
+                    if (insightVisualizationQuery && !searchParams.open_query) {
                         const mountedDataLogic = dataNodeLogic.findMounted({ key: values.dataLogicKey })
                         const response = mountedDataLogic?.values.response
                         const responseLoading = mountedDataLogic?.values.responseLoading ?? false
