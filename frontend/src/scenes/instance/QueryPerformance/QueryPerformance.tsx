@@ -57,16 +57,11 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Organization',
-            render: function Organization(_, team) {
-                return (
-                    <span>
-                        {team.organization_name}
-                        {team.organization_id && (
-                            <span className="ml-1 text-muted text-xs font-mono">{team.organization_id}</span>
-                        )}
-                    </span>
-                )
-            },
+            dataIndex: 'organization_name',
+        },
+        {
+            title: 'Organization ID',
+            dataIndex: 'organization_id',
         },
         {
             title: 'Precomputation',
