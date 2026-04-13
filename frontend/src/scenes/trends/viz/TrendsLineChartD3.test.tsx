@@ -17,6 +17,7 @@ import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -77,10 +78,8 @@ describe('TrendsLineChartD3', () => {
             // click to pin the tooltip (hover alone won't render it).
             await chart.clickAtIndex(2)
 
-            const tooltipEl = chart.getTooltip()
-            expect(tooltipEl).not.toBeNull()
-            expect(tooltipEl!.textContent).toContain('Spike')
-            expect(tooltipEl!.textContent).toContain('3')
+            const tooltip = createTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Spike')).toContain('3')
         })
 
         it('shows current and previous period rows in compare mode', async () => {
