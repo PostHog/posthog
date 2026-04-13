@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -27,6 +27,13 @@ export function seatPriceFromPlanKey(planKey: string): number {
     }
     const match = planKey.match(/posthog-code-(\d+)/)
     return match ? parseInt(match[1], 10) : 0
+}
+
+function seatErrorMessage(e: unknown, fallback: string): string {
+    if (e instanceof ApiError) {
+        return e.detail || e.data?.detail || fallback
+    }
+    return fallback
 }
 
 export const seatBillingLogic = kea<seatBillingLogicType>([
@@ -67,8 +74,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                     try {
                         const response = await api.get(`api/seats/?product_key=${CODE_PRODUCT_KEY}`)
                         return Array.isArray(response) ? response : (response?.seats ?? [])
-                    } catch {
-                        lemonToast.error('Failed to load organization seats')
+                    } catch (e) {
+                        lemonToast.error(seatErrorMessage(e, 'Failed to load organization seats'))
                         return []
                     }
                 },
@@ -102,8 +109,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 if (values.isAdmin) {
                     actions.loadOrgSeats()
                 }
-            } catch {
-                lemonToast.error('Failed to upgrade seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to upgrade seat'))
             }
         },
         cancelSeat: async () => {
@@ -114,8 +121,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 if (values.isAdmin) {
                     actions.loadOrgSeats()
                 }
-            } catch {
-                lemonToast.error('Failed to cancel seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to cancel seat'))
             }
         },
         reactivateSeat: async () => {
@@ -126,8 +133,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 if (values.isAdmin) {
                     actions.loadOrgSeats()
                 }
-            } catch {
-                lemonToast.error('Failed to reactivate seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to reactivate seat'))
             }
         },
         createSeat: async ({ planKey }) => {
@@ -142,8 +149,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 if (values.isAdmin) {
                     actions.loadOrgSeats()
                 }
-            } catch {
-                lemonToast.error('Failed to create seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to create seat'))
             }
         },
         adminCancelSeat: async ({ userDistinctId }) => {
@@ -151,8 +158,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 await api.delete(`api/seats/${userDistinctId}/?product_key=${CODE_PRODUCT_KEY}`)
                 lemonToast.success('Seat canceled')
                 actions.loadOrgSeats()
-            } catch {
-                lemonToast.error('Failed to cancel seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to cancel seat'))
             }
         },
         adminUpgradeSeat: async ({ userDistinctId, planKey }) => {
@@ -163,8 +170,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 })
                 lemonToast.success('Seat upgraded')
                 actions.loadOrgSeats()
-            } catch {
-                lemonToast.error('Failed to upgrade seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to upgrade seat'))
             }
         },
         adminReactivateSeat: async ({ userDistinctId }) => {
@@ -174,8 +181,8 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
                 })
                 lemonToast.success('Seat reactivated')
                 actions.loadOrgSeats()
-            } catch {
-                lemonToast.error('Failed to reactivate seat')
+            } catch (e) {
+                lemonToast.error(seatErrorMessage(e, 'Failed to reactivate seat'))
             }
         },
     })),
