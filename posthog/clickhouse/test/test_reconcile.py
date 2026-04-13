@@ -1337,3 +1337,297 @@ class TestMergetreeOrderByLint(unittest.TestCase):
         errors = validate_desired_states([state])
         order_by_errors = [e for e in errors if "ORDER BY" in e]
         self.assertEqual(len(order_by_errors), 0, f"Unexpected ORDER BY error: {errors}")
+
+
+class TestSatelliteRoleLint(unittest.TestCase):
+    """P1-D: Satellite roles (LOGS, AUX, SESSIONS, OPS, AI_EVENTS, SHUFFLEHOG,
+    ENDPOINTS) must pass cross-cluster targeting lint for Distributed, Kafka,
+    and MV engines. Earlier `_EXPECTED_ROLES` only listed COORDINATOR/ALL +
+    ingestion roles, so valid YAMLs on satellite ecosystems failed lint.
+    """
+
+    def _state_with_engine(self, engine: str, on_nodes: list[str]) -> DesiredState:
+        return DesiredState(
+            ecosystem="test",
+            cluster="logs",
+            tables={
+                "some_table": DesiredTable(
+                    name="some_table",
+                    engine=engine,
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=on_nodes,
+                    order_by=["id"],
+                    source="sharded_some",  # used by Distributed
+                    target="sharded_some",  # used by MV
+                    settings={  # used by Kafka
+                        "kafka_broker_list": "localhost:9092",
+                        "kafka_topic_list": "t",
+                    },
+                ),
+            },
+        )
+
+    def test_distributed_on_logs_passes_lint(self) -> None:
+        from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
+        errors = _check_cross_cluster_targeting(self._state_with_engine("Distributed", ["LOGS"]))
+        self.assertEqual(errors, [], f"LOGS on Distributed should be valid: {errors}")
+
+    def test_kafka_on_aux_passes_lint(self) -> None:
+        from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
+        errors = _check_cross_cluster_targeting(self._state_with_engine("Kafka", ["AUX"]))
+        self.assertEqual(errors, [], f"AUX on Kafka should be valid: {errors}")
+
+    def test_mv_on_sessions_passes_lint(self) -> None:
+        from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
+        errors = _check_cross_cluster_targeting(self._state_with_engine("MaterializedView", ["SESSIONS"]))
+        self.assertEqual(errors, [], f"SESSIONS on MaterializedView should be valid: {errors}")
+
+    def test_invalid_role_still_rejected(self) -> None:
+        """Ensure we didn't broaden the set so far that garbage roles pass."""
+        from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
+        errors = _check_cross_cluster_targeting(self._state_with_engine("Distributed", ["GARBAGE"]))
+        self.assertTrue(len(errors) > 0, "Unknown role should still fail lint")
+
+    def test_expected_roles_covers_node_role_enum(self) -> None:
+        """Every role advertised by NodeRole should be accepted by at least
+        one engine category — otherwise a new role would silently break lint
+        on ecosystems that target it."""
+        from posthog.clickhouse.migration_tools.validator import _EXPECTED_ROLES
+
+        # Names we expect to see in _EXPECTED_ROLES (some union).
+        # Source: NodeRole enum in posthog/clickhouse/client/connection.py.
+        # DATA is excluded — Distributed/Kafka/MV don't run on DATA nodes.
+        expected_named = {
+            "ALL",
+            "COORDINATOR",
+            "INGESTION_EVENTS",
+            "INGESTION_SMALL",
+            "INGESTION_MEDIUM",
+            "SHUFFLEHOG",
+            "ENDPOINTS",
+            "LOGS",
+            "AI_EVENTS",
+            "AUX",
+            "OPS",
+            "SESSIONS",
+        }
+        union_of_allowed: set[str] = set()
+        for allowed in _EXPECTED_ROLES.values():
+            union_of_allowed |= allowed
+        missing = expected_named - union_of_allowed
+        self.assertEqual(missing, set(), f"_EXPECTED_ROLES union missing roles: {sorted(missing)}")
+
+
+class TestDriftComparesKeyFields(unittest.TestCase):
+    """P2: compare_schemas must detect drift on partition_key, primary_key,
+    engine_full — not just engine + sorting_key + columns.
+    """
+
+    def _base(self, **overrides):
+        from posthog.clickhouse.migration_tools.schema_introspect import TableSchema
+
+        defaults = {
+            "name": "sharded_events",
+            "engine": "ReplicatedMergeTree",
+            "engine_full": "ReplicatedMergeTree('/clickhouse/tables/{shard}/events', '{replica}')",
+            "sorting_key": "team_id, id",
+            "partition_key": "toStartOfMonth(timestamp)",
+            "primary_key": "team_id, id",
+        }
+        defaults.update(overrides)
+        return TableSchema(**defaults)
+
+    def test_partition_key_drift_detected(self) -> None:
+        from posthog.clickhouse.migration_tools.schema_introspect import compare_schemas
+
+        expected = {"t": self._base(partition_key="toStartOfMonth(timestamp)")}
+        actual = {"t": self._base(partition_key="toStartOfWeek(timestamp)")}
+        diffs = compare_schemas(expected, actual)
+        partition_diffs = [d for d in diffs if d.diff_type == "partition_key_mismatch"]
+        self.assertEqual(len(partition_diffs), 1, f"Expected partition drift; got {diffs}")
+
+    def test_primary_key_drift_detected(self) -> None:
+        from posthog.clickhouse.migration_tools.schema_introspect import compare_schemas
+
+        expected = {"t": self._base(primary_key="team_id, id")}
+        actual = {"t": self._base(primary_key="team_id")}
+        diffs = compare_schemas(expected, actual)
+        pk_diffs = [d for d in diffs if d.diff_type == "primary_key_mismatch"]
+        self.assertEqual(len(pk_diffs), 1, f"Expected primary-key drift; got {diffs}")
+
+    def test_engine_full_drift_detected(self) -> None:
+        from posthog.clickhouse.migration_tools.schema_introspect import compare_schemas
+
+        expected = {"t": self._base(engine_full="ReplicatedMergeTree('/tables/{shard}/events', '{replica}')")}
+        actual = {"t": self._base(engine_full="ReplicatedMergeTree('/tables/{shard}/OTHER', '{replica}')")}
+        diffs = compare_schemas(expected, actual)
+        engine_diffs = [d for d in diffs if d.diff_type == "engine_full_mismatch"]
+        self.assertEqual(len(engine_diffs), 1, f"Expected engine_full drift; got {diffs}")
+
+    def test_no_drift_when_all_fields_match(self) -> None:
+        from posthog.clickhouse.migration_tools.schema_introspect import compare_schemas
+
+        expected = {"t": self._base()}
+        actual = {"t": self._base()}
+        diffs = compare_schemas(expected, actual)
+        self.assertEqual(diffs, [], f"Unexpected drift on identical schemas: {diffs}")
+
+    def test_engine_full_skipped_when_actual_empty(self) -> None:
+        """Some system tables leave engine_full empty — don't flag as drift."""
+        from posthog.clickhouse.migration_tools.schema_introspect import compare_schemas
+
+        expected = {"t": self._base(engine_full="ReplicatedMergeTree('/x', '{replica}')")}
+        actual = {"t": self._base(engine_full="")}
+        diffs = compare_schemas(expected, actual)
+        engine_diffs = [d for d in diffs if d.diff_type == "engine_full_mismatch"]
+        self.assertEqual(len(engine_diffs), 0, "engine_full drift should skip when either side is empty")
+
+
+class TestComputeDiffsPerCluster(unittest.TestCase):
+    """P1-A: _compute_diffs must introspect each declared cluster separately.
+    Earlier it used the migrations-cluster union for every target, which
+    produced spurious diffs on satellite ecosystems (their tables don't
+    exist on the main migrations cluster).
+    """
+
+    def test_dump_schema_called_per_cluster(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        logs_state = DesiredState(
+            ecosystem="logs",
+            cluster="logs",
+            tables={
+                "logs_table": _make_desired_table(
+                    "logs_table",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+        main_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        # Fake cluster objects — distinguishable by id()
+        main_cluster = MagicMock(name="main-cluster")
+        logs_cluster = MagicMock(name="logs-cluster")
+
+        def fake_get_cluster_by_name(name: str, **_kw):
+            if name == "logs":
+                return logs_cluster
+            return main_cluster
+
+        dump_calls: list[object] = []
+
+        def fake_dump(cluster_obj, _database):
+            dump_calls.append(cluster_obj)
+            return {}  # empty live schema → every desired table becomes a create
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[main_state, logs_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=fake_get_cluster_by_name,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err, f"Expected no error; got: {err}")
+
+        # Both clusters should have been introspected — not just migrations.
+        self.assertIn(main_cluster, dump_calls, "main cluster not introspected")
+        self.assertIn(logs_cluster, dump_calls, "logs cluster not introspected")
+
+        # No migrations-cluster fallback since both per-cluster scans succeeded.
+        migration_scans = [c for c in dump_calls if c is not main_cluster and c is not logs_cluster]
+        self.assertEqual(migration_scans, [], f"Unexpected fallback scans: {migration_scans}")
+
+    def test_unreachable_cluster_falls_back_to_migrations(self) -> None:
+        """When a satellite cluster is unreachable (dev stack), fall back
+        to the migrations cluster schema instead of crashing."""
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        logs_state = DesiredState(
+            ecosystem="logs",
+            cluster="logs",
+            tables={
+                "logs_table": _make_desired_table(
+                    "logs_table",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        migrations_cluster = MagicMock(name="migrations-cluster")
+
+        def fake_get_cluster_by_name(name: str, **_kw):
+            raise Exception("Code: 701 CLUSTER_DOESNT_EXIST: Cluster 'logs' not found")
+
+        # Track call args separately since migrations cluster and the failing
+        # logs cluster both route through dump_schema_all_hosts.
+        calls: list[object] = []
+
+        def fake_dump(cluster_obj, _database):
+            calls.append(cluster_obj)
+            return {}
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[logs_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=fake_get_cluster_by_name,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.client.migration_tools.get_migrations_cluster",
+                return_value=migrations_cluster,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        # Fallback to migrations cluster should have been taken
+        self.assertIn(migrations_cluster, calls, f"Migrations-cluster fallback not used: {calls}")
