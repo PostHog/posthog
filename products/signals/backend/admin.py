@@ -69,7 +69,6 @@ class SignalReportAdmin(admin.ModelAdmin):
     inlines = [SignalReportArtefactInline]
 
 
-@admin.register(SignalAutonomyConfig)
 class SignalAutonomyConfigAdmin(admin.ModelAdmin):
     list_display = (
         "team_link",

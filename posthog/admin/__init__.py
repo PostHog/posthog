@@ -88,8 +88,8 @@ def register_all_admin():
     from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
     from products.links.backend.models import Link
-    from products.signals.backend.admin import SignalReportAdmin
-    from products.signals.backend.models import SignalReport
+    from products.signals.backend.admin import SignalAutonomyConfigAdmin, SignalReportAdmin
+    from products.signals.backend.models import SignalAutonomyConfig, SignalReport
     from products.surveys.backend.models import Survey
     from products.tasks.backend.admin import (
         CodeInviteAdmin,
@@ -163,5 +163,6 @@ def register_all_admin():
     admin.site.register(EndpointVersion, EndpointVersionAdmin)
 
     admin.site.register(SignalReport, SignalReportAdmin)
+    admin.site.register(SignalAutonomyConfig, SignalAutonomyConfigAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)
