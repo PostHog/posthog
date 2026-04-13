@@ -139,6 +139,11 @@ procs:
         capability: core_infra
         ready_pattern: 'docker-compose ready'
 
+    rust-prebuild:
+        shell: 'cd rust && cargo build'
+        autostart: false
+        ready_pattern: 'Finished'
+
     cyclotron-janitor:
         shell: |-
             bin/wait-for-docker && \

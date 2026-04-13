@@ -7,6 +7,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -157,6 +158,13 @@ class MprocsGenerator(ConfigGenerator):
                 reason = resolved.get_unit_reason(name)
                 proc_config = self._add_startup_message(proc_config, name, reason)
 
+            # Special handling for rust-prebuild — dynamically generate cargo build command
+            if name == "rust-prebuild":
+                rust_config = self._generate_rust_prebuild_config(resolved)
+                if rust_config is None:
+                    continue  # no Rust services to pre-build
+                proc_config = rust_config
+
             # Special handling for docker-compose
             if name == "docker-compose":
                 proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
@@ -282,6 +290,54 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
             "ready_pattern": "docker-compose ready",
         }
+
+    # Service names in bin/start-rust-service that use DEV_RUST_SVC_OVERRIDE
+    # to run a different binary than their service name.
+    _RUST_BINARY_OVERRIDES: dict[str, str] = {
+        "capture-replay": "capture",
+        "capture-ai": "capture",
+    }
+
+    def _generate_rust_prebuild_config(self, resolved: ResolvedEnvironment) -> dict[str, Any] | None:
+        """Generate rust-prebuild config with --bin flags for resolved Rust services.
+
+        Scans registry process configs for resolved units that reference
+        start-rust-service, maps service names to cargo binary names, and builds
+        a single cargo build command. Returns None if no Rust services are resolved.
+        """
+        rust_pattern = re.compile(r"start-rust-service\s+([a-z][-a-z0-9]*)")
+        bin_names: list[str] = []
+        seen: set[str] = set()
+
+        for unit_name in resolved.units:
+            proc_config = self.registry.get_process_config(unit_name)
+            shell = proc_config.get("shell", "")
+            match = rust_pattern.search(shell)
+            if match:
+                svc_name = match.group(1)
+                bin_name = self._RUST_BINARY_OVERRIDES.get(svc_name, svc_name)
+                if bin_name not in seen:
+                    seen.add(bin_name)
+                    bin_names.append(bin_name)
+
+        if not bin_names:
+            return None
+
+        bin_flags = " ".join(f"--bin {b}" for b in sorted(bin_names))
+        half_cores = max(2, (os.cpu_count() or 4) // 2)
+
+        shell = f"cd rust && CARGO_BUILD_JOBS={half_cores} cargo build {bin_flags}"
+
+        config: dict[str, Any] = {
+            "shell": shell,
+            "ready_pattern": "Finished",
+        }
+
+        # Opt-in: enable autostart when HOGLI_RUST_PREBUILD=1
+        if os.environ.get("HOGLI_RUST_PREBUILD") != "1":
+            config["autostart"] = False
+
+        return config
 
     def _add_nodejs_capability_groups(
         self, proc_config: dict[str, Any], resolved: ResolvedEnvironment
