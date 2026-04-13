@@ -14,9 +14,9 @@ interface QuestionFieldProps {
     value: string | string[] | undefined
     onAnswer: (value: string | string[] | null) => void
     /** Called on each intermediate state change for multi_select (checkbox toggle, custom value add) */
-    onChange?: (value: string[]) => void
+    onChange: (value: string[]) => void
     /** Called when the user confirms a multi_select answer by clicking "Next" */
-    onSubmit?: () => void
+    onSubmit: () => void
     onSkip?: () => void
     submitLabel?: string
 }
@@ -38,8 +38,8 @@ export function QuestionField({
                 <MultiSelectField
                     question={question}
                     value={value as string[] | undefined}
-                    onChange={onChange!}
-                    onSubmit={onSubmit!}
+                    onChange={onChange}
+                    onSubmit={onSubmit}
                     onSkip={onSkip}
                     submitLabel={submitLabel}
                 />

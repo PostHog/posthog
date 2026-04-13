@@ -28,7 +28,15 @@ describe('QuestionField', () => {
 
     it('renders select field by default', () => {
         const onAnswer = jest.fn()
-        render(<QuestionField question={selectQuestion} value={undefined} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={selectQuestion}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
         expect(screen.getByText('Option A')).toBeInTheDocument()
         expect(screen.getByText('Option B')).toBeInTheDocument()
     })
@@ -40,18 +48,35 @@ describe('QuestionField', () => {
             type: 'multi_select',
             options: [{ value: 'Alpha' }, { value: 'Beta' }],
         }
-        render(<QuestionField question={question} value={undefined} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={question}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
         expect(screen.getAllByRole('checkbox')).toHaveLength(2)
     })
 
     it('multi_select shows error message when submitting with no selection', () => {
         const onAnswer = jest.fn()
+        const onSubmit = jest.fn()
         const question: MultiQuestionFormQuestion = {
             ...baseQuestion,
             type: 'multi_select',
             options: [{ value: 'Alpha' }, { value: 'Beta' }, { value: 'Gamma' }],
         }
-        render(<QuestionField question={question} value={undefined} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={question}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={onSubmit}
+            />
+        )
 
         const buttons = screen.getAllByRole('button')
         const submitButton = buttons.find((b) => b.textContent?.includes('Next'))
@@ -59,6 +84,7 @@ describe('QuestionField', () => {
         fireEvent.click(submitButton!)
         expect(screen.getByText('Select at least one option')).toBeInTheDocument()
         expect(onAnswer).not.toHaveBeenCalled()
+        expect(onSubmit).not.toHaveBeenCalled()
     })
 
     it('multi_select renders custom entry input by default', () => {
@@ -68,7 +94,15 @@ describe('QuestionField', () => {
             type: 'multi_select',
             options: [{ value: 'Alpha' }, { value: 'Beta' }],
         }
-        render(<QuestionField question={question} value={undefined} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={question}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
         expect(screen.getByPlaceholderText('Add your own option...')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: /Add/ })).toBeInTheDocument()
     })
@@ -81,7 +115,15 @@ describe('QuestionField', () => {
             options: [{ value: 'Alpha' }, { value: 'Beta' }],
             allow_custom_answer: false,
         }
-        render(<QuestionField question={question} value={undefined} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={question}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
         expect(screen.queryByPlaceholderText('Add your own option...')).not.toBeInTheDocument()
     })
 
@@ -138,7 +180,15 @@ describe('QuestionField', () => {
             type: 'multi_select',
             options: [{ value: 'Alpha' }, { value: 'Beta' }],
         }
-        render(<QuestionField question={question} value={undefined} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={question}
+                value={undefined}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
 
         const input = screen.getByPlaceholderText('Add your own option...')
         fireEvent.change(input, { target: { value: '   ' } })
@@ -184,7 +234,15 @@ describe('QuestionField', () => {
             type: 'multi_select',
             options: [{ value: 'Alpha' }, { value: 'Beta' }],
         }
-        render(<QuestionField question={question} value={['Alpha', 'My custom entry']} onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={question}
+                value={['Alpha', 'My custom entry']}
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
 
         // Should have 3 checkboxes: 2 predefined + 1 custom
         expect(screen.getAllByRole('checkbox')).toHaveLength(3)
@@ -193,7 +251,15 @@ describe('QuestionField', () => {
 
     it('calls onAnswer with null when clicking an already-selected option to deselect', () => {
         const onAnswer = jest.fn()
-        render(<QuestionField question={selectQuestion} value="Option A" onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={selectQuestion}
+                value="Option A"
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
 
         // Option A is already selected via value prop — clicking it again should deselect
         fireEvent.click(screen.getByText('Option A'))
@@ -202,7 +268,15 @@ describe('QuestionField', () => {
 
     it('calls onAnswer with the value when clicking a different option', () => {
         const onAnswer = jest.fn()
-        render(<QuestionField question={selectQuestion} value="Option A" onAnswer={onAnswer} />)
+        render(
+            <QuestionField
+                question={selectQuestion}
+                value="Option A"
+                onAnswer={onAnswer}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+            />
+        )
 
         fireEvent.click(screen.getByText('Option B'))
         expect(onAnswer).toHaveBeenCalledWith('Option B')
@@ -210,7 +284,16 @@ describe('QuestionField', () => {
 
     it('renders a skip button when onSkip is provided for select questions', () => {
         const onSkip = jest.fn()
-        render(<QuestionField question={selectQuestion} value={undefined} onAnswer={jest.fn()} onSkip={onSkip} />)
+        render(
+            <QuestionField
+                question={selectQuestion}
+                value={undefined}
+                onAnswer={jest.fn()}
+                onChange={jest.fn()}
+                onSubmit={jest.fn()}
+                onSkip={onSkip}
+            />
+        )
 
         fireEvent.click(screen.getByRole('button', { name: 'Skip question' }))
 
