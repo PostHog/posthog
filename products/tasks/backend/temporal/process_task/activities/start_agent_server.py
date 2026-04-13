@@ -13,7 +13,11 @@ from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log, get_sandbox_mcp_configs
+from products.tasks.backend.temporal.process_task.utils import (
+    format_allowed_domains_for_log,
+    get_sandbox_ph_mcp_configs,
+    get_user_mcp_server_configs,
+)
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -134,11 +138,20 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
-        mcp_configs = get_sandbox_mcp_configs(
+        mcp_configs = get_sandbox_ph_mcp_configs(
             token=access_token,
             project_id=ctx.team_id,
             scopes=scopes,
         )
+
+        if task.created_by_id:
+            user_mcp_configs = get_user_mcp_server_configs(
+                token=access_token,
+                team_id=ctx.team_id,
+                user_id=task.created_by_id,
+            )
+            if user_mcp_configs:
+                mcp_configs = mcp_configs + user_mcp_configs
 
         if ctx.allowed_domains:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"

@@ -373,12 +373,7 @@ async def create_replay_count_metrics_schedule(client: Client):
             ),
         ),
         spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    comment="Hourly at minute 0",
-                    minute=[ScheduleRange(start=0, end=0)],
-                )
-            ]
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))],
         ),
     )
 
@@ -410,12 +405,9 @@ async def create_count_all_playlists_schedule(client: Client):
             ),
         ),
         spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    comment="Hourly at minute 30",
-                    minute=[ScheduleRange(start=30, end=30)],
-                )
-            ]
+            intervals=[
+                ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=30)),
+            ],
         ),
         policy=SchedulePolicy(
             overlap=ScheduleOverlapPolicy.SKIP,

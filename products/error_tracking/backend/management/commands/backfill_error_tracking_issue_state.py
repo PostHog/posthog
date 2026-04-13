@@ -147,9 +147,7 @@ class Command(BaseCommand):
         logger.info("backfill_complete", produced=produced, elapsed_s=round(elapsed))
 
     def _build_queryset(self, *, team_id: int | None, start_from_team_id: int | None, end_team_id: int | None):
-        qs = ErrorTrackingIssueFingerprintV2.objects.select_related("issue", "issue__assignment").order_by(
-            "team_id", "id"
-        )
+        qs = ErrorTrackingIssueFingerprintV2.objects.select_related("issue", "issue__assignment").order_by("team_id")
 
         if team_id is not None:
             qs = qs.filter(team_id=team_id)

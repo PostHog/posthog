@@ -2359,9 +2359,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ) {
                             return {
                                 ...questionErrors,
-                                choices: question.choices.some((choice) => !choice.trim())
-                                    ? 'Please ensure all choices are non-empty.'
-                                    : undefined,
+                                choices:
+                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                        ? 'Please ensure all choices are non-empty.'
+                                        : undefined,
                             }
                         }
 

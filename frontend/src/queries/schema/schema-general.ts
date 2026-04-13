@@ -320,6 +320,9 @@ export type QuerySchema =
     // Misc
     | DatabaseSchemaQuery
 
+    // Session Recordings
+    | RecordingsQuery
+
     // Logs
     | LogsQuery
     | LogAttributesQuery
@@ -512,12 +515,14 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
     code?: string
 }
 
-export interface RecordingsQueryResponse {
+export interface RecordingsQueryResponse extends AnalyticsQueryResponseBase {
     results: SessionRecordingType[]
     has_next: boolean
     /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
     next_cursor?: string
 }
+
+export type CachedRecordingsQueryResponse = CachedQueryResponse<RecordingsQueryResponse>
 
 export const VALID_RECORDING_ORDERS = [
     'duration',
@@ -3461,6 +3466,12 @@ export interface ExperimentActorsQuery extends InsightActorsQueryBase {
     funnelStep?: integer
     /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
     funnelStepBreakdown?: BreakdownKeyType
+    /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
+    exposureConfig?: ExperimentExposureConfig
+    /** How to handle users with multiple variant exposures. */
+    multipleVariantHandling?: 'exclude' | 'first_seen'
+    /** Feature flag key for breakdown filtering. */
+    featureFlagKey?: string
 }
 
 export interface SessionData {

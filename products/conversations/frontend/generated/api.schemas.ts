@@ -12,9 +12,9 @@
  * `in_progress` - In progress
  * `canceling` - Canceling
  */
-export type ConversationStatusEnumApi = (typeof ConversationStatusEnumApi)[keyof typeof ConversationStatusEnumApi]
+export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
 
-export const ConversationStatusEnumApi = {
+export const ConversationStatusApi = {
     Idle: 'idle',
     InProgress: 'in_progress',
     Canceling: 'canceling',
@@ -85,22 +85,18 @@ export interface UserBasicApi {
  * `deep_research` - Deep research
  * `slack` - Slack
  */
-export type ConversationTypeEnumApi = (typeof ConversationTypeEnumApi)[keyof typeof ConversationTypeEnumApi]
+export type ConversationTypeApi = (typeof ConversationTypeApi)[keyof typeof ConversationTypeApi]
 
-export const ConversationTypeEnumApi = {
+export const ConversationTypeApi = {
     Assistant: 'assistant',
     ToolCall: 'tool_call',
     DeepResearch: 'deep_research',
     Slack: 'slack',
 } as const
 
-export type ConversationApiMessagesItem = { [key: string]: unknown }
-
-export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
-
-export interface ConversationApi {
+export interface ConversationMinimalApi {
     readonly id: string
-    readonly status: ConversationStatusEnumApi
+    readonly status: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -111,7 +107,7 @@ export interface ConversationApi {
     readonly created_at: string | null
     /** @nullable */
     readonly updated_at: string | null
-    readonly type: ConversationTypeEnumApi
+    readonly type: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -127,25 +123,15 @@ export interface ConversationApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
-    readonly messages: readonly ConversationApiMessagesItem[]
-    readonly has_unsupported_content: boolean
-    /** @nullable */
-    readonly agent_mode: string | null
-    readonly is_sandbox: boolean
-    /** Return pending approval cards as structured data.
-
-Combines metadata from conversation.approval_decisions with payload from checkpoint
-interrupts (single source of truth for payload data). */
-    readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
 }
 
-export interface PaginatedConversationListApi {
+export interface PaginatedConversationMinimalListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ConversationApi[]
+    results: ConversationMinimalApi[]
 }
 
 export type MessageApiContextualTools = { [key: string]: unknown }
@@ -199,6 +185,51 @@ export interface MessageApi {
     resume_payload?: unknown | null
 }
 
+export type ConversationApiMessagesItem = { [key: string]: unknown }
+
+export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
+
+export interface ConversationApi {
+    readonly id: string
+    readonly status: ConversationStatusApi
+    /**
+     * Title of the conversation.
+     * @nullable
+     */
+    readonly title: string | null
+    readonly user: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly type: ConversationTypeApi
+    /**
+     * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+     * @nullable
+     */
+    readonly is_internal: boolean | null
+    /**
+     * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+     * @nullable
+     */
+    readonly slack_thread_key: string | null
+    /**
+     * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+     * @nullable
+     */
+    readonly slack_workspace_domain: string | null
+    readonly messages: readonly ConversationApiMessagesItem[]
+    readonly has_unsupported_content: boolean
+    /** @nullable */
+    readonly agent_mode: string | null
+    readonly is_sandbox: boolean
+    /** Return pending approval cards as structured data.
+
+Combines metadata from conversation.approval_decisions with payload from checkpoint
+interrupts (single source of truth for payload data). */
+    readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
+}
+
 /**
  * Serializer for appending a message to an existing conversation without triggering AI processing.
  */
@@ -213,7 +244,7 @@ export type PatchedConversationApiPendingApprovalsItem = { [key: string]: unknow
 
 export interface PatchedConversationApi {
     readonly id?: string
-    readonly status?: ConversationStatusEnumApi
+    readonly status?: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -224,7 +255,7 @@ export interface PatchedConversationApi {
     readonly created_at?: string | null
     /** @nullable */
     readonly updated_at?: string | null
-    readonly type?: ConversationTypeEnumApi
+    readonly type?: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable

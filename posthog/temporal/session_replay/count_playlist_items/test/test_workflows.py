@@ -133,3 +133,35 @@ async def test_count_playlist_workflow_calls_activity():
             )
 
     assert counted_ids == [42]
+
+
+@pytest.mark.asyncio
+async def test_large_playlist_set_is_batched():
+    playlists = [PlaylistInfo(playlist_id=i) for i in range(1200)]
+    counted_ids: list[int] = []
+
+    @activity.defn(name="fetch-playlists-to-count")
+    async def mock_fetch() -> list[PlaylistInfo]:
+        return playlists
+
+    @activity.defn(name="count-recordings-for-playlist")
+    async def mock_count(input: CountPlaylistInput) -> None:
+        counted_ids.append(input.playlist_id)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[CountAllPlaylistsWorkflow, CountPlaylistWorkflow],
+            activities=[mock_fetch, mock_count],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                CountAllPlaylistsWorkflow.run,
+                None,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert sorted(counted_ids) == list(range(1200))
