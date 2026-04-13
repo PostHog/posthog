@@ -866,6 +866,19 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
     return None
 
 
+def _provisioned_pat_scopes() -> list[str]:
+    """Build scope list matching the MCP Server preset: read on everything, write on core objects, exclude llm_gateway."""
+    from posthog.scopes import API_SCOPE_OBJECTS
+
+    write_objects = {"feature_flag", "insight", "dashboard", "survey", "experiment", "event_definition"}
+    excluded = {"llm_gateway"}
+    return [
+        f"{obj}:write" if obj in write_objects else f"{obj}:read"
+        for obj in API_SCOPE_OBJECTS
+        if obj not in excluded
+    ]
+
+
 def _create_provisioned_pat(user: User, team: Team) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value."""
     try:
@@ -877,7 +890,7 @@ def _create_provisioned_pat(user: User, team: Team) -> str | None:
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=[],
+            scopes=_provisioned_pat_scopes(),
         )
 
         return api_key_value
