@@ -4,14 +4,13 @@ on:
     workflow_dispatch:
         inputs:
             tag:
-                description: 'npm dist-tag (e.g. alpha, latest, stamphog)'
+                description: 'npm dist-tag (e.g. alpha, latest)'
                 required: true
                 default: 'alpha'
                 type: choice
                 options:
                     - alpha
                     - latest
-                    - stamphog
 
 permissions:
     contents: read
