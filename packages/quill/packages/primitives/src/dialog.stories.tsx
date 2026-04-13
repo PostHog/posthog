@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { Button } from './button'
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
 import {
     Dialog,
     DialogBody,
@@ -13,8 +15,6 @@ import {
     DialogTrigger,
 } from './dialog'
 import { ScrollArea } from './scroll-area'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
 
 const meta = {
     title: 'Primitives/Dialog',
