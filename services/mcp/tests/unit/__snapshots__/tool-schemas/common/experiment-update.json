@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "allow_unknown_events": {
+            "default": false,
+            "type": "boolean"
+        },
         "archived": {
             "default": false,
             "description": "Whether the experiment is archived.",

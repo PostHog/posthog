@@ -287,14 +287,14 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Unknown Event Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Nonexistent Event Metric',
-                        metric_type: 'mean' as const,
-                        event_name: 'totally_nonexistent_event',
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: 'totally_nonexistent_event' },
                     },
                 ],
-                draft: true,
             }
 
             await expect(createTool.handler(context, params as any)).rejects.toThrow(/not found/)

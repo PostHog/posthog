@@ -92,6 +92,7 @@ tools:
             - metrics_secondary
             - holdout_id
             - exposure_criteria
+            - allow_unknown_events
         ui_app: experiment
 
     experiment-update:
