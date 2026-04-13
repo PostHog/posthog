@@ -51,7 +51,7 @@ export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
 
 // Persist query state to sessionStorage so it survives kea logic destruction,
 // hot module replacement, and navigation between person pages.
-const QUERY_CACHE_PREFIX = 'person-query-cache:'
+const QUERY_CACHE_PREFIX = `person-query-cache:${window.__POSTHOG_CONFIG__?.token ?? 'default'}:`
 
 function getCachedQuery(cacheKey: string): DataTableNode | null {
     try {
