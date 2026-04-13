@@ -44,7 +44,6 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 
 permissions:
-    actions: write
     contents: read
     pull-requests: write
 
@@ -1777,6 +1776,8 @@ jobs:
     cancel-watchdog:
         name: Cancel watchdog
         runs-on: ubuntu-latest
+        permissions:
+            actions: write
         if: always()
         timeout-minutes: 35
         steps:
