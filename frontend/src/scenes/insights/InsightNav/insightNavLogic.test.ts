@@ -657,9 +657,14 @@ describe('insightNavLogic', () => {
                 })
             })
 
-            it('converts trends data warehouse series to funnel equivalent', async () => {
-                const trendsQueryWithDataWarehouse: InsightVizNode = {
-                    kind: NodeKind.InsightVizNode,
+            const dataWarehouseTestCases: {
+                label: string
+                source: InsightVizNode['source']
+                targetView: InsightType
+                expectedSource: Partial<InsightVizNode['source']>
+            }[] = [
+                {
+                    label: 'trends DW to funnels',
                     source: {
                         kind: NodeKind.TrendsQuery,
                         series: [
@@ -674,19 +679,8 @@ describe('insightNavLogic', () => {
                             },
                         ],
                     },
-                }
-
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(trendsQueryWithDataWarehouse)
-                })
-
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.FUNNELS)
-                }).toFinishAllListeners()
-
-                expect(builtInsightDataLogic.values.query).toMatchObject({
-                    kind: NodeKind.InsightVizNode,
-                    source: {
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
                         kind: NodeKind.FunnelsQuery,
                         series: [
                             {
@@ -701,12 +695,41 @@ describe('insightNavLogic', () => {
                         ],
                         funnelsFilter: { funnelVizType: 'steps' },
                     },
-                })
-            })
-
-            it('converts funnels data warehouse series to trends equivalent', async () => {
-                const funnelsQueryWithDataWarehouse: InsightVizNode = {
-                    kind: NodeKind.InsightVizNode,
+                },
+                {
+                    label: 'trends DW to lifecycle',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                distinct_id_field: 'customer_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'funnels DW to trends',
                     source: {
                         kind: NodeKind.FunnelsQuery,
                         series: [
@@ -722,19 +745,8 @@ describe('insightNavLogic', () => {
                         ],
                         funnelsFilter: { funnelVizType: FunnelVizType.Steps },
                     },
-                }
-
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(funnelsQueryWithDataWarehouse)
-                })
-
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.TRENDS)
-                }).toFinishAllListeners()
-
-                expect(builtInsightDataLogic.values.query).toMatchObject({
-                    kind: NodeKind.InsightVizNode,
-                    source: {
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
                         kind: NodeKind.TrendsQuery,
                         series: [
                             {
@@ -748,38 +760,42 @@ describe('insightNavLogic', () => {
                             },
                         ],
                     },
-                })
-            })
-
-            it('converts trends data warehouse series to lifecycle equivalent', async () => {
-                const trendsQueryWithDataWarehouse: InsightVizNode = {
-                    kind: NodeKind.InsightVizNode,
+                },
+                {
+                    label: 'funnels DW to lifecycle',
                     source: {
-                        kind: NodeKind.TrendsQuery,
+                        kind: NodeKind.FunnelsQuery,
                         series: [
                             {
-                                kind: NodeKind.DataWarehouseNode,
+                                kind: NodeKind.FunnelsDataWarehouseNode,
                                 id: 'warehouse_orders',
                                 name: 'Warehouse orders',
                                 table_name: 'warehouse_orders',
                                 id_field: 'id',
                                 timestamp_field: 'created_at',
-                                distinct_id_field: 'customer_id',
+                                aggregation_target_field: 'customer_id',
+                            },
+                        ],
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
                             },
                         ],
                     },
-                }
-
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(trendsQueryWithDataWarehouse)
-                })
-
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.LIFECYCLE)
-                }).toFinishAllListeners()
-
-                expect(builtInsightDataLogic.values.query).toMatchObject({
-                    kind: NodeKind.InsightVizNode,
+                },
+                {
+                    label: 'lifecycle DW to trends',
                     source: {
                         kind: NodeKind.LifecycleQuery,
                         series: [
@@ -794,6 +810,70 @@ describe('insightNavLogic', () => {
                             },
                         ],
                     },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                distinct_id_field: 'customer_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'lifecycle DW to funnels',
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                            },
+                        ],
+                        funnelsFilter: { funnelVizType: 'steps' },
+                    },
+                },
+            ]
+
+            it.each(dataWarehouseTestCases)('converts $label', async ({ source, targetView, expectedSource }) => {
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery({
+                        kind: NodeKind.InsightVizNode,
+                        source,
+                    })
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(targetView)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: NodeKind.InsightVizNode,
+                    source: expectedSource,
                 })
             })
         })

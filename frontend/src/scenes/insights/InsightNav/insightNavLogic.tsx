@@ -465,10 +465,6 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     //     }
     // }
 
-    if (isLifecycleQuery(query)) {
-        newCache.series = cache?.series
-    }
-
     if (isWebAnalyticsInsightQuery(query)) {
         return newCache
     }
