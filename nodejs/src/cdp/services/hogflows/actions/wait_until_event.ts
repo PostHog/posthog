@@ -67,8 +67,32 @@ export class WaitUntilEventHandler implements ActionHandler {
             invocation.state.currentAction.waitingForEvent = false
         }
 
+        // Find the matched subscription (has matched_event data set by the consumer).
+        const matchedSub = remaining.find((s) => s.matchedEvent != null)
+
+        if (matchedSub?.matchedEvent) {
+            const eventName = matchedSub.matchedEvent.event
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `Event '${eventName}' matched - taking the matched path`,
+            })
+
+            // Clean up all wait_step subscriptions (matched + unmatched OR siblings).
+            await this.subscriptions.deleteForJob(invocation.id, 'wait_step')
+
+            // Return the matched event as the action result so the executor can
+            // store it in a workflow variable via the output_variable mechanism.
+            return {
+                nextAction: findNextAction(invocation.hogFlow, action.id, 0),
+                result: matchedSub.matchedEvent,
+            }
+        }
+
+        // No matched subscription found. Check if there are any remaining at all.
         if (remaining.length === 0) {
-            // Consumer wiped them on a match -> branch edge (index 0 = "matched" path).
+            // All subscriptions gone without matched_event - shouldn't happen normally
+            // but handle gracefully by taking the matched path.
             result.logs.push({
                 level: 'info',
                 timestamp: DateTime.now(),
@@ -77,7 +101,7 @@ export class WaitUntilEventHandler implements ActionHandler {
             return { nextAction: findNextAction(invocation.hogFlow, action.id, 0) }
         }
 
-        // Subscriptions still present -> timeout fired -> continue edge (= "no match" path).
+        // Subscriptions still present without matched_event -> timeout fired.
         const eventNames = remaining.map((s) => s.eventName).join(', ')
         result.logs.push({
             level: 'info',

@@ -7,6 +7,14 @@ export type SubscriptionType = 'wait_step' | 'conversion'
  * subscription rows (one per event in its `wait_until_event` config, plus
  * optional conversion goal subscriptions).
  */
+export type MatchedEventData = {
+    event: string
+    properties: Record<string, any>
+    distinct_id?: string
+    uuid?: string
+    timestamp?: string
+}
+
 export type EventSubscription = {
     id: string
     jobId: string
@@ -17,6 +25,7 @@ export type EventSubscription = {
     filters: Record<string, any> | null
     bytecode: any[] | null
     expiresAt: Date
+    matchedEvent: MatchedEventData | null
 }
 
 export type CreateSubscriptionInput = {
@@ -78,7 +87,7 @@ export class EventSubscriptionsService {
     async getForJob(jobId: string, type?: SubscriptionType): Promise<EventSubscription[]> {
         if (type) {
             const result = await this.pool.query(
-                `SELECT id, job_id, team_id, person_id, event_name, type, filters, bytecode, expires_at
+                `SELECT id, job_id, team_id, person_id, event_name, type, filters, bytecode, expires_at, matched_event
                  FROM cyclotron_event_subscriptions
                  WHERE job_id = $1 AND type = $2`,
                 [jobId, type]
@@ -86,7 +95,7 @@ export class EventSubscriptionsService {
             return result.rows.map(rowToSubscription)
         }
         const result = await this.pool.query(
-            `SELECT id, job_id, team_id, person_id, event_name, type, filters, bytecode, expires_at
+            `SELECT id, job_id, team_id, person_id, event_name, type, filters, bytecode, expires_at, matched_event
              FROM cyclotron_event_subscriptions
              WHERE job_id = $1`,
             [jobId]
@@ -124,7 +133,7 @@ export class EventSubscriptionsService {
         const personIds = tuples.map((t) => t.personId)
 
         const result = await this.pool.query(
-            `SELECT es.id, es.job_id, es.team_id, es.person_id, es.event_name, es.type, es.filters, es.bytecode, es.expires_at
+            `SELECT es.id, es.job_id, es.team_id, es.person_id, es.event_name, es.type, es.filters, es.bytecode, es.expires_at, es.matched_event
              FROM cyclotron_event_subscriptions es
              INNER JOIN (
                  SELECT unnest($1::int[]) AS team_id,
@@ -138,38 +147,87 @@ export class EventSubscriptionsService {
     }
 
     /**
-     * Wake the given jobs and delete all subscriptions of the matched types.
+     * Wake the given jobs and record which event matched on each subscription.
      * Only wakes jobs that are still `available` (never disturbs `running` jobs).
-     * Only deletes subscriptions whose jobs were actually woken.
      *
-     * For OR logic: if any wait_step subscription matches, ALL wait_step
-     * subscriptions for that job are deleted (the remaining events no longer
-     * need to be waited for). Conversion subscriptions are left intact so
-     * the executor can still detect conversion matches independently.
+     * Matched subscriptions are marked with `matched_event` data (not deleted)
+     * so the handler can read which event fired and expose its properties as a
+     * workflow variable. Unmatched subscriptions of the same type are deleted
+     * (OR logic: any match means the others are no longer needed).
+     *
+     * The handler is responsible for cleaning up all remaining subscriptions
+     * after reading the matched event data.
      *
      * Returns the number of jobs actually woken.
      */
-    async wakeJobs(jobIds: string[], matchedSubscriptionTypes: SubscriptionType[]): Promise<number> {
-        if (jobIds.length === 0) {
+    async wakeJobs(
+        matches: { jobId: string; subscriptionId: string; type: SubscriptionType; event: MatchedEventData }[]
+    ): Promise<number> {
+        if (matches.length === 0) {
             return 0
         }
 
-        const uniqueTypes = [...new Set(matchedSubscriptionTypes)]
+        const jobIds = [...new Set(matches.map((m) => m.jobId))]
 
-        const result = await this.pool.query(
-            `WITH woken AS (
-                UPDATE cyclotron_jobs
-                SET scheduled = NOW()
-                WHERE id = ANY($1::uuid[]) AND status = 'available'
-                RETURNING id
+        const client = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+
+            // Wake the jobs
+            const wokenResult = await client.query(
+                `UPDATE cyclotron_jobs
+                 SET scheduled = NOW()
+                 WHERE id = ANY($1::uuid[]) AND status = 'available'
+                 RETURNING id`,
+                [jobIds]
             )
-            DELETE FROM cyclotron_event_subscriptions
-            WHERE job_id IN (SELECT id FROM woken) AND type = ANY($2::text[])
-            RETURNING job_id`,
-            [jobIds, uniqueTypes]
-        )
+            const wokenIds = new Set((wokenResult.rows as { id: string }[]).map((r) => r.id))
 
-        return result.rowCount ?? 0
+            if (wokenIds.size === 0) {
+                await client.query('ROLLBACK')
+                return 0
+            }
+
+            // Mark matched subscriptions with event data (only for woken jobs)
+            for (const match of matches) {
+                if (!wokenIds.has(match.jobId)) {
+                    continue
+                }
+                await client.query(
+                    `UPDATE cyclotron_event_subscriptions
+                     SET matched_event = $1
+                     WHERE id = $2`,
+                    [JSON.stringify(match.event), match.subscriptionId]
+                )
+            }
+
+            // Delete unmatched subscriptions of the same types for woken jobs
+            // (OR logic: the other events in the same group no longer need matching)
+            const matchedSubIds = matches.filter((m) => wokenIds.has(m.jobId)).map((m) => m.subscriptionId)
+            const matchedTypes = [...new Set(matches.map((m) => m.type))]
+
+            if (matchedSubIds.length > 0) {
+                await client.query(
+                    `DELETE FROM cyclotron_event_subscriptions
+                     WHERE job_id = ANY($1::uuid[])
+                       AND type = ANY($2::text[])
+                       AND id != ALL($3::uuid[])`,
+                    [[...wokenIds], matchedTypes, matchedSubIds]
+                )
+            }
+
+            await client.query('COMMIT')
+            return wokenIds.size
+        } catch (err) {
+            try {
+                await client.query('ROLLBACK')
+            } catch (_) {
+                // Ignore rollback errors
+            }
+            throw err
+        } finally {
+            client.release()
+        }
     }
 }
 
@@ -184,5 +242,6 @@ function rowToSubscription(row: any): EventSubscription {
         filters: row.filters,
         bytecode: row.bytecode,
         expiresAt: row.expires_at,
+        matchedEvent: row.matched_event ?? null,
     }
 }

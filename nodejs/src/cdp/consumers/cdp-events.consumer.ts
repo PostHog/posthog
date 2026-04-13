@@ -137,11 +137,20 @@ export class CdpEventsConsumer<
         }
 
         // Evaluate bytecode filters for each candidate against its event.
-        // Track matched job IDs and the subscription types that matched,
-        // so wakeJobs deletes all subscriptions of the matched type for each
-        // woken job (OR logic: any match in a type = all of that type are done).
-        const matchedJobIds = new Set<string>()
-        const matchedTypes = new Set<string>()
+        // Build match records with the event data so wakeJobs can store it
+        // on the subscription for the handler to read.
+        const matches: {
+            jobId: string
+            subscriptionId: string
+            type: (typeof candidates)[0]['type']
+            event: {
+                event: string
+                properties: Record<string, any>
+                distinct_id?: string
+                uuid?: string
+                timestamp?: string
+            }
+        }[] = []
 
         for (const candidate of candidates) {
             const key = `${candidate.teamId}:${candidate.eventName}:${candidate.personId}`
@@ -152,18 +161,28 @@ export class CdpEventsConsumer<
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
             const matched = await this.evaluateSubscriptionFilters(candidate, filterGlobals)
             if (matched) {
-                matchedJobIds.add(candidate.jobId)
-                matchedTypes.add(candidate.type)
+                matches.push({
+                    jobId: candidate.jobId,
+                    subscriptionId: candidate.id,
+                    type: candidate.type,
+                    event: {
+                        event: globals.event.event,
+                        properties: globals.event.properties ?? {},
+                        distinct_id: globals.event.distinct_id,
+                        uuid: globals.event.uuid,
+                        timestamp: globals.event.timestamp,
+                    },
+                })
             }
         }
 
-        if (matchedJobIds.size === 0) {
+        if (matches.length === 0) {
             return
         }
 
-        const woken = await subscriptionsService.wakeJobs([...matchedJobIds], [...matchedTypes] as any)
+        const woken = await subscriptionsService.wakeJobs(matches)
         logger.info('⚡', 'Woke waiting workflows from event match', {
-            matched: matchedJobIds.size,
+            matched: matches.length,
             woken,
         })
     }
