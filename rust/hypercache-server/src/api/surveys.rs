@@ -326,4 +326,29 @@ mod tests {
         let (status, _) = post_form(&router, "/api/surveys", "other_field=value").await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
+
+    #[tokio::test]
+    async fn test_negative_cache_short_circuits_surveys_miss() {
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
+        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let (router, surveys_nc, _config_nc) = test_router_with_negative_cache(surveys, config);
+
+        let token = "phc_neg_cache_test";
+
+        // First request: cache miss → populates negative cache, returns empty surveys
+        let (status, body) = get(&router, &format!("/api/surveys?token={token}")).await;
+        assert_eq!(status, StatusCode::OK);
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["surveys"], json!([]));
+        assert!(
+            surveys_nc.contains(token),
+            "miss should populate surveys negative cache"
+        );
+
+        // Second request: negative cache hit → returns empty without hitting Redis
+        let (status2, body2) = get(&router, &format!("/api/surveys?token={token}")).await;
+        assert_eq!(status2, StatusCode::OK);
+        let parsed2: serde_json::Value = serde_json::from_str(&body2).unwrap();
+        assert_eq!(parsed2["surveys"], json!([]));
+    }
 }

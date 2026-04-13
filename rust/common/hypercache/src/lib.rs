@@ -314,6 +314,13 @@ impl HyperCacheReader {
     ) -> Result<(Value, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
+        // Track whether any tier confirmed the key doesn't exist (CacheMiss)
+        // vs all tiers having infrastructure errors. This distinction matters
+        // for callers like negative caching: a confirmed miss is safe to
+        // tombstone, but an infrastructure error should not be cached.
+        let mut confirmed_miss = false;
+        let mut last_infra_error: Option<HyperCacheError> = None;
+
         // Try Redis first
         match timeout(
             self.config.redis_timeout,
@@ -344,14 +351,22 @@ impl HyperCacheReader {
                 }
                 return Ok((data, CacheSource::Redis));
             }
+            Ok(Err(HyperCacheError::CacheMiss)) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    "HyperCache Redis confirmed miss, trying S3"
+                );
+                confirmed_miss = true;
+                // Granular reason metrics are emitted inside try_get_from_redis
+            }
             Ok(Err(e)) => {
                 debug!(
                     cache_key = %redis_cache_key,
                     error = %e,
-                    "HyperCache Redis miss, trying S3"
+                    "HyperCache Redis infrastructure error, trying S3"
                 );
-                // Note: granular reason metrics (get_error, pickle_error, json_error)
-                // are emitted inside try_get_from_redis
+                last_infra_error = Some(e);
+                // Granular reason metrics are emitted inside try_get_from_redis
             }
             Err(_) => {
                 debug!(
@@ -367,6 +382,7 @@ impl HyperCacheReader {
                     ],
                     1,
                 );
+                last_infra_error = Some(HyperCacheError::Timeout("redis timeout".to_string()));
             }
         }
 
@@ -390,39 +406,77 @@ impl HyperCacheReader {
                 );
                 return Ok((data, CacheSource::S3));
             }
+            Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => {
+                debug!(
+                    cache_key = %s3_cache_key,
+                    "HyperCache S3 confirmed miss"
+                );
+                confirmed_miss = true;
+            }
             Ok(Err(e)) => {
                 debug!(
                     cache_key = %s3_cache_key,
                     error = %e,
-                    "HyperCache S3 miss"
+                    "HyperCache S3 error"
                 );
+                if last_infra_error.is_none() {
+                    last_infra_error = Some(e);
+                }
             }
             Err(_) => {
                 debug!(
                     cache_key = %s3_cache_key,
                     "HyperCache S3 timeout"
                 );
+                if last_infra_error.is_none() {
+                    last_infra_error = Some(HyperCacheError::Timeout("s3 timeout".to_string()));
+                }
             }
         }
 
-        debug!(
-            redis_key = %redis_cache_key,
-            s3_key = %s3_cache_key,
-            namespace = %self.config.namespace,
-            "HyperCache miss: both Redis and S3 failed"
-        );
-
-        inc(
-            HYPERCACHE_COUNTER_NAME,
-            &[
-                ("result".to_string(), "missing".to_string()),
-                ("namespace".to_string(), self.config.namespace.clone()),
-                ("value".to_string(), self.config.object_name.clone()),
-            ],
-            1,
-        );
-
-        Err(HyperCacheError::CacheMiss)
+        // If at least one tier confirmed the key doesn't exist, return CacheMiss.
+        // Otherwise, if we only saw infrastructure errors, surface the error so
+        // callers (e.g., negative cache) can avoid tombstoning a key that might
+        // exist once the backing store recovers.
+        if confirmed_miss {
+            debug!(
+                redis_key = %redis_cache_key,
+                s3_key = %s3_cache_key,
+                namespace = %self.config.namespace,
+                "HyperCache confirmed miss: key not found in any tier"
+            );
+            inc(
+                HYPERCACHE_COUNTER_NAME,
+                &[
+                    ("result".to_string(), "missing".to_string()),
+                    ("namespace".to_string(), self.config.namespace.clone()),
+                    ("value".to_string(), self.config.object_name.clone()),
+                ],
+                1,
+            );
+            Err(HyperCacheError::CacheMiss)
+        } else if let Some(e) = last_infra_error {
+            debug!(
+                redis_key = %redis_cache_key,
+                s3_key = %s3_cache_key,
+                namespace = %self.config.namespace,
+                error = %e,
+                "HyperCache infrastructure failure: both tiers had errors, not a confirmed miss"
+            );
+            inc(
+                HYPERCACHE_COUNTER_NAME,
+                &[
+                    ("result".to_string(), "infra_error".to_string()),
+                    ("namespace".to_string(), self.config.namespace.clone()),
+                    ("value".to_string(), self.config.object_name.clone()),
+                ],
+                1,
+            );
+            Err(e)
+        } else {
+            // Shouldn't happen — we always set confirmed_miss or last_infra_error.
+            Err(HyperCacheError::CacheMiss)
+        }
     }
 
     pub async fn get(&self, key: &KeyType) -> Result<Value, HyperCacheError> {
@@ -501,8 +555,30 @@ impl HyperCacheReader {
                 }
             }
             Err(e) => {
-                // Other cache errors - propagate them
-                Err(e.into())
+                // Infrastructure error (Redis/S3 down, timeouts, etc.) —
+                // still try the fallback as a resilience measure. This preserves
+                // the pre-existing behavior where callers like feature-flags fall
+                // back to Postgres when the cache layer is unreachable.
+                debug!(
+                    "Cache infrastructure error for key {}: {}, trying fallback",
+                    key, e
+                );
+
+                match fallback().await? {
+                    Some(value) => {
+                        inc(
+                            HYPERCACHE_COUNTER_NAME,
+                            &[
+                                ("result".to_string(), "hit_fallback_infra_error".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.object_name.clone()),
+                            ],
+                            1,
+                        );
+                        Ok((value, CacheSource::Fallback))
+                    }
+                    None => Err(e.into()),
+                }
             }
         }
     }
@@ -539,6 +615,8 @@ impl HyperCacheReader {
                                     ],
                                     1,
                                 );
+                                // Data exists but is corrupt — treat as a miss (S3 may
+                                // have a valid copy). Not an infrastructure error.
                             }
                         }
                     }
@@ -556,10 +634,26 @@ impl HyperCacheReader {
                             ],
                             1,
                         );
+                        // Data exists but is corrupt — treat as a miss (same as above).
                     }
                 }
             }
+            Err(common_redis::CustomRedisError::NotFound) => {
+                // Genuine miss — key doesn't exist in Redis.
+                debug!("Key not found in Redis for key '{}'", cache_key,);
+                inc(
+                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
+                    &[
+                        ("reason".to_string(), "not_found".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
+                    ],
+                    1,
+                );
+            }
             Err(e) => {
+                // Infrastructure error — key may exist but Redis can't serve it.
+                // Surface this so callers can distinguish it from a confirmed miss.
                 debug!(
                     "Failed to get raw bytes from Redis for key '{}': {}",
                     cache_key, e
@@ -573,6 +667,7 @@ impl HyperCacheReader {
                     ],
                     1,
                 );
+                return Err(HyperCacheError::Redis(e));
             }
         }
 

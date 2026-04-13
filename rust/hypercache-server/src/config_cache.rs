@@ -2,10 +2,31 @@ use common_cache::NegativeCache;
 use common_hypercache::{HyperCacheError, HyperCacheReader, KeyType, HYPER_CACHE_EMPTY_VALUE};
 use common_metrics::inc;
 use serde_json::Value;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 const NEGATIVE_CACHE_HIT_METRIC: &str = "hypercache_server_negative_cache_hit_total";
 const NEGATIVE_CACHE_INSERT_METRIC: &str = "hypercache_server_negative_cache_insert_total";
+
+/// Pre-built metric labels for each namespace, avoiding per-request String allocations.
+/// The `inc()` API requires `&[(String, String)]`, so we pay the allocation once at startup.
+fn negative_cache_labels(namespace: &str) -> &'static [(String, String)] {
+    static SURVEYS: LazyLock<Vec<(String, String)>> =
+        LazyLock::new(|| vec![("namespace".to_string(), "surveys".to_string())]);
+    static ARRAY: LazyLock<Vec<(String, String)>> =
+        LazyLock::new(|| vec![("namespace".to_string(), "array".to_string())]);
+
+    match namespace {
+        "surveys" => &SURVEYS,
+        "array" => &ARRAY,
+        other => {
+            tracing::warn!(
+                namespace = other,
+                "Unknown negative cache namespace, defaulting to surveys labels"
+            );
+            &SURVEYS
+        }
+    }
+}
 
 /// Read cached data from HyperCache as raw JSON.
 ///
@@ -24,11 +45,13 @@ pub async fn get_cached_data(
     namespace: &str,
     key: &str,
 ) -> Option<Value> {
+    // Short-circuit: if the negative cache already knows this key is missing,
+    // skip the Redis + S3 round trip entirely.
     if let Some(nc) = negative_cache {
         if nc.contains(key) {
             inc(
                 NEGATIVE_CACHE_HIT_METRIC,
-                &[("namespace".to_string(), namespace.to_string())],
+                negative_cache_labels(namespace),
                 1,
             );
             return None;
@@ -37,47 +60,47 @@ pub async fn get_cached_data(
 
     let cache_key = KeyType::string(key);
 
+    // HyperCacheReader::get distinguishes confirmed misses (CacheMiss) from
+    // infrastructure failures (Redis/S3/Timeout errors). Only confirmed misses
+    // are tombstoned in the negative cache. Infrastructure errors return None
+    // for this request but don't poison the cache for subsequent requests.
     let value = match reader.get(&cache_key).await {
-        Ok(v) => Some(v),
+        Ok(v) => v,
         Err(HyperCacheError::CacheMiss) => {
-            // Genuine miss — both Redis and S3 confirmed the key isn't there.
-            None
+            insert_negative_cache(negative_cache, namespace, key);
+            return None;
         }
         Err(e) => {
-            tracing::warn!(key = %key, error = ?e, "HyperCache read failed");
             // Transient infrastructure error — don't tombstone a key that may
             // actually exist once the backing store recovers.
+            tracing::warn!(key = %key, error = ?e, "HyperCache read failed");
             return None;
         }
     };
 
-    let is_missing = value.as_ref().is_none_or(|v| {
-        v.is_null()
-            || v.as_str()
-                .map(|s| s == HYPER_CACHE_EMPTY_VALUE)
-                .unwrap_or(false)
-    });
+    // HyperCacheReader converts the Python __missing__ sentinel to Value::Null,
+    // but we also check the string form defensively in case S3 returns it un-converted.
+    let is_missing =
+        value.is_null() || value.as_str().is_some_and(|s| s == HYPER_CACHE_EMPTY_VALUE);
 
     if is_missing {
-        if let Some(nc) = negative_cache {
-            nc.insert(key.to_string());
-            inc(
-                NEGATIVE_CACHE_INSERT_METRIC,
-                &[("namespace".to_string(), namespace.to_string())],
-                1,
-            );
-        }
+        insert_negative_cache(negative_cache, namespace, key);
         return None;
     }
 
-    // Positive result wins over any stale tombstone (shouldn't happen given
-    // the short-circuit above, but defensive against races between TTL refresh
-    // and concurrent writes to the cache).
-    if let Some(nc) = negative_cache {
-        nc.invalidate(key);
-    }
+    Some(value)
+}
 
-    value
+/// Record a key as missing in the negative cache and emit the insertion metric.
+fn insert_negative_cache(negative_cache: Option<&NegativeCache>, namespace: &str, key: &str) {
+    if let Some(nc) = negative_cache {
+        nc.insert(key.to_string());
+        inc(
+            NEGATIVE_CACHE_INSERT_METRIC,
+            negative_cache_labels(namespace),
+            1,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -253,7 +276,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_negative_cache_invalidated_on_hit() {
+    async fn test_positive_hit_does_not_populate_negative_cache() {
+        let config = test_config("surveys", "surveys.json");
+        let token = "phc_exists";
+        let cache_key = cache_key_for_token(&config, token);
+
+        let test_data = serde_json::json!({
+            "surveys": [{"id": "s1"}],
+            "survey_config": null
+        });
+        let pickled = pickle_json(&test_data);
+
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
+
+        let reader = Arc::new(
+            HyperCacheReader::new(Arc::new(mock_redis), config)
+                .await
+                .unwrap(),
+        );
+        let negative_cache = NegativeCache::new(100, 300);
+
+        let result = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        assert_eq!(result, Some(test_data));
+        assert!(
+            !negative_cache.contains(token),
+            "positive hit must not insert into the negative cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_negative_cache_tombstone_short_circuits_positive_data() {
+        // Once a key is tombstoned, the negative cache short-circuits all lookups
+        // until TTL expires — even if the underlying data has since been populated.
+        // This is the expected trade-off: stale negatives resolve on TTL expiry.
         let config = test_config("surveys", "surveys.json");
         let token = "phc_revived";
         let cache_key = cache_key_for_token(&config, token);
@@ -274,19 +330,45 @@ mod tests {
         );
         let negative_cache = NegativeCache::new(100, 300);
 
-        // Pre-seed a stale tombstone for this key.
+        // Pre-seed a tombstone for a key that now has data in Redis.
         negative_cache.insert(token.to_string());
-        assert!(negative_cache.contains(token));
 
-        // A positive result shouldn't even happen here because contains() short-circuits,
-        // but we want to assert the invalidate-on-hit path. Force the short-circuit
-        // off by calling with None first to simulate clearing, then re-run with the
-        // negative cache in place but an empty tombstone.
-        negative_cache.invalidate(token);
+        // The negative cache short-circuits: returns None despite Redis having data.
+        let result = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        assert!(
+            result.is_none(),
+            "tombstone should short-circuit even when Redis has data"
+        );
+        assert!(negative_cache.contains(token));
+    }
+
+    #[tokio::test]
+    async fn test_infrastructure_failure_does_not_tombstone() {
+        // When Redis returns a transient error (timeout, connection refused, etc.)
+        // and S3 also fails, HyperCacheReader surfaces the infrastructure error
+        // (not CacheMiss). The get_cached_data function's Err(e) arm returns None
+        // without inserting into the negative cache, preventing cache poisoning
+        // during outages.
+        let config = test_config("surveys", "surveys.json");
+        let token = "phc_infra_error";
+        let cache_key = cache_key_for_token(&config, token);
+
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis =
+            mock_redis.get_raw_bytes_ret(&cache_key, Err(common_redis::CustomRedisError::Timeout));
+
+        let reader = Arc::new(
+            HyperCacheReader::new(Arc::new(mock_redis), config)
+                .await
+                .unwrap(),
+        );
+        let negative_cache = NegativeCache::new(100, 300);
 
         let result = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
-        assert_eq!(result, Some(test_data));
-        // Positive hits should not insert anything into the negative cache.
-        assert!(!negative_cache.contains(token));
+        assert!(result.is_none(), "infra error should return None");
+        assert!(
+            !negative_cache.contains(token),
+            "infrastructure failure must NOT insert into the negative cache"
+        );
     }
 }

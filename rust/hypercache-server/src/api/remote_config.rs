@@ -410,4 +410,25 @@ mod tests {
         let (status, _) = get(&router, "/array/phc_unknown/config.js").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
+
+    #[tokio::test]
+    async fn test_negative_cache_short_circuits_config_miss() {
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
+        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let (router, _surveys_nc, config_nc) = test_router_with_negative_cache(surveys, config);
+
+        let token = "phc_neg_cache_test";
+
+        // First request: cache miss → populates negative cache, returns 404
+        let (status, _) = get(&router, &format!("/array/{token}/config")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            config_nc.contains(token),
+            "miss should populate config negative cache"
+        );
+
+        // Second request: negative cache hit → returns 404 without hitting Redis
+        let (status2, _) = get(&router, &format!("/array/{token}/config")).await;
+        assert_eq!(status2, StatusCode::NOT_FOUND);
+    }
 }

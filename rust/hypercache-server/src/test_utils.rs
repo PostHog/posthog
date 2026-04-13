@@ -8,6 +8,7 @@ pub mod helpers {
         http::{Request, StatusCode},
         Router,
     };
+    use common_cache::NegativeCache;
     use common_hypercache::{HyperCacheConfig, HyperCacheReader, KeyType};
     use common_redis::MockRedisClient;
     use http_body_util::BodyExt;
@@ -53,16 +54,42 @@ pub mod helpers {
         config.get_redis_cache_key(&KeyType::string(token))
     }
 
-    /// Build a test router with the given mock readers.
+    /// Build a test router with the given mock readers (no negative cache).
     pub fn test_router(
         surveys_reader: Arc<HyperCacheReader>,
         config_reader: Arc<HyperCacheReader>,
     ) -> Router {
+        build_router(surveys_reader, config_reader, None, None)
+    }
+
+    /// Build a test router with negative caches enabled, returning the router
+    /// and handles to both caches for assertion.
+    pub fn test_router_with_negative_cache(
+        surveys_reader: Arc<HyperCacheReader>,
+        config_reader: Arc<HyperCacheReader>,
+    ) -> (Router, Arc<NegativeCache>, Arc<NegativeCache>) {
+        let surveys_nc = Arc::new(NegativeCache::new(100, 300));
+        let config_nc = Arc::new(NegativeCache::new(100, 300));
+        let router = build_router(
+            surveys_reader,
+            config_reader,
+            Some(surveys_nc.clone()),
+            Some(config_nc.clone()),
+        );
+        (router, surveys_nc, config_nc)
+    }
+
+    fn build_router(
+        surveys_reader: Arc<HyperCacheReader>,
+        config_reader: Arc<HyperCacheReader>,
+        surveys_negative_cache: Option<Arc<NegativeCache>>,
+        config_negative_cache: Option<Arc<NegativeCache>>,
+    ) -> Router {
         let state = State {
             surveys_hypercache_reader: surveys_reader,
             config_hypercache_reader: config_reader,
-            surveys_negative_cache: None,
-            config_negative_cache: None,
+            surveys_negative_cache,
+            config_negative_cache,
         };
 
         Router::new()
