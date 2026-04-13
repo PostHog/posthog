@@ -71,5 +71,38 @@ class Migration(migrations.Migration):
             name="teams_tenant_id",
             field=models.CharField(blank=True, max_length=64, null=True),
         ),
+        # Update choices in Django state (no DB change for CharField choices)
+        migrations.AlterField(
+            model_name="ticket",
+            name="channel_detail",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("slack_channel_message", "Channel message"),
+                    ("slack_bot_mention", "Bot mention"),
+                    ("slack_emoji_reaction", "Emoji reaction"),
+                    ("teams_channel_message", "Teams channel message"),
+                    ("teams_bot_mention", "Teams bot mention"),
+                    ("widget_embedded", "Widget"),
+                    ("widget_api", "API"),
+                ],
+                max_length=30,
+                null=True,
+            ),
+        ),
+        migrations.AlterField(
+            model_name="ticket",
+            name="channel_source",
+            field=models.CharField(
+                choices=[
+                    ("widget", "Widget"),
+                    ("email", "Email"),
+                    ("slack", "Slack"),
+                    ("teams", "Microsoft Teams"),
+                ],
+                default="widget",
+                max_length=20,
+            ),
+        ),
         # Ticket index is in 0032 (AddIndexConcurrently requires atomic=False)
     ]
