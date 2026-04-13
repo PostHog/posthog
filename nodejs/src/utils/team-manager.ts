@@ -77,6 +77,57 @@ export class TeamManager {
                 )
             }
         }
+
+        if (!team.ingested_live_event && this.isLiveHost(properties.$host)) {
+            await this.setTeamIngestedLiveEvent(team, properties)
+        }
+    }
+
+    private isLiveHost(host: string | undefined): boolean {
+        if (!host || host === '') {
+            return false
+        }
+        const lowerHost = host.toLowerCase()
+        return (
+            !lowerHost.startsWith('localhost') &&
+            !lowerHost.startsWith('127.0.0.1') &&
+            !lowerHost.startsWith('0.0.0.0') &&
+            !lowerHost.startsWith('[::1]') &&
+            !lowerHost.startsWith('10.') &&
+            !lowerHost.startsWith('192.168.')
+        )
+    }
+
+    private async setTeamIngestedLiveEvent(team: Team, properties: Properties): Promise<void> {
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_team SET ingested_live_event = $1 WHERE id = $2`,
+            [true, team.id],
+            'setTeamIngestedLiveEvent'
+        )
+
+        this.lazyLoader.markForRefresh(String(team.id))
+
+        const organizationMembers = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+            [team.organization_id],
+            'posthog_organizationmembership'
+        )
+
+        const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+        for (const { distinct_id } of distinctIds) {
+            captureTeamEvent(
+                team,
+                'first production team event ingested',
+                {
+                    sdk: properties.$lib,
+                    realm: properties.realm,
+                    host: properties.$host,
+                },
+                distinct_id
+            )
+        }
     }
 
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
@@ -115,6 +166,7 @@ export class TeamManager {
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
                 t.ingested_event,
+                t.ingested_live_event,
                 t.person_display_name_properties,
                 t.cookieless_server_hash_mode,
                 t.timezone,

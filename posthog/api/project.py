@@ -139,6 +139,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "anonymize_ips",  # Compat with TeamSerializer
             "completed_snippet_onboarding",  # Compat with TeamSerializer
             "ingested_event",  # Compat with TeamSerializer
+            "ingested_live_event",  # Compat with TeamSerializer
             "test_account_filters",  # Compat with TeamSerializer
             "test_account_filters_default_checked",  # Compat with TeamSerializer
             "path_cleaning_filters",  # Compat with TeamSerializer
@@ -205,6 +206,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "api_token",
             "updated_at",
             "ingested_event",
+            "ingested_live_event",
             "default_modifiers",
             "person_on_events_querying_enabled",
             "product_intents",
@@ -222,6 +224,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "anonymize_ips",
             "completed_snippet_onboarding",
             "ingested_event",
+            "ingested_live_event",
             "test_account_filters",
             "test_account_filters_default_checked",
             "path_cleaning_filters",
