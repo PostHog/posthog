@@ -122,7 +122,8 @@ def module_to_file(module: str) -> str | None:
 def _ast_get_imports(filepath: str) -> set[str]:
     """Parse import statements from a Python file using the AST."""
     try:
-        source = open(filepath).read()
+        with open(filepath) as fh:
+            source = fh.read()
         tree = ast.parse(source, filename=filepath)
     except (SyntaxError, UnicodeDecodeError, OSError):
         return set()
@@ -150,12 +151,14 @@ def _ast_get_imports(filepath: str) -> set[str]:
 
 def _build_ast_reverse_map(
     grimp_files: set[str],
+    grimp_test_files: set[str],
 ) -> tuple[dict[str, set[str]], set[str], set[str]]:
     """Build a reverse map for files grimp can't discover (missing __init__.py).
 
-    Uses AST-based import parsing as a fallback. Only processes files that
-    grimp didn't cover — grimp handles re-exports correctly so we defer to
-    it for everything it can see.
+    Uses AST-based import parsing as a fallback. Only records edges that land
+    on AST-only source files — grimp handles re-exports correctly so we defer
+    to it for everything it can see. BFS seeds from both AST-only tests and
+    grimp-visible tests, so grimp-test → AST-source dependencies are captured.
 
     Returns (reverse_map, ast_test_files, ast_source_files).
     """
@@ -216,7 +219,9 @@ def _build_ast_reverse_map(
         import_cache[filepath] = resolved
         return resolved
 
-    for test_file in ast_test_files:
+    # Seed BFS from both AST-only tests and grimp-visible tests. The latter
+    # lets us catch grimp-test → AST-source edges that grimp itself misses.
+    for test_file in ast_test_files | grimp_test_files:
         # BFS for transitive deps
         visited: set[str] = set()
         queue = [test_file]
@@ -305,7 +310,8 @@ def build_reverse_map() -> tuple[dict[str, list[str]], int, set[str]]:
 
     # AST fallback for files grimp can't discover
     grimp_files = set(module_files.values())
-    ast_reverse, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files)
+    grimp_test_files = {module_files[m] for m in test_modules}
+    ast_reverse, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files, grimp_test_files)
 
     if ast_reverse:
         for source_file, tests in ast_reverse.items():

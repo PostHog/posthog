@@ -232,9 +232,9 @@ class TestLoadDurations(unittest.TestCase):
 class TestBuildReverseMap(unittest.TestCase):
     """Integration tests using the real codebase."""
 
-    reverse_map = None
-    total_test_count = None
-    all_known_source = None
+    reverse_map = {}
+    total_test_count = 0
+    all_known_source = set()
 
     @classmethod
     def setUpClass(cls):
@@ -319,7 +319,6 @@ class TestBuildAstReverseMap(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.orig_packages = LOCAL_PACKAGES
 
     def _write(self, relpath, code=""):
         path = os.path.join(self.tmpdir, relpath)
@@ -333,7 +332,7 @@ class TestBuildAstReverseMap(unittest.TestCase):
         grimp_files = {os.path.join(self.tmpdir, "pkg/source.py")}
         # Patch LOCAL_PACKAGES to point at nothing so os.walk finds nothing
         with patch("bin.find_affected_tests.LOCAL_PACKAGES", ()):
-            reverse_map, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files)
+            reverse_map, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files, set())
         self.assertEqual(len(reverse_map), 0)
         self.assertEqual(len(ast_tests), 0)
         self.assertEqual(len(ast_sources), 0)
@@ -347,12 +346,36 @@ class TestBuildAstReverseMap(unittest.TestCase):
         grimp_files: set[str] = set()  # grimp sees nothing
         with patch("bin.find_affected_tests.LOCAL_PACKAGES", ("testpkg",)):
             os.chdir(self.tmpdir)
-            reverse_map, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files)
+            reverse_map, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files, set())
 
         self.assertIn("testpkg/lib/test_helpers.py", ast_tests)
         self.assertIn("testpkg/lib/helpers.py", ast_sources)
         self.assertIn("testpkg/lib/helpers.py", reverse_map)
         self.assertIn("testpkg/lib/test_helpers.py", reverse_map["testpkg/lib/helpers.py"])
+
+    def test_grimp_test_importing_ast_only_source_is_captured(self):
+        # grimp-visible test (has __init__.py) importing an AST-only source
+        # (directory missing __init__.py). Without seeding BFS from grimp
+        # tests, this edge would be invisible.
+        self._write("testpkg/__init__.py", "")
+        self._write("testpkg/api/__init__.py", "")
+        self._write("testpkg/api/test_query.py", "from testpkg.hogql.query import run")
+        # hogql dir has no __init__.py → grimp can't see it
+        self._write("testpkg/hogql/query.py", "def run(): pass")
+
+        grimp_test_file = "testpkg/api/test_query.py"
+        # Simulate grimp having discovered the test file but not the AST source
+        grimp_files = {grimp_test_file, "testpkg/__init__.py", "testpkg/api/__init__.py"}
+        grimp_test_files = {grimp_test_file}
+
+        with patch("bin.find_affected_tests.LOCAL_PACKAGES", ("testpkg",)):
+            os.chdir(self.tmpdir)
+            reverse_map, ast_tests, ast_sources = _build_ast_reverse_map(grimp_files, grimp_test_files)
+
+        self.assertIn("testpkg/hogql/query.py", ast_sources)
+        self.assertNotIn(grimp_test_file, ast_tests)  # grimp test isn't an AST-only test
+        self.assertIn("testpkg/hogql/query.py", reverse_map)
+        self.assertIn(grimp_test_file, reverse_map["testpkg/hogql/query.py"])
 
     def tearDown(self):
         os.chdir(REPO_ROOT)
@@ -361,7 +384,7 @@ class TestBuildAstReverseMap(unittest.TestCase):
 class TestFullRunPatternsCompleteness(unittest.TestCase):
     def test_all_patterns_are_strings(self):
         for pattern in FULL_RUN_PATTERNS:
-            self.assertIsInstance(pattern, pattern.__class__)
+            self.assertIsInstance(pattern, str)
 
     def test_conftest_triggers_full_run(self):
         self.assertTrue(requires_full_run("posthog/api/conftest.py"))
