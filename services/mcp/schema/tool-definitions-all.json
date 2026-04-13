@@ -2605,6 +2605,111 @@
             "readOnlyHint": false
         }
     },
+    "session-recording-get": {
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording",
+        "title": "Get session recording",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-delete": {
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Delete session recording",
+        "title": "Delete session recording",
+        "required_scopes": ["session_recording:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "session-recording-playlists-list": {
+        "description": "List session recording playlists in the project. Returns both user-created and synthetic (system-generated) playlists with their metadata and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recording playlists",
+        "title": "List session recording playlists",
+        "required_scopes": ["session_recording_playlist:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-get": {
+        "description": "Get a specific session recording playlist by short_id. Returns full playlist metadata including name, description, filters, type, and recording counts.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording playlist",
+        "title": "Get session recording playlist",
+        "required_scopes": ["session_recording_playlist:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-create": {
+        "description": "Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters' for a saved filter view. Collections cannot have filters, and filter playlists must include at least one filter criterion.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Create session recording playlist",
+        "title": "Create session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "session-recording-playlist-update": {
+        "description": "Update an existing session recording playlist by short_id. Can update name, description, pinned status, and filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the update will fail.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Update session recording playlist",
+        "title": "Update session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "query-session-recordings-list": {
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recordings",
+        "title": "List session recordings",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",

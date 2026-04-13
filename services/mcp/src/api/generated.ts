@@ -795,10 +795,10 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
-    export type Key = typeof Key[keyof typeof Key];
+    export type Key10 = typeof Key10[keyof typeof Key10];
 
 
-    export const Key = {
+    export const Key10 = {
       TagName: 'tag_name',
       Text: 'text',
       Href: 'href',
@@ -813,7 +813,7 @@ export namespace Schemas {
     } as const;
 
     export interface ElementPropertyFilter {
-      key: Key;
+      key: Key10;
       /** @nullable */
       label?: string | null;
       operator: PropertyOperator;
@@ -4050,11 +4050,44 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentEventExposureConfigKind = typeof ExperimentEventExposureConfigKind[keyof typeof ExperimentEventExposureConfigKind];
+
+
+    export const ExperimentEventExposureConfigKind = {
+      ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null | null;
+
+    export interface ExperimentEventExposureConfig {
+      event: string;
+      kind?: ExperimentEventExposureConfigKind;
+      properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
+      /** @nullable */
+      response?: ExperimentEventExposureConfigResponse;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
     export type ExperimentActorsQueryKind = typeof ExperimentActorsQueryKind[keyof typeof ExperimentActorsQueryKind];
 
 
     export const ExperimentActorsQueryKind = {
       ExperimentActorsQuery: 'ExperimentActorsQuery',
+    } as const;
+
+    export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
+
+
+    export const MultipleVariantHandling = {
+      Exclude: 'exclude',
+      FirstSeen: 'first_seen',
     } as const;
 
     export type ExperimentQueryKind = typeof ExperimentQueryKind[keyof typeof ExperimentQueryKind];
@@ -4562,6 +4595,13 @@ export namespace Schemas {
     }
 
     export interface ExperimentActorsQuery {
+      /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
+      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | null;
+      /**
+       * Feature flag key for breakdown filtering.
+       * @nullable
+       */
+      featureFlagKey?: string | null;
       /**
        * Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons.
        * @nullable
@@ -4574,6 +4614,8 @@ export namespace Schemas {
       kind?: ExperimentActorsQueryKind;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** How to handle users with multiple variant exposures. */
+      multipleVariantHandling?: MultipleVariantHandling | null;
       response?: ActorsQueryResponse | null;
       source: ExperimentQuery;
       tags?: QueryLogTags | null;
@@ -7882,10 +7924,10 @@ export namespace Schemas {
     * `in_progress` - In progress
     * `canceling` - Canceling
      */
-    export type ConversationStatusEnum = typeof ConversationStatusEnum[keyof typeof ConversationStatusEnum];
+    export type ConversationStatus = typeof ConversationStatus[keyof typeof ConversationStatus];
 
 
-    export const ConversationStatusEnum = {
+    export const ConversationStatus = {
       Idle: 'idle',
       InProgress: 'in_progress',
       Canceling: 'canceling',
@@ -7897,10 +7939,10 @@ export namespace Schemas {
     * `deep_research` - Deep research
     * `slack` - Slack
      */
-    export type ConversationTypeEnum = typeof ConversationTypeEnum[keyof typeof ConversationTypeEnum];
+    export type ConversationType = typeof ConversationType[keyof typeof ConversationType];
 
 
-    export const ConversationTypeEnum = {
+    export const ConversationType = {
       Assistant: 'assistant',
       ToolCall: 'tool_call',
       DeepResearch: 'deep_research',
@@ -7909,7 +7951,7 @@ export namespace Schemas {
 
     export interface Conversation {
       readonly id: string;
-      readonly status: ConversationStatusEnum;
+      readonly status: ConversationStatus;
       /**
        * Title of the conversation.
        * @nullable
@@ -7920,7 +7962,7 @@ export namespace Schemas {
       readonly created_at: string | null;
       /** @nullable */
       readonly updated_at: string | null;
-      readonly type: ConversationTypeEnum;
+      readonly type: ConversationType;
       /**
        * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
        * @nullable
@@ -7946,6 +7988,37 @@ export namespace Schemas {
     Combines metadata from conversation.approval_decisions with payload from checkpoint
     interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
+    }
+
+    export interface ConversationMinimal {
+      readonly id: string;
+      readonly status: ConversationStatus;
+      /**
+       * Title of the conversation.
+       * @nullable
+       */
+      readonly title: string | null;
+      readonly user: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly type: ConversationType;
+      /**
+       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+       * @nullable
+       */
+      readonly is_internal: boolean | null;
+      /**
+       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+       * @nullable
+       */
+      readonly slack_thread_key: string | null;
+      /**
+       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+       * @nullable
+       */
+      readonly slack_workspace_domain: string | null;
     }
 
     export type ConversionGoalFilter1Kind = typeof ConversionGoalFilter1Kind[keyof typeof ConversionGoalFilter1Kind];
@@ -14801,39 +14874,6 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
-    export type ExperimentEventExposureConfigKind = typeof ExperimentEventExposureConfigKind[keyof typeof ExperimentEventExposureConfigKind];
-
-
-    export const ExperimentEventExposureConfigKind = {
-      ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null | null;
-
-    export interface ExperimentEventExposureConfig {
-      event: string;
-      kind?: ExperimentEventExposureConfigKind;
-      properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
-      /** @nullable */
-      response?: ExperimentEventExposureConfigResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
-      version?: number | null;
-    }
-
-    export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
-
-
-    export const MultipleVariantHandling = {
-      Exclude: 'exclude',
-      FirstSeen: 'first_seen',
-    } as const;
-
     export interface ExperimentExposureCriteria {
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       /** @nullable */
@@ -16047,6 +16087,8 @@ export namespace Schemas {
        * @nullable
        */
       default_branch?: string | null;
+      /** Whether more branches exist beyond the returned page */
+      has_more: boolean;
     }
 
     export interface GitHubRepo {
@@ -16057,6 +16099,8 @@ export namespace Schemas {
 
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
+      /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
     }
 
     export interface Group {
@@ -17984,13 +18028,34 @@ export namespace Schemas {
     }
 
     export interface RecordingsQueryResponse {
+      /**
+       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+       * @nullable
+       */
+      error?: string | null;
       has_next: boolean;
+      /**
+       * Generated HogQL query.
+       * @nullable
+       */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
       /**
        * Cursor for the next page. Contains the ordering value and session_id from the last record.
        * @nullable
        */
       next_cursor?: string | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
+      /**
+       * Measured timings for different parts of the query generation process
+       * @nullable
+       */
+      timings?: QueryTiming[] | null;
     }
 
     export type RecordingsQueryActionsItem = { [key: string]: unknown };
@@ -19983,13 +20048,13 @@ export namespace Schemas {
       results: Comment[];
     }
 
-    export interface PaginatedConversationList {
+    export interface PaginatedConversationMinimalList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Conversation[];
+      results: ConversationMinimal[];
     }
 
     export interface PaginatedCoreEventList {
@@ -21108,6 +21173,8 @@ export namespace Schemas {
       repositories?: string[];
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      internal?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -21337,6 +21404,7 @@ export namespace Schemas {
       readonly id: number;
       readonly short_id: string;
       /**
+       * Human-readable name for the playlist.
        * @maxLength 400
        * @nullable
        */
@@ -21346,16 +21414,24 @@ export namespace Schemas {
        * @nullable
        */
       derived_name?: string | null;
+      /** Optional description of the playlist's purpose or contents. */
       description?: string;
+      /** Whether this playlist is pinned to the top of the list. */
       pinned?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
+      /** Set to true to soft-delete the playlist. */
       deleted?: boolean;
+      /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
       filters?: unknown;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       readonly recordings_counts: SessionRecordingPlaylistRecordingsCounts;
-      readonly type: SessionRecordingPlaylistTypeEnum | NullEnum | null;
+      /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
+
+    * `collection` - Collection
+    * `filters` - Filters */
+      type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
       _create_in_folder?: string;
@@ -22858,7 +22934,7 @@ export namespace Schemas {
 
     export interface PatchedConversation {
       readonly id?: string;
-      readonly status?: ConversationStatusEnum;
+      readonly status?: ConversationStatus;
       /**
        * Title of the conversation.
        * @nullable
@@ -22869,7 +22945,7 @@ export namespace Schemas {
       readonly created_at?: string | null;
       /** @nullable */
       readonly updated_at?: string | null;
-      readonly type?: ConversationTypeEnum;
+      readonly type?: ConversationType;
       /**
        * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
        * @nullable
@@ -25044,6 +25120,8 @@ export namespace Schemas {
       readonly has_environment_variables?: boolean;
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      readonly internal?: boolean;
       /** Computed domain allowlist based on network_access_level and allowed_domains */
       readonly effective_domains?: readonly string[];
       readonly created_by?: UserBasic;
@@ -25231,6 +25309,7 @@ export namespace Schemas {
       readonly id?: number;
       readonly short_id?: string;
       /**
+       * Human-readable name for the playlist.
        * @maxLength 400
        * @nullable
        */
@@ -25240,16 +25319,24 @@ export namespace Schemas {
        * @nullable
        */
       derived_name?: string | null;
+      /** Optional description of the playlist's purpose or contents. */
       description?: string;
+      /** Whether this playlist is pinned to the top of the list. */
       pinned?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
+      /** Set to true to soft-delete the playlist. */
       deleted?: boolean;
+      /** JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them. */
       filters?: unknown;
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;
       readonly recordings_counts?: PatchedSessionRecordingPlaylistRecordingsCounts;
-      readonly type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
+      /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
+
+    * `collection` - Collection
+    * `filters` - Filters */
+      type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
@@ -27406,7 +27493,7 @@ export namespace Schemas {
     ```
 
     For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
     - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -29404,6 +29491,37 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative74 {
+      /**
+       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+       * @nullable
+       */
+      error?: string | null;
+      has_next: boolean;
+      /**
+       * Generated HogQL query.
+       * @nullable
+       */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /**
+       * Cursor for the next page. Contains the ordering value and session_id from the last record.
+       * @nullable
+       */
+      next_cursor?: string | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: SessionRecordingType[];
+      /**
+       * Measured timings for different parts of the query generation process
+       * @nullable
+       */
+      timings?: QueryTiming[] | null;
+    }
+
+    export interface QueryResponseAlternative75 {
       /** @nullable */
       columns?: string[] | null;
       /**
@@ -29441,9 +29559,9 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative75ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative76ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative75 {
+    export interface QueryResponseAlternative76 {
       count: number;
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -29461,7 +29579,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative75ResultsItem[];
+      results: QueryResponseAlternative76ResultsItem[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -29469,7 +29587,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative76 {
+    export interface QueryResponseAlternative77 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29494,7 +29612,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative77 {
+    export interface QueryResponseAlternative78 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29530,11 +29648,11 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative78 {
+    export interface QueryResponseAlternative79 {
       questions: string[];
     }
 
-    export interface QueryResponseAlternative79 {
+    export interface QueryResponseAlternative80 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29565,7 +29683,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative80 {
+    export interface QueryResponseAlternative81 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29596,7 +29714,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative81 {
+    export interface QueryResponseAlternative82 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29621,7 +29739,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative82 {
+    export interface QueryResponseAlternative83 {
       /** @nullable */
       columns?: string[] | null;
       /**
@@ -29654,7 +29772,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative84 {
+    export interface QueryResponseAlternative85 {
       /**
        * Timestamp of the newer trace
        * @nullable
@@ -29682,7 +29800,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative86 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29707,7 +29825,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative86 {
+    export interface QueryResponseAlternative87 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29732,7 +29850,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative87 {
+    export interface QueryResponseAlternative88 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29757,7 +29875,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative89 {
       /** @nullable */
       columns?: unknown[] | null;
       /**
@@ -29792,9 +29910,9 @@ export namespace Schemas {
       types?: unknown[] | null;
     }
 
-    export type QueryResponseAlternative89ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative90ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative89 {
+    export interface QueryResponseAlternative90 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29811,7 +29929,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative89ResultsItem[];
+      results: QueryResponseAlternative90ResultsItem[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -29819,7 +29937,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export interface QueryResponseAlternative90 {
+    export interface QueryResponseAlternative91 {
       /**
        * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
        * @nullable
@@ -29844,18 +29962,18 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface ReorderTilesRequest {
@@ -29967,6 +30085,8 @@ export namespace Schemas {
       readonly has_environment_variables: boolean;
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      readonly internal: boolean;
       /** Computed domain allowlist based on network_access_level and allowed_domains */
       readonly effective_domains: readonly string[];
       readonly created_by: UserBasic;
@@ -32342,10 +32462,35 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string;
+    };
+
+    export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type EnvironmentsLogsAlertsListParams = {
@@ -35554,10 +35699,35 @@ export namespace Schemas {
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string;
+    };
+
+    export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type LiveDebuggerBreakpointsListParams = {

@@ -454,6 +454,102 @@ class AssistantPathCleaningFilter(BaseModel):
     )
 
 
+class Key5(StrEnum):
+    DURATION = "duration"
+    ACTIVE_SECONDS = "active_seconds"
+    INACTIVE_SECONDS = "inactive_seconds"
+    CONSOLE_ERROR_COUNT = "console_error_count"
+    CONSOLE_LOG_COUNT = "console_log_count"
+    CONSOLE_WARN_COUNT = "console_warn_count"
+    CLICK_COUNT = "click_count"
+    KEYPRESS_COUNT = "keypress_count"
+    ACTIVITY_SCORE = "activity_score"
+    VISITED_PAGE = "visited_page"
+    SNAPSHOT_SOURCE = "snapshot_source"
+
+
+class AssistantRecordingPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: Literal["recording"] = "recording"
+    value: float
+
+
+class AssistantRecordingPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ...,
+        description=("`exact` - exact match of any of the values. `is_not` - does not match any of the values."),
+    )
+    type: Literal["recording"] = "recording"
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If"
+            " you have a number, convert it to a string first. If you have a boolean,"
+            ' convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantRecordingPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Literal["recording"] = "recording"
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -1295,6 +1391,13 @@ class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
+
+
+class Key10(StrEnum):
+    TAG_NAME = "tag_name"
+    TEXT = "text"
+    HREF = "href"
+    SELECTOR = "selector"
 
 
 class ElementType(BaseModel):
@@ -3632,7 +3735,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5441,6 +5544,75 @@ class AssistantPathsFilter(BaseModel):
     )
 
 
+class AssistantRecordingPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case"
+            " insensitive does not contain. `regex` - matches the regex pattern."
+            " `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Literal["recording"] = "recording"
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or"
+            " `not_regex`, the value must be a valid ClickHouse regex pattern to match"
+            " against. Otherwise, the value must be a substring that will be matched"
+            " against the property value. Use the string values `true` or `false` for"
+            " boolean properties."
+        ),
+    )
+
+
+class AssistantRecordingPropertyFilter5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't"
+            " have a value or wasn't collected."
+        ),
+    )
+    type: Literal["recording"] = "recording"
+
+
 class AssistantRetentionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6018,7 +6190,7 @@ class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key10
     label: str | None = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
@@ -6969,7 +7141,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8944,6 +9116,85 @@ class AssistantPathsQuery(BaseModel):
     )
 
 
+class AssistantRecordingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(
+        default=None,
+        description=("Cursor for pagination from a previous response's next_cursor field."),
+    )
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            'Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d".'
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=("End of the date range. Supports relative dates or ISO 8601 format. Default: now."),
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None, description="Exclude internal and test users. Default: false."
+    )
+    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: int | None = Field(default=None, description="Maximum number of recordings to return.")
+    order: RecordingOrder | None = Field(
+        default=None,
+        description=(
+            'Sort field. Options: "start_time", "duration", "activity_score",'
+            ' "console_error_count", "click_count". Default: "start_time".'
+        ),
+    )
+    order_direction: RecordingOrderDirection | None = Field(
+        default=None, description='Sort direction: "ASC" or "DESC". Default: "DESC".'
+    )
+    person_uuid: str | None = Field(
+        default=None,
+        description="Filter recordings to a specific person by their UUID.",
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+            | AssistantRecordingPropertyFilter1
+            | AssistantRecordingPropertyFilter2
+            | AssistantRecordingPropertyFilter3
+            | AssistantRecordingPropertyFilter4
+            | AssistantRecordingPropertyFilter5
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Property filters to narrow results. Each filter has a `key`, `value`,"
+            " `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person"
+            " properties (e.g. email, country).\n- `session`: Filter by session"
+            " properties (e.g. $session_duration, $channel_type,"
+            " $entry_current_url).\n- `event`: Filter by properties of events in the"
+            " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
+            " recording metrics (e.g. console_error_count, click_count,"
+            " activity_score)."
+        ),
+    )
+
+
 class AssistantRetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10375,6 +10626,48 @@ class CachedPropertyValuesQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[PropertyValueItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class CachedRecordingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    next_cursor: str | None = Field(
+        default=None,
+        description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
+    )
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SessionRecordingType]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -16051,6 +16344,37 @@ class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_cursor: str | None = Field(
+        default=None,
+        description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SessionRecordingType]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class QueryResponseAlternative75(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -16078,7 +16402,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16105,7 +16429,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16131,7 +16455,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16155,35 +16479,6 @@ class QueryResponseAlternative77(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: Any
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-
-
-class QueryResponseAlternative79(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16212,7 +16507,7 @@ class QueryResponseAlternative80(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[EventTaxonomyItem]
+    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16220,6 +16515,35 @@ class QueryResponseAlternative80(BaseModel):
 
 
 class QueryResponseAlternative81(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EventTaxonomyItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16245,7 +16569,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16275,7 +16599,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16301,7 +16625,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16327,7 +16651,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16353,7 +16677,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16384,7 +16708,7 @@ class QueryResponseAlternative88(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16410,7 +16734,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16440,12 +16764,31 @@ class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
     has_next: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_cursor: str | None = Field(
         default=None,
         description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
     )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[SessionRecordingType]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
 
 
 class RetentionEntity(BaseModel):
@@ -20552,13 +20895,14 @@ class QueryResponseAlternative(
         | QueryResponseAlternative80
         | QueryResponseAlternative81
         | QueryResponseAlternative82
-        | QueryResponseAlternative84
+        | QueryResponseAlternative83
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
+        | QueryResponseAlternative91
     ]
 ):
     root: (
@@ -20639,13 +20983,14 @@ class QueryResponseAlternative(
         | QueryResponseAlternative80
         | QueryResponseAlternative81
         | QueryResponseAlternative82
-        | QueryResponseAlternative84
+        | QueryResponseAlternative83
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
+        | QueryResponseAlternative91
     )
 
 
@@ -20746,6 +21091,13 @@ class ExperimentActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exposureConfig: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+        ),
+    )
+    featureFlagKey: str | None = Field(default=None, description="Feature flag key for breakdown filtering.")
     funnelStep: int | None = Field(
         default=None,
         description=(
@@ -20764,6 +21116,9 @@ class ExperimentActorsQuery(BaseModel):
     includeRecordings: bool | None = None
     kind: Literal["ExperimentActorsQuery"] = "ExperimentActorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    multipleVariantHandling: MultipleVariantHandling | None = Field(
+        default=None, description="How to handle users with multiple variant exposures."
+    )
     response: ActorsQueryResponse | None = None
     source: ExperimentQuery
     tags: QueryLogTags | None = None
@@ -21892,6 +22247,7 @@ class MaxInsightContext(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22007,6 +22363,7 @@ class QueryRequest(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22115,6 +22472,7 @@ class QuerySchemaRoot(
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22193,6 +22551,7 @@ class QuerySchemaRoot(
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22276,6 +22635,7 @@ class QueryUpgradeRequest(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22359,6 +22719,7 @@ class QueryUpgradeResponse(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22583,6 +22944,7 @@ class VisualizationArtifactContent(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
