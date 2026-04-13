@@ -147,13 +147,13 @@ describe('useChartInteraction — tooltip pinning', () => {
 
     it.each<[string, () => void]>([
         ['Escape key', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))],
-        ['window scroll', () => window.dispatchEvent(new Event('scroll'))],
         [
-            'nested element scroll (capture phase)',
+            'scroll outside the chart wrapper',
             () => {
-                const scrollContainer = document.createElement('div')
-                refs.wrapperRef.current!.appendChild(scrollContainer)
-                scrollContainer.dispatchEvent(new Event('scroll'))
+                const outside = document.createElement('div')
+                document.body.appendChild(outside)
+                outside.dispatchEvent(new Event('scroll', { bubbles: true }))
+                document.body.removeChild(outside)
             },
         ],
         [
@@ -172,6 +172,20 @@ describe('useChartInteraction — tooltip pinning', () => {
         })
 
         expect(result.current.tooltipCtx).toBeNull()
+    })
+
+    it('does not clear pinned tooltip on scroll inside the chart wrapper', () => {
+        const { result } = renderInteraction()
+        hoverAndPin(result)
+
+        const scrollContainer = document.createElement('div')
+        refs.wrapperRef.current!.appendChild(scrollContainer)
+
+        act(() => {
+            scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }))
+        })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
 
     it('does not clear on non-Escape keys', () => {

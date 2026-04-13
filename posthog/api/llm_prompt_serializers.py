@@ -5,7 +5,7 @@ from typing import Any
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.llm_prompt import LLMPrompt
+from posthog.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
@@ -49,6 +49,16 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Optional substring filter applied to prompt names and prompt content.",
+    )
+    content = serializers.ChoiceField(
+        choices=["full", "preview", "none"],
+        required=False,
+        default="full",
+        help_text=(
+            "Controls how much prompt content is included in list results. "
+            "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
+            "and 'none' omits prompt content entirely."
+        ),
     )
 
 
@@ -186,6 +196,12 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             return value
         return value.isoformat().replace("+00:00", "Z")
 
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if "prompt" in data:
+            data["prompt"] = normalize_prompt_to_string(data["prompt"])
+        return data
+
     def validate_name(self, value: str) -> str:
         return validate_prompt_name_value(value)
 
@@ -225,6 +241,35 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             is_latest=True,
             **validated_data,
         )
+
+
+class LLMPromptListSerializer(LLMPromptSerializer):
+    prompt_size_bytes = serializers.SerializerMethodField()
+    prompt_preview = serializers.SerializerMethodField()
+
+    class Meta(LLMPromptSerializer.Meta):
+        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes"]
+        read_only_fields = fields
+
+    def get_prompt_size_bytes(self, instance: LLMPrompt) -> int:
+        return int(getattr(instance, "prompt_size_bytes", 0))
+
+    def get_prompt_preview(self, instance: LLMPrompt) -> str:
+        prompt = instance.prompt
+        display_value = prompt if isinstance(prompt, str) else json.dumps(prompt, ensure_ascii=False)
+        return display_value[:160] + ("..." if len(display_value) > 160 else "")
+
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        content_mode = self.context.get("content_mode", "full")
+        if content_mode == "none":
+            data.pop("prompt", None)
+            data.pop("prompt_preview", None)
+        elif content_mode == "preview":
+            data.pop("prompt", None)
+        else:
+            data.pop("prompt_preview", None)
+        return data
 
 
 class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):

@@ -187,6 +187,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
+    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -424,6 +425,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/data/persons',
         iconType: 'persons',
     },
+    [Scene.AccountSocialConnected]: {
+        name: 'Account connected',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+    },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
@@ -561,6 +568,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
+    [Scene.Subscriptions]: {
+        projectBased: true,
+        name: 'Subscriptions',
+        iconType: 'inbox',
+        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
+    },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -570,6 +583,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
+        layout: 'app-raw-no-header',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
     [Scene.SurveyFormBuilder]: {
@@ -916,6 +930,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
@@ -925,6 +940,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
@@ -971,6 +987,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
+    [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],

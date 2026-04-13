@@ -40,7 +40,7 @@ const SesMailSchema = z.object({
     destination: z.array(z.string()),
     headersTruncated: z.boolean().optional(),
     headers: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
-    tags: z.record(z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
+    tags: z.record(z.string(), z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
 })
 
 const SesCommonEventBase = z.object({

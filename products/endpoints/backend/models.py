@@ -209,11 +209,8 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         MATERIALIZABLE_QUERY_TYPES = {
             "HogQLQuery",
             "TrendsQuery",
-            "FunnelsQuery",
             "LifecycleQuery",
             "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
         }
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
@@ -222,6 +219,20 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
                 False,
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
+
+        # Block compare mode — materialization can't reconstruct doubled series
+        compare_filter = self.query.get("compareFilter") or {}
+        if compare_filter.get("compare"):
+            return False, "Compare mode is not supported for materialized endpoints."
+
+        # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
+        # inject_series_index tags as separate series, causing a mismatch at read time.
+        breakdown_filter = self.query.get("breakdownFilter") or {}
+        if breakdown_filter.get("breakdown_type") == "cohort":
+            return False, "Cohort breakdowns are not supported for materialized endpoints."
+        for breakdown in breakdown_filter.get("breakdowns") or []:
+            if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
+                return False, "Cohort breakdowns are not supported for materialized endpoints."
 
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
@@ -301,7 +312,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(

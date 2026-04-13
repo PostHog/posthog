@@ -29,6 +29,11 @@ class BackfillPrecalculatedPersonPropertiesForm(forms.Form):
         help_text="Number of concurrent child workflows to run (1-100, default: 5)",
         label="Concurrent workflows",
     )
+    person_id = forms.UUIDField(
+        required=False,
+        help_text="Optional: Specific person ID (UUID) to filter the backfill for. If provided, only processes properties for this person",
+        label="Person ID",
+    )
 
 
 def backfill_precalculated_person_properties_view(request):
@@ -52,6 +57,10 @@ def backfill_precalculated_person_properties_view(request):
             command_args.extend(["--batch-size", str(form.cleaned_data["batch_size"])])
             command_args.extend(["--concurrent-workflows", str(form.cleaned_data["concurrent_workflows"])])
 
+            # Only add person_id if provided
+            if form.cleaned_data.get("person_id"):
+                command_args.extend(["--person-id", str(form.cleaned_data["person_id"])])
+
             try:
                 call_command("backfill_precalculated_person_properties", *command_args)
 
@@ -60,9 +69,14 @@ def backfill_precalculated_person_properties_view(request):
                     if form.cleaned_data.get("cohort_id")
                     else "all realtime cohorts"
                 )
+                person_info = (
+                    f" (filtered to person {form.cleaned_data['person_id']})"
+                    if form.cleaned_data.get("person_id")
+                    else ""
+                )
                 messages.success(
                     request,
-                    f"Backfill started successfully for {cohort_info} "
+                    f"Backfill started successfully for {cohort_info}{person_info} "
                     f"(team {form.cleaned_data['team_id']}) "
                     f"using ID-range based batching with {form.cleaned_data['batch_size']} persons per batch "
                     f"and {form.cleaned_data['concurrent_workflows']} concurrent workflows. "

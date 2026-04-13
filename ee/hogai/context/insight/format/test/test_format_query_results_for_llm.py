@@ -64,7 +64,7 @@ class TestFormatQueryResultsForLlm(TestCase):
                         },
                     ],
                 },
-                "Date|new|dormant",
+                "Date|New|Returning|Resurrecting|Dormant",
             ),
             (
                 "stickiness_query",

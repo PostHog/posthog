@@ -29,6 +29,7 @@ class DuckgresShadowInputs:
     dag_id: str
     node_id: str
     job_id: str
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -141,7 +142,6 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     logger = LOGGER.bind()
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
-
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"
     table_name = saved_query.normalized_name
@@ -156,7 +156,10 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     start_time = time.monotonic()
     sql: str = ""
     try:
-        sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
+        if inputs.dangerously_execute_raw_sql:
+            sql = hogql_query
+        else:
+            sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from posthog.ducklake.client import execute_ducklake_create_table

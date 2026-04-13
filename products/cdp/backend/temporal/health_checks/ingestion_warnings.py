@@ -43,6 +43,8 @@ class IngestionWarningsCheck(HealthCheck):
     kind = "ingestion_warning"
     owner = JobOwners.TEAM_INGESTION
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
+    schedule = "0 7 * * *"
+    active_since_days = 30
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

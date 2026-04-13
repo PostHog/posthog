@@ -56,8 +56,10 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -811,6 +813,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "description": schema.description,
+                    "cdc_table_mode": "consolidated",
                 }
             ],
         )
@@ -1885,6 +1888,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "incremental_available": True,
                     "append_available": True,
+                    "cdc_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -1937,6 +1941,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "incremental_available": True,
                     "append_available": True,
+                    "cdc_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -3359,6 +3364,44 @@ class TestExternalDataSource(APIBaseTest):
                 # This should not trigger additional queries due to select_related
                 _ = source.revenue_analytics_config.enabled
 
+    def test_enabling_revenue_analytics_creates_person_join(self):
+        source = self._create_external_data_source()
+        source.revenue_analytics_config_safe.enabled = False
+        source.revenue_analytics_config_safe.save()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(
+            team=self.team,
+            source_table_name=view_name,
+            joining_table_name="persons",
+            field_name="persons",
+            deleted=False,
+        ).exists()
+
+    def test_disabling_revenue_analytics_removes_person_join(self):
+        source = self._create_external_data_source()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": True},
+        )
+
+        view_name = get_customer_revenue_view_name(source.prefix)
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+
+        self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": False},
+        )
+
+        assert not DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=False).exists()
+        assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=True).exists()
+
     def test_create_external_data_source_rejects_invalid_prefix(self):
         """Test that invalid characters in prefix are rejected."""
         invalid_prefixes = [
@@ -4386,3 +4429,77 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         assert response.status_code == 204
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert mock_capture_exception.called
+
+
+class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
+    def test_destroy_source_deletes_companion_cdc_tables(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+
+        main_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/main",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=main_table,
+        )
+
+        # Companion _cdc table — linked to source but NOT to schema.table
+        companion_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders_cdc",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/cdc",
+        )
+
+        # Unrelated table from another source — should NOT be deleted
+        other_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_456"},
+        )
+        unrelated_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="other_table",
+            external_data_source_id=other_source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/other",
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+
+        # Main table soft-deleted via schema.table
+        main_table.refresh_from_db()
+        assert main_table.deleted is True
+
+        # Schema soft-deleted
+        schema.refresh_from_db()
+        assert schema.deleted is True
+
+        # Companion _cdc table soft-deleted by the companion cleanup query
+        companion_table.refresh_from_db()
+        assert companion_table.deleted is True
+
+        # Unrelated table NOT deleted
+        unrelated_table.refresh_from_db()
+        assert unrelated_table.deleted is False

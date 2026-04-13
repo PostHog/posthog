@@ -70,6 +70,7 @@ class MaterializeViewWorkflowInputs:
     dag_id: str
     node_id: str
     duckgres_only: bool = False
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -124,16 +125,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         start_time = temporalio.workflow.now()
         parent_info = temporalio.workflow.info().parent
         parent_workflow_id = parent_info.workflow_id if parent_info else None
-        job_id = await temporalio.workflow.execute_activity(
-            create_data_modeling_job_activity,
-            CreateDataModelingJobInputs(
-                team_id=inputs.team_id,
-                node_id=inputs.node_id,
-                dag_id=inputs.dag_id,
-                parent_workflow_id=parent_workflow_id,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-        )
+        job_id = None
+        duckgres_job_id = None
 
         # check whether duckgres shadow is enabled before creating the job
         duckgres_enabled = await temporalio.workflow.execute_activity(
@@ -143,7 +136,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         )
 
         duckgres_shadow_handle = None
-        if duckgres_enabled:
+        if duckgres_enabled or inputs.duckgres_only:
             duckgres_job_id = await temporalio.workflow.execute_activity(
                 create_data_modeling_job_activity,
                 CreateDataModelingJobInputs(
@@ -155,7 +148,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
             )
-
             # fire-and-forget: start duckgres shadow materialization in parallel
             duckgres_shadow_handle = temporalio.workflow.start_activity(
                 materialize_view_duckgres_activity,
@@ -164,14 +156,27 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     dag_id=inputs.dag_id,
                     job_id=duckgres_job_id,
+                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=15),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
+                    maximum_attempts=3 if inputs.duckgres_only else 1,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=5),
                 ),
             )
 
         if not inputs.duckgres_only:
+            job_id = await temporalio.workflow.execute_activity(
+                create_data_modeling_job_activity,
+                CreateDataModelingJobInputs(
+                    team_id=inputs.team_id,
+                    node_id=inputs.node_id,
+                    dag_id=inputs.dag_id,
+                    parent_workflow_id=parent_workflow_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=1),
+            )
             try:
                 materialize_result = await temporalio.workflow.execute_activity(
                     materialize_view_activity,
@@ -344,6 +349,11 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     extra=inputs.properties_to_log,
                 )
                 capture_exception(shadow_err)
+        # fallback to duckgres job if no clickhouse job was run
+        if job_id is None:
+            if duckgres_job_id is None:
+                raise temporalio.exceptions.ApplicationError("No data modeling job was created")
+            job_id = duckgres_job_id
         return MaterializeViewWorkflowResult(
             job_id=job_id,
             node_id=inputs.node_id,

@@ -274,6 +274,9 @@
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/ExperimentActorsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
@@ -392,6 +395,34 @@
         "AlertConditionType": {
             "enum": ["absolute_value", "relative_increase", "relative_decrease"],
             "type": "string"
+        },
+        "AlertScheduleRestriction": {
+            "additionalProperties": false,
+            "description": "Quiet hours: local time windows when the alert must not run. At most five windows after API normalization.",
+            "properties": {
+                "blocked_windows": {
+                    "items": {
+                        "$ref": "#/definitions/AlertScheduleRestrictionWindow"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["blocked_windows"],
+            "type": "object"
+        },
+        "AlertScheduleRestrictionWindow": {
+            "additionalProperties": false,
+            "description": "One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end).",
+            "properties": {
+                "end": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end"],
+            "type": "object"
         },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
@@ -791,6 +822,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/WorkflowVariablePropertyFilter"
                 }
             ]
         },
@@ -2423,6 +2457,248 @@
         "AssistantQuerySchema": {
             "$ref": "#/definitions/QuerySchema"
         },
+        "AssistantRecordingPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Value must be a date in ISO 8601 format.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "description": "Recording metric to filter on.\n- `duration` — total recording duration in seconds.\n- `active_seconds` — seconds with user activity.\n- `inactive_seconds` — seconds without user activity.\n- `console_error_count` — number of console errors.\n- `console_log_count` — number of console log entries.\n- `console_warn_count` — number of console warnings.\n- `click_count` — number of clicks.\n- `keypress_count` — number of key presses.\n- `activity_score` — computed activity score (0-100).\n- `visited_page` — URL visited during the session.\n- `snapshot_source` — the recording source (e.g. \"web\", \"mobile\").",
+                            "enum": [
+                                "duration",
+                                "active_seconds",
+                                "inactive_seconds",
+                                "console_error_count",
+                                "console_log_count",
+                                "console_warn_count",
+                                "click_count",
+                                "keypress_count",
+                                "activity_score",
+                                "visited_page",
+                                "snapshot_source"
+                            ],
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantSetPropertyFilterOperator",
+                            "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type"],
+                    "type": "object"
+                }
+            ]
+        },
+        "AssistantRecordingsQuery": {
+            "additionalProperties": false,
+            "description": "Simplified RecordingsQuery for MCP tool usage. Exposes the most useful filtering and pagination fields with LLM-friendly descriptions while hiding internal complexity (having_predicates, operand, actions, etc.).",
+            "properties": {
+                "after": {
+                    "description": "Cursor for pagination from a previous response's next_cursor field.",
+                    "type": "string"
+                },
+                "date_from": {
+                    "description": "Start of the date range. Supports relative dates like \"-7d\", \"-24h\" or ISO 8601 format. Default: \"-3d\".",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "End of the date range. Supports relative dates or ISO 8601 format. Default: now.",
+                    "type": ["string", "null"]
+                },
+                "filter_test_accounts": {
+                    "description": "Exclude internal and test users. Default: false.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of recordings to return."
+                },
+                "order": {
+                    "$ref": "#/definitions/RecordingOrder",
+                    "description": "Sort field. Options: \"start_time\", \"duration\", \"activity_score\", \"console_error_count\", \"click_count\". Default: \"start_time\"."
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "description": "Sort direction: \"ASC\" or \"DESC\". Default: \"DESC\"."
+                },
+                "person_uuid": {
+                    "description": "Filter recordings to a specific person by their UUID.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).",
+                    "items": {
+                        "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AssistantRecordingsQueryPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRecordingPropertyFilter"
+                }
+            ],
+            "description": "Extended property filter union for recordings queries that also supports recording-specific metric filters (e.g. duration, click_count, activity_score)."
+        },
         "AssistantRetentionActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -3436,7 +3712,7 @@
             "type": "object"
         },
         "AttributionMode": {
-            "enum": ["first_touch", "last_touch"],
+            "enum": ["first_touch", "last_touch", "linear", "time_decay", "position_based"],
             "type": "string"
         },
         "AutocompleteCompletionItem": {
@@ -4786,6 +5062,9 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -4797,6 +5076,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -4804,6 +5086,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -6645,6 +6930,89 @@
             },
             "required": [
                 "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedRecordingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "has_next": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_cursor": {
+                    "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SessionRecordingType"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "has_next",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -12343,7 +12711,7 @@
             "type": "string"
         },
         "DataWarehouseSyncInterval": {
-            "enum": ["5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
             "type": "string"
         },
         "DataWarehouseViewLink": {
@@ -13322,6 +13690,26 @@
             "required": ["names"],
             "type": "object"
         },
+        "EndpointQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebOverviewQuery"
+                }
+            ],
+            "description": "Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery."
+        },
         "EndpointRefreshMode": {
             "description": "Controls how endpoint results are fetched.\n- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.\n- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.",
             "enum": ["cache", "force", "direct"],
@@ -13366,7 +13754,7 @@
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
-                            "$ref": "#/definitions/InsightQueryNode"
+                            "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
                 },
@@ -13392,10 +13780,6 @@
                     "default": false,
                     "description": "Whether to include debug information (such as the executed HogQL) in the response.",
                     "type": "boolean"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter",
-                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer",
@@ -14542,6 +14926,10 @@
                     "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
                     "type": "boolean"
                 },
+                "useQueryV3": {
+                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -14924,12 +15312,20 @@
                     "const": "EventTaxonomyQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
                 "maxPropertyValues": {
                     "$ref": "#/definitions/integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
                 },
                 "properties": {
                     "items": {
@@ -14958,13 +15354,22 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15452,6 +15857,192 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "ExperimentActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "exposureConfig": {
+                    "$ref": "#/definitions/ExperimentExposureConfig",
+                    "description": "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+                },
+                "featureFlagKey": {
+                    "description": "Feature flag key for breakdown filtering.",
+                    "type": "string"
+                },
+                "funnelStep": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons."
+                },
+                "funnelStepBreakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType",
+                    "description": "The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test')."
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "multipleVariantHandling": {
+                    "description": "How to handle users with multiple variant exposures.",
+                    "enum": ["exclude", "first_seen"],
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentQuery"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "ExperimentApiEventSource": {
+            "additionalProperties": false,
+            "description": "Slim event/action source for experiment API payloads.",
+            "properties": {
+                "event": {
+                    "description": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required for ActionsNode."
+                },
+                "kind": {
+                    "enum": ["EventsNode", "ActionsNode"],
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters to narrow which events are counted.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "ExperimentApiExposureConfig": {
+            "additionalProperties": false,
+            "description": "Slim exposure config for experiment API payloads.",
+            "properties": {
+                "event": {
+                    "description": "Custom exposure event name.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentEventExposureConfig",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters. Pass an empty array if no filters needed.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "event", "properties"],
+            "type": "object"
+        },
+        "ExperimentApiExposureCriteria": {
+            "additionalProperties": false,
+            "description": "Exposure criteria for experiment API payloads.",
+            "properties": {
+                "exposure_config": {
+                    "$ref": "#/definitions/ExperimentApiExposureConfig"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "ExperimentApiMetric": {
+            "additionalProperties": false,
+            "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
+            "properties": {
+                "completion_event": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For retention metrics: completion event."
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversion window duration."
+                },
+                "denominator": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For ratio metrics: denominator source."
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal",
+                    "description": "Whether higher or lower values indicate success."
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "$ref": "#/definitions/ExperimentMetricType"
+                },
+                "name": {
+                    "description": "Human-readable metric name.",
+                    "type": "string"
+                },
+                "numerator": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For ratio metrics: numerator source."
+                },
+                "retention_window_end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "retention_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "series": {
+                    "description": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentApiEventSource"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For mean metrics: event source."
+                },
+                "start_event": {
+                    "$ref": "#/definitions/ExperimentApiEventSource",
+                    "description": "For retention metrics: start event."
+                },
+                "start_handling": {
+                    "enum": ["first_seen", "last_seen"],
+                    "type": "string"
+                },
+                "uuid": {
+                    "description": "Unique identifier. Auto-generated if omitted.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "metric_type"],
+            "type": "object"
+        },
         "ExperimentBreakdownResult": {
             "additionalProperties": false,
             "description": "Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.",
@@ -15788,6 +16379,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
             ]
         },
@@ -16287,6 +16881,23 @@
                 }
             ]
         },
+        "ExperimentParameters": {
+            "additionalProperties": false,
+            "properties": {
+                "feature_flag_variants": {
+                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentVariant"
+                    },
+                    "type": "array"
+                },
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentQuery": {
             "additionalProperties": false,
             "properties": {
@@ -16305,6 +16916,10 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "precomputation_mode": {
+                    "enum": ["precomputed", "direct"],
                     "type": "string"
                 },
                 "response": {
@@ -16820,6 +17435,25 @@
                 "p_value",
                 "credible_intervals"
             ],
+            "type": "object"
+        },
+        "ExperimentVariant": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Human-readable variant name.",
+                    "type": "string"
+                },
+                "rollout_percentage": {
+                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100.",
+                    "type": "number"
+                }
+            },
+            "required": ["key", "rollout_percentage"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {
@@ -19757,6 +20391,9 @@
                         },
                         {
                             "$ref": "#/definitions/StickinessActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentActorsQuery"
                         }
                     ]
                 },
@@ -24210,7 +24847,7 @@
             "additionalProperties": false,
             "properties": {
                 "allow_custom_answer": {
-                    "description": "Whether to show a \"Type your answer\" option (default: true). Only used for select type.",
+                    "description": "Whether to show a \"Type your answer\" option (default: true). Used for select and multi_select types.",
                     "type": "boolean"
                 },
                 "fields": {
@@ -24447,6 +25084,7 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
+                "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
@@ -25489,6 +26127,7 @@
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
+                "subscriptions",
                 "surveys",
                 "tasks",
                 "teams",
@@ -29692,6 +30331,53 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "has_next": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "next_cursor": {
+                            "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
+                            "type": "string"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/SessionRecordingType"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["has_next", "results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "columns": {
                             "items": {
                                 "type": "string"
@@ -29940,13 +30626,22 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -30590,6 +31285,9 @@
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 },
                 {
+                    "$ref": "#/definitions/RecordingsQuery"
+                },
+                {
                     "$ref": "#/definitions/LogsQuery"
                 },
                 {
@@ -30996,21 +31694,48 @@
         "RecordingsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "has_next": {
                     "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "next_cursor": {
                     "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
                     "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
                 },
                 "results": {
                     "items": {
                         "$ref": "#/definitions/SessionRecordingType"
                     },
                     "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["results", "has_next"],
+            "required": ["has_next", "results"],
             "type": "object"
         },
         "RedditAdsDefaultSources": {
@@ -33205,6 +33930,25 @@
                 "summary": {
                     "type": "string"
                 },
+                "summary_outcome": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "description": {
+                                    "type": ["string", "null"]
+                                },
+                                "success": {
+                                    "type": ["boolean", "null"]
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
@@ -33347,7 +34091,7 @@
                     "type": ["string", "null"]
                 },
                 "eventProperties": {
-                    "description": "Event property filters - only applies when event or actionId is set",
+                    "description": "Event property filters - filters sessions that contain events matching these properties",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
@@ -35750,6 +36494,10 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",
                     "default": "ActionsLineGraph"
+                },
+                "excludeBoxPlotOutliers": {
+                    "default": true,
+                    "type": "boolean"
                 },
                 "formula": {
                     "deprecated": "Use formulaNodes instead.",
@@ -38441,6 +39189,29 @@
             ],
             "type": "string"
         },
+        "WorkflowVariablePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "workflow_variable",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
@@ -38558,6 +39329,29 @@
             },
             "type": "object"
         },
+        "isExperimentFunnelsQuery": {
+            "$comment": "(\n    query: ExperimentTrendsQuery | ExperimentFunnelsQuery) => query is ExperimentFunnelsQuery",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "query": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ExperimentTrendsQuery"
+                                },
+                                {
+                                    "$ref": "#/definitions/ExperimentFunnelsQuery"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["query"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
             "properties": {
@@ -38601,6 +39395,29 @@
                         }
                     },
                     "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentTrendsQuery": {
+            "$comment": "(\n    query: ExperimentTrendsQuery | ExperimentFunnelsQuery) => query is ExperimentTrendsQuery",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "query": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/ExperimentTrendsQuery"
+                                },
+                                {
+                                    "$ref": "#/definitions/ExperimentFunnelsQuery"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["query"],
                     "type": "object"
                 }
             },

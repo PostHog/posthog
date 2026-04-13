@@ -7,6 +7,41 @@ from typing import Any
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
+
+def _get_source_name(source: dict) -> str:
+    """Extract a display name from an event/action/data warehouse source dict."""
+    kind = source.get("kind", "")
+    if kind == "ExperimentDataWarehouseNode":
+        return source.get("table_name") or "Table"
+    # EventsNode or ActionsNode
+    return source.get("name") or source.get("event") or "Event"
+
+
+def get_default_metric_title(metric_dict: dict) -> str:
+    """Generate a default title for a metric based on its configuration."""
+    metric_type = metric_dict.get("metric_type", "")
+    if metric_type == "funnel":
+        series = metric_dict.get("series", [])
+        if series:
+            first_event = _get_source_name(series[0])
+            last_event = _get_source_name(series[-1])
+            if len(series) == 1:
+                return f"{first_event} conversion"
+            return f"{first_event} to {last_event}"
+    elif metric_type == "mean":
+        source = metric_dict.get("source", {})
+        return f"Mean {_get_source_name(source)}"
+    elif metric_type == "ratio":
+        numerator = metric_dict.get("numerator", {})
+        denominator = metric_dict.get("denominator", {})
+        return f"{_get_source_name(numerator)} / {_get_source_name(denominator)}"
+    elif metric_type == "retention":
+        start = metric_dict.get("start_event", {})
+        completion = metric_dict.get("completion_event", {})
+        return f"{_get_source_name(start)} / {_get_source_name(completion)}"
+    return "Metric"
+
+
 logger = logging.getLogger(__name__)
 
 

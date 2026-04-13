@@ -629,18 +629,6 @@ export const PersonsResetPersonDistinctIdCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsStickinessRetrieveParams = {
-    format?: PersonsStickinessRetrieveFormat
-}
-
-export type PersonsStickinessRetrieveFormat =
-    (typeof PersonsStickinessRetrieveFormat)[keyof typeof PersonsStickinessRetrieveFormat]
-
-export const PersonsStickinessRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsTrendsRetrieveParams = {
     format?: PersonsTrendsRetrieveFormat
 }

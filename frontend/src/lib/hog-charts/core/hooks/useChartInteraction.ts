@@ -5,22 +5,22 @@ import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Seri
 
 const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
 
-interface UseChartInteractionOptions {
+interface UseChartInteractionOptions<Meta> {
     scales: ChartScales | null
     dimensions: ChartDimensions | null
     labels: string[]
-    series: Series[]
+    series: Series<Meta>[]
     canvasRef: React.RefObject<HTMLCanvasElement>
     wrapperRef: React.RefObject<HTMLDivElement>
     showTooltip: boolean
     pinnable: boolean
-    onPointClick?: (data: PointClickData) => void
+    onPointClick?: (data: PointClickData<Meta>) => void
     resolveValue?: ResolveValueFn
 }
 
-interface UseChartInteractionResult {
+interface UseChartInteractionResult<Meta> {
     hoverIndex: number
-    tooltipCtx: TooltipContext | null
+    tooltipCtx: TooltipContext<Meta> | null
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
@@ -28,7 +28,7 @@ interface UseChartInteractionResult {
     }
 }
 
-export function useChartInteraction({
+export function useChartInteraction<Meta = unknown>({
     scales,
     dimensions,
     labels,
@@ -39,9 +39,9 @@ export function useChartInteraction({
     pinnable,
     onPointClick,
     resolveValue = defaultResolveValue,
-}: UseChartInteractionOptions): UseChartInteractionResult {
+}: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
-    const [tooltipCtx, setTooltipCtx] = useState<TooltipContext | null>(null)
+    const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
     const hoverIndexRef = useRef<number>(hoverIndex)
     hoverIndexRef.current = hoverIndex
 
@@ -76,11 +76,17 @@ export function useChartInteraction({
         }
 
         const handleScroll = (e: Event): void => {
-            // Ignore scrolls that originate inside the tooltip itself — users
-            // should be able to scroll long pinned content without dismissing it.
-            const target = e.target as Element | null
-            if (target && typeof target.closest === 'function' && target.closest('[data-hog-charts-tooltip]')) {
-                return
+            // Ignore scrolls that originate inside the tooltip itself or inside
+            // the chart wrapper — users should be able to scroll long pinned
+            // content (or a nested legend) without dismissing the tooltip.
+            const target = e.target
+            if (target instanceof Element) {
+                if (target.closest('[data-hog-charts-tooltip]')) {
+                    return
+                }
+                if (wrapperRef.current?.contains(target)) {
+                    return
+                }
             }
             clearTooltip()
         }
@@ -120,10 +126,19 @@ export function useChartInteraction({
 
             if (index >= 0 && showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                const ctx = buildTooltipContext(index, series, labels, scales.x, scales.y, canvasBounds, resolveValue)
-                if (ctx) {
-                    setTooltipCtx(ctx)
-                }
+                // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
+                setTooltipCtx(
+                    buildTooltipContext(
+                        index,
+                        series,
+                        labels,
+                        scales.x,
+                        scales.y,
+                        canvasBounds,
+                        resolveValue,
+                        scales.yAxes
+                    )
+                )
             }
         },
         [scales, dimensions, labels, series, showTooltip, resolveValue, canvasRef, isPinned, clearTooltip]

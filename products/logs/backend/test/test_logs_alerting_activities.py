@@ -337,6 +337,46 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @freeze_time("2025-01-01T00:01:00Z")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_event_properties_include_logs_url_params(self, mock_produce, mock_query_cls):
+        alert = self._make_alert(
+            threshold_count=5,
+            filters={"severityLevels": ["error"], "serviceNames": ["api-server"]},
+        )
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=10, query_duration_ms=50)
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        assert mock_produce.called
+        props = mock_produce.call_args.kwargs["event"].properties
+        assert "logs_url_params" in props
+        assert "severityLevels" in props["logs_url_params"]
+        assert "api-server" in props["logs_url_params"]
+        assert props["service_names"] == ["api-server"]
+        assert props["severity_levels"] == ["error"]
+        assert props["triggered_at"] == "2025-01-01T00:01:00+00:00"
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
+    def test_logs_url_params_includes_absolute_date_range(self, mock_produce, mock_query_cls):
+        alert = self._make_alert(
+            threshold_count=5,
+            window_minutes=10,
+            filters={"severityLevels": ["error"]},
+        )
+        mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=10, query_duration_ms=50)
+
+        _evaluate_single_alert(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
+
+        props = mock_produce.call_args.kwargs["event"].properties
+        assert "dateRange" in props["logs_url_params"]
+        # Window is 10m, check time is 00:01 — so date_from should be 23:51 (previous day)
+        assert "2024-12-31T23%3A51%3A00" in props["logs_url_params"] or "23:51:00" in props["logs_url_params"]
+        assert "2025-01-01T00%3A01%3A00" in props["logs_url_params"] or "00:01:00" in props["logs_url_params"]
+
+    @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
+    @patch("products.logs.backend.temporal.activities.produce_internal_event")
     def test_resolution_within_cooldown_suppresses_resolved_event(self, mock_produce, mock_query_cls):
         mock_query_cls.return_value.execute.return_value = AlertCheckCountResult(count=0, query_duration_ms=100)
         alert = self._make_alert(
