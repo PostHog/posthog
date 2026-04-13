@@ -23,6 +23,7 @@ import {
     InsightVizNode,
     LifecycleFilter,
     LifecycleQuery,
+    NodeKind,
     PathsFilter,
     PathsQuery,
     RetentionFilter,
@@ -36,14 +37,18 @@ import {
     containsHogQLQuery,
     getResultCustomizations,
     filterForQuery,
+    isAnyDataWarehouseNode,
     isDataTableNode,
     isDataVisualizationNode,
+    isDataWarehouseNode,
     isEndpointsUsageQuery,
     isFunnelsQuery,
+    isFunnelsDataWarehouseNode,
     isHogQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
@@ -122,6 +127,82 @@ const cleanSeriesMath = (
     mathAvailability: MathAvailability
 ): (AnyEntityNode | GroupNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
+}
+
+type DataWarehouseNodeKind =
+    | NodeKind.DataWarehouseNode
+    | NodeKind.FunnelsDataWarehouseNode
+    | NodeKind.LifecycleDataWarehouseNode
+
+const cleanDataWarehouseNode = (
+    entity: AnyEntityNode | GroupNode,
+    dataWarehouseNodeKind: DataWarehouseNodeKind
+): AnyEntityNode | GroupNode => {
+    if ('nodes' in entity && Array.isArray(entity.nodes)) {
+        return {
+            ...entity,
+            nodes: entity.nodes.map((node) => cleanDataWarehouseNode(node, dataWarehouseNodeKind) as AnyEntityNode),
+        }
+    }
+
+    if (!isAnyDataWarehouseNode(entity) || entity.kind === dataWarehouseNodeKind) {
+        return entity
+    }
+
+    const {
+        kind: _kind,
+        id_field,
+        distinct_id_field,
+        aggregation_target_field,
+        created_at_field,
+        ...baseEntity
+    } = entity
+
+    if (dataWarehouseNodeKind === NodeKind.DataWarehouseNode) {
+        return {
+            ...baseEntity,
+            kind: NodeKind.DataWarehouseNode,
+            ...(id_field ? { id_field } : {}),
+            distinct_id_field:
+                distinct_id_field ??
+                (isFunnelsDataWarehouseNode(entity) || isLifecycleDataWarehouseNode(entity)
+                    ? entity.aggregation_target_field
+                    : undefined),
+        } as AnyEntityNode | GroupNode
+    }
+
+    if (dataWarehouseNodeKind === NodeKind.FunnelsDataWarehouseNode) {
+        return {
+            ...baseEntity,
+            kind: NodeKind.FunnelsDataWarehouseNode,
+            ...(id_field ? { id_field } : {}),
+            aggregation_target_field:
+                aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+        } as AnyEntityNode | GroupNode
+    }
+
+    return {
+        ...baseEntity,
+        kind: NodeKind.LifecycleDataWarehouseNode,
+        aggregation_target_field:
+            aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+        created_at_field: created_at_field ?? entity.timestamp_field,
+    } as AnyEntityNode | GroupNode
+}
+
+const cleanDataWarehouseNodes = (
+    series: (AnyEntityNode | GroupNode)[],
+    dataWarehouseNodeKind: DataWarehouseNodeKind
+): (AnyEntityNode | GroupNode)[] => {
+    return series.map((entity) => cleanDataWarehouseNode(entity, dataWarehouseNodeKind))
+}
+
+const cleanSeries = (
+    series: (AnyEntityNode | GroupNode)[],
+    mathAvailability: MathAvailability,
+    dataWarehouseNodeKind: DataWarehouseNodeKind
+): (AnyEntityNode | GroupNode)[] => {
+    return cleanSeriesMath(cleanDataWarehouseNodes(series, dataWarehouseNodeKind), mathAvailability)
 }
 
 type TrendsCommonVisualizationProperties = Pick<TrendsFilter, 'showValuesOnSeries' | 'showPercentStackView' | 'display'>
@@ -434,26 +515,36 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         if (cache.series) {
             if (isTrendsQuery(mergedQuery)) {
                 // Trends supports GroupNode, keep series as-is
-                mergedQuery.series = cleanSeriesMath(cache.series, MathAvailability.All) as TrendsQuery['series']
-            } else if (isFunnelsQuery(mergedQuery)) {
-                mergedQuery.series = cleanSeriesMath(
+                mergedQuery.series = cleanSeries(
                     cache.series,
-                    MathAvailability.FunnelsOnly
+                    MathAvailability.All,
+                    NodeKind.DataWarehouseNode
+                ) as TrendsQuery['series']
+            } else if (isFunnelsQuery(mergedQuery)) {
+                mergedQuery.series = cleanSeries(
+                    cache.series,
+                    MathAvailability.FunnelsOnly,
+                    NodeKind.FunnelsDataWarehouseNode
                 ) as FunnelsQuery['series']
             } else {
                 // Expand GroupNodes for insight types that don't support them
                 const expandedSeries = expandGroupNodes(cache.series)
 
                 if (isLifecycleQuery(mergedQuery)) {
-                    mergedQuery.series = cleanSeriesMath(
+                    mergedQuery.series = cleanSeries(
                         expandedSeries.slice(0, 1),
-                        MathAvailability.None
+                        MathAvailability.None,
+                        NodeKind.LifecycleDataWarehouseNode
                     ) as LifecycleQuery['series']
                 } else {
                     const mathAvailability = isStickinessQuery(mergedQuery)
                         ? MathAvailability.ActorsOnly
                         : MathAvailability.None
-                    mergedQuery.series = cleanSeriesMath(expandedSeries, mathAvailability) as typeof mergedQuery.series
+                    mergedQuery.series = cleanSeries(
+                        expandedSeries,
+                        mathAvailability,
+                        NodeKind.DataWarehouseNode
+                    ) as typeof mergedQuery.series
                 }
             }
         }
