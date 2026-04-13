@@ -109,7 +109,7 @@ fn is_internal_request(context: &RequestContext) -> bool {
     }
 
     use crate::api::auth::extract_bearer_token;
-    
+
     if let Some(auth_token) = extract_bearer_token(&context.headers) {
         // Ensure auth token is not empty either
         !auth_token.trim().is_empty() && auth_token == *internal_token
@@ -308,5 +308,4 @@ mod tests {
         // Should record usage: first flag doesn't START with prefix, second does start with prefix
         assert!(should_record_usage(&flag_list));
     }
-
 }
