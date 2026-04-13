@@ -40,6 +40,15 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
         .unwrap()
 }
 
+/// Normalize an unmatched path to its first segment to avoid high-cardinality
+/// metric labels from arbitrary 404 paths.
+fn normalize_unmatched_path(raw: &str) -> String {
+    match raw.find('/').and_then(|_| raw[1..].find('/')) {
+        Some(i) => raw[..i + 2].to_owned(),
+        None => raw.to_owned(),
+    }
+}
+
 /// Middleware to record some common HTTP metrics
 /// Someday tower-http might provide a metrics middleware: https://github.com/tower-rs/tower-http/issues/57
 pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse {
@@ -48,7 +57,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        req.uri().path().to_owned()
+        normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();

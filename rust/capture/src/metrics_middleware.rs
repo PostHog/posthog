@@ -25,6 +25,15 @@ impl Drop for ConnectionGuard {
         gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
     }
 }
+/// Normalize an unmatched path to its first segment to avoid high-cardinality
+/// metric labels from arbitrary 404 paths.
+fn normalize_unmatched_path(raw: &str) -> String {
+    match raw.find('/').and_then(|_| raw[1..].find('/')) {
+        Some(i) => raw[..i + 2].to_owned(),
+        None => raw.to_owned(),
+    }
+}
+
 const METRIC_CAPTURE_ACTIVE_CONNECTIONS: &str = "capture_active_connections";
 const METRIC_HTTP_REQUESTS_TOTAL: &str = "http_requests_total";
 const METRIC_HTTP_REQUESTS_DURATION_SECONDS: &str = "http_requests_duration_seconds";
@@ -40,7 +49,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        req.uri().path().to_owned()
+        normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();
