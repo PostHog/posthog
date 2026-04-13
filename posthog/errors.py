@@ -347,7 +347,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     59: ErrorCodeMeta(
         "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", category=QueryErrorCategory.USER_ERROR
     ),  # WHERE/HAVING column is not boolean-convertible
-    60: ErrorCodeMeta("UNKNOWN_TABLE"),
+    60: ErrorCodeMeta("UNKNOWN_TABLE", user_safe=True),
     62: ErrorCodeMeta("SYNTAX_ERROR", category=QueryErrorCategory.USER_ERROR),
     63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
