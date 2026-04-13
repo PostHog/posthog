@@ -184,6 +184,105 @@ class TestCoderConfig:
             coder._run_build(["coder", "start", "devbox-test-user"])
 
 
+class TestCoderVersion:
+    """Test Coder CLI version pinning and mismatch warnings."""
+
+    def test_get_coder_version_falls_back_to_manifest(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HOGLI_DEVBOX_CODER_VERSION", raising=False)
+
+        with patch(
+            "hogli.devbox.coder.load_manifest",
+            return_value={"metadata": {"devbox": {"coder_version": "1.0.0"}}},
+        ):
+            assert coder.get_coder_version() == "1.0.0"
+
+    @pytest.mark.parametrize(
+        "raw_version, expected",
+        [
+            ("v1.0.0", "1.0.0"),
+            ("v2.30.5+3b2ded6", "2.30.5"),
+            ("1.0.0+abc123", "1.0.0"),
+            ("v0.1.0-rc1+build.42", "0.1.0-rc1"),
+        ],
+    )
+    def test_get_installed_coder_version_normalizes(
+        self, monkeypatch: pytest.MonkeyPatch, raw_version: str, expected: str
+    ) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, capture_output=False: subprocess.CompletedProcess(
+                args, 0, json.dumps({"version": raw_version}), ""
+            ),
+        )
+        assert coder.get_installed_coder_version() == expected
+
+    def test_warn_version_mismatch_prints_warning(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "2.0.0")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+        coder._warn_version_mismatch()
+        output = capsys.readouterr().out
+        assert "v2.0.0" in output
+        assert "v1.0.0" in output
+        assert "curl -fsSL https://coder.example.com/install.sh | sh" in output
+
+    def test_warn_version_mismatch_silent_when_matching(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "1.0.0")
+
+        coder._warn_version_mismatch()
+        assert capsys.readouterr().out == ""
+
+    def test_ensure_coder_installed_uses_deployment_install_script(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: False)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
+
+        captured_cmd: list[str] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured_cmd.extend(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.ensure_coder_installed()
+        full_cmd = " ".join(captured_cmd)
+        assert "curl -fsSL https://coder.example.com/install.sh" in full_cmd
+        assert f"--prefix {tmp_path}" in full_cmd
+
+    def test_ensure_coder_installed_reinstalls_on_version_mismatch(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_version", lambda: "1.0.0")
+        monkeypatch.setattr(coder, "get_installed_coder_version", lambda: "2.0.0")
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", tmp_path / "bin")
+
+        captured_cmd: list[str] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured_cmd.extend(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+
+        coder.ensure_coder_installed()
+        output = capsys.readouterr().out
+        assert "v2.0.0 does not match server v1.0.0" in output
+        assert "curl -fsSL https://coder.example.com/install.sh" in " ".join(captured_cmd)
+
+
 class TestWorkspaceNaming:
     """Test workspace name derivation, label validation, and extraction."""
 

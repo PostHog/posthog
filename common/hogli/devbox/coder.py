@@ -26,6 +26,7 @@ _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
+_MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
@@ -74,16 +75,46 @@ def get_coder_url() -> str:
     raise RuntimeError("Missing `metadata.devbox.coder_url` in common/hogli/manifest.yaml.")
 
 
+def get_coder_version() -> str:
+    """Resolve the expected Coder CLI version from env or manifest."""
+    if version := os.environ.get("HOGLI_DEVBOX_CODER_VERSION"):
+        return version
+
+    manifest = load_manifest()
+    metadata = manifest.get("metadata", {})
+    devbox_metadata = metadata.get("devbox", {})
+    if isinstance(devbox_metadata, dict) and isinstance(devbox_metadata.get("coder_version"), str):
+        return devbox_metadata["coder_version"]
+
+    raise RuntimeError("Missing `metadata.devbox.coder_version` in common/hogli/manifest.yaml.")
+
+
+def _coder_bin() -> str:
+    """Return the path to the hogli-managed coder binary, falling back to PATH."""
+    managed = _MANAGED_CODER_DIR / "coder"
+    if managed.is_file():
+        return str(managed)
+    return shutil.which("coder") or "coder"
+
+
+def _resolve_coder(args: list[str]) -> list[str]:
+    """Replace a leading ``"coder"`` arg with the managed binary path."""
+    if args and args[0] == "coder":
+        return [_coder_bin(), *args[1:]]
+    return args
+
+
 def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent text handling."""
-    return subprocess.run(args, capture_output=capture_output, text=True)
+    return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True)
 
 
 def _run_or_exit(args: list[str]) -> None:
     """Replace the current process with a Coder command or exit with its status."""
-    coder_path = shutil.which("coder")
+    resolved = _resolve_coder(args)
+    coder_path = resolved[0] if resolved else shutil.which("coder")
     if coder_path:
-        os.execvp(coder_path, args)
+        os.execvp(coder_path, resolved)
 
     sys.exit(_run(args).returncode)
 
@@ -95,7 +126,7 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
     build step. In verbose mode, streams all output including Terraform
     internals. On failure the full captured output is always printed.
     """
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(_resolve_coder(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     captured: list[str] = []
     if proc.stdout is None:
         raise RuntimeError("Popen stdout pipe was not opened")
@@ -217,9 +248,18 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     _fail(f"Tailscale is not installed. Install it, then {setup_hint}")
 
 
+def _config_ssh_args() -> list[str]:
+    """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
+    args = ["coder", "config-ssh"]
+    managed = _MANAGED_CODER_DIR / "coder"
+    if managed.is_file():
+        args += ["--coder-binary-path", str(managed)]
+    return args
+
+
 def _ssh_config_needs_update() -> bool:
     """Check whether ``coder config-ssh`` would make changes."""
-    result = _run(["coder", "config-ssh", "--dry-run", "--yes"], capture_output=True)
+    result = _run([*_config_ssh_args(), "--dry-run", "--yes"], capture_output=True)
     if result.returncode != 0:
         return True
     combined = result.stdout + result.stderr
@@ -227,29 +267,85 @@ def _ssh_config_needs_update() -> bool:
 
 
 def coder_installed() -> bool:
-    """Return whether the Coder CLI is available."""
-    return shutil.which("coder") is not None
+    """Return whether the Coder CLI is available (managed or on PATH)."""
+    return (_MANAGED_CODER_DIR / "coder").is_file() or shutil.which("coder") is not None
+
+
+def get_installed_coder_version() -> str | None:
+    """Return the installed Coder CLI version, or None if undetermined."""
+    result = _run(["coder", "version", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+        version = data.get("version", "")
+        if not version:
+            return None
+        # Strip leading "v" and semver build metadata (+commit hash).
+        # The Coder CLI reports e.g. "v2.30.5+3b2ded6" but the manifest
+        # pins just "2.30.5" — build metadata is irrelevant for comparison.
+        return version.lstrip("v").split("+")[0]
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
+def _warn_version_mismatch() -> None:
+    """Warn if the installed Coder CLI doesn't match the expected version."""
+    try:
+        expected = get_coder_version()
+    except RuntimeError:
+        return
+
+    installed = get_installed_coder_version()
+    if installed is None or installed == expected:
+        return
+
+    coder_url = get_coder_url()
+    click.echo(
+        click.style(
+            f"Coder CLI v{installed} does not match server v{expected}.\n"
+            f"  Run `hogli devbox:setup` or: curl -fsSL {coder_url}/install.sh | sh",
+            fg="yellow",
+        )
+    )
+
+
+def _install_coder_cli() -> None:
+    """Install the Coder CLI into ~/.hogli/bin from the deployment's install script."""
+    coder_url = get_coder_url()
+    try:
+        version = get_coder_version()
+        click.echo(f"Installing coder CLI v{version}...")
+    except RuntimeError:
+        version = None
+        click.echo("Installing coder CLI...")
+
+    prefix = _MANAGED_CODER_DIR.parent
+    prefix.mkdir(parents=True, exist_ok=True)
+    cmd = f"curl -fsSL {coder_url}/install.sh | sh -s -- --prefix {prefix}"
+    result = subprocess.run(["sh", "-c", cmd], text=True)
+    if result.returncode != 0:
+        _fail(f"Coder CLI installation failed.\nTry manually: {cmd}")
 
 
 def ensure_coder_installed() -> None:
-    """Install Coder via Homebrew when available, otherwise print exact instructions."""
-    if coder_installed():
+    """Install the Coder CLI at the expected version, or reinstall on mismatch."""
+    if not coder_installed():
+        _install_coder_cli()
+        return
+
+    try:
+        expected = get_coder_version()
+    except RuntimeError:
         click.echo("coder CLI is installed.")
         return
 
-    if not shutil.which("brew"):
-        _fail(
-            "`coder` is not installed.\n"
-            "Install Homebrew, then run:\n"
-            f"  brew install {BREW_PACKAGE}\n"
-            "Or install Coder directly:\n"
-            "  curl -L https://coder.com/install.sh | sh"
-        )
-
-    click.echo("Installing coder via Homebrew...")
-    result = _run(["brew", "install", BREW_PACKAGE])
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
+    installed = get_installed_coder_version()
+    if installed is not None and installed != expected:
+        click.echo(f"coder CLI v{installed} does not match server v{expected}.")
+        _install_coder_cli()
+    else:
+        click.echo("coder CLI is installed.")
 
 
 def _coder_whoami() -> subprocess.CompletedProcess[str]:
@@ -293,6 +389,8 @@ def ensure_runtime_ready() -> None:
     if not coder_authenticated():
         _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
 
+    _warn_version_mismatch()
+
 
 def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
     """Install Coder SSH config, skipping only when explicitly opted out."""
@@ -306,7 +404,7 @@ def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
         return
 
     click.echo("Adding Coder workspace entries to ~/.ssh/config...")
-    result = _run(["coder", "config-ssh", "--yes"])
+    result = _run([*_config_ssh_args(), "--yes"])
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
