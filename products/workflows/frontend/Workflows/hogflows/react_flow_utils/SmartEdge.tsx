@@ -157,67 +157,21 @@ function EdgeLabel({ transform, label }: { transform: string; label: string }): 
         <LemonTag
             style={{
                 transform,
+                maxWidth: MINIMUM_EDGE_SPACING - 30,
             }}
             size="small"
-            className="nodrag nopan absolute text-[0.45rem] font-sans font-medium"
+            className="nodrag nopan absolute text-[0.45rem] font-sans font-medium truncate"
             type="muted"
+            title={label}
         >
             {label}
         </LemonTag>
     )
 }
 
-function findXAtY(path: SVGPathElement, targetY: number, totalLength: number): number | null {
-    const tolerance = 1 // Y tolerance for finding intersection
-    const step = totalLength / 1000 // Sample the path at 1000 points
-
-    for (let distance = 0; distance <= totalLength; distance += step) {
-        const point = path.getPointAtLength(distance)
-        if (Math.abs(point.y - targetY) <= tolerance) {
-            return point.x
-        }
-    }
-
-    return null
-}
-
-function getPointAtYValue(pathString: string, distance: number, targetY?: number): { x: number; y: number } {
-    // Create a temporary SVG path element to calculate the point
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', pathString)
-    svg.appendChild(path)
-    document.body.appendChild(svg)
-
-    try {
-        const totalLength = path.getTotalLength()
-
-        // Calculate the Y value to use
-        let yValue: number
-        if (targetY !== undefined) {
-            yValue = targetY
-        } else {
-            // Calculate Y based on distance along path (25% minimum)
-            const percentageDistance = totalLength * 0.25
-            const effectiveDistance = Math.max(distance, percentageDistance)
-            const clampedDistance = Math.min(effectiveDistance, totalLength)
-            const point = path.getPointAtLength(clampedDistance)
-            yValue = point.y
-        }
-
-        // Find the X coordinate at the Y value
-        const xAtY = findXAtY(path, yValue, totalLength)
-
-        return {
-            x: xAtY !== null ? xAtY : 0, // Fallback to 0 if no intersection found
-            y: yValue,
-        }
-    } finally {
-        document.body.removeChild(svg)
-    }
-}
-
 const ANIMATION_DURATION_S = 1.5
+
+const LABEL_STAGGER_PX = 16
 
 export function SmartEdge({
     id,
@@ -241,7 +195,7 @@ export function SmartEdge({
     const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path
-    const [edgePath] = getSmartStepPath({
+    const [edgePath, labelX] = getSmartStepPath({
         sourceX,
         sourceY,
         targetX,
@@ -265,7 +219,24 @@ export function SmartEdge({
         return () => animation?.cancel()
     }, [isAnimating, edgePath])
 
-    const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
+    // Stagger labels vertically when a node has many outgoing edges to prevent overlap
+    const siblingEdges = edges.filter((e) => e.source === source)
+    const siblingCount = siblingEdges.length
+    let labelStaggerOffset = 0
+    if (siblingCount > 4) {
+        const sortedSiblings = [...siblingEdges].sort((a, b) => {
+            const aEdge = a.data?.edge as HogFlowEdge | undefined
+            const bEdge = b.data?.edge as HogFlowEdge | undefined
+            if (aEdge?.type === 'branch' && bEdge?.type === 'branch') {
+                return (aEdge.index || 0) - (bEdge.index || 0)
+            }
+            return aEdge?.type === 'continue' ? 1 : -1
+        })
+        const siblingIndex = sortedSiblings.findIndex((e) => e.id === id)
+        const staggerRows = siblingCount <= 12 ? 2 : 3
+        labelStaggerOffset = (siblingIndex % staggerRows) * LABEL_STAGGER_PX
+    }
+    const labelY = sourceY + 20 + labelStaggerOffset
 
     return (
         <>
@@ -285,7 +256,7 @@ export function SmartEdge({
             <EdgeLabelRenderer>
                 {data?.label ? (
                     <EdgeLabel
-                        transform={`translate(-50%, -50%) translate(${labelPoint.x}px,${labelPoint.y}px)`}
+                        transform={`translate(-50%, -50%) translate(${labelX}px,${labelY}px)`}
                         label={(data?.label as string) || ''}
                     />
                 ) : null}
