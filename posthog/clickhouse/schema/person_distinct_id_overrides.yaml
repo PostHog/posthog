@@ -67,9 +67,21 @@ tables:
         on_nodes: INGESTION_EVENTS
         columns: []
 
+    # Backed by a GROUP BY query over person_distinct_id_overrides that picks
+    # the latest version per (team_id, distinct_id). See posthog/models/person/sql.py
+    # for the legacy CREATE OR REPLACE DICTIONARY definition.
     person_distinct_id_overrides_dict:
         engine: Dictionary
         on_nodes: ALL
+        primary_key: team_id, distinct_id
+        source:
+            type: CLICKHOUSE
+            query: "SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM posthog.person_distinct_id_overrides GROUP BY team_id, distinct_id"
+        layout:
+            type: COMPLEX_KEY_HASHED
+        lifetime:
+            min: 3600
+            max: 18000
         columns:
             - name: team_id
               type: Int64

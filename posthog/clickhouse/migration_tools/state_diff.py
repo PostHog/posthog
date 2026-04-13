@@ -384,6 +384,20 @@ def _render_dict_lifetime(lifetime: dict | None) -> str:
     return f"LIFETIME(MIN {int(lifetime['min'])} MAX {int(lifetime['max'])})"
 
 
+def _render_dict_range(dict_range: dict | None) -> str:
+    """Render RANGE(MIN x MAX y). Used by RANGE_HASHED layouts for per-range lookups.
+
+    `min`/`max` are column names (e.g. `start_date`/`end_date`), not integer
+    bounds — CH interprets them as column refs into the dictionary's own rows.
+    Returns an empty string when `dict_range` is None (non-RANGE_HASHED dicts).
+    """
+    if not dict_range:
+        return ""
+    if "min" not in dict_range or "max" not in dict_range:
+        raise ValueError("Dictionary range requires 'min' and 'max' keys (column names)")
+    return f"RANGE(MIN {dict_range['min']} MAX {dict_range['max']})"
+
+
 def _generate_create_sql(
     table: DesiredTable,
     database: str,
@@ -399,10 +413,15 @@ def _generate_create_sql(
         source = _render_dict_source(table.dict_source)
         layout = _render_dict_layout(table.dict_layout)
         lifetime = _render_dict_lifetime(table.dict_lifetime)
+        rng = _render_dict_range(table.dict_range)
+        # RANGE clause appears after LIFETIME in the DDL grammar. Only RANGE_HASHED
+        # layouts use it — for other layouts, _render_dict_range returns "" and we
+        # omit the extra line entirely.
+        tail = f"\n{rng}" if rng else ""
         return (
             f"CREATE DICTIONARY IF NOT EXISTS {database}.{table.name}\n"
             f"(\n{cols}\n)\n"
-            f"{pk}\n{source}\n{layout}\n{lifetime}"
+            f"{pk}\n{source}\n{layout}\n{lifetime}{tail}"
         )
 
     if _is_mv(table.engine):
@@ -415,6 +434,18 @@ def _generate_create_sql(
         sharding = table.sharding_key or "rand()"
         physical_cluster = _resolve_physical_cluster(cluster)
 
+        # Split `source` into database + table arguments for the Distributed
+        # engine. When the YAML says `source: system.processes`, passing the
+        # whole string as the table-name argument causes ClickHouse to resolve
+        # `system.processes` as a table in the local database, which fails.
+        # Splitting on the first `.` lets the engine find the source in a
+        # different database (e.g. `system.*` or a shared data DB).
+        if "." in source:
+            src_db, src_table = source.split(".", 1)
+        else:
+            src_db = database
+            src_table = source
+
         # Distributed tables that wrap a system.* table (or any source table
         # whose columns should be inherited rather than redeclared) are
         # authored in the YAML with an empty `columns: []` list. Rendering an
@@ -426,18 +457,18 @@ def _generate_create_sql(
         # resolution:
         #   - If `source` contains a dot, use it verbatim (e.g. `system.processes`).
         #   - Otherwise, qualify it with the current database.
-        # The Distributed cluster args are unchanged from the normal path.
+        # The Distributed cluster args use the split src_db/src_table.
         if not table.columns:
             source_ref = source if "." in source else f"{database}.{source}"
             return (
                 f"CREATE TABLE IF NOT EXISTS {database}.{table.name} AS {source_ref}\n"
-                f"ENGINE = Distributed('{physical_cluster}', '{database}', '{source}', {sharding})"
+                f"ENGINE = Distributed('{physical_cluster}', '{src_db}', '{src_table}', {sharding})"
             )
 
         return (
             f"CREATE TABLE IF NOT EXISTS {database}.{table.name}\n"
             f"(\n{cols}\n"
-            f") ENGINE = Distributed('{physical_cluster}', '{database}', '{source}', {sharding})"
+            f") ENGINE = Distributed('{physical_cluster}', '{src_db}', '{src_table}', {sharding})"
         )
 
     if _is_kafka(table.engine):
@@ -748,24 +779,98 @@ def diff_state(
 
         if _is_dictionary(desired_table.engine):
             # Dictionaries don't support ALTER — any change in metadata (primary key,
-            # source params, layout, lifetime) forces DROP + CREATE. system.tables
-            # stores the full DDL in engine_full; doing a substring check is
-            # crude but sufficient — false positives just rewrite the same DDL.
+            # source type, source params, layout type, layout params, lifetime,
+            # range) forces DROP + CREATE. Structured fields populated by
+            # dump_dictionaries are checked first; engine_full substring matches
+            # cover params that aren't decomposed by introspection (URL, DB,
+            # query text, layout params like PREALLOCATE). False positives only
+            # rewrite the same DDL, so err on the side of recreate.
             if current_table.engine_full:
                 haystack = current_table.engine_full
                 if desired_table.primary_key and f"PRIMARY KEY {desired_table.primary_key}" not in haystack:
                     structural_details.append(f"PRIMARY KEY changed (desired: {desired_table.primary_key})")
                     structural_recreate = True
-                if (
-                    desired_table.dict_layout
-                    and desired_table.dict_layout.get("type", "").upper() not in haystack.upper()
-                ):
-                    structural_details.append(f"LAYOUT changed (desired: {desired_table.dict_layout.get('type')})")
-                    structural_recreate = True
+                # Layout type — prefer structured comparison, fall back to substring.
+                desired_layout_type = (
+                    desired_table.dict_layout.get("type", "") if desired_table.dict_layout else ""
+                ).upper()
+                if desired_layout_type:
+                    current_layout_type = (current_table.dict_layout_type or "").upper()
+                    if current_layout_type:
+                        if current_layout_type != desired_layout_type:
+                            structural_details.append(
+                                f"LAYOUT type changed: {current_layout_type} -> {desired_layout_type}"
+                            )
+                            structural_recreate = True
+                    elif desired_layout_type not in haystack.upper():
+                        structural_details.append(f"LAYOUT changed (desired: {desired_layout_type})")
+                        structural_recreate = True
+                # Layout params — substring check against engine_full.
+                # system.dictionaries doesn't expose per-param values (e.g.
+                # PREALLOCATE 1, SHARDS 4, size_in_cells 100000).
+                if desired_table.dict_layout:
+                    for param_key, param_val in (desired_table.dict_layout.get("params") or {}).items():
+                        rendered = _render_dict_param(param_key, param_val)
+                        if rendered not in haystack:
+                            structural_details.append(f"LAYOUT param '{param_key}' changed (desired: {rendered})")
+                            structural_recreate = True
+                # Source type — prefer structured, fall back to substring.
+                if desired_table.dict_source and desired_table.dict_source.get("type"):
+                    desired_source_type = desired_table.dict_source["type"].upper()
+                    current_source_type = (current_table.dict_source_type or "").upper()
+                    if current_source_type and current_source_type != desired_source_type:
+                        structural_details.append(
+                            f"SOURCE type changed: {current_source_type} -> {desired_source_type}"
+                        )
+                        structural_recreate = True
+                    elif not current_source_type and desired_source_type not in haystack.upper():
+                        structural_details.append(f"SOURCE type changed (desired: {desired_source_type})")
+                        structural_recreate = True
+                # Source params — substring check. CH renders SOURCE params in
+                # the DDL verbatim, so any URL/DB/table/query change shows up in
+                # engine_full. Match against both the rendered YAML form
+                # ("key 'val'") and the CH-uppercased form ("KEY 'val'") to
+                # avoid false positives on case variations alone.
+                #
+                # `password` and `user` are excluded because they're resolved
+                # from Django settings (via __from_settings__) and vary across
+                # envs — triggering recreate on a legitimate env difference
+                # (dev vs prod password) would cause unwanted DDL churn.
+                # Structural source changes (table, URL, query, DB) still fire.
+                if desired_table.dict_source:
+                    for param_key, param_val in desired_table.dict_source.items():
+                        if param_key in ("type", "password", "user"):
+                            continue
+                        rendered = _render_dict_param(param_key, param_val)
+                        rendered_upper = _render_dict_param(param_key.upper(), param_val)
+                        if rendered not in haystack and rendered_upper not in haystack:
+                            structural_details.append(f"SOURCE param '{param_key}' changed (desired: {param_val!r})")
+                            structural_recreate = True
+                # Lifetime — prefer structured comparison (ints), fall back to substring.
                 if desired_table.dict_lifetime:
                     lt = desired_table.dict_lifetime
-                    if f"MIN {lt.get('min')}" not in haystack or f"MAX {lt.get('max')}" not in haystack:
+                    desired_min = int(lt.get("min", 0))
+                    desired_max = int(lt.get("max", 0))
+                    if current_table.dict_lifetime_min or current_table.dict_lifetime_max:
+                        if (
+                            current_table.dict_lifetime_min != desired_min
+                            or current_table.dict_lifetime_max != desired_max
+                        ):
+                            structural_details.append(
+                                f"LIFETIME changed: "
+                                f"{current_table.dict_lifetime_min}/{current_table.dict_lifetime_max} "
+                                f"-> {desired_min}/{desired_max}"
+                            )
+                            structural_recreate = True
+                    elif f"MIN {desired_min}" not in haystack or f"MAX {desired_max}" not in haystack:
                         structural_details.append(f"LIFETIME changed (desired: {lt})")
+                        structural_recreate = True
+                # RANGE clause — substring check. system.dictionaries doesn't
+                # break out RANGE column names (part of the DDL only).
+                if desired_table.dict_range:
+                    rendered_range = _render_dict_range(desired_table.dict_range)
+                    if rendered_range and rendered_range not in haystack:
+                        structural_details.append(f"RANGE changed (desired: {rendered_range})")
                         structural_recreate = True
 
         if structural_recreate:
@@ -983,17 +1088,38 @@ def diff_state(
     creates.sort(key=_create_sort_key)
 
     # Fix 5: Kafka/MV recreate cascade prevention.
-    # When an MV is recreated (DROP + CREATE), ClickHouse can cascade-drop
-    # the source Kafka table if it was created inline. Re-add a CREATE step
-    # for any Kafka table that is the source of a recreated MV.
+    # When an MV is recreated, ClickHouse can cascade-drop the source Kafka
+    # table if it was created inline. Re-add a CREATE step for any Kafka
+    # table referenced by the MV's SELECT.
+    #
+    # MV recreation takes two shapes in the diff:
+    #   1. A single `recreate_mv` entry (structural change: target/engine/etc.)
+    #   2. A paired DROP + CREATE on the same MV table name (SELECT changed,
+    #      see the MV SELECT comparison above that emits `drop` + `create`).
+    # Both cascade-drop the Kafka source, so both must trigger re-creation.
     kafka_tables_in_desired = {name: t for name, t in desired_without_skipped.items() if _is_kafka(t.engine)}
     if kafka_tables_in_desired:
-        # Collect table names already being created
+        # Collect table names already being created so we don't duplicate.
         tables_being_created = {d.table for d in creates}
+
+        # Build the set of MV names being recreated: explicit recreate_mv
+        # entries, plus tables that appear as BOTH a drop and a create (the
+        # drop+create pair path for SELECT changes).
+        dropped_names = {d.table for d in drops}
+        created_names = {d.table for d in creates}
+        drop_create_pairs = dropped_names & created_names
+
+        recreated_mv_names: set[str] = set()
         for rec in recreates:
-            if rec.action != "recreate_mv":
-                continue
-            mv_table = desired_without_skipped.get(rec.table)
+            if rec.action == "recreate_mv":
+                recreated_mv_names.add(rec.table)
+        for name in drop_create_pairs:
+            desired_table = desired_without_skipped.get(name)
+            if desired_table and _is_mv(desired_table.engine):
+                recreated_mv_names.add(name)
+
+        for mv_name in recreated_mv_names:
+            mv_table = desired_without_skipped.get(mv_name)
             if not mv_table or not mv_table.select:
                 continue
             # Find which Kafka tables are referenced in the MV SELECT
@@ -1005,7 +1131,7 @@ def diff_state(
                         StateDiff(
                             action="create",
                             table=kafka_name,
-                            detail=f"Re-create Kafka table {kafka_name} (cascade-dropped by MV {rec.table} recreate)",
+                            detail=f"Re-create Kafka table {kafka_name} (cascade-dropped by MV {mv_name} recreate)",
                             sql=_generate_create_sql(kafka_def, db, cl),
                             node_roles=kafka_def.on_nodes,
                             depends_on=[],

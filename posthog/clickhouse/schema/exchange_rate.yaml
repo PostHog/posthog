@@ -23,9 +23,29 @@ tables:
               default_expression: 'toUnixTimestamp(now())'
               default_kind: DEFAULT
 
+    # RANGE_HASHED dictionary keyed by currency with start/end date windows.
+    # The SOURCE is a QUERY (not a direct table) because the underlying table
+    # is sparse and we compute end_date via leadInFrame. See
+    # posthog/models/exchange_rate/sql.py EXCHANGE_RATE_DICTIONARY_QUERY.
     exchange_rate_dict:
         engine: Dictionary
         on_nodes: ALL
+        primary_key: currency
+        source:
+            type: CLICKHOUSE
+            query: "SELECT currency, date AS start_date, leadInFrame(date::Nullable(Date), 1, NULL::Nullable(Date)) OVER w AS end_date, argMax(rate, version) AS rate FROM `posthog`.`exchange_rate` GROUP BY date, currency WINDOW w AS ( PARTITION BY currency ORDER BY date ASC ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING )"
+            user: __from_settings__
+            password: __from_settings__
+        layout:
+            type: RANGE_HASHED
+            params:
+                range_lookup_strategy: max
+        lifetime:
+            min: 3000
+            max: 3600
+        range:
+            min: start_date
+            max: end_date
         columns:
             - name: currency
               type: String

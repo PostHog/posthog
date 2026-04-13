@@ -90,12 +90,13 @@ def ch_logs():
 def test_db(ch_main):
     """Create and drop a test database for the module."""
     db = "e2e_multinode_test"
-    ch_main.execute(f"CREATE DATABASE IF NOT EXISTS {db}")
+    # Create on all cluster nodes so coordinator queries against this DB also succeed
+    ch_main.execute(f"CREATE DATABASE IF NOT EXISTS {db} ON CLUSTER posthog_migrations")
     yield db
-    # Cleanup: drop all tables, then the database
+    # Cleanup: drop all tables on cluster, then the database on cluster
     for (name,) in ch_main.execute(f"SELECT name FROM system.tables WHERE database = '{db}'"):
-        ch_main.execute(f"DROP TABLE IF EXISTS {db}.{name} SYNC")
-    ch_main.execute(f"DROP DATABASE IF EXISTS {db}")
+        ch_main.execute(f"DROP TABLE IF EXISTS {db}.{name} ON CLUSTER posthog_migrations SYNC")
+    ch_main.execute(f"DROP DATABASE IF EXISTS {db} ON CLUSTER posthog_migrations SYNC")
 
 
 # ── Cluster Topology Tests ──
@@ -344,14 +345,17 @@ class TestReplicatedMergeTree:
             f"ORDER BY id"
         )
         try:
-            main_engine = ch_main.execute(
-                f"SELECT engine_full FROM system.tables WHERE database = '{test_db}' AND name = 'rmt_cluster'"
+            # Use system.replicas.zookeeper_path — it has the resolved {shard} macro.
+            # system.tables.engine_full keeps the literal `{shard}` DDL text and won't
+            # show the per-node shard number.
+            main_zk_path = ch_main.execute(
+                f"SELECT zookeeper_path FROM system.replicas WHERE database = '{test_db}' AND table = 'rmt_cluster'"
             )[0][0]
-            coord_engine = ch_coordinator.execute(
-                f"SELECT engine_full FROM system.tables WHERE database = '{test_db}' AND name = 'rmt_cluster'"
+            coord_zk_path = ch_coordinator.execute(
+                f"SELECT zookeeper_path FROM system.replicas WHERE database = '{test_db}' AND table = 'rmt_cluster'"
             )[0][0]
             # Main is shard 01, coordinator is shard 02
-            assert "/01/" in main_engine
-            assert "/02/" in coord_engine
+            assert "/01/" in main_zk_path, f"main shard macro not resolved: {main_zk_path}"
+            assert "/02/" in coord_zk_path, f"coordinator shard macro not resolved: {coord_zk_path}"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} ON CLUSTER posthog_migrations SYNC")
