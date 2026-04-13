@@ -1,4 +1,8 @@
-"""Identify sessions that need summarization for embedding priming (scheduled / proactive runs)."""
+"""
+
+Activity 1 of the video segment clustering workflow:
+Identify sessions that need summarization.
+"""
 
 from django.conf import settings
 
@@ -38,7 +42,7 @@ MAX_SESSIONS_TO_PRIME_EMBEDDINGS = 200
 async def get_sessions_to_prime_activity(
     inputs: PrimeSessionEmbeddingsActivityInputs,
 ) -> GetSessionsToPrimeResult:
-    """Find recent session recordings that do not yet have a video summary."""
+    """Find recent session recordings that do not yet have an AI summary."""
     team = await Team.objects.aget(id=inputs.team_id)
 
     session_ids = await database_sync_to_async(_fetch_recent_session_ids)(
@@ -53,7 +57,7 @@ async def get_sessions_to_prime_activity(
             user_distinct_id=None,
         )
 
-    # Get first user with access to the team for running summarization (as summarization requires _some_ user to run)
+    # Get first user with access to the team for running summarization (as summarization requires _some_ user)
     # TODO: We should instead pass no user, in which case summarization should understand this was system-initiated
     system_user = await database_sync_to_async(lambda: team.all_users_with_access().first())()
 
@@ -65,6 +69,7 @@ async def get_sessions_to_prime_activity(
             user_distinct_id=None,
         )
 
+    # Check which sessions already have summaries
     existing_summaries = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=session_ids,
@@ -134,13 +139,14 @@ if not settings.DEBUG:
         RecordingPropertyFilter(
             key="ongoing",
             operator=PropertyOperator.EXACT,
-            value=0,
+            value=0,  # bool is represented as 0/1 in ClickHouse
         ),
     )
 _DEFAULT_FILTER_TEST_ACCOUNTS = False  # Summarize all sessions (it's also faster to skip this filter)
 
 
 def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
+    """Fetch session IDs of recordings that ended within the lookback period."""
     user_defined_query = _load_user_defined_recordings_query(team.id)
     if user_defined_query:
         # Running a RecordingsQuery for consistency with the session recordings API

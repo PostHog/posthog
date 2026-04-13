@@ -23,6 +23,8 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 )
 from posthog.temporal.session_replay.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
 
+from products.signals.backend.api import emit_signal
+
 from ee.hogai.session_summaries.constants import FULL_VIDEO_EXPORT_FORMAT
 
 logger = structlog.get_logger(__name__)
@@ -59,7 +61,6 @@ async def emit_session_problem_signals_activity(
 
     Returns the number of signals emitted.
     """
-    from products.signals.backend.api import emit_signal
 
     team = await Team.objects.select_related("organization").aget(id=inputs.team_id)
 
@@ -213,8 +214,12 @@ def _build_segment_event_history(
     entries: list[dict] = []
     for row in events:
         event_ts = row[col_index["timestamp"]]
-        if not isinstance(event_ts, datetime.datetime) or event_ts < segment_start_abs or event_ts > segment_end_abs:
-            continue  # Only include events within the segment's time range
+        if isinstance(event_ts, str):
+            event_ts = datetime.datetime.fromisoformat(event_ts)
+        if not isinstance(event_ts, datetime.datetime):
+            continue
+        if event_ts < segment_start_abs or event_ts > segment_end_abs:
+            continue
 
         offset_seconds = max(0.0, (event_ts - session_start_time).total_seconds())
         entry: dict = {
@@ -222,9 +227,13 @@ def _build_segment_event_history(
             "timestamp": format_seconds_as_mm_ss(offset_seconds, include_ms=True),
         }
         if "$current_url" in col_index:
-            entry["current_url"] = row[col_index["$current_url"]]
+            url = row[col_index["$current_url"]]
+            if url:
+                entry["current_url"] = url
         if "$event_type" in col_index:
-            entry["event_type"] = row[col_index["$event_type"]]
+            event_type = row[col_index["$event_type"]]
+            if event_type:
+                entry["event_type"] = event_type
         if "elements_chain_texts" in col_index:
             texts = row[col_index["elements_chain_texts"]]
             if texts and isinstance(texts, list):

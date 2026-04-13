@@ -50,7 +50,7 @@ class SignalSourceConfig(UUIDModel):
             return True
 
         # Session problem signals are emitted as part of session analysis,
-        # so they're gated by the session_analysis_cluster config
+        # so they're gated by the pre-existing session_analysis_cluster config
         if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
             source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
 

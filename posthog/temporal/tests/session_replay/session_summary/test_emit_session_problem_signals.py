@@ -4,50 +4,11 @@ import pytest
 
 from posthog.temporal.session_replay.session_summary.activities.a6a_emit_session_problem_signals import (
     _build_segment_event_history,
+    _classify_problem,
 )
-from posthog.temporal.session_replay.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
+from posthog.temporal.session_replay.session_summary.types.video import ConsolidatedVideoSegment
 
 UTC = datetime.UTC
-
-
-class TestParseTimeToSeconds:
-    @pytest.mark.parametrize(
-        "time_str, expected",
-        [
-            ("00:00", 0),
-            ("00:30", 30),
-            ("02:15", 135),
-            ("10:00", 600),
-            ("59:59", 3599),
-            ("1:00:00", 3600),
-            ("1:30:00", 5400),
-            ("2:05:30", 7530),
-        ],
-    )
-    def test_parses_correctly(self, time_str, expected):
-        assert parse_str_timestamp_to_s(time_str) == expected
-
-    def test_rejects_invalid_format(self):
-        with pytest.raises(ValueError, match="Invalid timestamp format"):
-            parse_str_timestamp_to_s("bad")
-
-
-class TestFormatSecondsAsTime:
-    @pytest.mark.parametrize(
-        "seconds, expected",
-        [
-            (0, "00:00.000"),
-            (30, "00:30.000"),
-            (30.456, "00:30.456"),
-            (135, "02:15.000"),
-            (135.1, "02:15.100"),
-            (3599.999, "59:59.999"),
-            (3600, "1:00:00.000"),
-            (5400, "1:30:00.000"),
-        ],
-    )
-    def test_formats_correctly(self, seconds, expected):
-        assert format_seconds_as_mm_ss(seconds, include_ms=True) == expected
 
 
 COLUMNS = [
@@ -126,19 +87,103 @@ class TestBuildSegmentEventHistory:
         result = _build_segment_event_history(events, COLUMNS, SESSION_START, 0, 200)
         assert len(result) == 50  # MAX_EVENTS_PER_SEGMENT
 
-    def test_handles_string_timestamps(self):
-        events: list[tuple[str, str, str, list[str], list[str], str, str, str]] = [
-            (
-                "$pageview",
-                "2025-01-01T00:00:45+00:00",
-                "",
-                [],
-                [],
-                "w1",
-                "https://example.com",
-                "",
-            )
+    def test_parses_iso_string_timestamps(self):
+        events: list[tuple] = [
+            ("$pageview", "2025-01-01T00:00:45+00:00", "", [], [], "w1", "https://example.com", ""),
         ]
         result = _build_segment_event_history(events, COLUMNS, SESSION_START, 30, 60)
         assert len(result) == 1
         assert result[0]["timestamp"] == "00:45.000"
+
+    def test_skips_non_datetime_non_string_timestamps(self):
+        """clickhouse_driver returns datetime objects, but ints/None are defensively skipped."""
+        events: list[tuple] = [
+            ("$pageview", 1735689645, "", [], [], "w1", "https://example.com", ""),
+            ("$pageview", None, "", [], [], "w1", "https://example.com", ""),
+        ]
+        result = _build_segment_event_history(events, COLUMNS, SESSION_START, 0, 3600)
+        assert result == []
+
+    def test_returns_empty_when_required_columns_missing(self):
+        events = [_make_event("$pageview", 30)]
+        assert _build_segment_event_history(events, ["event", "$current_url"], SESSION_START, 0, 60) == []
+        assert _build_segment_event_history(events, ["timestamp", "$current_url"], SESSION_START, 0, 60) == []
+        assert _build_segment_event_history(events, ["$current_url"], SESSION_START, 0, 60) == []
+
+    def test_includes_events_at_exact_segment_boundaries(self):
+        events = [
+            _make_event("$pageview", 30, "https://example.com/at-start"),
+            _make_event("$autocapture", 60, "https://example.com/at-end"),
+        ]
+        result = _build_segment_event_history(events, COLUMNS, SESSION_START, 30, 60)
+        assert len(result) == 2
+        assert result[0]["current_url"] == "https://example.com/at-start"
+        assert result[1]["current_url"] == "https://example.com/at-end"
+
+    def test_omits_optional_fields_when_columns_absent(self):
+        minimal_columns = ["event", "timestamp"]
+        events = [("$pageview", SESSION_START + datetime.timedelta(seconds=30))]
+        result = _build_segment_event_history(events, minimal_columns, SESSION_START, 0, 60)
+        assert result == [{"event": "$pageview", "timestamp": "00:30.000"}]
+
+    def test_skips_all_empty_chain_texts(self):
+        events = [_make_event("$autocapture", 30, texts=["", ""])]
+        result = _build_segment_event_history(events, COLUMNS, SESSION_START, 0, 60)
+        assert len(result) == 1
+        assert "interaction_text" not in result[0]
+
+
+def _make_segment(**kwargs) -> ConsolidatedVideoSegment:
+    defaults = {
+        "title": "Test segment",
+        "start_time": "00:00",
+        "end_time": "01:00",
+        "description": "Test",
+        "success": True,
+        "exception": None,
+        "confusion_detected": False,
+        "abandonment_detected": False,
+    }
+    defaults.update(kwargs)
+    return ConsolidatedVideoSegment(**defaults)
+
+
+class TestClassifyProblem:
+    @pytest.mark.parametrize(
+        "kwargs, expected",
+        [
+            ({"exception": "blocking"}, "blocking_exception"),
+            ({"abandonment_detected": True}, "abandonment"),
+            ({"exception": "non-blocking"}, "non_blocking_exception"),
+            ({"confusion_detected": True}, "confusion"),
+            ({"success": False}, "failure"),
+            ({}, None),
+        ],
+        ids=["blocking", "abandonment", "non_blocking", "confusion", "failure", "no_problem"],
+    )
+    def test_single_flag(self, kwargs, expected):
+        assert _classify_problem(_make_segment(**kwargs)) == expected
+
+    @pytest.mark.parametrize(
+        "kwargs, expected",
+        [
+            (
+                {"exception": "blocking", "abandonment_detected": True, "confusion_detected": True, "success": False},
+                "blocking_exception",
+            ),
+            (
+                {
+                    "abandonment_detected": True,
+                    "exception": "non-blocking",
+                    "confusion_detected": True,
+                    "success": False,
+                },
+                "abandonment",
+            ),
+            ({"exception": "non-blocking", "confusion_detected": True, "success": False}, "non_blocking_exception"),
+            ({"confusion_detected": True, "success": False}, "confusion"),
+        ],
+        ids=["blocking_wins_all", "abandonment_wins_lower", "non_blocking_wins_lower", "confusion_wins_failure"],
+    )
+    def test_priority_ordering(self, kwargs, expected):
+        assert _classify_problem(_make_segment(**kwargs)) == expected

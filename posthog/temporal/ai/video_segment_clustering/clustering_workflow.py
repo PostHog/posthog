@@ -52,6 +52,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
 
         workflow.logger.info(f"Priming session embeddings (team {inputs.team_id})")
 
+        # First, identify which sessions need summarization
         prime_info = await workflow.execute_activity(
             get_sessions_to_prime_activity,
             args=[
@@ -68,6 +69,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                 backoff_coefficient=2.0,
             ),
         )
+        # Then, run the child workflows to summarize those sessions
         await self.run_priming_child_workflows(team_id=inputs.team_id, prime_info=prime_info)
         return None
 
@@ -81,37 +83,33 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             workflow.logger.debug(f"Priming complete: {sessions_summarized} summarized, {sessions_failed} failed")
             return
 
-        max_concurrent = 2 if settings.DEBUG else 50
-        semaphore = asyncio.Semaphore(max_concurrent)
-
         async def summarize_session(session_id: str) -> bool:
-            async with semaphore:
-                redis_key_base = f"session-summary:single:{user_id}-{team_id}:{session_id}"
-                handle: workflow.ChildWorkflowHandle = await workflow.start_child_workflow(
-                    "summarize-session",
-                    SingleSessionSummaryInputs(
-                        session_id=session_id,
-                        user_id=user_id,
-                        user_distinct_id_to_log=prime_info.user_distinct_id,
-                        team_id=team_id,
-                        redis_key_base=redis_key_base,
-                        model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-                        video_validation_enabled="full",
-                    ),
-                    id=f"session-summary:single:direct:{team_id}:{session_id}:{user_id}:{workflow.uuid4()}",
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    execution_timeout=timedelta(minutes=30),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=1,  # No retries - if summarization fails, just skip this session
-                    ),
-                    parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-                )
-                try:
-                    await handle
-                    return True
-                except Exception as e:
-                    workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
-                    return False
+            redis_key_base = f"session-summary:single:{user_id}-{team_id}:{session_id}"
+            handle: workflow.ChildWorkflowHandle = await workflow.start_child_workflow(
+                "summarize-session",
+                SingleSessionSummaryInputs(
+                    session_id=session_id,
+                    user_id=user_id,
+                    user_distinct_id_to_log=prime_info.user_distinct_id,
+                    team_id=team_id,
+                    redis_key_base=redis_key_base,
+                    model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+                    video_validation_enabled="full",
+                ),
+                id=f"session-summary:single:direct:{team_id}:{session_id}:{user_id}:{workflow.uuid4()}",
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                execution_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,  # No retries - if summarization fails, just skip this session
+                ),
+                parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
+            )
+            try:
+                await handle
+                return True
+            except Exception as e:
+                workflow.logger.warning(f"Session summarization skipped for {session_id}: {e}")
+                return False
 
         results = await asyncio.gather(
             *(summarize_session(session_id) for session_id in prime_info.session_ids_to_summarize)
