@@ -23,6 +23,7 @@ import IconZendesk from 'public/services/zendesk.png'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { ConnectorIconGrid, DataWarehouseOnboardingLoadingPlaceholder } from './components'
 
 // The query skeleton is fixed — SELECT, FROM, JOIN, ON stay put.
 // Only the slots (comment, columns, source, posthog table, on clause,
@@ -140,16 +141,7 @@ export function DataWarehouseQueryVariant(): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     if (availableSourcesLoading || availableSources === null) {
-        return (
-            <OnboardingStep
-                title="Import data"
-                stepKey={OnboardingStepKey.LINK_DATA}
-                showContinue={false}
-                showSkip={false}
-            >
-                <div className="h-64" />
-            </OnboardingStep>
-        )
+        return <DataWarehouseOnboardingLoadingPlaceholder />
     }
 
     return (
@@ -220,7 +212,7 @@ function DataWarehouseQueryInner(): JSX.Element {
                         className="rounded-xl bg-[#1d1f27] p-5 font-mono text-sm leading-loose"
                         style={{
                             border: '2.5px solid transparent',
-                            backgroundClip: 'padding-box',
+                            backgroundClip: 'padding-box, border-box',
                             backgroundImage:
                                 'linear-gradient(#1d1f27, #1d1f27), linear-gradient(135deg, #0143cb 0%, #2b6ff4 25%, #d23401 50%, #ff651f 75%, #fba000 100%)',
                             backgroundOrigin: 'border-box',
@@ -293,23 +285,7 @@ function DataWarehouseQueryInner(): JSX.Element {
                     </div>
 
                     {/* Source icon grid */}
-                    {visibleConnectors.length > 0 && (
-                        <div className="flex flex-wrap justify-center gap-2">
-                            {visibleConnectors.map((connector: SourceConfig) => (
-                                <div
-                                    key={connector.name}
-                                    className="size-8 rounded-md border border-border bg-bg-light flex items-center justify-center"
-                                    title={connector.label ?? connector.name}
-                                >
-                                    <img
-                                        src={connector.iconPath}
-                                        alt={connector.label ?? connector.name}
-                                        className="size-5 object-contain rounded"
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                    <ConnectorIconGrid connectors={visibleConnectors} />
 
                     {/* CTA */}
                     <div>
