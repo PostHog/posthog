@@ -260,6 +260,8 @@ def _require_instance(branch: str, *, require_running: bool = True) -> tuple[dic
 def _ssh_cmd(
     hostname: str,
     *,
+    user: str = "ubuntu",
+    port: int | None = None,
     agent_forward: bool = False,
     tty: bool = False,
     connect_timeout: int | None = None,
@@ -279,10 +281,36 @@ def _ssh_cmd(
             "LogLevel=ERROR",
         ]
     )
+    if port is not None:
+        cmd.extend(["-p", str(port)])
     if connect_timeout is not None:
         cmd.extend(["-o", f"ConnectTimeout={connect_timeout}"])
-    cmd.append(f"ubuntu@{hostname}")
+    cmd.append(f"{user}@{hostname}")
     return cmd
+
+
+def _container_ssh_cmd(
+    hostname: str,
+    *,
+    agent_forward: bool = False,
+    tty: bool = False,
+    connect_timeout: int | None = None,
+) -> list[str]:
+    """SSH command targeting the container's sshd (port 50001, user sandbox).
+
+    Unlike _ssh_cmd which reaches the EC2 host, this connects directly to the
+    container's sshd through Docker's port mapping. This is essential for SSH
+    agent forwarding — the agent socket is carried into the container process
+    rather than being stranded on the EC2 host.
+    """
+    return _ssh_cmd(
+        hostname,
+        user="sandbox",
+        port=CLOUD_CONTAINER_SSH_PORT,
+        agent_forward=agent_forward,
+        tty=tty,
+        connect_timeout=connect_timeout,
+    )
 
 
 def _cloud_render_user_data(
@@ -644,8 +672,8 @@ def cmd_cloud_create(branch: str) -> None:
     _open_browser_detached(_tailnet_url(hostname))
 
     info("Attaching to mprocs... (detach with Ctrl-b d)")
-    ssh = _ssh_cmd(hostname, agent_forward=True, tty=True)
-    os.execvp("ssh", ssh + [f"cd /home/ubuntu/posthog && python3 bin/sandbox shell {branch}"])
+    ssh = _container_ssh_cmd(hostname, agent_forward=True, tty=True)
+    os.execvp("ssh", ssh + ["tmux", "-L", "sandbox", "attach-session", "-t", "posthog:claude"])
 
 
 def cmd_cloud_destroy(branch: str) -> None:
@@ -682,8 +710,10 @@ def cmd_cloud_list() -> None:
 
 def cmd_cloud_shell(branch: str) -> None:
     _config, _instance, hostname = _require_instance(branch)
-    ssh = _ssh_cmd(hostname, agent_forward=True, tty=True)
-    os.execvp("ssh", ssh + [f"cd /home/ubuntu/posthog && python3 bin/sandbox shell {branch}"])
+    # SSH directly into the container's sshd so the agent is forwarded all
+    # the way in. Attach to the existing tmux session (same as local shell).
+    ssh = _container_ssh_cmd(hostname, agent_forward=True, tty=True)
+    os.execvp("ssh", ssh + ["tmux", "-L", "sandbox", "attach-session", "-t", "posthog:claude"])
 
 
 def cmd_cloud_open(branch: str) -> None:
@@ -718,11 +748,11 @@ def cmd_cloud_code(branch: str) -> None:
     code_cmd = shutil.which("code")
     if not code_cmd:
         info("VSCode 'code' CLI not found on PATH.")
-        info(f"Connect manually: code --remote ssh-remote+ubuntu@{hostname} /workspace")
+        info(f"Connect manually: code --remote ssh-remote+sandbox@{hostname}:{CLOUD_CONTAINER_SSH_PORT} /workspace")
         return
 
-    info(f"Opening VSCode Remote-SSH to {hostname}...")
-    subprocess.Popen([code_cmd, "--remote", f"ssh-remote+ubuntu@{hostname}", "/home/ubuntu/posthog"])
+    info(f"Opening VSCode Remote-SSH to {hostname}:{CLOUD_CONTAINER_SSH_PORT}...")
+    subprocess.Popen([code_cmd, "--remote", f"ssh-remote+sandbox@{hostname}:{CLOUD_CONTAINER_SSH_PORT}", "/workspace"])
 
 
 def cmd_cloud_idea(branch: str) -> None:
