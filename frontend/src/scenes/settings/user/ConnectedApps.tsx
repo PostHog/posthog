@@ -38,7 +38,7 @@ function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
                 </LemonTag>
             ))}
             {needsAccordion && (
-                <LemonButton size="xsmall" type="secondary" onClick={() => setExpanded(!expanded)}>
+                <LemonButton size="xsmall" type="tertiary" onClick={() => setExpanded(!expanded)}>
                     {expanded ? 'Show less' : `+${sorted.length - visibleCount} more`}
                 </LemonButton>
             )}
