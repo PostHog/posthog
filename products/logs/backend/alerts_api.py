@@ -1,12 +1,17 @@
+import datetime as dt
 from datetime import UTC, datetime
 from typing import Final
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -15,11 +20,23 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.utils import relative_date_parse
 
+from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_state_machine import (
+    AlertCheckOutcome,
+    AlertSnapshot,
+    AlertState,
+    CheckResult,
+    NotificationAction,
+    evaluate_alert_check,
+)
 from products.logs.backend.models import LogsAlertConfiguration
 
 ALLOWED_WINDOW_MINUTES = {1, 5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
+MAX_SIMULATE_LOOKBACK_DAYS = 30
+MAX_SIMULATE_BUCKETS = 15_000
 _SENTINEL: Final = object()
 
 
@@ -91,15 +108,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
-        if not isinstance(filters, dict):
-            raise ValidationError({"filters": "Must be a JSON object."})
-        has_severity = bool(filters.get("severityLevels"))
-        has_services = bool(filters.get("serviceNames"))
-        has_filter_group = bool(filters.get("filterGroup"))
-        if not (has_severity or has_services or has_filter_group):
-            raise ValidationError(
-                {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
-            )
+        _validate_filters(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
@@ -167,6 +176,193 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             return super().create(validated_data)
 
 
+def _validate_filters(filters: dict) -> None:
+    """Shared filter validation for both create/update and simulate."""
+    if not isinstance(filters, dict):
+        raise ValidationError({"filters": "Must be a JSON object."})
+    has_severity = bool(filters.get("severityLevels"))
+    has_services = bool(filters.get("serviceNames"))
+    has_filter_group = bool(filters.get("filterGroup"))
+    if not (has_severity or has_services or has_filter_group):
+        raise ValidationError(
+            {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
+        )
+
+
+class LogsAlertSimulateBucketSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="Bucket start timestamp.")
+    count = serializers.IntegerField(help_text="Number of matching logs in this bucket.")
+    threshold_breached = serializers.BooleanField(help_text="Whether the count crossed the threshold in this bucket.")
+    state = serializers.CharField(help_text="Alert state after evaluating this bucket.")
+    notification = serializers.CharField(help_text="Notification action: none, fire, or resolve.")
+    reason = serializers.CharField(help_text="Human-readable explanation of the state transition.")
+
+
+class LogsAlertSimulateRequestSerializer(serializers.Serializer):
+    filters = serializers.JSONField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
+    threshold_count = serializers.IntegerField(
+        min_value=1,
+        help_text="Threshold count to evaluate against.",
+    )
+    threshold_operator = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.ThresholdOperator.choices,
+        help_text="Whether the alert fires when the count is above or below the threshold.",
+    )
+    window_minutes = serializers.IntegerField(
+        help_text="Window size in minutes — determines bucket interval.",
+    )
+    evaluation_periods = serializers.IntegerField(
+        default=1,
+        min_value=1,
+        max_value=10,
+        help_text="Total check periods in the N-of-M evaluation window (M).",
+    )
+    datapoints_to_alarm = serializers.IntegerField(
+        default=1,
+        min_value=1,
+        max_value=10,
+        help_text="How many periods must breach to fire (N in N-of-M).",
+    )
+    cooldown_minutes = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        help_text="Minutes to wait after firing before sending another notification.",
+    )
+    date_from = serializers.CharField(
+        help_text="Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d').",
+    )
+
+    def validate_filters(self, value: dict) -> dict:
+        _validate_filters(value)
+        return value
+
+    def validate_date_from(self, value: str) -> str:
+        try:
+            parsed = relative_date_parse(value, ZoneInfo("UTC"))
+        except Exception:
+            raise ValidationError("Invalid date_from value.")
+        min_allowed = datetime.now(UTC) - dt.timedelta(days=MAX_SIMULATE_LOOKBACK_DAYS)
+        if parsed < min_allowed:
+            raise ValidationError(f"date_from cannot be more than {MAX_SIMULATE_LOOKBACK_DAYS} days in the past.")
+        return value
+
+    def validate_window_minutes(self, value: int) -> int:
+        if value not in ALLOWED_WINDOW_MINUTES:
+            raise ValidationError(f"Must be one of {sorted(ALLOWED_WINDOW_MINUTES)}.")
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("datapoints_to_alarm", 1) > attrs.get("evaluation_periods", 1):
+            raise ValidationError({"datapoints_to_alarm": "Cannot exceed evaluation_periods."})
+        return attrs
+
+
+class LogsAlertSimulateResponseSerializer(serializers.Serializer):
+    buckets = LogsAlertSimulateBucketSerializer(
+        many=True, help_text="Time-bucketed counts with full state machine evaluation."
+    )
+    fire_count = serializers.IntegerField(help_text="Number of times the alert would have sent a fire notification.")
+    resolve_count = serializers.IntegerField(
+        help_text="Number of times the alert would have sent a resolve notification."
+    )
+    total_buckets = serializers.IntegerField(help_text="Total number of buckets in the simulation window.")
+    threshold_count = serializers.IntegerField(help_text="Threshold count used for evaluation.")
+    threshold_operator = serializers.CharField(help_text="Threshold operator used for evaluation.")
+
+
+def _build_reason(
+    prev_state: AlertState,
+    outcome: AlertCheckOutcome,
+    window_count: int,
+    threshold: int,
+    is_above: bool,
+    breached: bool,
+    recent_window: tuple[bool, ...],
+    n: int,
+    m: int,
+    cooldown_suppressed: bool,
+) -> str:
+    """Build a human-readable explanation of what happened at this check."""
+    op = ">" if is_above else "<"
+    count_desc = (
+        f"{window_count} {op} {threshold}" if breached else f"{window_count} {'≤' if is_above else '≥'} {threshold}"
+    )
+    is_n_of_m = not (n == 1 and m == 1)
+
+    if prev_state == AlertState.NOT_FIRING:
+        if outcome.new_state == AlertState.FIRING:
+            if is_n_of_m:
+                breach_count = sum(1 for b in recent_window if b)
+                return f"{count_desc}, {breach_count} of last {len(recent_window)} checks breached (need {n} of {m}) — fired"
+            return f"{count_desc} — fired"
+        if breached and is_n_of_m:
+            breach_count = sum(1 for b in recent_window if b)
+            return (
+                f"{count_desc}, {breach_count} of last {len(recent_window)} checks breached (need {n} of {m}) — waiting"
+            )
+        return f"{count_desc} — OK"
+
+    if prev_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
+        if outcome.new_state == AlertState.NOT_FIRING:
+            if cooldown_suppressed:
+                return f"{count_desc} — resolved (notification suppressed by cooldown)"
+            return f"{count_desc} — resolved"
+        if outcome.new_state == AlertState.FIRING and breached:
+            if cooldown_suppressed:
+                return f"{count_desc} — still firing (notification suppressed by cooldown)"
+            return f"{count_desc} — still firing"
+
+    return f"{count_desc}"
+
+
+def _fill_empty_buckets(
+    sparse: list[BucketedCount],
+    date_from: datetime,
+    date_to: datetime,
+    interval_minutes: int,
+) -> list[BucketedCount]:
+    """Fill gaps in sparse bucketed results with zero-count entries.
+
+    ClickHouse GROUP BY only returns buckets that have data. The state machine
+    needs to evaluate every check interval to correctly apply N-of-M and cooldown.
+    """
+    if interval_minutes <= 0:
+        return sparse
+
+    expected_buckets = int((date_to - date_from).total_seconds() / (interval_minutes * 60)) + 1
+    if expected_buckets > MAX_SIMULATE_BUCKETS:
+        raise ValidationError(
+            f"Simulation would produce {expected_buckets} buckets (max {MAX_SIMULATE_BUCKETS}). "
+            "Use a shorter date range or larger window."
+        )
+
+    # ClickHouse returns naive datetimes; normalize to UTC for both lookup and output
+    existing = {
+        (b.timestamp.replace(tzinfo=UTC) if b.timestamp.tzinfo is None else b.timestamp): BucketedCount(
+            timestamp=b.timestamp.replace(tzinfo=UTC) if b.timestamp.tzinfo is None else b.timestamp,
+            count=b.count,
+        )
+        for b in sparse
+    }
+    interval = dt.timedelta(minutes=interval_minutes)
+
+    # Align date_from to the bucket boundary
+    epoch = datetime(2000, 1, 1, tzinfo=UTC)
+    seconds = int((date_from - epoch).total_seconds())
+    interval_seconds = interval_minutes * 60
+    aligned_seconds = (seconds // interval_seconds) * interval_seconds
+    cursor = epoch + dt.timedelta(seconds=aligned_seconds)
+
+    result: list[BucketedCount] = []
+    while cursor <= date_to:
+        if cursor in existing:
+            result.append(existing[cursor])
+        elif cursor >= date_from:
+            result.append(BucketedCount(timestamp=cursor, count=0))
+        cursor += interval
+    return result
+
+
 @extend_schema(tags=["logs"])
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
@@ -178,6 +374,142 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
+
+    @extend_schema(
+        request=LogsAlertSimulateRequestSerializer,
+        responses={200: LogsAlertSimulateResponseSerializer},
+        description="Simulate a logs alert on historical data using the full state machine. "
+        "Read-only — no alert check records are created.",
+    )
+    @action(detail=False, methods=["POST"], url_path="simulate")
+    def simulate(self, request: Request, *args: object, **kwargs: object) -> Response:
+        serializer = LogsAlertSimulateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        date_from_dt = relative_date_parse(data["date_from"], ZoneInfo("UTC"))
+        date_to_dt = datetime.now(UTC)
+        window_minutes = data["window_minutes"]
+
+        fake_alert = LogsAlertConfiguration(
+            team=self.team,
+            filters=data["filters"],
+            threshold_count=data["threshold_count"],
+            threshold_operator=data["threshold_operator"],
+            window_minutes=window_minutes,
+        )
+
+        sparse_buckets: list[BucketedCount] = AlertCheckQuery(
+            team=self.team,
+            alert=fake_alert,
+            date_from=date_from_dt,
+            date_to=date_to_dt,
+        ).execute_bucketed(interval_minutes=1, limit=MAX_SIMULATE_BUCKETS)
+
+        # Fill gaps so every minute has a count (0 if no logs)
+        minute_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, 1)
+
+        # Compute rolling window sum: for each minute, sum the preceding window_minutes of counts.
+        # This matches the real alerting cadence: check every minute, count logs in the last N minutes.
+        counts = [b.count for b in minute_buckets]
+        rolling_counts: list[int] = []
+        for i in range(len(counts)):
+            window_start = max(0, i - window_minutes + 1)
+            rolling_counts.append(sum(counts[window_start : i + 1]))
+
+        threshold = data["threshold_count"]
+        is_above = data["threshold_operator"] == LogsAlertConfiguration.ThresholdOperator.ABOVE
+        evaluation_periods = data.get("evaluation_periods", 1)
+        datapoints_to_alarm = data.get("datapoints_to_alarm", 1)
+        cooldown_minutes = data.get("cooldown_minutes", 0)
+
+        # Run the full state machine over the bucketed results
+        snapshot = AlertSnapshot(
+            state=AlertState.NOT_FIRING,
+            evaluation_periods=evaluation_periods,
+            datapoints_to_alarm=datapoints_to_alarm,
+            cooldown_minutes=cooldown_minutes,
+            last_notified_at=None,
+            snooze_until=None,
+            consecutive_failures=0,
+            recent_checks_breached=(),
+        )
+
+        result_buckets = []
+        fire_count = 0
+        resolve_count = 0
+
+        for i, bucket in enumerate(minute_buckets):
+            window_count = rolling_counts[i]
+            breached = window_count > threshold if is_above else window_count < threshold
+            check = CheckResult(result_count=window_count, threshold_breached=breached)
+            prev_state = snapshot.state
+            outcome: AlertCheckOutcome = evaluate_alert_check(snapshot, check, bucket.timestamp)
+
+            if outcome.notification == NotificationAction.FIRE:
+                fire_count += 1
+            elif outcome.notification == NotificationAction.RESOLVE:
+                resolve_count += 1
+
+            # Build the recent window including this check (same as what the state machine saw)
+            recent = (breached, *snapshot.recent_checks_breached)[:evaluation_periods]
+
+            # Detect cooldown suppression: state changed but notification was suppressed
+            cooldown_suppressed = (
+                outcome.notification == NotificationAction.NONE
+                and outcome.new_state != prev_state
+                and outcome.new_state in (AlertState.FIRING, AlertState.NOT_FIRING)
+                and prev_state in (AlertState.FIRING, AlertState.NOT_FIRING, AlertState.PENDING_RESOLVE)
+                and breached != (prev_state == AlertState.NOT_FIRING)
+            )
+
+            reason = _build_reason(
+                prev_state=prev_state,
+                outcome=outcome,
+                window_count=window_count,
+                threshold=threshold,
+                is_above=is_above,
+                breached=breached,
+                recent_window=recent,
+                n=datapoints_to_alarm,
+                m=evaluation_periods,
+                cooldown_suppressed=cooldown_suppressed,
+            )
+
+            result_buckets.append(
+                {
+                    "timestamp": bucket.timestamp.isoformat(),
+                    "count": window_count,
+                    "threshold_breached": breached,
+                    "state": outcome.new_state.value,
+                    "notification": outcome.notification.value,
+                    "reason": reason,
+                }
+            )
+
+            # Advance the snapshot for the next iteration
+            snapshot = AlertSnapshot(
+                state=outcome.new_state,
+                evaluation_periods=evaluation_periods,
+                datapoints_to_alarm=datapoints_to_alarm,
+                cooldown_minutes=cooldown_minutes,
+                last_notified_at=bucket.timestamp if outcome.update_last_notified_at else snapshot.last_notified_at,
+                snooze_until=None,
+                consecutive_failures=outcome.consecutive_failures,
+                recent_checks_breached=recent,
+            )
+
+        response_data = {
+            "buckets": result_buckets,
+            "fire_count": fire_count,
+            "resolve_count": resolve_count,
+            "total_buckets": len(result_buckets),
+            "threshold_count": threshold,
+            "threshold_operator": data["threshold_operator"],
+        }
+
+        response_serializer = LogsAlertSimulateResponseSerializer(response_data)
+        return Response(response_serializer.data)
 
     def _track(self, event: str, instance: LogsAlertConfiguration) -> None:
         report_user_action(

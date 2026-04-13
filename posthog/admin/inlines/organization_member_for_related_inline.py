@@ -50,6 +50,9 @@ class _OrganizationMemberFormSet(PaginationFormSetBase, BaseInlineFormSet):
         super(BaseInlineFormSet, self).__init__(data=data, files=files, **kwargs)
 
     def save(self, commit=True):
+        self.new_objects = []
+        self.changed_objects = []
+        self.deleted_objects = []
         return []
 
 

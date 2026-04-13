@@ -2568,6 +2568,103 @@ class TestOAuthAPI(APIBaseTest):
         old_db_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNotNone(old_db_token.revoked)
 
+    @parameterized.expand(["vscode", "obsidian", "myapp"])
+    def test_error_redirect_with_custom_scheme_does_not_500(self, scheme):
+        custom_scheme_app = OAuthApplication.objects.create(
+            name=f"{scheme} App",
+            client_id=f"{scheme}_client_id",
+            client_secret=f"{scheme}_client_secret",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=f"{scheme}://posthog/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        # Request with an invalid scope to trigger an error redirect
+        url = (
+            f"/oauth/authorize/?client_id={custom_scheme_app.client_id}"
+            f"&redirect_uri={scheme}://posthog/callback"
+            f"&response_type=code"
+            f"&code_challenge={self.code_challenge}"
+            f"&code_challenge_method=S256"
+            f"&scope=nonexistent_scope"
+        )
+
+        response = self.client.get(url)
+
+        # Should redirect back to the client with the error, not 500
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertTrue(response["Location"].startswith(f"{scheme}://posthog/callback"))
+        self.assertIn("error=invalid_scope", response["Location"])
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
+    def test_token_response_includes_region_for_us_cloud(self):
+        grant = OAuthGrant.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            code="test_region_us_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+
+        response = self.post("/oauth/token/", {**self.base_token_body, "code": grant.code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["posthog_region"], "us")
+        self.assertEqual(data["posthog_base_url"], "https://us.posthog.com")
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(CLOUD_DEPLOYMENT="EU", SITE_URL="https://eu.posthog.com")
+    def test_token_response_includes_region_for_eu_cloud(self):
+        grant = OAuthGrant.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            code="test_region_eu_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+
+        response = self.post("/oauth/token/", {**self.base_token_body, "code": grant.code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["posthog_region"], "eu")
+        self.assertEqual(data["posthog_base_url"], "https://eu.posthog.com")
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(CLOUD_DEPLOYMENT=None)
+    def test_token_response_excludes_region_for_self_hosted(self):
+        grant = OAuthGrant.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            code="test_region_none_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[],
+            scoped_teams=[],
+        )
+
+        response = self.post("/oauth/token/", {**self.base_token_body, "code": grant.code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertNotIn("posthog_region", data)
+        self.assertNotIn("posthog_base_url", data)
+
 
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
@@ -2715,3 +2812,15 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
         response = self.client.get("/.well-known/oauth-authorization-server")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
+    def test_metadata_includes_region_for_cloud(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+        self.assertEqual(metadata["posthog_region"], "us")
+
+    @override_settings(CLOUD_DEPLOYMENT=None)
+    def test_metadata_excludes_region_for_self_hosted(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+        self.assertNotIn("posthog_region", metadata)

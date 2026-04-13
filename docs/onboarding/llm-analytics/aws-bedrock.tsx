@@ -125,7 +125,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     client = boto3.client("bedrock-runtime", region_name="us-east-1")
 
                                     response = client.converse(
-                                        modelId="us.anthropic.claude-3-5-haiku-20241022-v1:0",
+                                        modelId="openai.gpt-oss-20b-1:0",
                                         messages=[
                                             {
                                                 "role": "user",
@@ -134,7 +134,10 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                         ],
                                     )
 
-                                    print(response["output"]["message"]["content"][0]["text"])
+                                    for block in response["output"]["message"]["content"]:
+                                        if "text" in block:
+                                            print(block["text"])
+                                            break
                                 `,
                             },
                             {
@@ -152,7 +155,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                                     const response = await client.send(
                                       new ConverseCommand({
-                                        modelId: 'us.anthropic.claude-3-5-haiku-20241022-v1:0',
+                                        modelId: 'openai.gpt-oss-20b-1:0',
                                         messages: [
                                           {
                                             role: 'user',
@@ -162,7 +165,8 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                       })
                                     )
 
-                                    console.log(response.output?.message?.content?.[0]?.text)
+                                    const textBlock = response.output?.message?.content?.find((b) => 'text' in b)
+                                    console.log(textBlock?.text)
 
                                     await sdk.shutdown()
                                 `,

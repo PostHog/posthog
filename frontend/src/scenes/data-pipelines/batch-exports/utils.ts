@@ -1,6 +1,8 @@
 import { dayjs } from 'lib/dayjs'
+import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
 
-import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
+import type { BatchExportRun, BatchExportService } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES } from '~/types'
 
 export const humanizeBatchExportName = (service: BatchExportService['type']): string => {
     switch (service) {
@@ -38,3 +40,49 @@ export const dayOptions = [
     { value: 5, label: 'Friday' },
     { value: 6, label: 'Saturday' },
 ]
+
+/** Run or backfill workflow status (same union on both types). */
+export type BatchExportStatus = BatchExportRun['status']
+
+export function statusToLemonTagType(status: BatchExportStatus, options?: { recordsFailed?: number }): LemonTagType {
+    if (status === 'Completed' && options?.recordsFailed != null && options.recordsFailed > 0) {
+        return 'warning'
+    }
+    switch (status) {
+        case 'Completed':
+            return 'success'
+        case 'ContinuedAsNew':
+        case 'Running':
+        case 'Starting':
+            return 'default'
+        case 'Cancelled':
+        case 'Terminated':
+        case 'TimedOut':
+            return 'warning'
+        case 'Failed':
+        case 'FailedRetryable':
+            return 'danger'
+        default:
+            return 'default'
+    }
+}
+
+export function statusToProgressStrokeColor(status: BatchExportStatus): string {
+    switch (status) {
+        case 'Completed':
+            return 'var(--success)'
+        case 'ContinuedAsNew':
+        case 'Running':
+        case 'Starting':
+            return 'var(--brand-blue)'
+        case 'Cancelled':
+        case 'Terminated':
+        case 'TimedOut':
+            return 'var(--warning)'
+        case 'Failed':
+        case 'FailedRetryable':
+            return 'var(--danger)'
+        default:
+            return 'var(--color-border-primary)'
+    }
+}

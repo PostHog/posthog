@@ -48,12 +48,12 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error_tracking'],
             description: 'error tracking tools (underscore)',
-            expectedTools: ['list-errors', 'error-details', 'update-issue-status', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
         },
         {
             features: ['error-tracking'],
             description: 'error tracking tools (hyphen, normalized)',
-            expectedTools: ['list-errors', 'error-details', 'update-issue-status', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
         },
         {
             features: ['experiments'],

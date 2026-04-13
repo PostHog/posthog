@@ -14,12 +14,15 @@ import type {
     EndpointRequestApi,
     EndpointResponseApi,
     EndpointRunRequestApi,
+    EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
+    EndpointsOpenapiJsonRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
     PaginatedEndpointResponseListApi,
     PaginatedEndpointVersionResponseListApi,
+    PatchedEndpointRequestApi,
     QueryStatusResponseApi,
 } from './api.schemas'
 
@@ -112,14 +115,24 @@ export const endpointsUpdate = async (
     })
 }
 
+/**
+ * Update an existing endpoint.
+ */
 export const getEndpointsPartialUpdateUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/`
 }
 
-export const endpointsPartialUpdate = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsPartialUpdateUrl(projectId, name), {
+export const endpointsPartialUpdate = async (
+    projectId: string,
+    name: string,
+    patchedEndpointRequestApi: PatchedEndpointRequestApi,
+    options?: RequestInit
+): Promise<EndpointResponseApi> => {
+    return apiMutator<EndpointResponseApi>(getEndpointsPartialUpdateUrl(projectId, name), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEndpointRequestApi),
     })
 }
 
@@ -179,16 +192,33 @@ export const endpointsMaterializationStatusRetrieve = async (
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
-export const getEndpointsOpenapiJsonRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
+export const getEndpointsOpenapiJsonRetrieveUrl = (
+    projectId: string,
+    name: string,
+    params?: EndpointsOpenapiJsonRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/openapi.json/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
 }
 
 export const endpointsOpenapiJsonRetrieve = async (
     projectId: string,
     name: string,
+    params?: EndpointsOpenapiJsonRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name), {
+    return apiMutator<void>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
@@ -201,8 +231,12 @@ export const getEndpointsRunRetrieveUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/run/`
 }
 
-export const endpointsRunRetrieve = async (projectId: string, name: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunRetrieveUrl(projectId, name), {
+export const endpointsRunRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunRetrieveUrl(projectId, name), {
         ...options,
         method: 'GET',
     })
@@ -220,8 +254,8 @@ export const endpointsRunCreate = async (
     name: string,
     endpointRunRequestApi: EndpointRunRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEndpointsRunCreateUrl(projectId, name), {
+): Promise<EndpointRunResponseApi> => {
+    return apiMutator<EndpointRunResponseApi>(getEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

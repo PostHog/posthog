@@ -4,10 +4,6 @@ import { hasScopes } from '@/lib/api'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Documentation
 import searchDocs from './documentation/searchDocs'
-// Error Tracking
-import errorDetails from './errorTracking/errorDetails'
-import listErrors from './errorTracking/listErrors'
-import updateIssueStatus from './errorTracking/updateIssueStatus'
 // Experiments
 import createExperiment from './experiments/create'
 import deleteExperiment from './experiments/delete'
@@ -33,10 +29,6 @@ import evaluationRun from './llmAnalytics/evaluations/run'
 import evaluationTestHog from './llmAnalytics/evaluations/testHog'
 import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributes from './logs/listAttributes'
-import logsListAttributeValues from './logs/listAttributeValues'
-// Logs
-import logsQuery from './logs/query'
 // Organizations
 import getOrganizationDetails from './organizations/getDetails'
 import getOrganizations from './organizations/getOrganizations'
@@ -78,16 +70,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Documentation - handled separately due to env check
     // "docs-search": searchDocs,
-
-    // Error Tracking
-    'list-errors': listErrors,
-    'error-details': errorDetails,
-    'update-issue-status': updateIssueStatus,
-
-    // Logs
-    'logs-query': logsQuery,
-    'logs-list-attributes': logsListAttributes,
-    'logs-list-attribute-values': logsListAttributeValues,
 
     // Experiments
     'experiment-get-all': getAllExperiments,
@@ -155,7 +137,11 @@ export const getToolsFromContext = async (
         }
     }
 
-    const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
+    // Filter tools by mcpVersion — when set, the tool is exclusive to that version
+    const effectiveVersion = options?.version ?? 1
+    const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
+
+    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
         const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,

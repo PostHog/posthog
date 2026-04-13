@@ -7,7 +7,8 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import AccessControlPermission
 
-from ..models.model_configuration import POSTHOG_ALLOWED_MODELS, LLMModelConfiguration
+from ..llm import TRIAL_MODELS_BY_PROVIDER
+from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
@@ -60,7 +61,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team_id,
         )
         available = config.get_available_models()
-        posthog_allowed = POSTHOG_ALLOWED_MODELS.get(provider, [])
+        posthog_allowed = TRIAL_MODELS_BY_PROVIDER.get(provider, [])
 
         return Response(
             {"models": [{"id": model, "posthog_available": model in posthog_allowed} for model in available]}

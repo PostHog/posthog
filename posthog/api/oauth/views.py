@@ -6,6 +6,8 @@ from datetime import timedelta
 from typing import TypedDict, cast
 from urllib.parse import urlparse
 
+from django.conf import settings
+from django.core.exceptions import DisallowedRedirect
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -49,6 +51,15 @@ from posthog.utils import render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+def get_region_info() -> dict | None:
+    """Return region metadata if running on PostHog Cloud US/EU, else None."""
+    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    if cloud in ("US", "EU"):
+        region = cloud.lower()
+        return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
+    return None
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -420,7 +431,16 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         try:
             scopes, credentials = self.validate_authorization_request(request)
         except OAuthToolkitError as error:
-            return self.error_response(error, application=None, state=request.query_params.get("state"))
+            # Try to resolve the application so error redirects can use its allowed schemes
+            # (e.g. vscode:// or other custom schemes registered by the client)
+            error_application = None
+            client_id = request.query_params.get("client_id")
+            if client_id:
+                try:
+                    error_application = get_application_by_client_id(client_id)
+                except OAuthApplication.DoesNotExist:
+                    pass
+            return self.error_response(error, application=error_application, state=request.query_params.get("state"))
 
         # Handle login prompt
         if request.query_params.get("prompt") == "login":
@@ -579,7 +599,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     },
                     status=status.HTTP_200_OK,
                 )
-            return self.redirect(error_response["url"], application)
+            try:
+                return self.redirect(error_response["url"], application)
+            except DisallowedRedirect:
+                logger.warning(
+                    "oauth_disallowed_redirect_scheme",
+                    redirect_url=error_response["url"],
+                )
+                # Fall through to JSON error response below
 
         return Response(
             {
@@ -644,6 +671,9 @@ class OAuthTokenView(TokenView):
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
                     response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
+
+                    if region_info := get_region_info():
+                        response_data.update(region_info)
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
@@ -871,5 +901,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
             # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
             "client_id_metadata_document_supported": True,
         }
+
+        if region_info := get_region_info():
+            metadata.update(region_info)
 
         return JsonResponse(metadata)

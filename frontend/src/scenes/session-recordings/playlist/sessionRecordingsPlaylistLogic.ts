@@ -531,6 +531,7 @@ export interface SessionRecordingPlaylistLogicProps {
     updateSearchParams?: boolean
     autoPlay?: boolean
     onlyPinned?: boolean
+    type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
     pinnedFilters?: UniversalFiltersGroup
@@ -1403,6 +1404,22 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         ? 0
                         : 1)
                 )
+            },
+        ],
+
+        summarizeDisabledReason: [
+            (s) => [s.totalFiltersCount, s.recordings, s.sessionRecordingsResponseLoading, (_, props) => props.type],
+            (totalFiltersCount, recordings, loading, type): string | undefined => {
+                if (loading) {
+                    return 'Loading…'
+                }
+                if (recordings.length === 0) {
+                    return 'No recordings in the list'
+                }
+                if (!type && totalFiltersCount === 0) {
+                    return 'Add filters to summarize recordings'
+                }
+                return undefined
             },
         ],
 

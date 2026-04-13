@@ -33,7 +33,7 @@ describe('Feature Routing Integration', () => {
                 'dashboard-create',
                 'insights-get-all',
                 'organizations-get',
-                'list-errors',
+                'query-error-tracking-issues',
             ],
         },
         {
