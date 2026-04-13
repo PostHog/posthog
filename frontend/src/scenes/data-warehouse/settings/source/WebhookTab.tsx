@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
-import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -91,7 +90,6 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                 externalStateLabel={externalStateLabel}
                 onRefresh={loadWebhookInfo}
             />
-            {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
             {externalMissing && (
                 <WebhookRecreateSection
                     id={id}
@@ -103,6 +101,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                 />
             )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
+            {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
             <WebhookDeleteSection canDelete={canDeleteWebhook} deleting={webhookDeleting} onDelete={deleteWebhook} />
         </div>
@@ -123,12 +122,12 @@ function WebhookMetricsSection({ hogFunctionId }: { hogFunctionId: string }): JS
         },
     })
 
-    const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
+    const { appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
 
     return (
         <LemonCard hoverEffect={false} className="space-y-4">
             <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold mb-0">Throughput</h3>
+                <h3 className="text-lg font-semibold mb-0">Metrics</h3>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
 
@@ -147,7 +146,6 @@ function WebhookMetricsSection({ hogFunctionId }: { hogFunctionId: string }): JS
                     />
                 ))}
             </div>
-            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
         </LemonCard>
     )
 }
