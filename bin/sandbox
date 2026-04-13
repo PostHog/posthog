@@ -55,7 +55,7 @@ INFRA_SERVICES = [
     "redis7",
     "clickhouse",
     "kafka",
-    "zookeeper",
+    "keeper",
     "objectstorage",
 ]
 
