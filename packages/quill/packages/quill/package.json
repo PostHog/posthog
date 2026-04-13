@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill",
-    "version": "0.1.0-alpha.0",
+    "version": "0.1.0-alpha.2",
     "description": "PostHog's unified design system — primitives, components, and blocks with a pre-compiled stylesheet.",
     "license": "MIT",
     "repository": {

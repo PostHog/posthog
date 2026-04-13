@@ -4,13 +4,12 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
-
-from posthog.settings import settings
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.models import DataWarehouseTable
