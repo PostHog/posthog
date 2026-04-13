@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
@@ -13,24 +13,32 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { dashboardTemplateCopyLogic, type DashboardTemplateCopyLogicProps } from './dashboardTemplateCopyLogic'
 
+/** Aligns with `urls.dashboardTemplateCopyToProject` query shape (`source_team`). */
+function sourceTeamQueryFromSearchParams(searchParams: Record<string, any>): {
+    sourceTeamId: number | undefined
+    hasValidSourceTeamQuery: boolean
+} {
+    const raw = searchParams.source_team
+    const s = raw === undefined || raw === null ? '' : typeof raw === 'number' ? String(raw) : String(raw).trim()
+    const hasValidSourceTeamQuery = /^\d+$/.test(s)
+    return {
+        sourceTeamId: hasValidSourceTeamQuery ? Number(s) : undefined,
+        hasValidSourceTeamQuery,
+    }
+}
+
 export const scene: SceneExport<DashboardTemplateCopyLogicProps> = {
     component: DashboardTemplateCopyScene,
     logic: dashboardTemplateCopyLogic,
     paramsToProps: ({ params: { sourceTemplateId }, searchParams }) => {
-        const raw = searchParams.source_team
-        const s = raw === undefined || raw === null ? '' : typeof raw === 'number' ? String(raw) : String(raw).trim()
-        const hasValidSourceTeamQuery = /^\d+$/.test(s)
-        const sourceTeamId = hasValidSourceTeamQuery ? Number(s) : undefined
-        return {
-            sourceTemplateId,
-            sourceTeamId,
-            hasValidSourceTeamQuery,
-        }
+        const { sourceTeamId } = sourceTeamQueryFromSearchParams(searchParams)
+        return { sourceTemplateId, sourceTeamId }
     },
 }
 
 export function DashboardTemplateCopyScene(props: DashboardTemplateCopyLogicProps): JSX.Element {
-    const { hasValidSourceTeamQuery } = props
+    const { searchParams } = useValues(router)
+    const { hasValidSourceTeamQuery } = sourceTeamQueryFromSearchParams(searchParams)
     const logic = dashboardTemplateCopyLogic(props)
     const {
         sourceTemplate,

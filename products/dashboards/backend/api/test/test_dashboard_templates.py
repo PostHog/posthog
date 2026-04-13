@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
 
@@ -1212,6 +1212,29 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
         resp = self.client.post(
             self._copy_url(self.team_b.pk), {"source_template_id": str(other_tpl.id)}, format="json"
         )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_copy_source_team_row_missing_404(self) -> None:
+        """Stale `team_id` on the template (no matching Team row) must be 404, not 500."""
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Source team row missing", "scope": "team"},
+        )
+        assert src.status_code == status.HTTP_201_CREATED, src.content
+        src_id = src.json()["id"]
+
+        real_filter = Team.objects.filter
+
+        def filter_impl(*args, **kwargs):
+            if kwargs == {"pk": self.team.pk}:
+                qs = MagicMock()
+                qs.first.return_value = None
+                return qs
+            return real_filter(*args, **kwargs)
+
+        with patch.object(Team.objects, "filter", side_effect=filter_impl):
+            resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": src_id}, format="json")
+
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     def test_copy_soft_deleted_source_404(self) -> None:

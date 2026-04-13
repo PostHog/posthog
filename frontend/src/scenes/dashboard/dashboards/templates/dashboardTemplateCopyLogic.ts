@@ -18,7 +18,6 @@ import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 export interface DashboardTemplateCopyLogicProps {
     sourceTemplateId: string
     sourceTeamId?: number
-    hasValidSourceTeamQuery?: boolean
 }
 
 function maybeReplaceUrlWithSourceTeam(props: DashboardTemplateCopyLogicProps, currentTeamId: number | null): void {

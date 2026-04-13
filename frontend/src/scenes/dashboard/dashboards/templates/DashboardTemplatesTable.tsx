@@ -6,7 +6,6 @@ import { IconBuilding, IconChevronDown, IconGlobe, IconThumbsUpFilled } from '@p
 import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -15,6 +14,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { urls } from 'scenes/urls'
@@ -93,19 +93,23 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { openEdit: openDashboardTemplateModalEdit } = useActions(dashboardTemplateModalLogic)
 
     const { user } = useValues(userLogic)
-    const customerDashboardTemplateAuthoring = useFeatureFlag('CUSTOMER_DASHBOARD_TEMPLATE_AUTHORING')
+    /** Django `is_staff` (not org role). Prefer loaded API user; until then use SSR/bootstrap context so row actions are not blank. */
+    const isDjangoStaffForTemplateUi =
+        user != null ? Boolean(user.is_staff) : Boolean(getAppContext()?.current_user?.is_staff)
+    /** Team-scoped template row actions for non–Django-staff (matches project RBAC; backend still enforces org feature flag on writes where applicable). */
     const canCustomerManageTeamTemplates =
-        !user?.is_staff &&
-        customerDashboardTemplateAuthoring &&
+        !isDjangoStaffForTemplateUi &&
         userHasAccess(AccessControlResourceType.DashboardTemplate, AccessControlLevel.Editor)
 
+    const currentTeamId = user?.team?.id ?? getAppContext()?.current_team?.id ?? null
+    const organizationTeams = user?.organization?.teams ?? getAppContext()?.current_user?.organization?.teams ?? []
+
     const eligibleDestinationTeamsCount = useMemo(() => {
-        const tid = user?.team?.id
-        if (tid == null) {
+        if (currentTeamId == null) {
             return 0
         }
-        return (user?.organization?.teams ?? []).filter((t) => t.id !== tid).length
-    }, [user?.organization?.teams, user?.team?.id])
+        return organizationTeams.filter((t) => t.id !== currentTeamId).length
+    }, [organizationTeams, currentTeamId])
 
     const copyTemplateToProjectMenuSection = (
         templateId: string | undefined,
@@ -121,12 +125,11 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     fullWidth
                     data-attr={dataAttr}
                     onClick={() => {
-                        const sourceTeamId = user?.team?.id
-                        if (sourceTeamId == null) {
+                        if (currentTeamId == null) {
                             console.error('Current project id not available')
                             return
                         }
-                        router.actions.push(urls.dashboardTemplateCopyToProject(templateId, sourceTeamId))
+                        router.actions.push(urls.dashboardTemplateCopyToProject(templateId, currentTeamId))
                     }}
                 >
                     Copy to another project
@@ -248,7 +251,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 const { id, scope } = record
                 const builtInOfficial = isBuiltInOfficialTemplate(record)
 
-                if (user?.is_staff) {
+                if (isDjangoStaffForTemplateUi) {
                     return (
                         <More
                             overlay={

@@ -284,9 +284,7 @@ def _pick_unique_template_name_for_copy(*, team_id: int, base_name: str) -> str:
     )
 
 
-def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team, target_organization_id: UUID) -> None:
-    if source_team.organization_id != target_organization_id:
-        raise NotFound()
+def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> None:
     if user.is_staff:
         return
     up = UserPermissions(user=user)
@@ -416,12 +414,14 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         if source.team_id == target_team_id:
             raise ValidationError({"source_template_id": ["Source and destination must be different projects."]})
 
-        source_team = Team.objects.get(pk=source.team_id)
+        source_team = Team.objects.filter(pk=source.team_id).first()
+        if source_team is None:
+            raise NotFound()
         if source_team.organization_id != target_org_id:
             raise NotFound()
 
         user = cast(User, request.user)
-        _assert_user_can_read_source_for_copy(user=user, source_team=source_team, target_organization_id=target_org_id)
+        _assert_user_can_read_source_for_copy(user=user, source_team=source_team)
 
         enforce_organization_dashboard_template_limit(organization_id=target_org_id)
 
