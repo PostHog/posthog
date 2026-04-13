@@ -1,16 +1,13 @@
 import { aiSummaryMock } from './ai-summary.mock'
 
-import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
-import api, { ApiError } from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import {
     capitalizeFirstLetter,
     ceilMsToClosestSecond,
@@ -36,7 +33,8 @@ import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
-import { SessionSummaryContent } from './types'
+import { sessionSummaryProgressLogic } from './sessionSummaryProgressLogic'
+import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
@@ -118,6 +116,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['recordingPropertiesById'],
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
+            sessionSummaryProgressLogic,
+            ['loadingBySessionId', 'progressBySessionId', 'summaryBySessionId', 'feedbackBySessionId'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
@@ -126,41 +126,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
             sessionRecordingPinnedPropertiesLogic,
             ['setPinnedProperties', 'togglePropertyPin'],
+            sessionSummaryProgressLogic,
+            ['startSummarization', 'setSummary', 'markFeedbackGiven'],
         ],
     })),
     actions({
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
-        setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
-        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
         setShowFeedbackSurvey: (show: boolean) => ({ show }),
     }),
     reducers(() => ({
-        summaryHasHadFeedback: [
-            false,
-            {
-                sessionSummaryFeedback: () => true,
-            },
-        ],
         showFeedbackSurvey: [
             false,
             {
                 setShowFeedbackSurvey: (_, { show }) => show,
-            },
-        ],
-        sessionSummary: [
-            null as SessionSummaryContent | null,
-            {
-                setSessionSummaryContent: (_, { content }) => content,
-            },
-        ],
-        sessionSummaryLoading: [
-            false,
-            {
-                summarizeSession: () => true,
-                setSessionSummaryContent: () => false,
-                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
         isPropertyPopoverOpen: [
@@ -170,7 +150,24 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ props }) => ({
+        sessionSummary: [
+            (s) => [s.summaryBySessionId],
+            (summaryBySessionId): SessionSummaryContent | null => summaryBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryLoading: [
+            (s) => [s.loadingBySessionId],
+            (loadingBySessionId): boolean => !!loadingBySessionId[props.sessionRecordingId],
+        ],
+        summarizationProgress: [
+            (s) => [s.progressBySessionId],
+            (progressBySessionId): SummarizationProgress | null =>
+                progressBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        summaryHasHadFeedback: [
+            (s) => [s.feedbackBySessionId],
+            (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
+        ],
         loading: [
             (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
             (sessionPlayerMetaData, recordingPropertiesById) => {
@@ -450,74 +447,22 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 session_summary: values.sessionSummary,
                 summarized_session_id: props.sessionRecordingId,
             })
+            actions.markFeedbackGiven(props.sessionRecordingId)
         },
-        // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
-        summarizeSession: async () => {
+        summarizeSession: () => {
             // TODO: Remove after testing
             const local = false
             if (local) {
-                actions.setSessionSummaryContent(aiSummaryMock)
+                actions.setSummary(props.sessionRecordingId, aiSummaryMock)
                 return
             }
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
             }
-
-            // Give up waiting after 10 minutes. If the workflow finishes later,
-            // the summary will show up next time the user opens this recording
-            const timeout = setTimeout(
-                () => {
-                    actions.setSessionSummaryLoading(false)
-                },
-                10 * 60 * 1000
-            )
-
-            try {
-                const response = await api.recordings.summarizeStream(id)
-                const reader = response.body?.getReader()
-                if (!reader) {
-                    throw new Error('No reader available')
-                }
-                const decoder = new TextDecoder()
-                const parser = createParser({
-                    onEvent: ({ event, data }) => {
-                        try {
-                            // The workflow itself failed, not just the connection
-                            if (event === 'session-summary-error') {
-                                lemonToast.error(data)
-                                actions.setSessionSummaryLoading(false)
-                                return
-                            }
-                            const parsedData = JSON.parse(data)
-                            if (parsedData) {
-                                actions.setSessionSummaryContent(parsedData)
-                            }
-                        } catch {
-                            // Don't handle errors as we can afford to fail some chunks silently.
-                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
-                        }
-                    },
-                })
-                // Consume stream until exhausted
-                while (true) {
-                    const { done, value } = await reader.read()
-                    if (done) {
-                        break
-                    }
-                    const decodedValue = decoder.decode(value)
-                    parser.feed(decodedValue)
-                }
-                clearTimeout(timeout)
-            } catch (err) {
-                if (err instanceof ApiError) {
-                    clearTimeout(timeout)
-                    lemonToast.error(err.message)
-                    actions.setSessionSummaryLoading(false)
-                } else {
-                    posthog.captureException(err)
-                }
-            }
+            // Delegates the SSE stream + per-session state to the singleton so that
+            // progress survives navigation away from and back to a recording mid-stream.
+            actions.startSummarization(id)
         },
     })),
 ])

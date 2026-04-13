@@ -231,6 +231,8 @@ export interface GitHubRepoApi {
 
 export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
 }
 
 export type IntegrationsListParams = {
@@ -261,4 +263,18 @@ export type IntegrationsGithubBranchesRetrieveParams = {
      * @minLength 1
      */
     repo: string
+}
+
+export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
 }

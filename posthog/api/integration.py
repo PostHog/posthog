@@ -62,8 +62,25 @@ class GitHubRepoSerializer(serializers.Serializer):
     full_name = serializers.CharField()
 
 
+class GitHubReposQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of repositories to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of repositories to skip before returning results.",
+    )
+
+
 class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
+    has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
 
 
 class GitHubBranchesQuerySerializer(serializers.Serializer):
@@ -558,10 +575,21 @@ class IntegrationViewSet(
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
 
-    @action(methods=["GET"], detail=True, url_path="github_repos", responses=GitHubReposResponseSerializer)
+    @extend_schema(
+        parameters=[GitHubReposQuerySerializer],
+        responses={200: GitHubReposResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repos")
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubReposQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         github = GitHubIntegration(self.get_object())
-        return Response({"repositories": github.list_all_repositories()})
+        repositories, has_more = github.list_repositories(limit=limit, offset=offset)
+
+        return Response({"repositories": repositories, "has_more": has_more})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],

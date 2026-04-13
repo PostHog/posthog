@@ -613,12 +613,15 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
-        mock_list_repos.return_value = [
-            {"id": 1, "name": "repo1", "full_name": "org/repo1"},
-            {"id": 2, "name": "repo2", "full_name": "org/repo2"},
-        ]
+        mock_list_repos.return_value = (
+            [
+                {"id": 1, "name": "repo1", "full_name": "org/repo1"},
+                {"id": 2, "name": "repo2", "full_name": "org/repo2"},
+            ],
+            False,
+        )
 
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -634,10 +637,83 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        repos = response.json()["repositories"]
-        assert len(repos) == 2
-        assert repos[0]["name"] == "repo1"
-        assert repos[1]["name"] == "repo2"
+        data = response.json()
+        assert len(data["repositories"]) == 2
+        assert data["repositories"][0]["name"] == "repo1"
+        assert data["repositories"][1]["name"] == "repo2"
+        assert data["has_more"] is False
+        mock_list_repos.assert_called_once_with(limit=100, offset=0)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_pagination(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": i, "name": f"repo{i}", "full_name": f"org/repo{i}"} for i in range(100)]
+        mock_list_repos.return_value = (repos, True)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/?limit=100&offset=100",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["repositories"]) == 100
+        assert data["has_more"] is True
+        mock_list_repos.assert_called_once_with(limit=100, offset=100)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_has_more_false_when_partial_page(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": i, "name": f"repo{i}", "full_name": f"org/repo{i}"} for i in range(50)]
+        mock_list_repos.return_value = (repos, False)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["repositories"]) == 50
+        assert data["has_more"] is False
+
+    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
+    def test_github_repos_passes_limit_offset(self, mock_list_repos, client: HttpClient):
+        repos = [{"id": i, "name": f"repo{i}", "full_name": f"org/repo{i}"} for i in range(10)]
+        mock_list_repos.return_value = (repos, True)
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/?limit=10&offset=50",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["repositories"]) == 10
+        assert data["has_more"] is True
+        mock_list_repos.assert_called_once_with(limit=10, offset=50)
 
     def test_github_repos_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
