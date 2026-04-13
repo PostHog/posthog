@@ -12,7 +12,11 @@ import {
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyNotificationFilters, getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
+import {
+    buildSurveyExampleInvocationGlobals,
+    getSurveyNotificationFilters,
+    getSurveyIdBasedResponseKey,
+} from 'scenes/surveys/utils'
 
 import { HogFunctionTemplateType, HogFunctionType, IntegrationType, Survey, SurveyQuestionType } from '~/types'
 
@@ -199,45 +203,12 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
 }
 
 function buildTemplateGlobals(survey: SurveyNotificationContext): Record<string, unknown> {
-    const responseProperties = Object.fromEntries(
-        survey.questions
-            .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
-            .map((question, index) => [
-                getSurveyIdBasedResponseKey(question.id!),
-                question.question || `Example answer ${index + 1}`,
-            ])
-    )
-    const previewTimestamp = new Date().toISOString()
-
-    return {
-        project: {
-            id: 1,
-            name: 'Project',
-            url: 'https://app.posthog.com/project/1',
-        },
-        event: {
-            event: 'survey sent',
-            uuid: '00000000-0000-0000-0000-000000000000',
-            distinct_id: 'example-distinct-id',
-            timestamp: previewTimestamp,
-            properties: {
-                $survey_id: survey.id === NEW_SURVEY.id ? 'survey-id' : survey.id,
-                $survey_name: survey.name || 'Survey',
-                $survey_completed: true,
-                ...responseProperties,
-            },
-            url: `https://app.posthog.com/project/1/events/example/${encodeURIComponent(previewTimestamp)}`,
-        },
-        person: {
-            id: 'person-id',
-            name: 'Jane Doe',
-            url: 'https://app.posthog.com/project/1/person/example-distinct-id',
-            properties: {
-                email: 'jane@example.com',
-            },
-        },
-        groups: {},
-    }
+    return buildSurveyExampleInvocationGlobals({
+        survey,
+        projectId: 1,
+        projectName: 'Project',
+        projectUrl: 'https://app.posthog.com/project/1',
+    })
 }
 
 function notificationNameFor(destination: DestinationKey, surveyName?: string | null): string {

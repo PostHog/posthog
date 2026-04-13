@@ -1997,6 +1997,55 @@ class GitHubIntegration:
         return integration
 
     @classmethod
+    def github_login_from_code(cls, code: str) -> str | None:
+        """Exchange an OAuth authorization code from the GitHub App user authorization flow for the user's login.
+
+        Returns the GitHub username or None if the exchange fails.
+        """
+        client_id = settings.GITHUB_APP_OAUTH_CLIENT_ID
+        client_secret = settings.GITHUB_APP_OAUTH_CLIENT_SECRET
+        if not client_id or not client_secret:
+            logger.warning("GitHubIntegration: GITHUB_APP_OAUTH_CLIENT_ID/SECRET not configured, cannot exchange code")
+            return None
+
+        try:
+            token_response = requests.post(
+                "https://github.com/login/oauth/access_token",
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code": code,
+                },
+                headers={"Accept": "application/json"},
+                timeout=10,
+            )
+            token_data = token_response.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                logger.warning(
+                    "GitHubIntegration: code exchange returned no access_token", error=token_data.get("error")
+                )
+                return None
+
+            user_response = requests.get(
+                "https://api.github.com/user",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=10,
+            )
+            if user_response.status_code != 200:
+                logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
+                return None
+
+            return user_response.json().get("login")
+        except Exception:
+            logger.warning("GitHubIntegration: failed to exchange code for github login", exc_info=True)
+            return None
+
+    @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):

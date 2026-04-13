@@ -512,7 +512,7 @@ class TestConversation(APIBaseTest):
         Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
         Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -521,8 +521,9 @@ class TestConversation(APIBaseTest):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["id"], str(conversation1.id))
             self.assertEqual(results[0]["title"], "Conversation 1")
-            self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
+            self.assertNotIn("messages", results[0])
+            mock_get_state.assert_not_awaited()
 
     def test_list_conversations_only_returns_own_conversations(self):
         """Test that listing conversations only returns the current user's conversations"""
@@ -552,7 +553,13 @@ class TestConversation(APIBaseTest):
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
+            data = response.json()
+            self.assertEqual(data["id"], str(conversation.id))
+            self.assertIn("messages", data)
+            self.assertIn("has_unsupported_content", data)
+            self.assertIn("agent_mode", data)
+            self.assertIn("is_sandbox", data)
+            self.assertIn("pending_approvals", data)
 
     def test_retrieve_other_users_conversation_succeeds(self):
         """Test that user can retrieve another user's conversation in the same team"""

@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any, Literal
 
 import s3fs
+import pyarrow as pa
 import structlog
 import pyarrow.compute as pc
 import posthoganalytics
@@ -191,6 +192,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
+        internal_schema.add_pyarrow_schema(pa.schema(delta_table.schema().to_arrow()))
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
@@ -430,6 +432,9 @@ def process_message(message: Any) -> None:
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
         internal_schema = HogQLSchema()
+        # Build from the Delta table schema first to cover all columns from
+        # all batches, then overlay the current batch for JSON detection.
+        internal_schema.add_pyarrow_schema(pa.schema(delta_table.schema().to_arrow()))  # type: ignore[arg-type]  # arro3 Schema implements the Arrow C Data Interface
         internal_schema.add_pyarrow_table(pa_table)
 
         logger.debug(
