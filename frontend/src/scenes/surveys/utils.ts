@@ -1030,12 +1030,6 @@ export function getSurveyNotificationFilters(
 ): CyclotronJobFiltersType {
     const properties: EventPropertyFilter[] = [
         {
-            key: SurveyEventProperties.SURVEY_RESPONSE,
-            type: PropertyFilterType.Event,
-            value: 'is_set',
-            operator: PropertyOperator.IsSet,
-        },
-        {
             key: SurveyEventProperties.SURVEY_ID,
             type: PropertyFilterType.Event,
             value: surveyId,

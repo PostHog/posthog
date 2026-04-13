@@ -164,12 +164,6 @@ describe('survey utils', () => {
                         type: 'events',
                         properties: [
                             {
-                                key: SurveyEventProperties.SURVEY_RESPONSE,
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
-                            {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
@@ -194,12 +188,6 @@ describe('survey utils', () => {
                         id: SurveyEventName.SENT,
                         type: 'events',
                         properties: [
-                            {
-                                key: SurveyEventProperties.SURVEY_RESPONSE,
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
                             {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
