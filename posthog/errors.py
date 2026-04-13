@@ -144,6 +144,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
         return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
+    elif name == "UNKNOWN_TABLE":
+        return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
 
     # all other errors
     else:
@@ -245,6 +247,10 @@ class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
 
 
 class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownTable(ExposedCHQueryError):
     pass
 
 
