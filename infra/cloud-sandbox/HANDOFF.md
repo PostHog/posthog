@@ -15,9 +15,8 @@ pre-built Docker data from S3.
 5. Download `docker-data.tar.zst` from S3 via pre-signed URL (~2-5s for ~2GB)
 6. Extract to NVMe, symlink `/var/lib/docker`
 7. Start Docker (all images + volumes already loaded)
-8. Clone PostHog repo (to NVMe if available)
-9. Create git worktree for the branch
-10. `bin/sandbox create <branch> --no-attach` (same code path as local)
+8. Clone PostHog repo (to NVMe if available), checkout branch
+9. `bin/sandbox create <branch> --no-attach` (same code path as local — clones into Docker volume)
 
 **Key files:**
 
@@ -170,8 +169,6 @@ sudo cat /var/log/sandbox-boot.log
   If boot takes longer than expected, the download will fail.
   Destroy and recreate.
 - **"No Docker cache archive found"**: Run `bin/sandbox cloud upload-cache` first.
-- **posthog-worktree flox error**: This is handled — cloud-init creates the worktree
-  directly with `git worktree add`, bypassing `posthog-worktree` (which needs flox).
 
 ## Architecture decisions
 
@@ -183,4 +180,4 @@ sudo cat /var/log/sandbox-boot.log
   Docker data and the git repo are placed on NVMe for fast I/O. Falls back to EBS
   gracefully if no NVMe is available.
 - **Same code path as local** — `bin/sandbox create` runs identically on cloud and local.
-  Cloud-init just sets up the environment (Docker, git, worktree) before calling it.
+  Cloud-init just sets up the environment (Docker, git clone) before calling it.

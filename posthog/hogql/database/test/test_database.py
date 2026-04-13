@@ -2291,3 +2291,85 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         assert get_data_warehouse_table_name(source, table_name) == expected
+
+    def test_warehouse_join_on_persons_with_empty_columns_mid_sync(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="farm_size_table",
+            columns={},
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="farm_size_table",
+            joining_table_key="user_email",
+            field_name="farm_size",
+        )
+
+        database = Database.create_for(team=self.team)
+        persons = database.get_table("persons")
+
+        assert "farm_size" in persons.fields
+        assert isinstance(persons.fields["farm_size"], LazyJoin)
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+        with pytest.raises(ExposedHogQLError):
+            prepare_and_print_ast(
+                parse_select("select person.farm_size.size_range from events"),
+                context,
+                dialect="clickhouse",
+            )
+
+    def test_warehouse_join_on_persons_with_partial_columns_mid_sync(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="farm_size_table",
+            columns={
+                "user_email": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="farm_size_table",
+            joining_table_key="user_email",
+            field_name="farm_size",
+        )
+
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+
+        prepare_and_print_ast(
+            parse_select("select person.farm_size.user_email from events"),
+            context,
+            dialect="clickhouse",
+        )
+
+        with pytest.raises(ExposedHogQLError):
+            prepare_and_print_ast(
+                parse_select("select person.farm_size.size_range from events"),
+                context,
+                dialect="clickhouse",
+            )
+
+    def test_warehouse_join_skipped_when_joining_table_missing(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="nonexistent_table",
+            joining_table_key="email",
+            field_name="ext_data",
+        )
+
+        database = Database.create_for(team=self.team)
+        persons = database.get_table("persons")
+        assert "ext_data" not in persons.fields

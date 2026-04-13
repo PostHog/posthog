@@ -4,56 +4,65 @@
  * Returns metadata pointing to oauth.posthog.com endpoints.
  * MCP clients and other OAuth integrations use this to discover where to register,
  * authorize, and exchange tokens.
+ *
+ * We always cache the information exposed by the authoritative source - us.posthog.com
+ * and simply alter the endpoint-related fields to point to oauth.posthog.com.
+ *
+ * The actual underlying metadata is defined in posthog/api/oauth/views.py#OAuthAuthorizationServerMetadataView.get()
  */
-export function handleMetadata(request: Request): Response {
+
+interface WellKnownOAuthAuthorizationServerMetadata {
+    issuer: string
+    authorization_endpoint: string
+    token_endpoint: string
+    revocation_endpoint: string
+    introspection_endpoint: string
+    userinfo_endpoint: string
+    jwks_uri: string
+    registration_endpoint: string
+    scopes_supported: string[]
+    response_types_supported: string[]
+    response_modes_supported: string[]
+    grant_types_supported: string[]
+    token_endpoint_auth_methods_supported: string[]
+    code_challenge_methods_supported: string[]
+    service_documentation: string
+    client_id_metadata_document_supported: boolean
+}
+
+let authoritativeMetadataCache: WellKnownOAuthAuthorizationServerMetadata | null = null
+let cachedUntil: Date | null = null
+
+// We do not have to worry about local development since the proxy is not used when developing the MCP locally.
+async function fetchAuthoritativeMetadata(): Promise<WellKnownOAuthAuthorizationServerMetadata> {
+    const response = await fetch('https://us.posthog.com/.well-known/oauth-authorization-server')
+    if (!response.ok) {
+        throw new Error(`Failed to fetch authoritative metadata: ${response.statusText}`)
+    }
+
+    return response.json() as Promise<WellKnownOAuthAuthorizationServerMetadata>
+}
+
+export async function handleMetadata(request: Request): Promise<Response> {
+    if (!authoritativeMetadataCache || !cachedUntil || cachedUntil < new Date()) {
+        authoritativeMetadataCache = await fetchAuthoritativeMetadata()
+        cachedUntil = new Date(Date.now() + 600 * 1000) // cache for 10 minutes (600 seconds)
+    }
+
     const url = new URL(request.url)
     const baseUrl = `${url.protocol}//${url.host}`
 
-    const metadata = {
+    // Alter the endpoint-related fields to point to the oauth.posthog.com base domain.
+    const metadata: WellKnownOAuthAuthorizationServerMetadata = {
+        ...authoritativeMetadataCache,
         issuer: baseUrl,
         authorization_endpoint: `${baseUrl}/oauth/authorize/`,
         token_endpoint: `${baseUrl}/oauth/token/`,
-        registration_endpoint: `${baseUrl}/oauth/register/`,
         revocation_endpoint: `${baseUrl}/oauth/revoke/`,
         introspection_endpoint: `${baseUrl}/oauth/introspect/`,
         userinfo_endpoint: `${baseUrl}/oauth/userinfo/`,
         jwks_uri: `${baseUrl}/.well-known/jwks.json`,
-        scopes_supported: [
-            'openid',
-            'profile',
-            'email',
-            'introspection',
-            'action:read',
-            'action:write',
-            'dashboard:read',
-            'dashboard:write',
-            'error_tracking:read',
-            'error_tracking:write',
-            'event_definition:read',
-            'event_definition:write',
-            'experiment:read',
-            'experiment:write',
-            'feature_flag:read',
-            'feature_flag:write',
-            'insight:read',
-            'insight:write',
-            'logs:read',
-            'organization:read',
-            'project:read',
-            'property_definition:read',
-            'query:read',
-            'survey:read',
-            'survey:write',
-            'user:read',
-            'warehouse_table:read',
-            'warehouse_view:read',
-        ],
-        response_types_supported: ['code'],
-        response_modes_supported: ['query'],
-        grant_types_supported: ['authorization_code', 'refresh_token'],
-        token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
-        code_challenge_methods_supported: ['S256'],
-        service_documentation: 'https://posthog.com/docs/model-context-protocol',
+        registration_endpoint: `${baseUrl}/oauth/register/`,
     }
 
     return new Response(JSON.stringify(metadata), {

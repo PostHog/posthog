@@ -10,19 +10,9 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import type {
-    Experiment,
-    ExperimentExposureQuery,
-    ExperimentExposureQueryResponse,
-    ExperimentUpdateApiPayload,
-} from '@/schema/experiments'
-import {
-    ExperimentCreatePayloadSchema,
-    ExperimentExposureQuerySchema,
-    ExperimentUpdateApiPayloadSchema,
-} from '@/schema/experiments'
+import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
+import { ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
-import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -134,16 +124,20 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | (string | number)[] | undefined>
+        query?: Record<string, string | number | boolean | (string | number)[] | null | undefined>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
             for (const [k, v] of Object.entries(opts.query)) {
-                if (v !== undefined) {
-                    searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
+                if (v === undefined || v === null) {
+                    continue
                 }
+                if (Array.isArray(v) && v.length === 0) {
+                    continue
+                }
+                searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
             }
         }
         const qs = searchParams.toString()
@@ -472,25 +466,6 @@ export class ApiClient {
 
     experiments({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Experiment[]>
-            > => {
-                try {
-                    const limit = params?.limit ?? 50
-                    const offset = params?.offset ?? 0
-                    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-                    const result = await this.fetchJson<{ results: Experiment[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/?${qs}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
             get: async ({ experimentId }: { experimentId: number }): Promise<Result<Experiment>> => {
                 return this.fetchJson<Experiment>(
                     `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`
@@ -709,68 +684,6 @@ export class ApiClient {
                         secondaryMetricsResults: secondaryResults,
                         exposures,
                     },
-                }
-            },
-
-            create: async (experimentData: z.infer<typeof ExperimentCreateSchema>): Promise<Result<Experiment>> => {
-                // Transform agent input to API payload
-                const createBody = ExperimentCreatePayloadSchema.parse(experimentData)
-
-                return this.fetchJson<Experiment>(`${this.baseUrl}/api/projects/${projectId}/experiments/`, {
-                    method: 'POST',
-                    body: JSON.stringify(createBody),
-                })
-            },
-
-            update: async ({
-                experimentId,
-                updateData,
-            }: {
-                experimentId: number
-                updateData: ExperimentUpdateApiPayload
-            }): Promise<Result<Experiment>> => {
-                try {
-                    const updateBody = ExperimentUpdateApiPayloadSchema.parse(updateData)
-
-                    return this.fetchJson<Experiment>(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify(updateBody),
-                        }
-                    )
-                } catch (error) {
-                    return { success: false, error: new Error(`Update failed: ${error}`) }
-                }
-            },
-
-            delete: async ({
-                experimentId,
-            }: {
-                experimentId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const deleteResponse = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (deleteResponse.ok) {
-                        return {
-                            success: true,
-                            data: { success: true, message: 'Experiment deleted successfully' },
-                        }
-                    }
-
-                    return {
-                        success: false,
-                        error: new Error(`Delete failed with status: ${deleteResponse.status}`),
-                    }
-                } catch (error) {
-                    return { success: false, error: new Error(`Delete failed: ${error}`) }
                 }
             },
         }

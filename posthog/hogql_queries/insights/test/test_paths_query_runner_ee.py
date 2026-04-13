@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import CachedPathsQueryResponse, PathsLink
 
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, INSIGHT_FUNNELS
@@ -3491,6 +3493,265 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
             [list(row[3]) for row in results],
         )
+
+
+class TestClickhousePathsFunnelSource(ClickhouseTestMixin, APIBaseTest):
+    """Regression tests for paths queries driven by a funnel source with non-person aggregation.
+
+    These exercise the join that paths_query_runner adds when ``funnelPathsFilter`` is set —
+    previously hardcoded to ``events.person_id = funnel_actors.actor_id``, which silently
+    dropped every row when the funnel was aggregated by session or group.
+
+    The fixtures include a completing actor and a dropping-off actor so a regression that
+    joins nothing (zero-row INNER JOIN) and a regression that joins everything (wrong
+    filter) are both caught.
+    """
+
+    # (name, funnelPathType, funnelStep, expected_paths) for each variant.
+    # The fixtures put five events on the completing actor (``/before``, ``step one``,
+    # ``/between``, ``step two``, ``/after``) so we can assert the exact path output for
+    # all three funnel path types without rebuilding data.
+    FUNNEL_PATH_CASES = [
+        (
+            "after_step",
+            "funnel_path_after_step",
+            2,
+            [("1_step two", "2_/after", 1)],
+        ),
+        (
+            # Both the completing and the incomplete actor reach step one, so both
+            # contribute to this edge — it's the only path type where the incomplete
+            # actor's events survive the funnel filter, which doubles as a "join actually
+            # let multiple actors through" signal.
+            "before_step",
+            "funnel_path_before_step",
+            1,
+            [("1_/before", "2_step one", 2)],
+        ),
+        (
+            "between_steps",
+            "funnel_path_between_steps",
+            2,
+            [
+                ("1_step one", "2_/between", 1),
+                ("2_/between", "3_step two", 1),
+            ],
+        ),
+    ]
+
+    def _create_session_funnel_events(self) -> None:
+        from posthog.models.utils import uuid7
+
+        session_completed = str(uuid7("2021-05-01 01:00:00"))
+        session_incomplete = str(uuid7("2021-05-01 03:00:00"))
+
+        _create_person(distinct_ids=["user_completed"], team_id=self.team.pk)
+        # Session that completes the funnel, with events on either side of each step.
+        _create_event(
+            event="$pageview",
+            distinct_id="user_completed",
+            team=self.team,
+            timestamp="2021-05-01 01:00:00",
+            properties={"$current_url": "/before", "$session_id": session_completed},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_completed",
+            team=self.team,
+            timestamp="2021-05-01 01:01:00",
+            properties={"$session_id": session_completed},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="user_completed",
+            team=self.team,
+            timestamp="2021-05-01 01:02:00",
+            properties={"$current_url": "/between", "$session_id": session_completed},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_completed",
+            team=self.team,
+            timestamp="2021-05-01 01:03:00",
+            properties={"$session_id": session_completed},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="user_completed",
+            team=self.team,
+            timestamp="2021-05-01 01:04:00",
+            properties={"$current_url": "/after", "$session_id": session_completed},
+        )
+
+        # Session that only hits step one — must be filtered out by the funnel join because
+        # its session id never reaches the funnel_actors set.
+        _create_person(distinct_ids=["user_incomplete"], team_id=self.team.pk)
+        _create_event(
+            event="$pageview",
+            distinct_id="user_incomplete",
+            team=self.team,
+            timestamp="2021-05-01 03:00:00",
+            properties={"$current_url": "/before", "$session_id": session_incomplete},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_incomplete",
+            team=self.team,
+            timestamp="2021-05-01 03:01:00",
+            properties={"$session_id": session_incomplete},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="user_incomplete",
+            team=self.team,
+            timestamp="2021-05-01 03:02:00",
+            properties={"$current_url": "/after", "$session_id": session_incomplete},
+        )
+
+    def _create_group_funnel_events(self) -> None:
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:completed",
+            properties={},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:incomplete",
+            properties={},
+        )
+
+        _create_person(distinct_ids=["group_user_1"], team_id=self.team.pk)
+        _create_event(
+            event="$pageview",
+            distinct_id="group_user_1",
+            team=self.team,
+            timestamp="2021-05-01 01:00:00",
+            properties={"$current_url": "/before", "$group_0": "org:completed"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="group_user_1",
+            team=self.team,
+            timestamp="2021-05-01 01:01:00",
+            properties={"$group_0": "org:completed"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="group_user_1",
+            team=self.team,
+            timestamp="2021-05-01 01:02:00",
+            properties={"$current_url": "/between", "$group_0": "org:completed"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="group_user_1",
+            team=self.team,
+            timestamp="2021-05-01 01:03:00",
+            properties={"$group_0": "org:completed"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="group_user_1",
+            team=self.team,
+            timestamp="2021-05-01 01:04:00",
+            properties={"$current_url": "/after", "$group_0": "org:completed"},
+        )
+
+        # Different org that never reaches step two — its events must be filtered out.
+        _create_person(distinct_ids=["group_user_2"], team_id=self.team.pk)
+        _create_event(
+            event="$pageview",
+            distinct_id="group_user_2",
+            team=self.team,
+            timestamp="2021-05-01 03:00:00",
+            properties={"$current_url": "/before", "$group_0": "org:incomplete"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="group_user_2",
+            team=self.team,
+            timestamp="2021-05-01 03:01:00",
+            properties={"$group_0": "org:incomplete"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="group_user_2",
+            team=self.team,
+            timestamp="2021-05-01 03:02:00",
+            properties={"$current_url": "/after", "$group_0": "org:incomplete"},
+        )
+
+    def _run_paths_query(self, funnel_source: dict, funnel_path_type: str, funnel_step: int) -> list[tuple]:
+        with freeze_time("2021-05-08T00:00:00.000Z"):
+            result = PathsQueryRunner(
+                query={
+                    "kind": "PathsQuery",
+                    "dateRange": {"date_from": "2021-05-01", "date_to": "2021-05-07"},
+                    "pathsFilter": {"includeEventTypes": ["$pageview", "custom_event"]},
+                    "funnelPathsFilter": {
+                        "funnelPathType": funnel_path_type,
+                        "funnelSource": funnel_source,
+                        "funnelStep": funnel_step,
+                    },
+                },
+                team=self.team,
+            ).run()
+        assert isinstance(result, CachedPathsQueryResponse)
+        return [(link.source, link.target, link.value) for link in result.results]
+
+    @parameterized.expand(FUNNEL_PATH_CASES)
+    def test_funnel_paths_session_aggregation(self, _name, funnel_path_type, funnel_step, expected):
+        """Session-aggregated funnel source. Pre-fix, ``after_step`` failed with
+        ``Ambiguous query. Found multiple sources for field: person_id`` and, once that
+        was patched, the join on ``events.person_id = funnel_actors.actor_id`` compared a
+        person UUID against a session id and returned zero rows.
+        """
+        self._create_session_funnel_events()
+
+        funnel_source = {
+            "kind": "FunnelsQuery",
+            "series": [
+                {"kind": "EventsNode", "event": "step one"},
+                {"kind": "EventsNode", "event": "step two"},
+            ],
+            "dateRange": {"date_from": "2021-05-01", "date_to": "2021-05-07"},
+            "funnelsFilter": {
+                "funnelAggregateByHogQL": "properties.$session_id",
+                "funnelWindowInterval": 7,
+                "funnelWindowIntervalUnit": "day",
+            },
+        }
+
+        self.assertEqual(self._run_paths_query(funnel_source, funnel_path_type, funnel_step), expected)
+
+    @parameterized.expand(FUNNEL_PATH_CASES)
+    def test_funnel_paths_group_aggregation(self, _name, funnel_path_type, funnel_step, expected):
+        """Group-aggregated funnel source. Pre-fix, the hardcoded
+        ``events.person_id = funnel_actors.actor_id`` join compared a person UUID against a
+        group key string and returned zero rows regardless of path type.
+        """
+        self._create_group_funnel_events()
+
+        funnel_source = {
+            "kind": "FunnelsQuery",
+            "series": [
+                {"kind": "EventsNode", "event": "step one"},
+                {"kind": "EventsNode", "event": "step two"},
+            ],
+            "dateRange": {"date_from": "2021-05-01", "date_to": "2021-05-07"},
+            "aggregation_group_type_index": 0,
+            "funnelsFilter": {
+                "funnelWindowInterval": 7,
+                "funnelWindowIntervalUnit": "day",
+            },
+        }
+
+        self.assertEqual(self._run_paths_query(funnel_source, funnel_path_type, funnel_step), expected)
 
 
 class TestClickhousePathsEdgeValidation(TestCase):
