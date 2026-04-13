@@ -209,7 +209,6 @@ import {
     WebhookInfo,
 } from '~/types'
 
-import type { SavedTicketView } from 'products/conversations/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import {
     ErrorTrackingRule,
@@ -1661,14 +1660,6 @@ export class ApiRequest {
 
     public conversationsTicket(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.conversationsTickets(teamId).addPathComponent(id)
-    }
-
-    public conversationsViews(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent('views')
-    }
-
-    public conversationsView(shortId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.conversationsViews(teamId).addPathComponent(shortId)
     }
 
     // Notebooks
@@ -6006,24 +5997,6 @@ const api = {
 
         async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
             return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
-        },
-    },
-
-    conversationsViews: {
-        async list(): Promise<CountedPaginatedResponse<SavedTicketView>> {
-            return await new ApiRequest().conversationsViews().get()
-        },
-
-        async get(shortId: string): Promise<SavedTicketView> {
-            return await new ApiRequest().conversationsView(shortId).get()
-        },
-
-        async create(data: { name: string; filters: Record<string, any> }): Promise<SavedTicketView> {
-            return await new ApiRequest().conversationsViews().create({ data })
-        },
-
-        async delete(shortId: string): Promise<void> {
-            return await new ApiRequest().conversationsView(shortId).delete()
         },
     },
 

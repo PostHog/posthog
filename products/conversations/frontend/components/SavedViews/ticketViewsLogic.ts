@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
@@ -13,13 +14,15 @@ export interface TicketViewsLogicProps {
     id: string
 }
 
+const viewsUrl = (teamId: number | null): string => `api/environments/${teamId}/conversations/views`
+
 export const ticketViewsLogic = kea<ticketViewsLogicType>([
     props({} as TicketViewsLogicProps),
     key((props) => props.id),
     path((key) => ['products', 'conversations', 'frontend', 'components', 'SavedViews', 'ticketViewsLogic', key]),
 
     connect(() => ({
-        values: [supportTicketsSceneLogic, ['currentFilters']],
+        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic, ['currentFilters']],
         actions: [supportTicketsSceneLogic, ['applyViewFilters', 'setActiveView']],
     })),
 
@@ -39,11 +42,14 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             [] as SavedTicketView[],
             {
                 loadViews: async () => {
-                    const response = await api.conversationsViews.list()
+                    const response = await api.get(viewsUrl(values.currentTeamId))
                     return response.results
                 },
                 createView: async ({ name, filters }: { name: string; filters: TicketViewFilters }) => {
-                    const created: SavedTicketView = await api.conversationsViews.create({ name, filters })
+                    const created: SavedTicketView = await api.create(viewsUrl(values.currentTeamId), {
+                        name,
+                        filters,
+                    })
                     lemonToast.success('View saved')
                     return [created, ...values.views]
                 },
@@ -94,7 +100,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         },
         deleteView: async ({ shortId }) => {
             try {
-                await api.conversationsViews.delete(shortId)
+                await api.delete(`${viewsUrl(values.currentTeamId)}/${shortId}`)
                 lemonToast.success('View deleted')
             } catch {
                 lemonToast.error('Failed to delete view')

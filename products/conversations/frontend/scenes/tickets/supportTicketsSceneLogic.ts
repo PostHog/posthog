@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type {
     AssigneeFilterValue,
@@ -303,8 +304,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         const { searchParams } = router.values
         const viewShortId = searchParams.view
         if (viewShortId) {
-            api.conversationsViews
-                .get(viewShortId)
+            const teamId = teamLogic.values.currentTeamId
+            api.get(`api/environments/${teamId}/conversations/views/${viewShortId}`)
                 .then((view: SavedTicketView) => {
                     actions.applyViewFilters(view.filters || {})
                     actions.setActiveView(view)
