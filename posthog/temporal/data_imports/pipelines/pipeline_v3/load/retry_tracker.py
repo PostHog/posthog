@@ -6,7 +6,7 @@ from django.db import OperationalError
 
 import structlog
 
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import _get_redis_client
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import get_redis_client
 
 logger = structlog.get_logger(__name__)
 
@@ -57,7 +57,7 @@ def get_retry_key(team_id: int, schema_id: str, run_uuid: str, batch_index: int)
 
 
 def get_retry_info(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> RetryInfo:
-    with _get_redis_client() as redis_client:
+    with get_redis_client() as redis_client:
         if redis_client is None:
             return RetryInfo()
 
@@ -70,7 +70,7 @@ def get_retry_info(team_id: int, schema_id: str, run_uuid: str, batch_index: int
 
 
 def increment_retry_count(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> RetryInfo:
-    with _get_redis_client() as redis_client:
+    with get_redis_client() as redis_client:
         if redis_client is None:
             logger.warning(
                 "failed_to_increment_retry_count",
@@ -96,23 +96,24 @@ def increment_retry_count(team_id: int, schema_id: str, run_uuid: str, batch_ind
 def update_retry_error_type(
     team_id: int, schema_id: str, run_uuid: str, batch_index: int, error_type: str, last_error: str
 ) -> None:
-    with _get_redis_client() as redis_client:
+    with get_redis_client() as redis_client:
         if redis_client is None:
             return
 
         key = get_retry_key(team_id, schema_id, run_uuid, batch_index)
         raw = redis_client.get(key)
         if raw is None:
-            return
-
-        info = RetryInfo.from_json(raw)
-        info.error_type = error_type
-        info.last_error = last_error[:1000]
+            # Key vanished (TTL race or Redis blip after increment); recreate it.
+            info = RetryInfo(error_type=error_type, last_error=last_error[:1000])
+        else:
+            info = RetryInfo.from_json(raw)
+            info.error_type = error_type
+            info.last_error = last_error[:1000]
         redis_client.set(key, info.to_json(), ex=RETRY_TTL_SECONDS)
 
 
 def clear_retry_info(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> None:
-    with _get_redis_client() as redis_client:
+    with get_redis_client() as redis_client:
         if redis_client is None:
             return
 

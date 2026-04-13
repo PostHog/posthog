@@ -356,16 +356,17 @@ class KafkaConsumerService:
         blip) without needing a full Kafka redeliver cycle. The persistent retry
         tracker in Redis is the outer safety net for process crashes.
         """
+        team_id = str(message.get("team_id") or "unknown")
+        schema_id = str(message.get("schema_id") or "unknown")
         for attempt in range(self._config.max_retries):
             try:
-                team_id = str(message.get("team_id") or "unknown")
-                schema_id = str(message.get("schema_id") or "unknown")
                 with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
                     self._process_message(message)
                 if health_reporter:
                     health_reporter()
                 return
             except TRANSIENT_ERRORS as e:
+                BATCH_RETRY_TOTAL.labels(attempt=str(attempt + 1), error_type=type(e).__name__).inc()
                 if attempt == self._config.max_retries - 1:
                     raise
                 backoff = self._config.retry_backoff_seconds * (2**attempt)

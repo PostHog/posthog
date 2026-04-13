@@ -67,7 +67,7 @@ class TestGetRetryInfo:
         mock_redis.get.return_value = None
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -79,7 +79,7 @@ class TestGetRetryInfo:
 
     def test_returns_default_when_redis_unavailable(self):
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -94,7 +94,7 @@ class TestGetRetryInfo:
         mock_redis.get.return_value = stored.to_json()
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -112,7 +112,7 @@ class TestIncrementRetryCount:
         mock_redis.get.return_value = None
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -130,7 +130,7 @@ class TestIncrementRetryCount:
         mock_redis.get.return_value = existing.to_json()
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -142,7 +142,7 @@ class TestIncrementRetryCount:
 
     def test_returns_default_when_redis_unavailable(self):
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -159,7 +159,7 @@ class TestUpdateRetryErrorType:
         mock_redis.get.return_value = existing.to_json()
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -177,7 +177,7 @@ class TestUpdateRetryErrorType:
         mock_redis.get.return_value = existing.to_json()
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -189,19 +189,23 @@ class TestUpdateRetryErrorType:
         assert saved.last_error is not None
         assert len(saved.last_error) == 1000
 
-    def test_noop_when_key_missing(self):
+    def test_creates_entry_when_key_missing(self):
         mock_redis = MagicMock()
         mock_redis.get.return_value = None
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
             update_retry_error_type(1, "schema", "run", 0, error_type="transient", last_error="err")
 
-        mock_redis.set.assert_not_called()
+        mock_redis.set.assert_called_once()
+        saved = RetryInfo.from_json(mock_redis.set.call_args[0][1])
+        assert saved.count == 0
+        assert saved.error_type == "transient"
+        assert saved.last_error == "err"
 
 
 class TestClearRetryInfo:
@@ -209,7 +213,7 @@ class TestClearRetryInfo:
         mock_redis = MagicMock()
 
         with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker._get_redis_client"
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker.get_redis_client"
         ) as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
             mock_ctx.return_value.__exit__ = MagicMock(return_value=False)

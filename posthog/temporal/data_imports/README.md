@@ -162,49 +162,49 @@ else:
         })
         print(f"  batch {i}: {s3_path} ({row_count} rows) {'[SKIP - already processed]' if already_processed else ''}")
     print(f"\nTotal: {len(messages)} batches, {total_rows} rows")
-        if not dry_run:
-            producer = get_warpstream_kafka_producer()
-            # Reset job status
-            job.status = ExternalDataJob.Status.RUNNING
-            job.latest_error = None
-            job.finished_at = None
-            job.save()
-            print(f"Reset job {job.id} to RUNNING")
-            for msg_info in messages:
-                # Clear retry info so previously-exhausted retries don't block
-                clear_retry_info(team_id, str(schema.id), run_uuid, msg_info['batch_index'])
-                is_final = msg_info['batch_index'] == len(messages) - 1
-                message = ExportSignalMessage(
-                    team_id=team_id,
-                    job_id=str(job.id),
-                    schema_id=str(schema.id),
-                    source_id=str(source.id),
-                    resource_name=schema.name,
-                    run_uuid=run_uuid,
-                    batch_index=msg_info['batch_index'],
-                    s3_path=msg_info['s3_path'],
-                    row_count=msg_info['row_count'],
-                    byte_size=msg_info['byte_size'],
-                    is_final_batch=is_final,
-                    total_batches=len(messages) if is_final else None,
-                    total_rows=total_rows if is_final else None,
-                    sync_type=sync_type_literal,
-                    data_folder=data_folder if is_final else None,
-                    schema_path=None,
-                    primary_keys=sync_type_config.get('primary_keys'),
-                    is_resume=True,
-                    partition_count=sync_type_config.get('partition_count'),
-                    partition_size=sync_type_config.get('partition_size'),
-                    partition_keys=sync_type_config.get('partition_keys'),
-                    partition_format=sync_type_config.get('partition_format'),
-                    partition_mode=sync_type_config.get('partition_mode'),
-                )
-                key = f"{team_id}:{schema.id}"
-                producer.produce(topic=KAFKA_WAREHOUSE_SOURCES_JOBS, data=message.to_dict(), key=key)
-            producer.flush()
-            print(f"Sent {len(messages)} messages to {KAFKA_WAREHOUSE_SOURCES_JOBS}")
-        else:
-            print("\nDry run - set dry_run = False to send messages")
+    if not dry_run:
+        producer = get_warpstream_kafka_producer()
+        # Reset job status
+        job.status = ExternalDataJob.Status.RUNNING
+        job.latest_error = None
+        job.finished_at = None
+        job.save()
+        print(f"Reset job {job.id} to RUNNING")
+        for msg_info in messages:
+            # Clear retry info so previously-exhausted retries don't block
+            clear_retry_info(team_id, str(schema.id), run_uuid, msg_info['batch_index'])
+            is_final = msg_info['batch_index'] == len(messages) - 1
+            message = ExportSignalMessage(
+                team_id=team_id,
+                job_id=str(job.id),
+                schema_id=str(schema.id),
+                source_id=str(source.id),
+                resource_name=schema.name,
+                run_uuid=run_uuid,
+                batch_index=msg_info['batch_index'],
+                s3_path=msg_info['s3_path'],
+                row_count=msg_info['row_count'],
+                byte_size=msg_info['byte_size'],
+                is_final_batch=is_final,
+                total_batches=len(messages) if is_final else None,
+                total_rows=total_rows if is_final else None,
+                sync_type=sync_type_literal,
+                data_folder=data_folder if is_final else None,
+                schema_path=None,
+                primary_keys=sync_type_config.get('primary_keys'),
+                is_resume=True,
+                partition_count=sync_type_config.get('partition_count'),
+                partition_size=sync_type_config.get('partition_size'),
+                partition_keys=sync_type_config.get('partition_keys'),
+                partition_format=sync_type_config.get('partition_format'),
+                partition_mode=sync_type_config.get('partition_mode'),
+            )
+            key = f"{team_id}:{schema.id}"
+            producer.produce(topic=KAFKA_WAREHOUSE_SOURCES_JOBS, data=message.to_dict(), key=key)
+        producer.flush()
+        print(f"Sent {len(messages)} messages to {KAFKA_WAREHOUSE_SOURCES_JOBS}")
+    else:
+        print("\nDry run - set dry_run = False to send messages")
 ```
 
 ## How to clean up orphaned S3 data
