@@ -1,5 +1,5 @@
 use crate::{
-    config_cache::get_cached_data,
+    config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
     token::{Token, TokenError},
 };
@@ -83,7 +83,7 @@ pub async fn surveys_endpoint(
     let value = match get_cached_data(
         &state.surveys_hypercache_reader,
         state.surveys_negative_cache.as_deref(),
-        "surveys",
+        CacheNamespace::Surveys,
         token.as_str(),
     )
     .await

@@ -1,5 +1,5 @@
 use crate::{
-    config_cache::get_cached_data,
+    config_cache::{get_cached_data, CacheNamespace},
     router::State as AppState,
     sanitize::sanitize_config_for_client,
     token::{Token, TokenError},
@@ -53,7 +53,7 @@ async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, 
     match get_cached_data(
         &state.config_hypercache_reader,
         state.config_negative_cache.as_deref(),
-        "array",
+        CacheNamespace::Array,
         token.as_str(),
     )
     .await

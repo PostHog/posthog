@@ -7,23 +7,25 @@ use std::sync::{Arc, LazyLock};
 const NEGATIVE_CACHE_HIT_METRIC: &str = "hypercache_server_negative_cache_hit_total";
 const NEGATIVE_CACHE_INSERT_METRIC: &str = "hypercache_server_negative_cache_insert_total";
 
-/// Pre-built metric labels for each namespace, avoiding per-request String allocations.
-/// The `inc()` API requires `&[(String, String)]`, so we pay the allocation once at startup.
-fn negative_cache_labels(namespace: &str) -> &'static [(String, String)] {
-    static SURVEYS: LazyLock<Vec<(String, String)>> =
-        LazyLock::new(|| vec![("namespace".to_string(), "surveys".to_string())]);
-    static ARRAY: LazyLock<Vec<(String, String)>> =
-        LazyLock::new(|| vec![("namespace".to_string(), "array".to_string())]);
+/// Namespaces served by the hypercache-server, used to partition negative
+/// caches and label metrics.
+#[derive(Debug, Clone, Copy)]
+pub enum CacheNamespace {
+    Surveys,
+    Array,
+}
 
-    match namespace {
-        "surveys" => &SURVEYS,
-        "array" => &ARRAY,
-        other => {
-            tracing::warn!(
-                namespace = other,
-                "Unknown negative cache namespace, defaulting to surveys labels"
-            );
-            &SURVEYS
+impl CacheNamespace {
+    /// Pre-built metric labels, avoiding per-request String allocations.
+    fn metric_labels(self) -> &'static [(String, String)] {
+        static SURVEYS: LazyLock<Vec<(String, String)>> =
+            LazyLock::new(|| vec![("namespace".to_string(), "surveys".to_string())]);
+        static ARRAY: LazyLock<Vec<(String, String)>> =
+            LazyLock::new(|| vec![("namespace".to_string(), "array".to_string())]);
+
+        match self {
+            CacheNamespace::Surveys => &SURVEYS,
+            CacheNamespace::Array => &ARRAY,
         }
     }
 }
@@ -42,18 +44,14 @@ fn negative_cache_labels(namespace: &str) -> &'static [(String, String)] {
 pub async fn get_cached_data(
     reader: &Arc<HyperCacheReader>,
     negative_cache: Option<&NegativeCache>,
-    namespace: &str,
+    namespace: CacheNamespace,
     key: &str,
 ) -> Option<Value> {
     // Short-circuit: if the negative cache already knows this key is missing,
     // skip the Redis + S3 round trip entirely.
     if let Some(nc) = negative_cache {
         if nc.contains(key) {
-            inc(
-                NEGATIVE_CACHE_HIT_METRIC,
-                negative_cache_labels(namespace),
-                1,
-            );
+            inc(NEGATIVE_CACHE_HIT_METRIC, namespace.metric_labels(), 1);
             return None;
         }
     }
@@ -92,14 +90,14 @@ pub async fn get_cached_data(
 }
 
 /// Record a key as missing in the negative cache and emit the insertion metric.
-fn insert_negative_cache(negative_cache: Option<&NegativeCache>, namespace: &str, key: &str) {
+fn insert_negative_cache(
+    negative_cache: Option<&NegativeCache>,
+    namespace: CacheNamespace,
+    key: &str,
+) {
     if let Some(nc) = negative_cache {
         nc.insert(key.to_string());
-        inc(
-            NEGATIVE_CACHE_INSERT_METRIC,
-            negative_cache_labels(namespace),
-            1,
-        );
+        inc(NEGATIVE_CACHE_INSERT_METRIC, namespace.metric_labels(), 1);
     }
 }
 
@@ -144,7 +142,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = get_cached_data(&reader, None, "surveys", "phc_test").await;
+        let result = get_cached_data(&reader, None, CacheNamespace::Surveys, "phc_test").await;
         assert!(result.is_none());
     }
 
@@ -169,7 +167,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = get_cached_data(&reader, None, "surveys", token).await;
+        let result = get_cached_data(&reader, None, CacheNamespace::Surveys, token).await;
         assert_eq!(result, Some(test_data));
     }
 
@@ -190,7 +188,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = get_cached_data(&reader, None, "array", token).await;
+        let result = get_cached_data(&reader, None, CacheNamespace::Array, token).await;
         assert!(result.is_none());
     }
 
@@ -216,7 +214,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = get_cached_data(&reader, None, "array", token).await;
+        let result = get_cached_data(&reader, None, CacheNamespace::Array, token).await;
         assert_eq!(result, Some(test_config_data));
     }
 
@@ -237,7 +235,13 @@ mod tests {
         let token = "phc_does_not_exist";
         assert!(!negative_cache.contains(token));
 
-        let first = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        let first = get_cached_data(
+            &reader,
+            Some(&negative_cache),
+            CacheNamespace::Surveys,
+            token,
+        )
+        .await;
         assert!(first.is_none());
         assert!(
             negative_cache.contains(token),
@@ -246,7 +250,13 @@ mod tests {
 
         // Second call: if the negative cache didn't short-circuit we'd re-query
         // the mock Redis. The entry is still there, proving we took the fast path.
-        let second = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        let second = get_cached_data(
+            &reader,
+            Some(&negative_cache),
+            CacheNamespace::Surveys,
+            token,
+        )
+        .await;
         assert!(second.is_none());
     }
 
@@ -267,7 +277,8 @@ mod tests {
         );
         let negative_cache = NegativeCache::new(100, 300);
 
-        let result = get_cached_data(&reader, Some(&negative_cache), "array", token).await;
+        let result =
+            get_cached_data(&reader, Some(&negative_cache), CacheNamespace::Array, token).await;
         assert!(result.is_none());
         assert!(
             negative_cache.contains(token),
@@ -297,7 +308,13 @@ mod tests {
         );
         let negative_cache = NegativeCache::new(100, 300);
 
-        let result = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        let result = get_cached_data(
+            &reader,
+            Some(&negative_cache),
+            CacheNamespace::Surveys,
+            token,
+        )
+        .await;
         assert_eq!(result, Some(test_data));
         assert!(
             !negative_cache.contains(token),
@@ -334,7 +351,13 @@ mod tests {
         negative_cache.insert(token.to_string());
 
         // The negative cache short-circuits: returns None despite Redis having data.
-        let result = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        let result = get_cached_data(
+            &reader,
+            Some(&negative_cache),
+            CacheNamespace::Surveys,
+            token,
+        )
+        .await;
         assert!(
             result.is_none(),
             "tombstone should short-circuit even when Redis has data"
@@ -364,7 +387,13 @@ mod tests {
         );
         let negative_cache = NegativeCache::new(100, 300);
 
-        let result = get_cached_data(&reader, Some(&negative_cache), "surveys", token).await;
+        let result = get_cached_data(
+            &reader,
+            Some(&negative_cache),
+            CacheNamespace::Surveys,
+            token,
+        )
+        .await;
         assert!(result.is_none(), "infra error should return None");
         assert!(
             !negative_cache.contains(token),
