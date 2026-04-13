@@ -96,12 +96,12 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     deleted: true,
     stats_config: true,
     scheduling_config: true,
+    allow_unknown_events: true,
     _create_in_folder: true,
     conclusion: true,
     conclusion_comment: true,
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
-    exposure_preaggregation_enabled: true,
     only_count_matured_users: true,
 })
 
@@ -161,10 +161,10 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         type: true,
         stats_config: true,
         scheduling_config: true,
+        allow_unknown_events: true,
         _create_in_folder: true,
         primary_metrics_ordered_uuids: true,
         secondary_metrics_ordered_uuids: true,
-        exposure_preaggregation_enabled: true,
         only_count_matured_users: true,
     }).shape
 )

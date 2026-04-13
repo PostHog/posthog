@@ -56,6 +56,7 @@ export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItem
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyAllowUnknownEventsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1043,6 +1044,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
+        allow_unknown_events: zod.boolean().default(experimentsCreateBodyAllowUnknownEventsDefault),
         _create_in_folder: zod.string().optional(),
         conclusion: zod
             .union([
@@ -1060,7 +1062,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().nullish(),
         secondary_metrics_ordered_uuids: zod.unknown().nullish(),
-        exposure_preaggregation_enabled: zod.boolean().optional(),
         only_count_matured_users: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1110,6 +1111,7 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorPropert
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyAllowUnknownEventsDefault = false
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -2100,6 +2102,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
+        allow_unknown_events: zod.boolean().default(experimentsPartialUpdateBodyAllowUnknownEventsDefault),
         _create_in_folder: zod.string().optional(),
         conclusion: zod
             .union([
@@ -2117,7 +2120,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().nullish(),
         secondary_metrics_ordered_uuids: zod.unknown().nullish(),
-        exposure_preaggregation_enabled: zod.boolean().optional(),
         only_count_matured_users: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
