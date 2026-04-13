@@ -2,18 +2,39 @@ import { useValues } from 'kea'
 
 import { IconDatabase } from '@posthog/icons'
 
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { PrecomputationTeam, queryPerformanceLogic } from './queryPerformanceLogic'
+
 export const scene: SceneExport = {
     component: QueryPerformance,
+    logic: queryPerformanceLogic,
 }
+
+const precomputationColumns: LemonTableColumns<PrecomputationTeam> = [
+    {
+        title: 'Team ID',
+        dataIndex: 'team_id',
+        width: 100,
+    },
+    {
+        title: 'Team name',
+        dataIndex: 'team_name',
+    },
+    {
+        title: 'Organization',
+        dataIndex: 'organization_name',
+    },
+]
 
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { precomputationTeams, precomputationTeamsLoading } = useValues(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -47,7 +68,13 @@ export function QueryPerformance(): JSX.Element {
                     forceIcon: <IconDatabase />,
                 }}
             />
-            <p className="text-muted">Coming soon.</p>
+            <h2 className="mt-4">Teams with precomputation enabled</h2>
+            <LemonTable
+                columns={precomputationColumns}
+                dataSource={precomputationTeams}
+                loading={precomputationTeamsLoading}
+                emptyState="No teams have precomputation enabled"
+            />
         </SceneContent>
     )
 }

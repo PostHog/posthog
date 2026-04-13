@@ -21,6 +21,8 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.utils import generate_short_id
 
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,6 +221,28 @@ class DebugCHQueries(viewsets.ViewSet):
             response["stats"] = self.stats(filter_key, filter_value)
             response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
+
+    @action(detail=False, methods=["GET"], url_path="precomputation_teams")
+    def precomputation_teams(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view precomputation teams.")
+
+        configs = (
+            TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
+            .select_related("team", "team__organization")
+            .order_by("team__name")
+        )
+
+        return Response(
+            [
+                {
+                    "team_id": config.team_id,
+                    "team_name": config.team.name,
+                    "organization_name": config.team.organization.name if config.team.organization else None,
+                }
+                for config in configs
+            ]
+        )
 
     @action(detail=False, methods=["POST"])
     def profile(self, request):
