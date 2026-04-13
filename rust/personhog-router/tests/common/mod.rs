@@ -17,7 +17,8 @@ use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHo
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -296,6 +297,15 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         Ok(Response::new(DeletePersonsResponse { deleted_count: 0 }))
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _request: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeletePersonsBatchForTeamResponse {
+            deleted_count: 0,
+        }))
     }
 }
 

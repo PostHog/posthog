@@ -116,16 +116,9 @@ export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: numbe
     }
 }
 
-export function drawGrid(
-    drawCtx: DrawContext,
-    options: {
-        gridColor?: string
-        goalLineValues?: number[]
-    } = {}
-): void {
+export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } = {}): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
-    const goalValues = new Set(options.goalLineValues ?? [])
 
     const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.() ?? []
 
@@ -134,9 +127,6 @@ export function drawGrid(
     ctx.setLineDash([])
 
     for (const tick of yTicks) {
-        if (goalValues.has(tick)) {
-            continue
-        }
         const y = Math.round(yScale(tick)) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)

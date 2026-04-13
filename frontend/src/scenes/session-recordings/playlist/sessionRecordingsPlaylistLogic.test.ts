@@ -1240,63 +1240,77 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('summarizeDisabledReason', () => {
+        it('shows loading while recordings are being fetched', () => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'summarize-test' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({ summarizeDisabledReason: 'Loading…' })
+        })
+
         it.each([
             {
                 scenario: 'no type, no filters, no recordings',
                 props: { logicKey: 'summarize-test' },
-                hasRecordings: false,
+                mockResults: [],
                 hasFilters: false,
                 expected: 'No recordings in the list',
             },
             {
                 scenario: 'no type, no filters, has recordings',
                 props: { logicKey: 'summarize-test' },
-                hasRecordings: true,
+                mockResults: undefined,
                 hasFilters: false,
                 expected: 'Add filters to summarize recordings',
             },
             {
                 scenario: 'no type, has filters, has recordings',
                 props: { logicKey: 'summarize-test' },
-                hasRecordings: true,
+                mockResults: undefined,
                 hasFilters: true,
                 expected: undefined,
             },
             {
                 scenario: 'collection type, no filters, no recordings',
                 props: { logicKey: 'summarize-test', type: 'collection' as const },
-                hasRecordings: false,
+                mockResults: [],
                 hasFilters: false,
                 expected: 'No recordings in the list',
             },
             {
                 scenario: 'collection type, no filters, has recordings',
                 props: { logicKey: 'summarize-test', type: 'collection' as const },
-                hasRecordings: true,
+                mockResults: undefined,
                 hasFilters: false,
                 expected: undefined,
             },
             {
                 scenario: 'filters type, no filters, no recordings',
                 props: { logicKey: 'summarize-test', type: 'filters' as const },
-                hasRecordings: false,
+                mockResults: [],
                 hasFilters: false,
                 expected: 'No recordings in the list',
             },
             {
                 scenario: 'filters type, no filters, has recordings',
                 props: { logicKey: 'summarize-test', type: 'filters' as const },
-                hasRecordings: true,
+                mockResults: undefined,
                 hasFilters: false,
                 expected: undefined,
             },
-        ])('$scenario -> $expected', async ({ props, hasRecordings, hasFilters, expected }) => {
+        ])('after loading: $scenario -> $expected', async ({ props, mockResults, hasFilters, expected }) => {
+            if (mockResults !== undefined) {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/session_recordings': {
+                            results: mockResults,
+                        },
+                    },
+                })
+            }
+
             logic = sessionRecordingsPlaylistLogic(props)
             logic.mount()
-
-            if (hasRecordings) {
-                await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
-            }
+            await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
 
             if (hasFilters) {
                 logic.actions.setFilters({

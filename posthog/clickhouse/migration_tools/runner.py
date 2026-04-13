@@ -1,7 +1,7 @@
 """Step execution engine -- routes SQL to correct ClickHouse nodes by role.
 
 Also provides legacy migration support: discover_migrations, get_pending_migrations,
-run_migration_up, run_migration_down, check_active_mutations.
+run_migration_down.
 """
 
 from __future__ import annotations
@@ -111,40 +111,6 @@ def get_pending_migrations() -> list[str]:
         return [m for m in all_migrations if m not in applied]
     except Exception:
         return all_migrations
-
-
-def check_active_mutations(client: Any, table: str, database: str = "posthog") -> list[dict[str, Any]]:
-    """Check for active mutations on a table."""
-    rows = client.execute(
-        "SELECT mutation_id, command, create_time, is_done "
-        "FROM system.mutations "
-        "WHERE database = %(database)s AND table = %(table)s AND is_done = 0",
-        {"database": database, "table": table},
-    )
-    return [{"mutation_id": r[0], "command": r[1], "create_time": r[2], "is_done": r[3]} for r in rows]
-
-
-def run_migration_up(migration_name: str) -> None:
-    """Run a legacy migration's forward operations."""
-    module_path = f"posthog.clickhouse.migrations.{migration_name}"
-    module = importlib.import_module(module_path)
-    operations = getattr(module, "operations", [])
-
-    if not operations:
-        return
-
-    from posthog.clickhouse.client.migration_tools import get_migrations_cluster
-
-    cluster = get_migrations_cluster()
-
-    for op in operations:
-        if hasattr(op, "sql"):
-            from posthog.clickhouse.cluster import Query
-
-            cluster.map_all_hosts(Query(op.sql)).result()
-        elif hasattr(op, "fn"):
-            client = cluster.any_host(lambda c: c).result()
-            op.fn(client)
 
 
 def run_migration_down(migration_number: int) -> None:
