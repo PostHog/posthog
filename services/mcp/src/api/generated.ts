@@ -8617,6 +8617,11 @@ export namespace Schemas {
       Number2: 2,
     } as const;
 
+    export interface CopyDashboardTemplate {
+      /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+      source_template_id: string;
+    }
+
     export interface CopyDashboardTileRequest {
       /** Dashboard id the tile currently belongs to. */
       fromDashboardId: number;

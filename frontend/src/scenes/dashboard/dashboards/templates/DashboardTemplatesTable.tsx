@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBuilding, IconChevronDown, IconGlobe, IconThumbsUpFilled } from '@posthog/icons'
@@ -16,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DashboardTemplateType } from '~/types'
@@ -96,6 +98,42 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         !user?.is_staff &&
         customerDashboardTemplateAuthoring &&
         userHasAccess(AccessControlResourceType.DashboardTemplate, AccessControlLevel.Editor)
+
+    const eligibleDestinationTeamsCount = useMemo(() => {
+        const tid = user?.team?.id
+        if (tid == null) {
+            return 0
+        }
+        return (user?.organization?.teams ?? []).filter((t) => t.id !== tid).length
+    }, [user?.organization?.teams, user?.team?.id])
+
+    const copyTemplateToProjectMenuSection = (
+        templateId: string | undefined,
+        dataAttr: 'dashboard-template-copy-to-project-staff' | 'dashboard-template-copy-to-project-customer'
+    ): JSX.Element | null => {
+        if (!templateId || eligibleDestinationTeamsCount <= 0) {
+            return null
+        }
+        return (
+            <>
+                <LemonDivider />
+                <LemonButton
+                    fullWidth
+                    data-attr={dataAttr}
+                    onClick={() => {
+                        const sourceTeamId = user?.team?.id
+                        if (sourceTeamId == null) {
+                            console.error('Current project id not available')
+                            return
+                        }
+                        router.actions.push(urls.dashboardTemplateCopyToProject(templateId, sourceTeamId))
+                    }}
+                >
+                    Copy to another project
+                </LemonButton>
+            </>
+        )
+    }
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
@@ -245,6 +283,13 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         Make visible to {scope === 'global' ? 'this team only' : 'everyone'}
                                     </LemonButton>
 
+                                    {scope === 'team'
+                                        ? copyTemplateToProjectMenuSection(
+                                              id,
+                                              'dashboard-template-copy-to-project-staff'
+                                          )
+                                        : null}
+
                                     <LemonDivider />
                                     <LemonButton
                                         onClick={() => {
@@ -292,6 +337,10 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     >
                                         Edit
                                     </LemonButton>
+                                    {copyTemplateToProjectMenuSection(
+                                        id,
+                                        'dashboard-template-copy-to-project-customer'
+                                    )}
                                     <LemonDivider />
                                     <LemonButton
                                         onClick={() => {
