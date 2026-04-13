@@ -47,6 +47,11 @@ export const Cloud: Story = {
         })
         return <Login />
     },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=PostHog Cloud',
+        },
+    },
 }
 
 export const CloudEU: Story = {
@@ -64,6 +69,11 @@ export const CloudEU: Story = {
             },
         })
         return <Login />
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=PostHog Cloud',
+        },
     },
 }
 
@@ -94,7 +104,7 @@ export const CloudWithGoogleLoginEnforcement: Story = {
     },
     parameters: {
         testOptions: {
-            waitForSelector: '[href^="/login/google-oauth2/"]',
+            waitForSelector: ['[href^="/login/google-oauth2/"]', 'text=PostHog Cloud'],
         },
     },
 }
@@ -119,6 +129,11 @@ export const SelfHosted: Story = {
         })
         return <Login />
     },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=self-hosted',
+        },
+    },
 }
 
 export const LocalDev: Story = {
@@ -139,6 +154,11 @@ export const LocalDev: Story = {
             },
         })
         return <Login />
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=local dev',
+        },
     },
 }
 
@@ -164,7 +184,7 @@ export const SelfHostedWithSAML: Story = {
     },
     parameters: {
         testOptions: {
-            waitForSelector: '[href^="/login/saml/"]',
+            waitForSelector: ['[href^="/login/saml/"]', 'text=self-hosted'],
         },
     },
 }
@@ -180,6 +200,11 @@ export const SSOError: Story = {
         useDelayedOnMountEffect(() => router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`))
 
         return <Login />
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=local dev',
+        },
     },
 }
 
