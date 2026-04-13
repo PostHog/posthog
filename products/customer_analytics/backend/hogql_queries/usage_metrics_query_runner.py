@@ -291,13 +291,10 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         )
 
     def get_cache_payload(self) -> dict:
-        """
-        Override to include metric config in cache key.
-        This ensures cache is invalidated when metrics are created/deleted or their configuration changes.
-        """
         payload = super().get_cache_payload()
-        metric_keys = sorted(
-            f"{metric.id}:{metric.math}:{metric.math_property or ''}" for metric in self._usage_metrics
+        metric_fingerprints = sorted(
+            (str(m.id), m.display, m.math, m.math_property or "", str(m.filters), str(m.interval))
+            for m in self._usage_metrics
         )
-        payload["usage_metric_keys"] = metric_keys
+        payload["usage_metric_fingerprints"] = metric_fingerprints
         return payload

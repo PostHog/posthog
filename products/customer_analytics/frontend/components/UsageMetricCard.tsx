@@ -86,6 +86,7 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                                 type="bar"
                                 maximumIndicator={false}
                                 className="w-full h-16"
+                                withXScale={(x) => ({ ...x, display: false })}
                             />
                         </div>
                         <div className="flex items-center gap-2 text-sm">
