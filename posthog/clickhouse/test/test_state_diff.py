@@ -5,11 +5,15 @@ from unittest.mock import patch
 from posthog.clickhouse.migration_tools.desired_state import ColumnDef, DesiredState, DesiredTable
 from posthog.clickhouse.migration_tools.schema_introspect import ColumnSchema, TableSchema
 from posthog.clickhouse.migration_tools.state_diff import (
+    _generate_create_sql,
     _is_kafka_virtual_column,
     _normalize_default,
     _normalize_interval_funcs,
     _normalize_mv_select,
     _normalize_type,
+    _render_dict_layout,
+    _render_dict_lifetime,
+    _render_dict_source,
     _strip_redundant_parens,
     diff_state,
 )
@@ -615,3 +619,262 @@ class TestDiffConvergenceMvSelect:
         }
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+
+# -- Dictionary engine support --
+
+
+def _dict_table(
+    name: str = "channel_definition_dict",
+    primary_key: str = "domain, kind",
+) -> DesiredTable:
+    return DesiredTable(
+        name=name,
+        engine="Dictionary",
+        columns=[
+            _col("domain", "String"),
+            _col("kind", "String"),
+            _col("domain_type", "Nullable(String)"),
+        ],
+        on_nodes=["ALL"],
+        primary_key=primary_key,
+        dict_source={"type": "CLICKHOUSE", "table": "channel_definition", "password": "secret"},
+        dict_layout={"type": "COMPLEX_KEY_HASHED"},
+        dict_lifetime={"min": 3000, "max": 3600},
+    )
+
+
+class TestRenderDictSource:
+    def test_clickhouse_source(self):
+        s = _render_dict_source({"type": "CLICKHOUSE", "table": "channel_definition", "password": "secret"})
+        assert s == "SOURCE(CLICKHOUSE(table 'channel_definition' password 'secret'))"
+
+    def test_http_source(self):
+        s = _render_dict_source({"type": "HTTP", "url": "https://example.com/x.csv", "format": "CSVWithNames"})
+        assert s == "SOURCE(HTTP(url 'https://example.com/x.csv' format 'CSVWithNames'))"
+
+    def test_from_settings_sentinel_resolves(self):
+        with patch(
+            "posthog.clickhouse.migration_tools.state_diff._resolve_setting",
+            side_effect=lambda k: f"RESOLVED_{k}",
+        ):
+            s = _render_dict_source({"type": "CLICKHOUSE", "table": "x", "password": "__from_settings__"})
+        assert "password 'RESOLVED_password'" in s
+
+    def test_settings_resolution_keys_match_yaml_param_names(self):
+        """Regression: `password`/`user` keys in `_SETTINGS_RESOLUTION` must equal the
+        YAML parameter names. Otherwise `_resolve_setting('password')` misses the map
+        and falls back to the kafka placeholder, leaking that into the SOURCE clause.
+        """
+        from posthog.clickhouse.migration_tools.state_diff import _SETTINGS_RESOLUTION
+
+        assert "password" in _SETTINGS_RESOLUTION, "YAML key 'password' must be a resolution-map key"
+        assert "user" in _SETTINGS_RESOLUTION, "YAML key 'user' must be a resolution-map key"
+
+    def test_missing_type_raises(self):
+        try:
+            _render_dict_source({"table": "x"})
+        except ValueError as e:
+            assert "type" in str(e)
+        else:
+            raise AssertionError("expected ValueError")
+
+
+class TestRenderDictLayout:
+    def test_no_params(self):
+        assert _render_dict_layout({"type": "COMPLEX_KEY_HASHED"}) == "LAYOUT(COMPLEX_KEY_HASHED())"
+
+    def test_with_params(self):
+        s = _render_dict_layout({"type": "RANGE_HASHED", "params": {"range_lookup_strategy": "max"}})
+        assert s == "LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))"
+
+    def test_missing_type_raises(self):
+        try:
+            _render_dict_layout({})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("expected ValueError")
+
+
+class TestRenderDictLifetime:
+    def test_basic(self):
+        assert _render_dict_lifetime({"min": 3000, "max": 3600}) == "LIFETIME(MIN 3000 MAX 3600)"
+
+    def test_missing_raises(self):
+        try:
+            _render_dict_lifetime({"min": 10})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("expected ValueError")
+
+
+class TestDictionaryEngine:
+    def test_parse_dictionary_yaml(self, tmp_path):
+        """YAML with full Dictionary metadata parses into DesiredTable."""
+        yaml_path = tmp_path / "test_dict.yaml"
+        yaml_path.write_text(
+            """
+ecosystem: test
+cluster: main
+tables:
+  channel_definition_dict:
+    engine: Dictionary
+    on_nodes: ALL
+    primary_key: domain, kind
+    columns:
+      - name: domain
+        type: String
+      - name: kind
+        type: String
+    source:
+      type: CLICKHOUSE
+      table: channel_definition
+      password: __from_settings__
+    layout:
+      type: COMPLEX_KEY_HASHED
+    lifetime:
+      min: 3000
+      max: 3600
+"""
+        )
+        from posthog.clickhouse.migration_tools.desired_state import parse_desired_state
+
+        state = parse_desired_state(yaml_path)
+        t = state.tables["channel_definition_dict"]
+        assert t.engine == "Dictionary"
+        assert t.primary_key == "domain, kind"
+        assert t.dict_source == {"type": "CLICKHOUSE", "table": "channel_definition", "password": "__from_settings__"}
+        assert t.dict_layout == {"type": "COMPLEX_KEY_HASHED"}
+        assert t.dict_lifetime == {"min": 3000, "max": 3600}
+        # Dictionary `source` must not leak into the Distributed `source` field
+        assert t.source is None
+
+    def test_generate_dictionary_create_sql(self):
+        sql = _generate_create_sql(_dict_table(), "posthog", "main")
+        assert sql.startswith("CREATE DICTIONARY IF NOT EXISTS posthog.channel_definition_dict")
+        assert "PRIMARY KEY domain, kind" in sql
+        assert "SOURCE(CLICKHOUSE(table 'channel_definition' password 'secret'))" in sql
+        assert "LAYOUT(COMPLEX_KEY_HASHED())" in sql
+        assert "LIFETIME(MIN 3000 MAX 3600)" in sql
+
+    def test_generate_dictionary_sql_missing_primary_key_raises(self):
+        t = _dict_table()
+        t.primary_key = None
+        try:
+            _generate_create_sql(t, "posthog", "main")
+        except ValueError as e:
+            assert "primary_key" in str(e)
+        else:
+            raise AssertionError("expected ValueError")
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_dictionary_create_emitted_when_missing(self, _mock_setting, _mock_cluster):
+        """Dictionary in desired but not in current produces a CREATE DICTIONARY diff."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        diffs = diff_state(desired, {}, database="posthog", cluster="test_cluster")
+        creates = [d for d in diffs if d.action == "create"]
+        assert len(creates) == 1
+        assert creates[0].table == "channel_definition_dict"
+        assert "CREATE DICTIONARY" in creates[0].sql
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_dictionary_drop_uses_drop_dictionary_verb(self, _mock_setting, _mock_cluster):
+        """Extraneous Dictionary in current → drops with DROP DICTIONARY IF EXISTS."""
+        desired = _make_desired({})
+        current = {
+            "stray_dict": TableSchema(
+                name="stray_dict",
+                engine="Dictionary",
+                columns=[_live_col("k", "String")],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        drops = [d for d in diffs if d.action == "drop"]
+        assert len(drops) == 1
+        assert "DROP DICTIONARY IF EXISTS posthog.stray_dict" in drops[0].sql
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_dictionary_diff_generates_drop_create_on_column_change(self, _mock_setting, _mock_cluster):
+        """Dictionaries can't ALTER — a column change must emit DROP DICTIONARY + CREATE DICTIONARY."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'channel_definition' PASSWORD 'x')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    # Missing `domain_type` → triggers DROP + CREATE
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        drops = [d for d in diffs if d.action == "drop"]
+        creates = [d for d in diffs if d.action == "create"]
+        assert len(drops) == 1
+        assert "DROP DICTIONARY IF EXISTS posthog.channel_definition_dict" in drops[0].sql
+        assert len(creates) == 1
+        assert "CREATE DICTIONARY" in creates[0].sql
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_dictionary_stable_when_matching(self, _mock_setting, _mock_cluster):
+        """Dictionary with matching columns + engine_full metadata → 0 diffs (convergence)."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'channel_definition' PASSWORD 'x')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_dictionary_recreate_on_lifetime_change(self, _mock_setting, _mock_cluster):
+        """LIFETIME metadata change forces DROP + CREATE (Dictionaries don't ALTER)."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                # Stored lifetime differs from desired (300/600 vs 3000/3600)
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'channel_definition' PASSWORD 'x')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 300 MAX 600)"
+                ),
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        recreates = [d for d in diffs if d.action == "recreate"]
+        assert len(recreates) == 1
+        assert "DROP DICTIONARY IF EXISTS posthog.channel_definition_dict" in recreates[0].sql
+        assert "CREATE DICTIONARY" in recreates[0].sql
+        assert "LIFETIME" in recreates[0].detail
