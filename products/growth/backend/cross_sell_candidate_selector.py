@@ -1,6 +1,7 @@
-import random
 from collections import defaultdict
 from dataclasses import dataclass, field
+
+import numpy as np
 
 from posthog.schema import ProductItemCategory, ProductKey
 
@@ -39,9 +40,10 @@ class CrossSellCandidateSelector:
     Given product catalog metadata and user state, produces a weighted list
     of candidate product paths for cross-sell suggestions.
 
-    Pure computation — no DB access, no randomness. The caller
+    Pure computation — no DB access. The caller
     (UserProductList.sync_cross_sell_products) handles querying enabled
-    products, sampling with random.choices, and persisting results.
+    products and persisting results. Randomness is isolated to `pick`,
+    which uses `np.random.choice` for weighted sampling without replacement.
 
     Algorithm overview
     ------------------
@@ -97,7 +99,7 @@ class CrossSellCandidateSelector:
     # Derived lookups, built from Products singleton in __post_init__
     products_by_category: dict[ProductItemCategory, list[str]] = field(init=False, repr=False)
     product_to_category: dict[str, ProductItemCategory] = field(init=False, repr=False)
-    intent_to_path: dict[ProductKey, str] = field(init=False, repr=False)
+    intent_to_paths: dict[ProductKey, list[str]] = field(init=False, repr=False)
     user_enabled_categories: set[ProductItemCategory] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -107,12 +109,12 @@ class CrossSellCandidateSelector:
         self.products_by_category = Products.get_products_by_category()
 
         self.product_to_category = {}
-        self.intent_to_path = {}
+        self.intent_to_paths = defaultdict(list)
         for product in Products.products():
             if product.category:
                 self.product_to_category[product.path] = product.category
             for intent in product.intents:
-                self.intent_to_path[intent] = product.path
+                self.intent_to_paths[intent].append(product.path)
 
         self.user_enabled_categories = {
             category
@@ -120,8 +122,8 @@ class CrossSellCandidateSelector:
             if (category := self.product_to_category.get(path)) is not None
         } - self.ignored_categories
 
-    def _resolve_path(self, key: ProductKey) -> str | None:
-        return self.intent_to_path.get(key)
+    def _resolve_paths(self, key: ProductKey) -> list[str]:
+        return self.intent_to_paths.get(key, [])
 
     def _build_preference_weights(self) -> defaultdict[str, int]:
         """
@@ -136,7 +138,7 @@ class CrossSellCandidateSelector:
         weights: defaultdict[str, int] = defaultdict(lambda: 1)
 
         for key, weight in BASE_PREFERENCE_WEIGHTS.items():
-            if path := self._resolve_path(key):
+            for path in self._resolve_paths(key):
                 weights[path] = weight
 
         self._apply_llm_adjacent_boost(weights)
@@ -144,12 +146,12 @@ class CrossSellCandidateSelector:
         return weights
 
     def _apply_llm_adjacent_boost(self, weights: defaultdict[str, int]) -> None:
-        llm_analytics_path = self._resolve_path(ProductKey.LLM_ANALYTICS)
-        if not llm_analytics_path or llm_analytics_path not in self.user_enabled_products:
+        llm_analytics_paths = self._resolve_paths(ProductKey.LLM_ANALYTICS)
+        if not any(p in self.user_enabled_products for p in llm_analytics_paths):
             return
 
         for key in LLM_ADJACENT_KEYS:
-            if path := self._resolve_path(key):
+            for path in self._resolve_paths(key):
                 weights[path] = LLM_ADJACENT_WEIGHT
 
     def _apply_same_category_boost(self, weights: defaultdict[str, int]) -> None:
@@ -212,4 +214,7 @@ class CrossSellCandidateSelector:
             return []
 
         paths, weights = zip(*weighted)
-        return random.choices(list(paths), weights=list(weights), k=min(k, len(paths)))
+
+        # From a list of weights to a normalized [0, 1] probability distribution
+        prob_distribution = np.array(weights) / sum(weights)
+        return list(np.random.choice(list(paths), min(k, len(paths)), replace=False, p=prob_distribution))

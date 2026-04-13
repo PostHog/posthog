@@ -16,7 +16,7 @@ from products.growth.backend.cross_sell_candidate_selector import (
 def _get_favored_product_paths() -> set[str]:
     """Derive the favored product paths from the selector constants."""
     selector = CrossSellCandidateSelector(user_enabled_products=set(), ignored_categories=DEFAULT_IGNORED_CATEGORIES)
-    return {selector.intent_to_path[key] for key in BASE_PREFERENCE_WEIGHTS if key in selector.intent_to_path}
+    return {p for key in BASE_PREFERENCE_WEIGHTS for p in selector.intent_to_paths.get(key, [])}
 
 
 class TestUserProductList(BaseTest):
