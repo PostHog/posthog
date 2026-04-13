@@ -752,9 +752,20 @@ def diff_state(
                     structural_details.append(f"sharding_key changed (desired: {desired_table.sharding_key})")
                     structural_recreate = True
             # source — the local table backing the Distributed table
+            # Handle both forms: unqualified "foo" and qualified "db.foo" (split into
+            # separate db/table args in engine_full as `'db', 'foo'`).
             if desired_table.source and current_table.engine_full:
-                if desired_table.source not in current_table.engine_full:
-                    structural_details.append(f"source table changed (desired: {desired_table.source})")
+                src = desired_table.source
+                if "." in src:
+                    src_db, src_table = src.split(".", 1)
+                    # Match the split form CH stores: `'db', 'table'`
+                    matches = (f"'{src_db}', '{src_table}'" in current_table.engine_full) or (
+                        src in current_table.engine_full
+                    )
+                else:
+                    matches = src in current_table.engine_full
+                if not matches:
+                    structural_details.append(f"source table changed (desired: {src})")
                     structural_recreate = True
 
         if _is_mv(desired_table.engine):
