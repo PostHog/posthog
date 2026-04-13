@@ -174,7 +174,13 @@ class Command(BaseCommand):
         from collections import defaultdict
 
         from posthog.clickhouse.migration_tools.desired_state import parse_desired_state_dir
-        from posthog.clickhouse.migration_tools.state_diff import diff_state
+        from posthog.clickhouse.migration_tools.state_diff import (
+            TRACKING_TABLES,
+            StateDiff,
+            _drop_stmt,
+            diff_state,
+            has_placeholder_select,
+        )
 
         desired_states = parse_desired_state_dir(schema_dir)
         if not desired_states:
@@ -287,10 +293,54 @@ class Command(BaseCommand):
                 else:
                     raise
 
+            # Pass 1: per-ecosystem diff on a filtered slice of `current`.
+            # Filtering to `desired.tables` prevents spurious DROPs for tables
+            # owned by a sibling ecosystem on the same physical cluster
+            # (e.g. heatmaps tables don't appear in the events ecosystem diff).
+            # Because the slice always covers all of `desired.tables`, this
+            # pass produces only creates / alters / recreates — never drops —
+            # which is what makes apply converge to zero.
             for desired in states:
                 ecosystem_current = {name: table for name, table in current.items() if name in desired.tables}
                 diffs = diff_state(desired, ecosystem_current, database=database)
-                all_diffs.extend(diffs)
+                for d in diffs:
+                    d.cluster = cluster_name
+                    all_diffs.append(d)
+
+            # Pass 2: cluster-wide orphan scan. A live table is a real orphan
+            # only when no ecosystem on this cluster claims it. Tracking tables
+            # and placeholder MVs are managed elsewhere — never drop them.
+            cluster_desired_names: set[str] = set()
+            for desired in states:
+                cluster_desired_names.update(desired.tables.keys())
+
+            placeholder_names: set[str] = set()
+            for desired in states:
+                for name, t in desired.tables.items():
+                    if has_placeholder_select(t):
+                        placeholder_names.add(name)
+
+            for table_name in sorted(current.keys()):
+                if table_name in cluster_desired_names:
+                    continue
+                if table_name in TRACKING_TABLES:
+                    continue
+                if table_name in placeholder_names:
+                    continue
+                current_table = current[table_name]
+                all_diffs.append(
+                    StateDiff(
+                        action="drop",
+                        table=table_name,
+                        detail=(
+                            f"Orphan: table {table_name} exists but is not declared in any "
+                            f"YAML on cluster {cluster_name}"
+                        ),
+                        sql=_drop_stmt(current_table.engine, database, table_name),
+                        node_roles=["ALL"],
+                        cluster=cluster_name,
+                    )
+                )
 
         return all_diffs, None
 
@@ -376,6 +426,25 @@ class Command(BaseCommand):
         continue_on_error: bool = options.get("continue_on_error", False)
         failures: list[tuple[int, str, str]] = []  # (step_index, step_name, error)
 
+        # Per-step cluster resolution cache — avoid rebuilding the same
+        # ClickhouseCluster object on every step. Keyed by logical cluster
+        # name; the empty key maps to the default migrations cluster.
+        cluster_cache: dict[str, Any] = {"": cluster_obj}
+
+        def _resolve_step_cluster(step_cluster_name: str) -> Any:
+            key = step_cluster_name or ""
+            if key in cluster_cache:
+                return cluster_cache[key]
+            try:
+                resolved = get_cluster_by_name(step_cluster_name)
+            except Exception:
+                # If the cluster isn't reachable from this runtime (dev stack
+                # missing a satellite) fall back to the migrations cluster —
+                # the same policy _compute_diffs applies when introspecting.
+                resolved = cluster_obj
+            cluster_cache[key] = resolved
+            return resolved
+
         try:
             steps = generate_manifest_steps(all_diffs)
             print(f"Applying {len(steps)} step(s)...\n")
@@ -384,11 +453,12 @@ class Command(BaseCommand):
             for i, (step, rendered_sql) in enumerate(steps):
                 print(f"  Step {i}: {step.comment}...", end=" ", flush=True)
                 checksum = hashlib.sha256(rendered_sql.encode()).hexdigest()
+                step_cluster = _resolve_step_cluster(step.cluster)
                 success = False
                 last_exc: Exception | None = None
                 for attempt in range(max_retries):
                     try:
-                        execute_migration_step(cluster_obj, step, rendered_sql)
+                        execute_migration_step(step_cluster, step, rendered_sql)
                         success = True
                         break
                     except Exception as exc:
