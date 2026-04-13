@@ -155,10 +155,6 @@ export const hasInvalidRegexFilter = (obj: unknown): boolean => {
 }
 
 export const validateQuery = (q: DataNode): boolean => {
-    if (isInsightVizNode(q) && isInsightQueryNode(q.source)) {
-        return validateQuery(q.source)
-    }
-
     if (isFunnelsQuery(q)) {
         return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
     }
