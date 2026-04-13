@@ -68,14 +68,12 @@ class Incremental:
         initial_value: Optional[Any] = None,
         end_value: Optional[Any] = None,
         last_value_func: Optional[Callable[..., Any]] = None,
-        primary_key: Optional[Any] = None,
         row_order: Optional[str] = None,
     ) -> None:
         self.cursor_path = cursor_path
         self.initial_value = initial_value
         self.end_value = end_value
         self.last_value_func = last_value_func
-        self.primary_key = primary_key
         self.row_order = row_order
 
     @property

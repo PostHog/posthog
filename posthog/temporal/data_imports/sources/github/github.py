@@ -7,7 +7,7 @@ from dateutil import parser as dateutil_parser
 from requests import Request, Response
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
@@ -61,7 +61,6 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": config.primary_key,
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -295,7 +294,6 @@ def github_source(
             ),
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": "replace",
             "endpoint": {
                 "params": {
@@ -314,10 +312,7 @@ def github_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    assert len(resources) == 1
-
-    resource = resources[0]
+    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
     # Apply filter if endpoint has one (e.g., issues filters out PRs)
     item_filter = _get_item_filter(endpoint)

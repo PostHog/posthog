@@ -21,7 +21,6 @@ class _EndpointConfig:
     incremental_fields: list[Any]
     default_incremental_field: str | None = None
     page_size: int = 100
-    primary_key: str | list[str] = "id"
 
 
 class _DummyPaginator(BasePaginator):
@@ -39,14 +38,12 @@ def _build_endpoint_configs() -> dict[str, _EndpointConfig]:
             path="/parents",
             incremental_fields=[],
             page_size=3,
-            primary_key="id",
         ),
         "children": _EndpointConfig(
             name="children",
             path="/parents/{parent_id}/children",
             incremental_fields=[],
             page_size=7,
-            primary_key=["parent_id", "id"],
         ),
     }
 

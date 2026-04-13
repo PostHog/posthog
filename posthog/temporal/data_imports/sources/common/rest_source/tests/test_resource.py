@@ -48,9 +48,9 @@ class TestResource:
         assert result is resource
 
     def test_hints_accessible(self) -> None:
-        hints = {"primary_key": "id", "columns": {"name": {"data_type": "text"}}}
+        hints = {"columns": {"name": {"data_type": "text"}}}
         resource = Resource(_simple_generator, name="users", hints=hints)
-        assert resource._hints["primary_key"] == "id"
+        assert resource._hints["columns"]["name"]["data_type"] == "text"
         assert resource.name == "users"
 
     def test_empty_generator(self) -> None:

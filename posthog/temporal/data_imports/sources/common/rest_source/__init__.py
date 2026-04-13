@@ -45,19 +45,28 @@ def convert_types(
         yield item
 
 
+def rest_api_resource(
+    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
+) -> Resource:
+    """Creates a single resource from a REST API configuration.
+
+    Most sources define exactly one resource. Use ``rest_api_resources``
+    (plural) only when the config contains multiple resources (e.g. date
+    chunked report endpoints or parent/child fanout).
+    """
+    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    assert len(resources) == 1, f"Expected 1 resource, got {len(resources)}"
+    return resources[0]
+
+
 def rest_api_resources(
     config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
 ) -> list[Resource]:
     """Creates a list of resources from a REST API configuration.
 
-    Args:
-        config: Configuration for the REST API source.
-        team_id: Team ID for the data import.
-        job_id: Job ID for the data import.
-        db_incremental_field_last_value: Last value for incremental loading from DB.
-
-    Returns:
-        list[Resource]: List of resources.
+    Prefer ``rest_api_resource`` (singular) for the common single-resource
+    case. This function is needed for multi-resource configs like date-chunked
+    report endpoints or parent/child fanout.
     """
     client_config = config["client"]
     resource_defaults = config.get("resource_defaults") or {}
@@ -185,13 +194,11 @@ def create_resources(
 
         columns_config = endpoint_resource.get("columns")
 
-        # Build hints dict for pipeline compatibility
         hints = {
             k: v
             for k, v in resource_kwargs.items()
             if k
             in (
-                "primary_key",
                 "columns",
                 "write_disposition",
                 "table_name",

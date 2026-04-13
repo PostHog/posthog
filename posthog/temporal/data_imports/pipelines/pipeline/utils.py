@@ -6,7 +6,7 @@ import uuid
 import decimal
 import hashlib
 import datetime
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -87,21 +87,6 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
         return parser.parse(date_str)
     except (ValueError, OverflowError, TypeError):
         return None
-
-
-def _get_primary_keys(resource: Any) -> list[str] | None:
-    primary_keys = resource._hints.get("primary_key")
-
-    if primary_keys is None:
-        return None
-
-    if isinstance(primary_keys, str):
-        return [normalize_column_name(primary_keys)]
-
-    if isinstance(primary_keys, list | Sequence):
-        return [normalize_column_name(pk) for pk in primary_keys]
-
-    raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
 
 
 def _get_column_hints(resource: Any) -> dict[str, TDataType | None] | None:

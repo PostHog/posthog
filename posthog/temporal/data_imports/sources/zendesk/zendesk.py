@@ -4,7 +4,7 @@ from typing import Any, Optional
 import requests
 from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, JSONLinkPaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
@@ -16,7 +16,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "brands": {
             "name": "brands",
             "table_name": "brands",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -37,7 +36,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "organizations": {
             "name": "organizations",
             "table_name": "organizations",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -58,7 +56,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "groups": {
             "name": "groups",
             "table_name": "groups",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -81,7 +78,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "sla_policies": {
             "name": "sla_policies",
             "table_name": "sla_policies",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -99,7 +95,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "users": {
             "name": "users",
             "table_name": "users",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -125,7 +120,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "ticket_fields": {
             "name": "ticket_fields",
             "table_name": "ticket_fields",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -149,7 +143,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "ticket_events": {
             "name": "ticket_events",
             "table_name": "ticket_events",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -178,7 +171,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "tickets": {
             "name": "tickets",
             "table_name": "tickets",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -204,7 +196,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "ticket_metric_events": {
             "name": "ticket_metric_events",
             "table_name": "ticket_metric_events",
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -301,7 +292,6 @@ def zendesk_source(
             },
         },
         "resource_defaults": {
-            "primary_key": "id",
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -312,7 +302,7 @@ def zendesk_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
+    return rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:

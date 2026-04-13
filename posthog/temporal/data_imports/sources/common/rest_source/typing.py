@@ -131,7 +131,6 @@ class IncrementalArgs(TypedDict, total=False):
     cursor_path: str
     initial_value: Optional[str]
     last_value_func: Optional[LastValueFunc]
-    primary_key: Optional[TTableHintTemplate]
     end_value: Optional[str]
     row_order: Optional[TSortOrder]
     convert: Optional[Callable[..., Any]]
@@ -191,7 +190,6 @@ class ResourceBase(TypedDict, total=False):
     write_disposition: Optional[TTableHintTemplate]
     parent: Optional[TTableHintTemplate]
     columns: Optional[TTableHintTemplate]
-    primary_key: Optional[TTableHintTemplate]
     merge_key: Optional[TTableHintTemplate]
     schema_contract: Optional[TTableHintTemplate]
     table_format: Optional[TTableHintTemplate]

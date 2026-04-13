@@ -7,7 +7,7 @@ class Resource:
 
     Supports the interface consumed by the pipeline:
     - ``name``: resource name
-    - ``_hints``: dict with ``primary_key``, ``columns``, ``write_disposition``, etc.
+    - ``_hints``: dict with ``columns``, ``write_disposition``, etc.
     - ``add_map(fn)``: add per-item transformation
     - ``add_filter(fn)``: add per-item filter
     - iteration: yields pages of data (list[dict])

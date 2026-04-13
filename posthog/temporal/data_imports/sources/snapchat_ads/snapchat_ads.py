@@ -100,7 +100,6 @@ def snapchat_ads_source(
             "auth": BearerTokenAuth(token=access_token),
         },
         "resource_defaults": {
-            "primary_key": "id" if endpoint_type == EndpointType.ENTITY else None,
             "write_disposition": "replace",
         },
         "resources": cast(list, resources),

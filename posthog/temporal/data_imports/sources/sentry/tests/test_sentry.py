@@ -130,15 +130,15 @@ class TestSentryTransport:
 
     @parameterized.expand(
         [
-            ("projects", "/organizations/acme/projects/", "id"),
-            ("teams", "/organizations/acme/teams/", "id"),
-            ("members", "/organizations/acme/members/", "id"),
-            ("releases", "/organizations/acme/releases/", "version"),
-            ("environments", "/organizations/acme/environments/", "id"),
-            ("monitors", "/organizations/acme/monitors/", "id"),
+            ("projects", "/organizations/acme/projects/"),
+            ("teams", "/organizations/acme/teams/"),
+            ("members", "/organizations/acme/members/"),
+            ("releases", "/organizations/acme/releases/"),
+            ("environments", "/organizations/acme/environments/"),
+            ("monitors", "/organizations/acme/monitors/"),
         ]
     )
-    def test_get_resource_non_fanout_shape(self, endpoint, expected_path, expected_primary_key) -> None:
+    def test_get_resource_non_fanout_shape(self, endpoint, expected_path) -> None:
         resource = cast(
             dict[str, Any],
             get_resource(
@@ -151,7 +151,6 @@ class TestSentryTransport:
         assert resource["name"] == endpoint
         assert resource["write_disposition"] == "replace"
         assert resource["endpoint"]["path"] == expected_path
-        assert resource["primary_key"] == expected_primary_key
         assert resource["table_format"] == "delta"
 
     @parameterized.expand(
@@ -236,10 +235,10 @@ class TestSentrySourceValidation:
             api_base_url="https://sentry.io",
         )
 
-    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resources")
-    def test_sentry_source_builds_response(self, mock_rest_api_resources) -> None:
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
+    def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
         mock_resource = Mock()
-        mock_rest_api_resources.return_value = [mock_resource]
+        mock_rest_api_resource.return_value = mock_resource
 
         resp = sentry_source(
             auth_token="token",
