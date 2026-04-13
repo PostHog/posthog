@@ -12,8 +12,9 @@ import type {
     EvaluationReportSection,
 } from '../types'
 
-// Match both `uuid` and `` `uuid` `` (the agent sometimes emits double-backtick wrapping)
-const UUID_REGEX = /`{1,2}\s?`?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?\s?`{1,2}/g
+// Match any UUID in the content — surrounding punctuation (backticks, angle brackets, etc.)
+// is stripped so we don't depend on how the LLM formats references.
+const UUID_REGEX = /[`<]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]*/g
 
 // Rewrite `<uuid>` backtick tokens into markdown links pointing to the correct
 // trace URL. Uses the citations list to map generation_id → trace_id so the link

@@ -6,7 +6,10 @@ EVAL_REPORT_SYSTEM_PROMPT = """You are an evaluation report agent for PostHog's 
 
 Evaluation: **{evaluation_name}**
 {evaluation_description_section}Evaluation type: {evaluation_type}
-{evaluation_prompt_section}Report period: {period_start} → {period_end}
+{evaluation_prompt_section}
+**Pass / fail semantics:** The evaluation returns a boolean. **True = pass** means the generation satisfied the criteria above. **False = fail** means it did not. Read the criteria carefully — a "fail" is not inherently bad. For example, if the criterion is "detect frustration", then fail = no frustration detected, which is correct behavior on a neutral query. Always interpret results through the lens of the evaluation's specific criteria, not a generic "pass = good / fail = bad" assumption.
+
+Report period: {period_start} → {period_end}
 
 ## What you produce
 

@@ -308,7 +308,13 @@ def sample_generation_details(
             ) as output,
             properties.$ai_input_tokens as input_tokens,
             properties.$ai_output_tokens as output_tokens,
-            properties.$ai_trace_id as trace_id
+            properties.$ai_trace_id as trace_id,
+            properties.$ai_is_error as is_error,
+            properties.$ai_error as error,
+            properties.$ai_tools_called as tools_called,
+            properties.$ai_tool_call_count as tool_call_count,
+            properties.$ai_input_state as input_state,
+            properties.$ai_output_state as output_state
         FROM events
         WHERE event = '$ai_generation'
             AND toString(uuid) IN ({ids_str})
@@ -320,17 +326,27 @@ def sample_generation_details(
     for row in rows:
         input_text = str(row[2])[:500] if row[2] else ""
         output_text = str(row[3])[:500] if row[3] else ""
-        result.append(
-            {
-                "generation_id": str(row[0]) if row[0] else "",
-                "model": str(row[1]) if row[1] else "",
-                "input_preview": input_text,
-                "output_preview": output_text,
-                "input_tokens": row[4],
-                "output_tokens": row[5],
-                "trace_id": str(row[6]) if row[6] else "",
-            }
-        )
+        entry: dict = {
+            "generation_id": str(row[0]) if row[0] else "",
+            "model": str(row[1]) if row[1] else "",
+            "input_preview": input_text,
+            "output_preview": output_text,
+            "input_tokens": row[4],
+            "output_tokens": row[5],
+            "trace_id": str(row[6]) if row[6] else "",
+        }
+        if row[7]:  # is_error
+            error_text = str(row[8])[:500] if row[8] else ""
+            entry["is_error"] = True
+            entry["error_preview"] = error_text
+        if row[9]:  # tools_called
+            entry["tools_called"] = str(row[9])
+            entry["tool_call_count"] = row[10]
+        if row[11]:  # input_state
+            entry["input_state_preview"] = str(row[11])[:500]
+        if row[12]:  # output_state
+            entry["output_state_preview"] = str(row[12])[:500]
+        result.append(entry)
 
     return json.dumps(result, indent=2)
 
@@ -387,7 +403,14 @@ def get_generation_detail(
             properties.$ai_latency as latency,
             properties.$ai_trace_id as trace_id,
             properties.$ai_base_url as base_url,
-            timestamp
+            timestamp,
+            properties.$ai_is_error as is_error,
+            properties.$ai_error as error,
+            properties.$ai_tools_called as tools_called,
+            properties.$ai_tool_call_count as tool_call_count,
+            properties.$ai_tools as tools_available,
+            properties.$ai_input_state as input_state,
+            properties.$ai_output_state as output_state
         FROM events
         WHERE event = '$ai_generation'
             AND toString(uuid) = '{generation_id}'
@@ -432,7 +455,7 @@ def get_generation_detail(
             }
         )
 
-    result = {
+    result: dict = {
         "generation_id": str(row[0]) if row[0] else "",
         "model": str(row[1]) if row[1] else "",
         "provider": str(row[2]) if row[2] else "",
@@ -447,8 +470,93 @@ def get_generation_detail(
         "timestamp": str(row[11]) if row[11] else "",
         "eval_results": evals,
     }
+    if row[12]:  # is_error
+        result["is_error"] = True
+        result["error"] = str(row[13]) if row[13] else ""
+    if row[14]:  # tools_called
+        result["tools_called"] = str(row[14])
+        result["tool_call_count"] = row[15]
+    if row[16]:  # tools_available
+        result["tools_available"] = str(row[16])
+    if row[17]:  # input_state
+        result["input_state"] = str(row[17])
+    if row[18]:  # output_state
+        result["output_state"] = str(row[18])
 
     return json.dumps(result, indent=2)
+
+
+@tool
+def get_generation_text_repr(
+    state: Annotated[dict, InjectedState],
+    generation_id: str,
+) -> str:
+    """Get a formatted text representation of a generation event.
+
+    Returns a human-readable view with tools, input messages, output messages,
+    and errors rendered in a structured format — the same view used in the
+    PostHog UI summarization panel. Use this when raw JSON from
+    get_generation_detail is hard to interpret (e.g. deeply nested chat
+    messages, complex tool calls, or structured error objects).
+
+    Args:
+        generation_id: The generation event UUID to look up
+    """
+    import orjson
+
+    from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr
+
+    team_id = state["team_id"]
+
+    if not _UUID_RE.fullmatch(generation_id):
+        return json.dumps({"error": "Invalid generation ID format"})
+
+    from datetime import datetime, timedelta
+
+    try:
+        ts_start = _ch_ts((datetime.fromisoformat(state["period_start"]) - timedelta(days=7)).isoformat())
+    except (ValueError, TypeError, KeyError):
+        ts_start = _ch_ts(state.get("period_start", "2020-01-01T00:00:00+00:00"))
+    try:
+        ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
+    except (ValueError, TypeError, KeyError):
+        ts_end = _ch_ts(state.get("period_end", "2099-01-01T00:00:00+00:00"))
+
+    rows = _execute_hogql(
+        team_id,
+        f"""
+        SELECT uuid, event, timestamp, properties
+        FROM events
+        WHERE event = '$ai_generation'
+            AND toString(uuid) = '{generation_id}'
+            AND timestamp >= '{ts_start}'
+            AND timestamp < '{ts_end}'
+        LIMIT 1
+        """,
+    )
+
+    if not rows:
+        return json.dumps({"error": f"Generation {generation_id} not found"})
+
+    row = rows[0]
+    props = row[3]
+    if isinstance(props, str):
+        props = orjson.loads(props)
+
+    event_data = {
+        "id": str(row[0]),
+        "event": row[1],
+        "timestamp": row[2].isoformat() if hasattr(row[2], "isoformat") else str(row[2]),
+        "properties": props,
+    }
+
+    text_repr = format_event_text_repr(event=event_data)
+
+    # Cap at 10k chars to avoid blowing up context
+    if len(text_repr) > 10_000:
+        text_repr = text_repr[:10_000] + "\n\n... (truncated)"
+
+    return text_repr
 
 
 @tool
@@ -643,6 +751,7 @@ EVAL_REPORT_TOOLS = [
     sample_eval_results,
     sample_generation_details,
     get_generation_detail,
+    get_generation_text_repr,
     get_recent_reports,
     get_top_failure_reasons,
     # Output tools (mutate state["report"])
