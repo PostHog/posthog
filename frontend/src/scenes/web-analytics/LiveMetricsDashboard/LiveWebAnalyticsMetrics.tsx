@@ -8,7 +8,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
+import { WebAnalyticsDomainSelector } from '../WebAnalyticsFilters'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
 import { LiveChartCard } from './LiveChartCard'
@@ -43,11 +45,15 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalPageviews,
         totalUniqueVisitors,
         totalBrowsers,
+        liveUserCount,
         isLoading,
         recentEvents,
     } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
-    const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
+    const { selectedHost } = useValues(webAnalyticsLogic)
+    const { liveUserCount: allDomainsLiveUserCount } = useValues(
+        liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
+    )
     const { pauseStream: pauseLiveCount, resumeStream: resumeLiveCount } = useActions(
         liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
     )
@@ -65,6 +71,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     }, [isVisible, resumeStream, pauseStream, resumeLiveCount, pauseLiveCount])
 
     const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
+    const displayedLiveUserCount = selectedHost ? liveUserCount : allDomainsLiveUserCount
 
     return (
         <div className="LivePageviews mt-4">
@@ -76,8 +83,15 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             >
                 The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
             </LemonBanner>
+            <div className="mb-4">
+                <WebAnalyticsDomainSelector />
+            </div>
             <div className="flex flex-wrap items-center gap-4 md:gap-6 mb-6">
-                <LiveStatCard label="Users online" value={liveUserCount} />
+                <LiveStatCard
+                    label="Users online"
+                    value={displayedLiveUserCount}
+                    isLoading={selectedHost ? isLoading : undefined}
+                />
                 <LiveStatDivider />
                 <LiveStatCard label="Unique visitors" value={totalUniqueVisitors} isLoading={isLoading} />
                 <LiveStatDivider />
