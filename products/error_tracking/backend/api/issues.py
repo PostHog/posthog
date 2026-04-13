@@ -137,7 +137,7 @@ class ErrorTrackingIssueMergeResponseSerializer(serializers.Serializer):
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
-    scope_object_read_actions = ["list", "retrieve", "values"]
+    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -160,6 +160,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .prefetch_related("cohorts__cohort")
             .filter(team_id=self.team.id)
         )
+
+    @action(methods=["GET"], detail=False)
+    def exists(self, request, **kwargs):
+        has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
+        return Response({"exists": has_issues})
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")

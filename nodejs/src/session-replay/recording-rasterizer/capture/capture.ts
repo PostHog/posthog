@@ -3,7 +3,7 @@ import { PuppeteerCaptureFormat, capture as captureVideo } from 'puppeteer-captu
 
 import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { CaptureConfig, InactivityPeriod, RecordingResult } from '../types'
+import { CaptureConfig, InactivityPeriod, RasterizationProgress, RecordingResult } from '../types'
 import { elapsed } from '../utils'
 import { PlayerController } from './player'
 
@@ -12,6 +12,7 @@ export async function capturePlayback(
     captureConfig: CaptureConfig,
     outputPath: string,
     onProgress: () => void,
+    progress: RasterizationProgress | null = null,
     log: Logger = createLogger()
 ): Promise<
     Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
@@ -46,6 +47,9 @@ export async function capturePlayback(
     const progressInterval = Math.max(10, captureConfig.captureFps)
     recorder.on('frameCaptured', () => {
         frameCount++
+        if (progress) {
+            progress.frame = frameCount
+        }
         if (frameCount % progressInterval === 0) {
             log.info(
                 {

@@ -530,6 +530,7 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "environment_variables",
             "has_environment_variables",
             "private",
+            "internal",
             "effective_domains",
             "created_by",
             "created_at",
@@ -537,6 +538,7 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "internal",
             "created_by",
             "created_at",
             "updated_at",
@@ -578,6 +580,7 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "allowed_domains",
             "repositories",
             "private",
+            "internal",
             "created_by",
             "created_at",
             "updated_at",

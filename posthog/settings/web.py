@@ -378,6 +378,8 @@ SPECTACULAR_SETTINGS = {
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
+        "ConversationStatus": "ee.models.assistant.Conversation.Status",
+        "ConversationType": "ee.models.assistant.Conversation.Type",
     },
 }
 

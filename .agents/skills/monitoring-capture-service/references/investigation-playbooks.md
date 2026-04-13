@@ -139,7 +139,7 @@ Then check infrastructure health:
    Key metrics: `EngineCPUUtilization`, `DatabaseMemoryUsagePercentage`,
    `CurrConnections`, `Evictions`, `ReplicationLag`.
    Cluster IDs:
-   - Primary: `posthog-solo` (prod-us) or `ingestion-{env}-redis` (prod-eu)
+   - Primary: `posthog-solo` (prod-us) or `posthog-prod-redis-encripted` (prod-eu; sic — typo in actual name)
    - GRL: `capture-globalratelimit-prod-redis`
    - Rate limit: `ratelimit-prod-redis`
 

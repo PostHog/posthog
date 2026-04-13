@@ -65,6 +65,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         updateHeatmap: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
+        changeCaptureMethod: (type: HeatmapType) => ({ type }),
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
@@ -93,6 +94,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
     }),
     listeners(({ actions, values, props }) => ({
+        changeCaptureMethod: async ({ type }) => {
+            actions.setType(type)
+            if (!values.heatmapId) {
+                return
+            }
+            await actions.updateHeatmap()
+            if (type === 'screenshot' && !values.screenshotUrl) {
+                actions.regenerateScreenshot()
+            }
+        },
         load: async () => {
             if (!props.id || String(props.id) === 'new') {
                 return

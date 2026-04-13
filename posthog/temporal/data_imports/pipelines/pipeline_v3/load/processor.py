@@ -512,5 +512,4 @@ def process_message(message: Any) -> None:
                 "error_message": str(e)[:1000],
             },
         )
-        _mark_job_failed(export_signal, e)
         raise

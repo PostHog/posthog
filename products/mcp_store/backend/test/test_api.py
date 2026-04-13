@@ -10,10 +10,10 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from products.mcp_store.backend.api import _is_valid_posthog_code_callback_url
 from products.mcp_store.backend.models import RECOMMENDED_SERVERS, MCPOAuthState, MCPServer, MCPServerInstallation
+from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
-ALLOW_URL = patch("products.mcp_store.backend.api.is_url_allowed", return_value=(True, None))
+ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
 
 
 class TestIsValidPosthogCodeCallbackUrl(TestCase):
@@ -274,7 +274,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Private IP"))
+    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Private IP"))
     def test_install_custom_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -283,7 +283,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.api.is_url_allowed", return_value=(False, "Local/metadata host"))
+    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Local/metadata host"))
     def test_install_custom_oauth_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -690,7 +690,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert settings.SESSION_COOKIE_SAMESITE in ("Lax", "None")
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.register_dcr_client", return_value="dcr-client-id")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
     def test_authorize_endpoint_populates_created_by(self, _mock_dcr, _allow):
         """The GET /authorize/ path must also stamp created_by, not just install_custom."""
         server = MCPServer.objects.create(
@@ -725,8 +725,8 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert row.created_by_id == self.user.id
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
-    @patch("products.mcp_store.backend.api.register_dcr_client", return_value="dcr-client-id")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
     def test_install_custom_populates_created_by(self, _mock_dcr, mock_discover, _allow):
         """install_custom path must stamp created_by on the MCPOAuthState row."""
         mock_discover.return_value = {
@@ -750,7 +750,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
 class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_spoofed_issuer_fails_and_no_state_persisted(self, mock_discover, _allow):
         mock_discover.side_effect = ValueError("Issuer mismatch in authorization server metadata")
 
@@ -765,8 +765,8 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert not MCPServer.objects.filter(url="https://evil.com").exists()
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.register_dcr_client")
-    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_existing_server_metadata_not_overwritten_on_reregistration(self, mock_discover, mock_dcr, _allow):
         legitimate_metadata = {
             "issuer": "https://auth.legit.com",
@@ -812,8 +812,8 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert call_metadata["registration_endpoint"] == "https://auth.legit.com/register"
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.register_dcr_client")
-    @patch("products.mcp_store.backend.api.discover_oauth_metadata")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_authorize_reuses_existing_metadata_instead_of_rediscovering(self, mock_discover, mock_dcr, _allow):
         server = MCPServer.objects.create(
             name="Server",
@@ -851,7 +851,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert call_metadata["authorization_endpoint"] == "https://auth.example.com/authorize"
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.register_dcr_client", return_value="dcr-client-id")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
     def test_authorize_uses_opaque_state_token(self, _mock_dcr, _allow):
         server = MCPServer.objects.create(
             name="Linear",
@@ -895,7 +895,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         ).exists()
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.api.register_dcr_client", return_value="dcr-client-id")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
     def test_public_oauth_redirect_consumes_state_once(self, _mock_dcr, _allow):
         server = MCPServer.objects.create(
             name="Linear",

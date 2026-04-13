@@ -36,15 +36,15 @@ Cross-environment comparison requires switching Grafana instances (not possible 
 Capture spans seven telemetry domains.
 Each has a Grafana datasource and a discovery entry point.
 
-| Domain                        | Datasource UID             | Discovery tool                 | Scope filter                              |
-| ----------------------------- | -------------------------- | ------------------------------ | ----------------------------------------- |
-| App metrics (VictoriaMetrics) | `victoriametrics`          | `list_prometheus_metric_names` | `regex: "capture_.*"`                     |
-| App metrics (realtime)        | `victoriametrics-realtime` | same                           | same (lower retention, higher resolution) |
-| Logs                          | `P8E80F9AEF21F6940`        | `list_loki_label_names`        | `app=~"capture.*"`                        |
-| Profiling                     | `pyroscope`                | `list_pyroscope_profile_types` | `service_name="capture/capture"`          |
-| Dashboards                    | n/a                        | `search_dashboards`            | query `"capture"` or `"ingestion"`        |
-| CloudWatch (ElastiCache, MSK) | `P034F075C744B399F`        | `query_prometheus`             | `environment="prod-us"`                   |
-| CloudWatch Root               | `PAAE47F430CFD1449`        | same                           | root account AWS metrics                  |
+| Domain                         | Datasource UID                  | Discovery tool                 | Scope filter                                         |
+| ------------------------------ | ------------------------------- | ------------------------------ | ---------------------------------------------------- |
+| App metrics (VictoriaMetrics)  | `victoriametrics`               | `list_prometheus_metric_names` | `regex: "capture_.*"`                                |
+| App metrics (realtime)         | `victoriametrics-realtime`      | same                           | same (lower retention, higher resolution)            |
+| Logs                           | `P44D702D3E93867EC` (Loki-logs) | `list_loki_label_names`        | `app=~"capture.*"`                                   |
+| Profiling                      | `pyroscope`                     | `list_pyroscope_profile_types` | `service_name="capture/capture"`                     |
+| Dashboards                     | n/a                             | `search_dashboards`            | query `"capture"` or `"ingestion"`                   |
+| CloudWatch (ElastiCache, MSK)  | `P034F075C744B399F`             | `query_prometheus`             | `environment="prod-us"`                              |
+| CloudWatch Root (prod-us only) | `PAAE47F430CFD1449`             | same                           | root account AWS metrics (does NOT exist in prod-eu) |
 
 ## Stable waypoints
 
@@ -61,6 +61,9 @@ The `role` label on all `capture_*` and `http_requests_*` metrics distinguishes 
 | `capture-replay` | Session recordings | `CAPTURE_MODE=recordings`   |
 
 `capture-logs` is a **separate deployment** (not a `role` value on capture metrics).
+It exists in both prod-us and prod-eu. Pyroscope service names follow the same
+`{namespace}/{deployment}` pattern in both envs: `capture/capture`, `capture/capture-ai`,
+`capture-replay/capture-replay`, `capture-logs/capture-logs`.
 
 ### Envoy cluster naming
 
@@ -82,7 +85,7 @@ metrics and CloudWatch ElastiCache metrics.
 
 **1. Primary Redis** (`REDIS_URL` env var)
 
-- ElastiCache: `posthog-solo` (prod-us legacy) or `ingestion-{env}-redis` (prod-eu)
+- ElastiCache: `posthog-solo` (prod-us) or `posthog-prod-redis-encripted` (prod-eu; sic — typo in actual cluster name)
 - Backs: billing/quota limits (`CaptureQuotaLimiter`), session replay overflow limiter
 - Capture metrics: `capture_billing_limits_loaded_tokens` (by `cache_key`),
   `capture_quota_limit_exceeded` (by `resource`)
@@ -188,7 +191,7 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 
 ### Loki (logs)
 
-1. `list_loki_label_names` — `datasourceUid: "P8E80F9AEF21F6940"`
+1. `list_loki_label_names` — `datasourceUid: "P44D702D3E93867EC"` (Loki-logs; do NOT use primary Loki `P8E80F9AEF21F6940` which 502s intermittently)
 2. `list_loki_label_values` for `app` or `namespace` — find capture containers
 3. `query_loki_logs` — e.g. `{app=~"capture.*"} |= "error"`
 
