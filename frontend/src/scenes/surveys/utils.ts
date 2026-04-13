@@ -162,6 +162,7 @@ export function buildSurveyExampleInvocationGlobals({
             uuid: eventUuid,
             distinct_id: distinctId,
             timestamp,
+            elements_chain: '',
             properties: {
                 [SurveyEventProperties.SURVEY_ID]: survey?.id && survey.id !== NEW_SURVEY.id ? survey.id : 'survey-id',
                 $survey_name: survey?.name || 'Survey',
