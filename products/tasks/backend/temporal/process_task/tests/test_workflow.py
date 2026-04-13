@@ -41,11 +41,12 @@ from products.tasks.backend.temporal.process_task.workflow import (
     ProcessTaskWorkflow,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 def _build_context(
-    *, github_integration_id: int | None, repository: str | None = "posthog/posthog-js"
+    *,
+    github_integration_id: int | None,
+    repository: str | None = "posthog/posthog-js",
+    state: dict | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -57,12 +58,13 @@ def _build_context(
         repository=repository,
         distinct_id="distinct-id",
         create_pr=True,
-        state={},
+        state=state or {},
         _branch="feature-branch",
     )
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 @pytest.mark.skipif(
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
@@ -240,6 +242,30 @@ class TestProcessTaskWorkflow:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    @pytest.mark.parametrize(
+        "state, expected",
+        [
+            ({"mode": "interactive", "pending_user_message": "this is nice"}, False),
+            ({"mode": "background", "pending_user_message": "this is nice"}, True),
+            (
+                {
+                    "mode": "background",
+                    "pending_user_message": "this is nice",
+                    "resume_from_run_id": "previous-run-id",
+                },
+                False,
+            ),
+        ],
+    )
+    def test_should_forward_pending_message(self, state: dict, expected: bool):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state=state,
+        )
+
+        assert workflow._should_forward_pending_user_message() is expected
+
     async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))

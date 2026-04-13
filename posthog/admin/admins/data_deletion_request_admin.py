@@ -10,6 +10,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
 
 CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
+CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
 def _build_event_filter(obj) -> tuple[str, dict]:
@@ -260,6 +261,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 messages.warning(request, "This is a property removal request but no properties are specified.")
             extra_context["is_draft"] = obj.status == RequestStatus.DRAFT
             extra_context["submit_url"] = reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk])
+            extra_context["can_approve"] = (
+                obj.status == RequestStatus.PENDING and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["approve_url"] = reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk])
             extra_context["can_revert_to_draft"] = obj.status in (RequestStatus.PENDING, RequestStatus.APPROVED)
             extra_context["revert_to_draft_url"] = reverse(
                 "admin:posthog_datadeletionrequest_revert_to_draft", args=[obj.pk]
@@ -278,6 +283,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/fetch-stats/",
                 self.admin_site.admin_view(self.fetch_stats_view),
                 name="posthog_datadeletionrequest_fetch_stats",
+            ),
+            path(
+                "<path:object_id>/approve/",
+                self.admin_site.admin_view(self.approve_view),
+                name="posthog_datadeletionrequest_approve",
             ),
             path(
                 "<path:object_id>/revert-to-draft/",
@@ -364,6 +374,38 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, f"Failed to fetch stats: {e}")
 
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+    def approve_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status=RequestStatus.PENDING,
+        ).update(
+            status=RequestStatus.APPROVED,
+            approved=True,
+            approved_by=request.user,
+            approved_at=timezone.now(),
+            updated_at=timezone.now(),
+        )
+
+        if not updated:
+            messages.error(request, "Only pending requests can be approved.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        obj.refresh_from_db()
+        self.log_change(request, obj, "Approved deletion request.")
+        messages.success(request, "Deletion request approved.")
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
     def revert_to_draft_view(self, request, object_id):
         obj = self.get_object(request, object_id)

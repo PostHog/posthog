@@ -2,6 +2,7 @@ import json
 import time
 import datetime
 from typing import Any, Optional, TypedDict, cast
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.conf import settings
@@ -137,7 +138,20 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
-    request.session.flush()
+    # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
+    connect_from = (request.GET.get("connect_from") or "").strip()
+    if not connect_from:
+        # This is the default case - for regular login, we flush the session (log out)
+        request.session.flush()
+    else:
+        # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
+        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        query_dict = request.GET.copy()
+        query_dict["next"] = (
+            f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
+        )
+        request.GET = query_dict  # type: ignore[assignment]
+
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
