@@ -141,3 +141,15 @@ tools:
     conversations-queue-clear-create:
         operation: conversations_queue_clear_create
         enabled: false
+    conversations-views-list:
+        operation: conversations_views_list
+        enabled: false
+    conversations-views-create:
+        operation: conversations_views_create
+        enabled: false
+    conversations-views-retrieve:
+        operation: conversations_views_retrieve
+        enabled: false
+    conversations-views-destroy:
+        operation: conversations_views_destroy
+        enabled: false

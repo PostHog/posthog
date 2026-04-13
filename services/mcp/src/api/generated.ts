@@ -33035,6 +33035,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ConversationsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CoreEventsListParams = {
     /**
      * Number of results to return per page.
@@ -33047,17 +33058,6 @@ export namespace Schemas {
     };
 
     export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ConversationsViewsListParams = {
     /**
      * Number of results to return per page.
      */
