@@ -203,6 +203,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
         ],
 
+        series: [
+            (s) => [s.vizQuerySource, s.series],
+            (vizQuerySource, series) => (isFunnelsQuery(vizQuerySource) ? (series as FunnelsQuery['series']) : null),
+        ],
+
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {

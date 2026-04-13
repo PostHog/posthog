@@ -9,7 +9,7 @@ import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyEntityNode, FunnelsDataWarehouseNode, NodeKind } from '~/queries/schema/schema-general'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number
@@ -44,8 +44,8 @@ export function ExclusionRowSuffix({
 
     const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
         // Filter out GroupNodes as funnels don't support them
-        const nonGroupSeries: AnyEntityNode[] | null | undefined = series?.filter(
-            (s): s is AnyEntityNode => s.kind !== NodeKind.GroupNode
+        const nonGroupSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] | null | undefined = series?.filter(
+            (s): s is AnyEntityNode<FunnelsDataWarehouseNode> => s.kind !== NodeKind.GroupNode
         )
         const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, nonGroupSeries)
         const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>

@@ -16,6 +16,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     FunnelExclusionSteps,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
 } from '~/queries/schema/schema-general'
@@ -251,7 +252,7 @@ export const getBreakdownStepValues = (
 
 export const getClampedFunnelStepRange = (
     stepRange: FunnelExclusionSteps | FunnelsFilter,
-    series: AnyEntityNode[] | null | undefined
+    series: AnyEntityNode<FunnelsDataWarehouseNode>[] | null | undefined
 ): { funnelFromStep?: integer; funnelToStep?: integer } => {
     const maxStepIndex = Math.max((series?.length || 0) - 1, 1)
     const { funnelFromStep, funnelToStep } = stepRange
@@ -685,11 +686,11 @@ export function getStepBreakdownSeries(
     return single
 }
 
-export function isFunnelWithEnoughSteps(series: FunnelsQuery['series']): boolean {
+export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
     return (series?.length || 0) > 1
 }
 
-export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series']): boolean {
+export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
     return (series || []).some(
         (step) =>
             isFunnelsDataWarehouseNode(step) &&
