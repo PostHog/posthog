@@ -1204,6 +1204,12 @@ class InsightViewSet(
 
         return self.order_queryset(queryset)
 
+    def safely_get_object(self, queryset: QuerySet) -> Insight | None:
+        lookup_value = self.kwargs[self.lookup_field]
+        if isinstance(lookup_value, str) and lookup_value.isdigit():
+            return queryset.filter(pk=int(lookup_value)).first()
+        return queryset.filter(short_id=lookup_value).first()
+
     def order_queryset(self, queryset: QuerySet) -> QuerySet:
         order = self.request.GET.get("order", None)
         if not order:
