@@ -1430,4 +1430,101 @@ mod tests {
         // If we got here without panicking, it means no cache write was attempted
         // (MockRedisClient would panic on unexpected method calls)
     }
+
+    /// Helper: create an S3 mock that returns OperationFailed for all gets.
+    /// This simulates an S3 outage (as opposed to the dummy client which returns NotFound).
+    #[cfg(feature = "mock-client")]
+    fn create_failing_s3_client() -> Arc<dyn S3Client + Send + Sync> {
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3.expect_get_string().returning(|_, _| {
+            Box::pin(
+                async move { Err(S3Error::OperationFailed("simulated S3 outage".to_string())) },
+            )
+        });
+        Arc::new(mock_s3)
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "mock-client")]
+    async fn test_get_with_source_or_fallback_infra_error_calls_fallback() {
+        // When both Redis and S3 have infrastructure errors (not confirmed
+        // misses), get_with_source returns the infra error. The fallback
+        // arm in get_with_source_or_fallback should still call the fallback
+        // so callers like feature-flags can fall back to Postgres.
+        let team_key = KeyType::string("123");
+        let fallback_data = json!({"team": "from_postgres"});
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns a Timeout (infrastructure error, not NotFound)
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::Timeout));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_failing_s3_client(),
+            config,
+        };
+
+        let fallback_data_clone = fallback_data.clone();
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || {
+                let data = fallback_data_clone.clone();
+                async move { Ok::<Option<Value>, HyperCacheError>(Some(data)) }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::Fallback);
+        assert_eq!(data, fallback_data);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "mock-client")]
+    async fn test_get_with_source_or_fallback_infra_error_fallback_none_returns_infra_error() {
+        // When both cache tiers have infrastructure errors and the fallback
+        // returns None, the original infrastructure error should be surfaced
+        // (not CacheMiss).
+        let team_key = KeyType::string("123");
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::Timeout));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_failing_s3_client(),
+            config,
+        };
+
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                Ok::<Option<Value>, HyperCacheError>(None)
+            })
+            .await;
+
+        assert!(result.is_err());
+        // Should be the Redis infra error, not CacheMiss
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                HyperCacheError::Redis(CustomRedisError::Timeout)
+            ),
+            "should surface the original infrastructure error, not CacheMiss"
+        );
+    }
 }
