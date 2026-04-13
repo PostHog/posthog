@@ -8,7 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { billingLogic } from './billingLogic'
 import { CODE_PLAN_PRO } from './constants'
-import { isProPlanKey, seatBillingLogic } from './seatBillingLogic'
+import { isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
 import type { SeatData } from './types'
 
 function planLabel(planKey: string): string {
@@ -74,10 +74,17 @@ export function CodeSeatsSection(): JSX.Element {
             <LemonTable
                 loading={orgSeatsLoading}
                 dataSource={displaySeats}
+                defaultSorting={{ columnKey: 'user', order: 1 }}
+                emptyState="No Code seats have been provisioned yet"
                 columns={[
                     {
                         title: 'User',
                         key: 'user',
+                        sorter: (a, b) => {
+                            const aName = getUserInfo(a)?.name ?? a.user_distinct_id
+                            const bName = getUserInfo(b)?.name ?? b.user_distinct_id
+                            return aName.localeCompare(bName)
+                        },
                         render: (_, seat: SeatData) => {
                             const info = getUserInfo(seat)
                             if (info) {
@@ -94,6 +101,7 @@ export function CodeSeatsSection(): JSX.Element {
                     {
                         title: 'Plan',
                         key: 'plan',
+                        align: 'center',
                         render: (_, seat: SeatData) => (
                             <LemonTag type={isProPlanKey(seat.plan_key) ? 'primary' : 'muted'}>
                                 {planLabel(seat.plan_key)}
@@ -103,9 +111,18 @@ export function CodeSeatsSection(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
+                        align: 'center',
                         render: (_, seat: SeatData) => (
                             <LemonTag type={statusColor(seat.status)}>{seat.status}</LemonTag>
                         ),
+                    },
+                    {
+                        title: 'Cost',
+                        key: 'cost',
+                        render: (_, seat: SeatData) => {
+                            const price = seatPriceFromPlanKey(seat.plan_key)
+                            return price > 0 ? `$${price}/mo` : 'Free'
+                        },
                     },
                     {
                         title: 'Started',

@@ -26,6 +26,7 @@ export type UsageTypeValue = UsageTypeOption['value']
 export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.value)
 
 export const CODE_PRODUCT_KEY = 'posthog_code'
+// TODO: Replace hardcoded plan keys with dynamic plan metadata from billing service
 export const CODE_PLAN_FREE = 'posthog-code-free-20260301'
 export const CODE_PLAN_PRO = 'posthog-code-200-20260301'
 
