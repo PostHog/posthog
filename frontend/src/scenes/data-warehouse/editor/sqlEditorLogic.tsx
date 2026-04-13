@@ -21,7 +21,7 @@ import posthog from 'posthog-js'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -1314,6 +1314,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
+            actions.setInsightLoading(true)
+
             const insightName = values.activeTab?.name
             const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
@@ -1322,7 +1324,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 query: currentVisualizationQuery,
             }
 
-            const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+            let savedInsight: QueryBasedInsightModel
+            try {
+                savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+            } catch (e) {
+                actions.setInsightLoading(false)
+                if (e instanceof ApiError) {
+                    lemonToast.error(e.detail ?? 'Could not update insight')
+                } else {
+                    lemonToast.error('Could not update insight')
+                }
+                throw e
+            }
+            actions.setInsightLoading(false)
 
             if (values.activeTab) {
                 actions.updateTab({

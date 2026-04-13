@@ -5,7 +5,7 @@ from datetime import timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -22,12 +22,12 @@ from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.temporal.session_replay.count_playlist_items.counting_logic import (
     DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
-    enqueue_recordings_that_match_playlist_filters,
+    fetch_playlists_to_count,
 )
-from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 
 
 class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
@@ -42,9 +42,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_that_match_no_recordings(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -59,7 +57,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
         assert self._get_counts_from_redis(playlist) == {
+            "version": 2,
             "session_ids": [],
+            "sessions_with_expiry": {},
             "previous_ids": None,
             "has_more": False,
             "refreshed_at": mock.ANY,
@@ -68,9 +68,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_that_match_recordings(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -94,7 +92,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
         assert self._get_counts_from_redis(playlist) == {
+            "version": 2,
             "session_ids": ["123"],
+            "sessions_with_expiry": {"123": None},
             "previous_ids": None,
             "has_more": True,
             "refreshed_at": mock.ANY,
@@ -103,9 +103,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_that_match_recordings_records_previous_ids(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -132,7 +130,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
         assert self._get_counts_from_redis(playlist) == {
+            "version": 2,
             "session_ids": ["123"],
+            "sessions_with_expiry": {"123": None},
             "has_more": True,
             "previous_ids": ["245"],
             "refreshed_at": mock.ANY,
@@ -141,9 +141,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         }
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_that_match_recordings_skips_cooldown(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -165,9 +163,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_matching_legacy_filters(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -242,9 +238,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_skips_default_filters(self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock):
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -257,14 +251,9 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_sorts_nulls_first_and_then_least_recently_counted(
-        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+        self, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
         with freeze_time("2024-01-01T12:00:00Z"):
             playlist1 = SessionRecordingPlaylist.objects.create(
@@ -293,21 +282,14 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
                 team=self.team, name="test4", filters={"date_from": "-21d"}, last_counted_at=None
             )
 
-            enqueue_recordings_that_match_playlist_filters()
+            playlist_ids = fetch_playlists_to_count()
             mock_capture_exception.assert_not_called()
 
-            assert mock_count_task.delay.call_count == 3
-
-            assert mock_count_task.delay.call_args_list == [
-                call(playlist4.id),
-                call(playlist1.id),
-                call(playlist2.id),
-            ]
+            assert len(playlist_ids) == 3
+            assert playlist_ids == [playlist4.id, playlist1.id, playlist2.id]
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_template_rageclick_filter_should_process(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ) -> None:
@@ -368,9 +350,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_with_too_many_errors_skips(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -392,9 +372,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_with_too_recent_error_skips(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
@@ -416,13 +394,10 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_only_queries_since_last_count(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        # Given a playlist that was previously counted
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="test",
@@ -430,13 +405,17 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
 
         last_count_time = timezone.now() - timedelta(hours=2)
-        existing_sessions = ["session1", "session2"]
 
         self.redis_client.set(
             f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
             json.dumps(
                 {
-                    "session_ids": existing_sessions,
+                    "version": 2,
+                    "session_ids": ["session1", "session2"],
+                    "sessions_with_expiry": {
+                        "session1": (timezone.now() + timedelta(days=10)).isoformat(),
+                        "session2": (timezone.now() + timedelta(days=10)).isoformat(),
+                    },
                     "has_more": False,
                     "refreshed_at": last_count_time.isoformat(),
                     "error_count": 0,
@@ -445,7 +424,6 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
             ),
         )
 
-        # When we run the count task again
         mock_list_recordings_from_query.return_value = (
             [
                 SessionRecording.objects.create(
@@ -460,16 +438,56 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
 
         count_recordings_that_match_playlist_filters(playlist.id)
 
-        # Then we should only query for recordings since the last count
         recordings_query = mock_list_recordings_from_query.call_args[0][0]
         assert recordings_query.date_from == last_count_time.isoformat()
         assert recordings_query.date_to is None
 
-        # And the results should be merged with the existing sessions
         stored_data = self._get_counts_from_redis(playlist)
         assert sorted(stored_data["session_ids"]) == ["session1", "session2", "session3"]
+        assert stored_data["version"] == 2
         assert stored_data["has_more"] is False
         assert stored_data["refreshed_at"] > last_count_time.isoformat()
+
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
+    def test_unversioned_cached_data_triggers_full_query(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters={"date_from": "-21d"},
+        )
+
+        last_count_time = timezone.now() - timedelta(hours=2)
+
+        self.redis_client.set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps(
+                {
+                    "session_ids": ["session1", "session2"],
+                    "has_more": False,
+                    "refreshed_at": last_count_time.isoformat(),
+                    "error_count": 0,
+                    "errored_at": None,
+                }
+            ),
+        )
+
+        new_recording = SessionRecording(session_id="session3", team=self.team)
+        new_recording.expiry_time = timezone.now() + timedelta(days=10)
+        mock_list_recordings_from_query.return_value = ([new_recording], False, None, None)
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        recordings_query = mock_list_recordings_from_query.call_args[0][0]
+        assert recordings_query.date_from == "-21d"
+
+        stored_data = self._get_counts_from_redis(playlist)
+        assert stored_data["session_ids"] == ["session3"]
+        assert stored_data["version"] == 2
 
         mock_capture_exception.assert_not_called()
 
@@ -478,49 +496,28 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert counts is not None
         return json.loads(counts.decode("utf-8"))
 
-    @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
-    )
-    def test_excludes_default_template_playlists(
-        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
-    ):
+    def test_excludes_default_template_playlists(self):
         # need to type ignore here, because mypy insists this returns a list but it does not
         default_name: str = random.choice(DEFAULT_PLAYLIST_NAMES)  # type: ignore
-        playlist = SessionRecordingPlaylist.objects.create(
+        SessionRecordingPlaylist.objects.create(
             team=self.team,
             name=default_name,
             last_counted_at=None,
             filters={"date_from": "-21d"},
         )
-        enqueue_recordings_that_match_playlist_filters()
-        # Should not be called for default filter playlist
-        assert playlist.id not in [call_args[0][0] for call_args in mock_count_task.delay.call_args_list]
+        playlist_ids = fetch_playlists_to_count()
+        assert len(playlist_ids) == 0
 
-    @patch("posthoganalytics.capture_exception")
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query"
-    )
-    @patch(
-        "posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
-    )
-    def test_excludes_playlists_with_pinned_items(
-        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
-    ):
+    def test_excludes_playlists_with_pinned_items(self):
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="has pinned",
             filters={"date_from": "-21d"},
             last_counted_at=None,
         )
-        # Add a pinned item
         SessionRecordingPlaylistItem.objects.create(
             playlist=playlist,
             session_id="123",
         )
-        enqueue_recordings_that_match_playlist_filters()
-        # Should not be called for playlist with pinned items
-        assert playlist.id not in [call_args[0][0] for call_args in mock_count_task.delay.call_args_list]
+        playlist_ids = fetch_playlists_to_count()
+        assert playlist.id not in playlist_ids

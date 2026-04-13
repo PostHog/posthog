@@ -104,11 +104,23 @@ impl EmbeddingModel {
     pub fn escape_input<'a>(&self, content: &'a str) -> std::borrow::Cow<'a, str> {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                if content.contains("<|endoftext|>") {
-                    // Open AI's embedding endpoints 500 in the face of <|endoftext|> tokens
-                    return Cow::Owned(content.replace("<|endoftext|>", ">|endoftext|<"));
+                const OPENAI_SPECIAL_TOKENS: [(&str, &str); 5] = [
+                    ("<|endoftext|>", ">|endoftext|<"),
+                    ("<|fim_prefix|>", ">|fim_prefix|<"),
+                    ("<|fim_middle|>", ">|fim_middle|<"),
+                    ("<|fim_suffix|>", ">|fim_suffix|<"),
+                    ("<|endofprompt|>", ">|endofprompt|<"),
+                ];
+
+                let mut escaped: Cow<'a, str> = Cow::Borrowed(content);
+
+                for (token, replacement) in OPENAI_SPECIAL_TOKENS {
+                    if escaped.contains(token) {
+                        escaped = Cow::Owned(escaped.replace(token, replacement));
+                    }
                 }
-                Cow::Borrowed(content)
+
+                escaped
             }
         }
     }
@@ -252,10 +264,13 @@ mod tests {
         assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
         assert_eq!(result, "hello world");
 
-        // endoftext token gets escaped
-        let bad = "foo <|endoftext|> bar";
+        // All unsupported OpenAI special tokens get escaped
+        let bad = "a <|endoftext|> b <|fim_prefix|> c <|fim_middle|> d <|fim_suffix|> e <|endofprompt|> f";
         let result = model.escape_input(bad);
         assert!(matches!(result, std::borrow::Cow::Owned(_)));
-        assert_eq!(result, "foo >|endoftext|< bar");
+        assert_eq!(
+            result,
+            "a >|endoftext|< b >|fim_prefix|< c >|fim_middle|< d >|fim_suffix|< e >|endofprompt|< f"
+        );
     }
 }

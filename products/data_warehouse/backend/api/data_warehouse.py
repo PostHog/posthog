@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.batch_exports.models import BatchExportRun
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -49,68 +50,69 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
-        key = request.GET.get("key")
-        table_name = request.GET.get("table_name")
-        value = request.GET.get("value")
+        with PROPERTY_VALUES_DURATION.labels(endpoint_type="data_warehouse").time():
+            key = request.GET.get("key")
+            table_name = request.GET.get("table_name")
+            value = request.GET.get("value")
 
-        if not key:
-            raise serializers.ValidationError("You must provide a key")
-        if not table_name:
-            raise serializers.ValidationError("You must provide a table name")
+            if not key:
+                raise serializers.ValidationError("You must provide a key")
+            if not table_name:
+                raise serializers.ValidationError("You must provide a table name")
 
-        table = get_view_or_table_by_name(self.team, table_name)
-        if table is None:
-            return Response(status=status.HTTP_404_NOT_FOUND, data={"error": "Data warehouse table not found"})
+            table = get_view_or_table_by_name(self.team, table_name)
+            if table is None:
+                return Response(status=status.HTTP_404_NOT_FOUND, data={"error": "Data warehouse table not found"})
 
-        columns = table.columns or table.get_columns()
-        if key not in columns:
-            raise serializers.ValidationError("The provided key does not exist on this table")
+            columns = table.columns or table.get_columns()
+            if key not in columns:
+                raise serializers.ValidationError("The provided key does not exist on this table")
 
-        chain: list[str | int] = cast(list[str | int], key.split("."))
-        conditions: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=None),
-            )
-        ]
-
-        if value:
-            conditions.append(
+            chain: list[str | int] = cast(list[str | int], key.split("."))
+            conditions: list[ast.Expr] = [
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.ILike,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{value}%"),
-                )
-            )
-
-        order_by = []
-        if value:
-            order_by = [
-                ast.OrderExpr(
-                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                    order="ASC",
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=chain),
+                    right=ast.Constant(value=None),
                 )
             ]
 
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=chain)],
-            distinct=True,
-            select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table.name_chain))),
-            where=ast.And(exprs=conditions),
-            order_by=order_by,
-            limit=ast.Constant(value=10),
-        )
+            if value:
+                conditions.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                        right=ast.Constant(value=f"%{value}%"),
+                    )
+                )
 
-        tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
-        result = execute_hogql_query(query, team=self.team)
+            order_by = []
+            if value:
+                order_by = [
+                    ast.OrderExpr(
+                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                        order="ASC",
+                    )
+                ]
 
-        values = [row[0] for row in result.results]
-        resp = Response(
-            {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
-        )
-        resp["Cache-Control"] = "max-age=10"
-        return resp
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=chain)],
+                distinct=True,
+                select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table.name_chain))),
+                where=ast.And(exprs=conditions),
+                order_by=order_by,
+                limit=ast.Constant(value=10),
+            )
+
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
+            result = execute_hogql_query(query, team=self.team)
+
+            values = [row[0] for row in result.results]
+            resp = Response(
+                {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
+            )
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
