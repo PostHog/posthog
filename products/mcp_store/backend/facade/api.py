@@ -62,5 +62,5 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
             )
         )
 
-    logger.info("Found active MCP installations", count=len(results), team_id=team_id)
+    logger.debug("Found active MCP installations", count=len(results), team_id=team_id)
     return results
