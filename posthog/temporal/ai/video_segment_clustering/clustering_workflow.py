@@ -2,7 +2,7 @@
 
 Triggers session summarization for recently-ended sessions. Signal emission for
 issue-indicating segments happens inside each session's summarization workflow
-(Activity 5b), so this workflow only needs to orchestrate priming.
+(Activity 6a: emit_session_problem_signals_activity), so this workflow only orchestrates priming.
 """
 
 import json
@@ -13,16 +13,15 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai.video_segment_clustering.models import EmitSignalsResult, GetSessionsToPrimeResult
+from posthog.temporal.ai.video_segment_clustering.models import GetSessionsToPrimeResult
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
-    from posthog.temporal.ai.video_segment_clustering.activities import get_sessions_to_prime_activity
+    from posthog.temporal.ai.video_segment_clustering.clustering_activities import get_sessions_to_prime_activity
     from posthog.temporal.ai.video_segment_clustering.models import (
         ClusteringWorkflowInputs,
-        EmitSignalsResult,
         PrimeSessionEmbeddingsActivityInputs,
     )
     from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
@@ -34,9 +33,8 @@ with workflow.unsafe.imports_passed_through():
 class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     """Per-team workflow to run session analysis and emit signals.
 
-    Triggers session summarization for recently-ended sessions. Each
-    summarization workflow emits signals for issue-indicating segments directly
-    (Activity 5b in the summarization workflow).
+    Triggers session summarization for recently-ended sessions. Each summarization workflow emits signals
+    for issue-indicating segments directly.
     """
 
     @staticmethod
@@ -46,8 +44,8 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
         return ClusteringWorkflowInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: ClusteringWorkflowInputs) -> EmitSignalsResult | None:
-        """Execute session analysis for a single team."""
+    async def run(self, inputs: ClusteringWorkflowInputs) -> None:
+        """Prime session summarization for a single team."""
         if inputs.skip_priming:
             workflow.logger.info(f"Skipping priming (team {inputs.team_id})")
             return None
@@ -90,7 +88,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
             async with semaphore:
                 redis_key_base = f"session-summary:single:{user_id}-{team_id}:{session_id}"
                 handle: workflow.ChildWorkflowHandle = await workflow.start_child_workflow(
-                    "summarize-session",  # type: ignore[arg-type]
+                    "summarize-session",
                     SingleSessionSummaryInputs(
                         session_id=session_id,
                         user_id=user_id,

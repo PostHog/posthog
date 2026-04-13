@@ -171,10 +171,7 @@ class TestVideoSegmentClusteringModuleIntegrity:
         """Ensure all expected video segment clustering activities are present."""
         expected_activities = [
             "get_sessions_to_prime_activity",
-            "fetch_segments_activity",
-            "cluster_segments_activity",
-            "emit_signals_from_clusters_activity",
-            "get_proactive_tasks_enabled_team_ids_activity",
+            "list_teams_with_session_analysis_signals_activity",
         ]
         actual_activity_names = [a.__name__ for a in VIDEO_SEGMENT_CLUSTERING_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

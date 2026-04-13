@@ -100,7 +100,6 @@ async def emit_signal(
                 {
                     "type": "value_error",
                     "loc": ("source_product", "source_type"),
-                    "msg": f"Unknown signal type: {source_product}/{source_type}",
                     "input": {"source_product": source_product, "source_type": source_type},
                     "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
                 }

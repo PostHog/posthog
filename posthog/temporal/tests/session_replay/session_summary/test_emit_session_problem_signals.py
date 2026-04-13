@@ -4,9 +4,8 @@ import pytest
 
 from posthog.temporal.session_replay.session_summary.activities.a6a_emit_session_problem_signals import (
     _build_segment_event_history,
-    _format_seconds_as_time,
-    _parse_time_to_seconds,
 )
+from posthog.temporal.session_replay.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
 
 UTC = datetime.UTC
 
@@ -26,11 +25,11 @@ class TestParseTimeToSeconds:
         ],
     )
     def test_parses_correctly(self, time_str, expected):
-        assert _parse_time_to_seconds(time_str) == expected
+        assert parse_str_timestamp_to_s(time_str) == expected
 
     def test_rejects_invalid_format(self):
-        with pytest.raises(ValueError, match="Invalid time format"):
-            _parse_time_to_seconds("bad")
+        with pytest.raises(ValueError, match="Invalid timestamp format"):
+            parse_str_timestamp_to_s("bad")
 
 
 class TestFormatSecondsAsTime:
@@ -48,7 +47,7 @@ class TestFormatSecondsAsTime:
         ],
     )
     def test_formats_correctly(self, seconds, expected):
-        assert _format_seconds_as_time(seconds) == expected
+        assert format_seconds_as_mm_ss(seconds, include_ms=True) == expected
 
 
 COLUMNS = [
@@ -127,23 +126,8 @@ class TestBuildSegmentEventHistory:
         result = _build_segment_event_history(events, COLUMNS, SESSION_START, 0, 200)
         assert len(result) == 50  # MAX_EVENTS_PER_SEGMENT
 
-    def test_skips_non_user_behavior_events(self):
-        events = [
-            _make_event("$set", 30),
-            _make_event("$pageview", 35, "https://example.com"),
-            _make_event("$groupidentify", 40),
-            _make_event("$web_vitals", 42),
-            _make_event("$autocapture", 45, event_type="click"),
-            _make_event("$opt_in", 48),
-            _make_event("$identify", 50),
-        ]
-        result = _build_segment_event_history(events, COLUMNS, SESSION_START, 0, 60)
-        assert len(result) == 2
-        assert result[0]["event"] == "$pageview"
-        assert result[1]["event"] == "$autocapture"
-
     def test_handles_string_timestamps(self):
-        events = [
+        events: list[tuple[str, str, str, list[str], list[str], str, str, str]] = [
             (
                 "$pageview",
                 "2025-01-01T00:00:45+00:00",

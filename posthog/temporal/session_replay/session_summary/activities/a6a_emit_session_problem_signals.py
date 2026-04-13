@@ -21,166 +21,33 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     ConsolidatedVideoSegment,
     VideoSummarySingleSessionInputs,
 )
+from posthog.temporal.session_replay.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
 
 from ee.hogai.session_summaries.constants import FULL_VIDEO_EXPORT_FORMAT
 
 logger = structlog.get_logger(__name__)
 
-PROBLEM_TYPE_WEIGHTS: dict[str, float] = {
-    "blocking_exception": 0.5,
-    "non_blocking_exception": 0.3,
-    "abandonment": 0.4,
-    "confusion": 0.3,
-    "failure": 0.3,
-}
-
 # Cap event history per segment to keep signal payloads reasonable
 MAX_EVENTS_PER_SEGMENT = 50
 
-# Non-user-behavior events to skip in event history — these are internal/system events
-# that don't help investigate what the user was doing during a problem segment.
-_EVENTS_TO_SKIP_IN_HISTORY = frozenset(
-    {
-        "$$heatmap",
-        "$capture_metrics",
-        "$copy_autocapture",
-        "$create_alias",
-        "$feature_enrollment_update",
-        "$feature_flag_called",
-        "$feature_interaction",
-        "$feature_view",
-        "$groupidentify",
-        "$identify",
-        "$merge_dangerously",
-        "$opt_in",
-        "$pageleave",
-        "$set",
-        "$web_vitals",
-    }
-)
-
-
-def _classify_problem(segment: ConsolidatedVideoSegment) -> str | None:
-    """Return the most severe problem type for a segment, or None if no problem detected."""
-    if segment.exception == "blocking":
-        return "blocking_exception"
-    if segment.abandonment_detected:
-        return "abandonment"
-    if segment.exception == "non-blocking":
-        return "non_blocking_exception"
-    if segment.confusion_detected:
-        return "confusion"
-    if not segment.success:
-        return "failure"
-    return None
-
-
-def _parse_time_to_seconds(time_str: str) -> int:
-    """Parse MM:SS or HH:MM:SS format to total seconds."""
-    parts = time_str.split(":")
-    if len(parts) == 2:
-        return int(parts[0]) * 60 + int(parts[1])
-    if len(parts) == 3:
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-    raise ValueError(f"Invalid time format: {time_str}")
-
-
-def _format_seconds_as_time(seconds: float) -> str:
-    """Format seconds as MM:SS.nnn or HH:MM:SS.nnn."""
-    total_seconds = int(seconds)
-    millis = int(round((seconds - total_seconds) * 1000))
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    secs = total_seconds % 60
-    if hours > 0:
-        return f"{hours}:{minutes:02d}:{secs:02d}.{millis:03d}"
-    return f"{minutes:02d}:{secs:02d}.{millis:03d}"
-
-
-def _build_segment_event_history(
-    events: list,
-    columns: list[str],
-    session_start_time: datetime.datetime,
-    segment_start_seconds: int,
-    segment_end_seconds: int,
-) -> list[dict]:
-    """Build abbreviated event history for a segment's time range.
-
-    Returns a list of dicts matching SessionProblemEventEntry schema fields.
-    """
-    col_index: dict[str, int] = {}
-    for name in ("event", "timestamp", "$current_url", "$event_type", "elements_chain_texts"):
-        # Column names may or may not have a $ prefix depending on HogQL aliasing
-        for i, col in enumerate(columns):
-            if col.replace("$", "") == name.replace("$", ""):
-                col_index[name] = i
-                break
-
-    if "event" not in col_index or "timestamp" not in col_index:
-        return []
-
-    segment_start_abs = session_start_time + datetime.timedelta(seconds=segment_start_seconds)
-    segment_end_abs = session_start_time + datetime.timedelta(seconds=segment_end_seconds)
-
-    event_idx = col_index["event"]
-    entries: list[dict] = []
-    for row in events:
-        if row[event_idx] in _EVENTS_TO_SKIP_IN_HISTORY:
-            continue
-        event_ts = row[col_index["timestamp"]]
-        if isinstance(event_ts, str):
-            event_ts = datetime.datetime.fromisoformat(event_ts)
-        if not isinstance(event_ts, datetime.datetime):
-            continue
-        # Make comparison timezone-aware if needed
-        if event_ts.tzinfo is not None and segment_start_abs.tzinfo is None:
-            segment_start_abs = segment_start_abs.replace(tzinfo=event_ts.tzinfo)
-            segment_end_abs = segment_end_abs.replace(tzinfo=event_ts.tzinfo)
-        if event_ts < segment_start_abs or event_ts > segment_end_abs:
-            continue
-
-        offset_seconds = max(0.0, (event_ts - session_start_time).total_seconds())
-        entry: dict = {
-            "event": row[col_index["event"]],
-            "timestamp": _format_seconds_as_time(offset_seconds),
-        }
-
-        if "$current_url" in col_index:
-            url = row[col_index["$current_url"]]
-            if url:
-                entry["current_url"] = url
-
-        if "$event_type" in col_index:
-            event_type = row[col_index["$event_type"]]
-            if event_type:
-                entry["event_type"] = event_type
-
-        if "elements_chain_texts" in col_index:
-            texts = row[col_index["elements_chain_texts"]]
-            if texts and isinstance(texts, list):
-                joined = " > ".join(t for t in texts if t)
-                if joined:
-                    entry["interaction_text"] = joined
-
-        entries.append(entry)
-        if len(entries) >= MAX_EVENTS_PER_SEGMENT:
-            break
-
-    return entries
-
-
-def _fetch_session_events(session_id: str, team: Team, metadata: RecordingMetadata) -> tuple[list[str], list] | None:
-    """Fetch session events for event history. Returns (columns, events) or None."""
-    events_obj = SessionReplayEvents()
-    columns, events = events_obj.get_events(
-        session_id=session_id,
-        team=team,
-        metadata=metadata,
-        events_to_ignore=["$feature_flag_called"],
-    )
-    if not columns or not events:
-        return None
-    return columns, events
+# Non-user-behavior events to skip in event history — these are internal PostHog events that don't help investigate
+# what the user was doing during a problem segment.
+_EVENTS_TO_SKIP_IN_HISTORY = [
+    "$$heatmap",
+    "$capture_metrics",
+    "$copy_autocapture",
+    "$create_alias",
+    "$feature_enrollment_update",
+    "$feature_flag_called",
+    "$feature_interaction",
+    "$feature_view",
+    "$groupidentify",
+    "$identify",
+    "$merge_dangerously",
+    "$opt_in",
+    "$set",
+    "$web_vitals",
+]
 
 
 @temporalio.activity.defn
@@ -220,7 +87,7 @@ async def emit_session_problem_signals_activity(
     session_events_data: tuple[list[str], list] | None = None
     if session_metadata:
         try:
-            session_events_data = await database_sync_to_async(_fetch_session_events)(
+            session_events_data = await _fetch_session_events(
                 session_id=inputs.session_id,
                 team=team,
                 metadata=session_metadata,
@@ -241,7 +108,6 @@ async def emit_session_problem_signals_activity(
             continue
 
         source_id = f"{inputs.session_id}:{segment.start_time}:{segment.end_time}"
-        weight = PROBLEM_TYPE_WEIGHTS.get(problem_type, 0.3)
 
         extra: dict = {
             "session_id": inputs.session_id,
@@ -249,11 +115,13 @@ async def emit_session_problem_signals_activity(
             "start_time": segment.start_time,
             "end_time": segment.end_time,
             "problem_type": problem_type,
-            "distinct_id": inputs.user_distinct_id_to_log or "",
+            "distinct_id": session_metadata["distinct_id"] if session_metadata else "",
         }
         if session_metadata:
             extra["session_start_time"] = session_metadata["start_time"].isoformat()
             extra["session_end_time"] = session_metadata["end_time"].isoformat()
+            extra["session_duration"] = session_metadata["duration"]
+            extra["session_active_seconds"] = session_metadata["active_seconds"]
 
             # Build abbreviated event history for this segment's time range
             if session_events_data is not None:
@@ -262,8 +130,8 @@ async def emit_session_problem_signals_activity(
                     events=events,
                     columns=columns,
                     session_start_time=session_metadata["start_time"],
-                    segment_start_seconds=_parse_time_to_seconds(segment.start_time),
-                    segment_end_seconds=_parse_time_to_seconds(segment.end_time),
+                    segment_start_seconds=parse_str_timestamp_to_s(segment.start_time),
+                    segment_end_seconds=parse_str_timestamp_to_s(segment.end_time),
                 )
                 if event_history:
                     extra["event_history"] = event_history
@@ -278,7 +146,7 @@ async def emit_session_problem_signals_activity(
                 source_type="session_problem",
                 source_id=source_id,
                 description=segment.description,
-                weight=weight,
+                weight=1.0,  # Always research
                 extra=extra,
             )
             signals_emitted += 1
@@ -304,3 +172,83 @@ async def emit_session_problem_signals_activity(
         )
 
     return signals_emitted
+
+
+def _classify_problem(segment: ConsolidatedVideoSegment) -> str | None:
+    """Return the most severe problem type for a segment, or None if no problem detected."""
+    if segment.exception == "blocking":
+        return "blocking_exception"
+    if segment.abandonment_detected:
+        return "abandonment"
+    if segment.exception == "non-blocking":
+        return "non_blocking_exception"
+    if segment.confusion_detected:
+        return "confusion"
+    if not segment.success:
+        return "failure"
+    return None
+
+
+def _build_segment_event_history(
+    events: list,
+    columns: list[str],
+    session_start_time: datetime.datetime,
+    segment_start_seconds: int,
+    segment_end_seconds: int,
+) -> list[dict]:
+    """Build abbreviated event history for a segment's time range.
+
+    Returns a list of dicts matching SessionProblemEventEntry schema fields.
+    """
+    col_index: dict[str, int] = {}
+    for i, col in enumerate(columns):
+        col_index[col] = i
+
+    if "event" not in col_index or "timestamp" not in col_index:
+        return []
+
+    segment_start_abs = session_start_time + datetime.timedelta(seconds=segment_start_seconds)
+    segment_end_abs = session_start_time + datetime.timedelta(seconds=segment_end_seconds)
+
+    entries: list[dict] = []
+    for row in events:
+        event_ts = row[col_index["timestamp"]]
+        if not isinstance(event_ts, datetime.datetime) or event_ts < segment_start_abs or event_ts > segment_end_abs:
+            continue  # Only include events within the segment's time range
+
+        offset_seconds = max(0.0, (event_ts - session_start_time).total_seconds())
+        entry: dict = {
+            "event": row[col_index["event"]],
+            "timestamp": format_seconds_as_mm_ss(offset_seconds, include_ms=True),
+        }
+        if "$current_url" in col_index:
+            entry["current_url"] = row[col_index["$current_url"]]
+        if "$event_type" in col_index:
+            entry["event_type"] = row[col_index["$event_type"]]
+        if "elements_chain_texts" in col_index:
+            texts = row[col_index["elements_chain_texts"]]
+            if texts and isinstance(texts, list):
+                joined = " > ".join(t for t in texts if t)
+                if joined:
+                    entry["interaction_text"] = joined
+
+        entries.append(entry)
+        if len(entries) >= MAX_EVENTS_PER_SEGMENT:
+            break
+
+    return entries
+
+
+@database_sync_to_async
+def _fetch_session_events(session_id: str, team: Team, metadata: RecordingMetadata) -> tuple[list[str], list] | None:
+    """Fetch session events for event history. Returns (columns, events) or None."""
+    events_obj = SessionReplayEvents()
+    columns, events = events_obj.get_events(
+        session_id=session_id,
+        team=team,
+        metadata=metadata,
+        events_to_ignore=_EVENTS_TO_SKIP_IN_HISTORY,
+    )
+    if not columns or not events:
+        return None
+    return columns, events

@@ -1,7 +1,4 @@
-"""
-Activity 1 of the video segment clustering workflow:
-Identify sessions that need summarization (embedding priming).
-"""
+"""Identify sessions that need summarization for embedding priming (scheduled / proactive runs)."""
 
 from django.conf import settings
 
@@ -41,12 +38,7 @@ MAX_SESSIONS_TO_PRIME_EMBEDDINGS = 200
 async def get_sessions_to_prime_activity(
     inputs: PrimeSessionEmbeddingsActivityInputs,
 ) -> GetSessionsToPrimeResult:
-    """Identify sessions that need summarization for embedding priming.
-
-    Fetches recent sessions (completed within within the lookback period), filters out already-summarized ones,
-    and returns the list of session IDs that need summarization along with user info
-    needed to start child summarization workflows.
-    """
+    """Find recent session recordings that do not yet have a video summary."""
     team = await Team.objects.aget(id=inputs.team_id)
 
     session_ids = await database_sync_to_async(_fetch_recent_session_ids)(
@@ -61,7 +53,7 @@ async def get_sessions_to_prime_activity(
             user_distinct_id=None,
         )
 
-    # Get first user with access to the team for running summarization (as summarization requires _some_ user)
+    # Get first user with access to the team for running summarization (as summarization requires _some_ user to run)
     # TODO: We should instead pass no user, in which case summarization should understand this was system-initiated
     system_user = await database_sync_to_async(lambda: team.all_users_with_access().first())()
 
@@ -73,7 +65,6 @@ async def get_sessions_to_prime_activity(
             user_distinct_id=None,
         )
 
-    # Check which sessions already have summaries
     existing_summaries = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=session_ids,
@@ -138,29 +129,18 @@ _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
 >>>>>>> 3db6bfc4e52 (feat(signals): emit session problem signals from summarization workflow)
 ]
 if not settings.DEBUG:
-    # In prod, only include finished sessions
     _BASELINE_HAVING_PREDICATES.append(
+        # Only include finished sessions
         RecordingPropertyFilter(
             key="ongoing",
             operator=PropertyOperator.EXACT,
-            value=0,  # The bool is represented as 0/1 in ClickHouse
+            value=0,
         ),
     )
-
 _DEFAULT_FILTER_TEST_ACCOUNTS = False  # Summarize all sessions (it's also faster to skip this filter)
 
 
 def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
-    """Fetch session IDs of recordings that ended within the lookback period.
-
-    Args:
-        team: Team object to query for
-        lookback_hours: How far back to look for ended recordings
-
-    Returns:
-        List of session IDs of finished recordings in the timeframe
-    """
-
     user_defined_query = _load_user_defined_recordings_query(team.id)
     if user_defined_query:
         # Running a RecordingsQuery for consistency with the session recordings API
