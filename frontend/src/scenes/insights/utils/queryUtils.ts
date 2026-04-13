@@ -1,5 +1,6 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { isValidRE2 } from 'lib/utils/regexp'
+import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { DataNode, HogQLVariable, InsightQueryNode, Node } from '~/queries/schema/schema-general'
@@ -154,9 +155,14 @@ export const hasInvalidRegexFilter = (obj: unknown): boolean => {
 }
 
 export const validateQuery = (q: DataNode): boolean => {
-    if (isFunnelsQuery(q)) {
-        return q.series.length >= 2
+    if (isInsightVizNode(q) && isInsightQueryNode(q.source)) {
+        return validateQuery(q.source)
     }
+
+    if (isFunnelsQuery(q)) {
+        return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
+    }
+
     if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
         return q.series?.length > 0 && q.series.every((s) => !!s?.math_property)
     }
