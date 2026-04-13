@@ -148,14 +148,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setActiveView: (_, { view }) => view,
                 clearActiveView: () => null,
-                setStatusFilter: () => null,
-                setPriorityFilter: () => null,
-                setChannelFilter: () => null,
-                setSlaFilter: () => null,
-                setAssigneeFilter: () => null,
-                setTagsFilter: () => null,
-                setDateRange: () => null,
-                setSorting: () => null,
             },
         ],
     }),
@@ -262,27 +254,35 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.loadTickets()
         },
         setStatusFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setChannelFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setSlaFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setTagsFilter: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setDateRange: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setSorting: () => {
+            actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setActiveView: ({ view }) => {
@@ -293,8 +293,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
         clearActiveView: () => {
             const { searchParams } = router.values
-            const { view: _, ...rest } = searchParams
-            router.actions.replace(router.values.location.pathname, rest)
+            if (searchParams.view) {
+                const { view: _, ...rest } = searchParams
+                router.actions.replace(router.values.location.pathname, rest)
+            }
         },
     })),
     afterMount(({ actions }) => {

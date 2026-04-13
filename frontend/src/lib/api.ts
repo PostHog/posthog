@@ -209,6 +209,7 @@ import {
     WebhookInfo,
 } from '~/types'
 
+import type { SavedTicketView } from 'products/conversations/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import {
     ErrorTrackingRule,
@@ -6009,15 +6010,15 @@ const api = {
     },
 
     conversationsViews: {
-        async list(): Promise<CountedPaginatedResponse<any>> {
+        async list(): Promise<CountedPaginatedResponse<SavedTicketView>> {
             return await new ApiRequest().conversationsViews().get()
         },
 
-        async get(shortId: string): Promise<any> {
+        async get(shortId: string): Promise<SavedTicketView> {
             return await new ApiRequest().conversationsView(shortId).get()
         },
 
-        async create(data: { name: string; filters: Record<string, any> }): Promise<any> {
+        async create(data: { name: string; filters: Record<string, any> }): Promise<SavedTicketView> {
             return await new ApiRequest().conversationsViews().create({ data })
         },
 
