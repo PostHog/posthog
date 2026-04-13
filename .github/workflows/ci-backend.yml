@@ -318,7 +318,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.8.4
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -391,7 +391,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:25.8.12.129
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.8.4
               run: bin/ci-wait-for-docker wait
 
             - name: Register Temporal search attributes
