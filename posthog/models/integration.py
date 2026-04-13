@@ -2113,18 +2113,26 @@ class GitHubIntegration:
         commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
         return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
 
-    def list_repositories(self, page: int = 1) -> list[dict]:
-        # Proactively refresh token if it's close to expiring to avoid intermittent 401s
+    def list_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
+        """List installation repositories via the GitHub API.
+
+        Fetches only the GitHub pages needed to satisfy the requested
+        ``[offset, offset+limit)`` window. Returns a tuple of
+        ``(repositories, has_more)`` where *has_more* indicates whether
+        additional repositories exist beyond the returned window.
+        """
+        GITHUB_PER_PAGE = 100
+
         try:
             if self.access_token_expired():
                 self.refresh_access_token()
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        def fetch() -> requests.Response:
+        def fetch(page: int) -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
             return requests.get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
@@ -2132,19 +2140,50 @@ class GitHubIntegration:
                 },
             )
 
+        def extract_repos(body: dict) -> list[dict]:
+            repositories = body.get("repositories")
+            if not isinstance(repositories, list):
+                return []
+            return [
+                {
+                    "id": repo["id"],
+                    "name": repo["name"],
+                    "full_name": repo["full_name"],
+                }
+                for repo in repositories
+                if isinstance(repo, dict)
+                and isinstance(repo.get("id"), int)
+                and isinstance(repo.get("name"), str)
+                and isinstance(repo.get("full_name"), str)
+            ]
+
+        # Work out which GitHub pages cover the requested window.
+        first_page = offset // GITHUB_PER_PAGE + 1
+        skip = offset % GITHUB_PER_PAGE
+        needed = skip + limit
+
+        # Fetch the first required page with 401-retry and transient-error retry.
         transient_status_codes = {502, 503, 504}
+        current_page = first_page
 
         for attempt in range(2):
-            response = fetch()
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                logger.warning("GitHubIntegration: list_repositories network error", exc_info=True)
+                return [], False
 
-            # If unauthorized, try a single refresh and retry
             if response.status_code == 401:
                 try:
                     self.refresh_access_token()
                 except Exception:
                     logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-                else:
-                    response = fetch()
+                    return [], False
+                try:
+                    response = fetch(current_page)
+                except requests.RequestException:
+                    logger.warning("GitHubIntegration: list_repositories network error on retry", exc_info=True)
+                    return [], False
 
             try:
                 body = response.json()
@@ -2155,27 +2194,17 @@ class GitHubIntegration:
                         status_code=response.status_code,
                     )
                     continue
-
                 logger.warning(
                     "GitHubIntegration: list_repositories non-JSON response",
                     status_code=response.status_code,
                 )
-                return []
+                return [], False
 
-            repositories = body.get("repositories")
-            if response.status_code == 200 and isinstance(repositories, list):
-                return [
-                    {
-                        "id": repo["id"],
-                        "name": repo["name"],
-                        "full_name": repo["full_name"],
-                    }
-                    for repo in repositories
-                    if isinstance(repo, dict)
-                    and isinstance(repo.get("id"), int)
-                    and isinstance(repo.get("name"), str)
-                    and isinstance(repo.get("full_name"), str)
-                ]
+            if response.status_code == 200 and isinstance(body, dict):
+                page_repos = extract_repos(body)
+                all_fetched = page_repos
+                has_next_page = len(page_repos) == GITHUB_PER_PAGE
+                break
 
             if response.status_code in transient_status_codes and attempt == 0:
                 logger.info(
@@ -2190,30 +2219,37 @@ class GitHubIntegration:
                 status_code=response.status_code,
                 error=body if isinstance(body, dict) else None,
             )
-            return []
+            return [], False
+        else:
+            return [], False
 
-        return []
+        # Fetch subsequent pages until we have enough items.
+        while len(all_fetched) < needed and has_next_page:
+            current_page += 1
+            try:
+                response = fetch(current_page)
+            except requests.RequestException:
+                logger.warning("GitHubIntegration: list_repositories network error on page", page=current_page)
+                break
+            try:
+                body = response.json()
+            except Exception:
+                break
+            if response.status_code != 200 or not isinstance(body, dict):
+                break
+            page_repos = extract_repos(body)
+            all_fetched.extend(page_repos)
+            has_next_page = len(page_repos) == GITHUB_PER_PAGE
+
+        result = all_fetched[skip : skip + limit]
+        has_more = has_next_page or (skip + limit < len(all_fetched))
+
+        return result, has_more
 
     def list_all_repositories(self, max_repos: int = 500) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API."""
-        all_repos: list[dict] = []
-        seen_ids: set[int] = set()
-        page = 1
-        per_page = 100
-
-        while True:
-            repo_entries = self.list_repositories(page=page)
-            for repo in repo_entries:
-                if repo["id"] not in seen_ids:
-                    seen_ids.add(repo["id"])
-                    all_repos.append(repo)
-                    if len(all_repos) >= max_repos:
-                        return all_repos
-            if len(repo_entries) < per_page:
-                break
-            page += 1
-
-        return all_repos
+        repos, _ = self.list_repositories(limit=max_repos, offset=0)
+        return repos
 
     def get_top_starred_repository(self) -> str | None:
         """Get the repository with the most stars from the GitHub integration.

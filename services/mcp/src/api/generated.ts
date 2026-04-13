@@ -16057,6 +16057,8 @@ export namespace Schemas {
 
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
+      /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
     }
 
     export interface Group {
@@ -32323,6 +32325,20 @@ export namespace Schemas {
     repo: string;
     };
 
+    export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 100, matching GitHub's page size).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -35522,6 +35538,20 @@ export namespace Schemas {
      * @minLength 1
      */
     repo: string;
+    };
+
+    export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 100, matching GitHub's page size).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type LiveDebuggerBreakpointsListParams = {
