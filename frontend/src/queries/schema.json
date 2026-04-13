@@ -24336,7 +24336,7 @@
             "additionalProperties": false,
             "properties": {
                 "allow_custom_answer": {
-                    "description": "Whether to show a \"Type your answer\" option (default: true). Only used for select type.",
+                    "description": "Whether to show a \"Type your answer\" option (default: true). Used for select and multi_select types.",
                     "type": "boolean"
                 },
                 "fields": {
