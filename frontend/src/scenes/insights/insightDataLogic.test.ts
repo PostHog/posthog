@@ -381,4 +381,63 @@ describe('insightDataLogic', () => {
             logic.unmount()
         })
     })
+
+    describe('query normalization on setQuery', () => {
+        it('strips breakdownFilter from a StickinessQuery on setQuery', async () => {
+            const taintedStickiness: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.StickinessQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                } as any,
+            }
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery(taintedStickiness)
+            })
+
+            const stored = theInsightDataLogic.values.query as InsightVizNode
+            expect((stored.source as any).breakdownFilter).toBeUndefined()
+        })
+
+        it('preserves breakdownFilter on a TrendsQuery', async () => {
+            const validTrends: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                } as TrendsQuery,
+            }
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery(validTrends)
+            })
+
+            const stored = theInsightDataLogic.values.query as InsightVizNode
+            expect((stored.source as TrendsQuery).breakdownFilter).toEqual({
+                breakdown: '$browser',
+                breakdown_type: 'event',
+            })
+        })
+
+        it('strips breakdownFilter via syncQueryFromProps', async () => {
+            const taintedLifecycle: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.LifecycleQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                } as any,
+            }
+
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.syncQueryFromProps(taintedLifecycle)
+            })
+
+            const stored = theInsightDataLogic.values.query as InsightVizNode
+            expect((stored.source as any).breakdownFilter).toBeUndefined()
+        })
+    })
 })
