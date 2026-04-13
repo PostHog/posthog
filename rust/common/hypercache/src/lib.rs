@@ -136,6 +136,9 @@ pub enum HyperCacheError {
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("Pickle deserialization error: {0}")]
+    Pickle(String),
+
     #[error("Cache miss - data not found in any tier")]
     CacheMiss,
 
@@ -617,7 +620,7 @@ impl HyperCacheReader {
                                     ],
                                     1,
                                 );
-                                // Corrupt data — fall through to S3.
+                                return Err(HyperCacheError::Json(e));
                             }
                         }
                     }
@@ -635,6 +638,7 @@ impl HyperCacheReader {
                             ],
                             1,
                         );
+                        return Err(HyperCacheError::Pickle(e.to_string()));
                     }
                 }
             }
@@ -1157,7 +1161,9 @@ mod tests {
 
         let result = reader.try_get_from_redis(cache_key).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), HyperCacheError::CacheMiss));
+        // The mock returns raw bytes that fail pickle deserialization before
+        // reaching the JSON parse stage.
+        assert!(matches!(result.unwrap_err(), HyperCacheError::Pickle(_)));
     }
 
     #[tokio::test]
@@ -1170,8 +1176,7 @@ mod tests {
         let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
 
         let result = reader.try_get_from_redis("test_key").await;
-        // Should fail gracefully and return CacheMiss when pickle deserialization fails
-        assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
+        assert!(matches!(result, Err(HyperCacheError::Pickle(_))));
     }
 
     #[tokio::test]

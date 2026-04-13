@@ -70,14 +70,14 @@ where
             "Negative cache enabled"
         );
         (
-            Some(Arc::new(NegativeCache::new(
+            Some(NegativeCache::new(
                 config.negative_cache_max_entries,
                 config.negative_cache_ttl_seconds,
-            ))),
-            Some(Arc::new(NegativeCache::new(
+            )),
+            Some(NegativeCache::new(
                 config.negative_cache_max_entries,
                 config.negative_cache_ttl_seconds,
-            ))),
+            )),
         )
     } else {
         (None, None)

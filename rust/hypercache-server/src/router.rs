@@ -24,15 +24,15 @@ use crate::{
 pub struct State {
     pub surveys_hypercache_reader: Arc<HyperCacheReader>,
     pub config_hypercache_reader: Arc<HyperCacheReader>,
-    pub surveys_negative_cache: Option<Arc<NegativeCache>>,
-    pub config_negative_cache: Option<Arc<NegativeCache>>,
+    pub surveys_negative_cache: Option<NegativeCache>,
+    pub config_negative_cache: Option<NegativeCache>,
 }
 
 pub fn router(
     surveys_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
-    surveys_negative_cache: Option<Arc<NegativeCache>>,
-    config_negative_cache: Option<Arc<NegativeCache>>,
+    surveys_negative_cache: Option<NegativeCache>,
+    config_negative_cache: Option<NegativeCache>,
     config: Config,
 ) -> Router {
     let state = State {

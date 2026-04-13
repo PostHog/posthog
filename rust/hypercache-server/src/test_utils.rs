@@ -78,9 +78,9 @@ pub mod helpers {
     pub fn test_router_with_negative_cache(
         surveys_reader: Arc<HyperCacheReader>,
         config_reader: Arc<HyperCacheReader>,
-    ) -> (Router, Arc<NegativeCache>, Arc<NegativeCache>) {
-        let surveys_nc = Arc::new(NegativeCache::new(100, 300));
-        let config_nc = Arc::new(NegativeCache::new(100, 300));
+    ) -> (Router, NegativeCache, NegativeCache) {
+        let surveys_nc = NegativeCache::new(100, 300);
+        let config_nc = NegativeCache::new(100, 300);
         let router = build_router(
             surveys_reader,
             config_reader,
@@ -93,8 +93,8 @@ pub mod helpers {
     fn build_router(
         surveys_reader: Arc<HyperCacheReader>,
         config_reader: Arc<HyperCacheReader>,
-        surveys_negative_cache: Option<Arc<NegativeCache>>,
-        config_negative_cache: Option<Arc<NegativeCache>>,
+        surveys_negative_cache: Option<NegativeCache>,
+        config_negative_cache: Option<NegativeCache>,
     ) -> Router {
         let state = State {
             surveys_hypercache_reader: surveys_reader,

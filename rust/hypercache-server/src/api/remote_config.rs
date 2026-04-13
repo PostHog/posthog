@@ -52,7 +52,7 @@ fn parse_token(raw: &str) -> Result<Token, Response> {
 async fn get_validated_config(state: &AppState, token: &Token) -> Result<Value, Response> {
     match get_cached_data(
         &state.config_hypercache_reader,
-        state.config_negative_cache.as_deref(),
+        state.config_negative_cache.as_ref(),
         CacheNamespace::Array,
         token.as_str(),
     )
