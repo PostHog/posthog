@@ -428,7 +428,6 @@ export const productConfiguration: Record<string, any> = {
         name: 'Prompts',
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
-        defaultDocsPath: '/docs/llm-analytics/prompts',
         iconType: 'llm_prompts',
     },
     LLMAnalyticsPrompt: {
