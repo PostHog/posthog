@@ -12,8 +12,8 @@ type Story = StoryObj<typeof meta>
 export const Default: Story = {
     render: () => (
         <div className="flex rounded-lg bg-background gap-4">
-            <nav className="bg-muted p-2 rounded-lg w-[200px]">
-                <ul className="flex flex-col gap-px [&>li]:w-full [&_button]:w-full">
+            <nav className="p-2 rounded-lg w-[200px]">
+                <ul className="bg-muted flex flex-col gap-px [&>li]:w-full [&_button]:w-full">
                     <li><Button left>Home</Button></li>
                     <li><Button left>About</Button></li>
                     <li><Button left>Contact</Button></li>
@@ -22,7 +22,7 @@ export const Default: Story = {
                     <li><Button left>Logout</Button></li>
                 </ul>
             </nav>
-            <main className="flex flex-col gap-4 flex-1 rounded-lg">
+            <main className="flex flex-col gap-4 flex-1 rounded-lg p-4">
                 <h1 className="text-xl font-bold">Main content</h1>
                 <Card size="sm">
                     <CardHeader>
@@ -36,8 +36,8 @@ export const Default: Story = {
                     </CardFooter>
                 </Card>
             </main>
-            <aside className="bg-muted p-2 rounded-lg w-[200px] [--theme-hue:570]">
-                <ul className="flex flex-col gap-px [&>li]:w-full [&_button]:w-full">
+            <aside className="p-2 rounded-lg w-[200px] [--theme-hue:570]">
+                <ul className="flex flex-col gap-px [&>li]:w-full [&_button]:w-full bg-muted">
                     <li><MenuLabel>Sidenav</MenuLabel></li>
                     <li><Button left>Help</Button></li>
                     <li><Button left>Settings</Button></li>

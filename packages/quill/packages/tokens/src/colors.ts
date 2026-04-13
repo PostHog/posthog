@@ -81,13 +81,13 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         background: [surface(0.97, 1, 'light'), surface(0.145, 1.5, 'dark'), 'bg-background'],
         foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
 
-        card: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-card'],
+        card: [surface(0.995, 0.3, 'light'), surface(0.2, 1.2, 'dark'), 'bg-card'],
         'card-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-card-foreground'],
 
         popover: [surface(0.995, 0.3, 'light'), surface(0.21, 1.2, 'dark'), 'bg-popover'],
         'popover-foreground': [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-popover-foreground'],
 
-        muted: [surface(0.94, 1.5, 'light'), surface(0.17, 1.5, 'dark'), 'bg-muted'],
+        muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
 
         accent: [surface(0.923, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'bg-accent'],

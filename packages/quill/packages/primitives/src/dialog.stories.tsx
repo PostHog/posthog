@@ -13,6 +13,8 @@ import {
     DialogTrigger,
 } from './dialog'
 import { ScrollArea } from './scroll-area'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './collapsible'
 
 const meta = {
     title: 'Primitives/Dialog',
@@ -34,6 +36,43 @@ export const Default: Story = {
                 </DialogHeader>
                 <DialogBody>
                     <p>Dialog body content goes here.</p>
+                </DialogBody>
+                <DialogFooter>
+                    <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+                    <Button variant="primary">Confirm</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    ),
+} satisfies Story
+
+export const WithRandom: Story = {
+    render: () => (
+        <Dialog>
+            <DialogTrigger render={<Button variant="outline" size="sm" />}>Open dialog</DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Dialog title</DialogTitle>
+                    <DialogDescription>This is a description of the dialog content.</DialogDescription>
+                </DialogHeader>
+                <DialogBody className="flex flex-col gap-4">
+                    <Card size="sm">
+                        <CardHeader>
+                            <CardTitle>Card title</CardTitle>
+                            <CardDescription>Just want to see how this looks in a dialog.</CardDescription>
+                        </CardHeader>
+                        <CardFooter>
+                            <Button variant="outline">Do a thing</Button>
+                        </CardFooter>
+                    </Card>
+                    <Collapsible className="max-w-sm">
+                        <CollapsibleTrigger>
+                            <p>Collapsible Trigger</p>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <p>Collapsible Content</p>
+                        </CollapsibleContent>
+                    </Collapsible>
                 </DialogBody>
                 <DialogFooter>
                     <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
