@@ -110,6 +110,13 @@ tables:
               type: Float64
             - name: unload_event_start
               type: Float64
+            # Kafka virtual columns
+            - name: _timestamp
+              type: DateTime
+            - name: _offset
+              type: UInt64
+            - name: _partition
+              type: UInt64
 
     writeable_performance_events:
         engine: Distributed
@@ -133,7 +140,104 @@ tables:
             kafka_topic_list: clickhouse_performance_events
             kafka_group_name: performance_events
             kafka_format: JSONEachRow
-        columns: inherit sharded_performance_events
+        # Kafka engine rejects _timestamp/_offset/_partition as explicit columns
+        # (they are injected automatically as virtual columns), so we can't
+        # inherit from sharded which now includes them.
+        columns:
+            - name: uuid
+              type: UUID
+            - name: session_id
+              type: String
+            - name: window_id
+              type: String
+            - name: pageview_id
+              type: String
+            - name: distinct_id
+              type: String
+            - name: timestamp
+              type: DateTime64(3)
+            - name: time_origin
+              type: "DateTime64(3, 'UTC')"
+            - name: entry_type
+              type: LowCardinality(String)
+            - name: name
+              type: String
+            - name: team_id
+              type: Int64
+            - name: current_url
+              type: String
+            - name: start_time
+              type: Float64
+            - name: duration
+              type: Float64
+            - name: redirect_start
+              type: Float64
+            - name: redirect_end
+              type: Float64
+            - name: worker_start
+              type: Float64
+            - name: fetch_start
+              type: Float64
+            - name: domain_lookup_start
+              type: Float64
+            - name: domain_lookup_end
+              type: Float64
+            - name: connect_start
+              type: Float64
+            - name: secure_connection_start
+              type: Float64
+            - name: connect_end
+              type: Float64
+            - name: request_start
+              type: Float64
+            - name: response_start
+              type: Float64
+            - name: response_end
+              type: Float64
+            - name: decoded_body_size
+              type: Int64
+            - name: encoded_body_size
+              type: Int64
+            - name: initiator_type
+              type: LowCardinality(String)
+            - name: next_hop_protocol
+              type: LowCardinality(String)
+            - name: render_blocking_status
+              type: LowCardinality(String)
+            - name: response_status
+              type: Int64
+            - name: transfer_size
+              type: Int64
+            - name: largest_contentful_paint_element
+              type: String
+            - name: largest_contentful_paint_render_time
+              type: Float64
+            - name: largest_contentful_paint_load_time
+              type: Float64
+            - name: largest_contentful_paint_size
+              type: Float64
+            - name: largest_contentful_paint_id
+              type: String
+            - name: largest_contentful_paint_url
+              type: String
+            - name: dom_complete
+              type: Float64
+            - name: dom_content_loaded_event
+              type: Float64
+            - name: dom_interactive
+              type: Float64
+            - name: load_event_end
+              type: Float64
+            - name: load_event_start
+              type: Float64
+            - name: redirect_count
+              type: Int64
+            - name: navigation_type
+              type: LowCardinality(String)
+            - name: unload_event_end
+              type: Float64
+            - name: unload_event_start
+              type: Float64
 
     performance_events_mv:
         engine: MaterializedView

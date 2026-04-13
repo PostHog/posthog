@@ -12,13 +12,29 @@ tables:
         order_by:
             - team_id
             - type
+            - "COALESCE(event, '')"
             - name
+            - "COALESCE(group_type_index, 255)"
         columns:
             - name: team_id
-              type: Int64
+              type: UInt32
+            - name: project_id
+              type: Nullable(UInt32)
             - name: name
               type: String
+            - name: property_type
+              type: Nullable(String)
+            - name: event
+              type: Nullable(String)
+            - name: group_type_index
+              type: Nullable(UInt8)
             - name: type
-              type: Int8
+              type: UInt8
+              default_kind: DEFAULT
+              default_expression: '1'
             - name: last_seen_at
-              type: DateTime64(6, 'UTC')
+              type: DateTime
+            - name: version
+              type: UInt64
+              default_kind: MATERIALIZED
+              default_expression: "(bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))"
