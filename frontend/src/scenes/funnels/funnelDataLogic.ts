@@ -136,7 +136,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'funnelsFilter',
                 'breakdownFilter',
                 'goalLines',
-                'series',
+                'series as vizSeries',
                 'interval',
                 'insightData',
                 'insightDataError',
@@ -204,7 +204,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         series: [
-            (s) => [s.vizQuerySource, s.series],
+            (s) => [s.vizQuerySource, s.vizSeries],
             (vizQuerySource, series) => (isFunnelsQuery(vizQuerySource) ? (series as FunnelsQuery['series']) : null),
         ],
 
