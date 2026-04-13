@@ -828,7 +828,7 @@ describe('propertyTaxonomicGroupProps', () => {
                 description: 'misspelled emaill is a custom property',
             },
         ])('$description', ({ property, expected }) => {
-            expect(getPopoverHeader!(makePropDef(property), {} as any)).toBe(expected)
+            expect(getPopoverHeader!(makePropDef(property))).toBe(expected)
         })
     })
 
@@ -847,7 +847,7 @@ describe('propertyTaxonomicGroupProps', () => {
                 description: 'custom event properties are not labeled as PostHog properties',
             },
         ])('$description', ({ property, expected }) => {
-            expect(getPopoverHeader!(makePropDef(property), {} as any)).toBe(expected)
+            expect(getPopoverHeader!(makePropDef(property))).toBe(expected)
         })
     })
 })
