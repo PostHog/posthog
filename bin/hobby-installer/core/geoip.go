@@ -58,7 +58,8 @@ func DownloadDB(url, dest string) error {
 	logger := GetLogger()
 	logger.Debug("Downloading from %s", url)
 
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
 	if err != nil {
 		logger.Debug("Download failed: %v", err)
 		return fmt.Errorf("failed to download %s: %w", url, err)
