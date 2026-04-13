@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
-
-if TYPE_CHECKING:
-    from posthog.clickhouse.migration_tools.schema_graph import TableEcosystem
 
 
 @dataclass
@@ -179,19 +176,6 @@ def compare_schemas(
                 )
 
     return diffs
-
-
-def build_ecosystems_from_schema(
-    schema: dict[str, TableSchema],
-) -> list[TableEcosystem]:
-    """Return known ecosystems whose sharded table exists in the schema dump."""
-    from posthog.clickhouse.migration_tools.schema_graph import KNOWN_ECOSYSTEMS
-
-    matched: list[TableEcosystem] = []
-    for eco in KNOWN_ECOSYSTEMS:
-        if eco.sharded_table in schema:
-            matched.append(eco)
-    return matched
 
 
 def detect_drift(cluster: ClickhouseCluster, database: str) -> list[SchemaDiff]:
