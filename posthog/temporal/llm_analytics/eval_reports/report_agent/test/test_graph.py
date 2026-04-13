@@ -2,6 +2,8 @@
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.llm_analytics.eval_reports.report_agent.graph import _fallback_content, _validate_agent_output
 from posthog.temporal.llm_analytics.eval_reports.report_agent.prompts import EVAL_REPORT_SYSTEM_PROMPT
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
@@ -79,15 +81,22 @@ class TestFallbackContent(SimpleTestCase):
         self.assertIn("80.0%", body)
         self.assertIn("stable", body)
 
-    def test_populated_metrics_trend_up(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=9, fail_count=1, pass_rate=90.0, previous_pass_rate=70.0)
+    @parameterized.expand(
+        [
+            ("trend_up", 90.0, 70.0, "up from"),
+            ("trend_down", 50.0, 80.0, "down from"),
+        ]
+    )
+    def test_populated_metrics_trend(self, _name, pass_rate, previous_pass_rate, expected_phrase):
+        metrics = EvalReportMetrics(
+            total_runs=10,
+            pass_count=int(pass_rate / 10),
+            fail_count=10 - int(pass_rate / 10),
+            pass_rate=pass_rate,
+            previous_pass_rate=previous_pass_rate,
+        )
         content = _fallback_content("X", metrics, "why")
-        self.assertIn("up from", content.sections[0].content)
-
-    def test_populated_metrics_trend_down(self):
-        metrics = EvalReportMetrics(total_runs=10, pass_count=5, fail_count=5, pass_rate=50.0, previous_pass_rate=80.0)
-        content = _fallback_content("X", metrics, "why")
-        self.assertIn("down from", content.sections[0].content)
+        self.assertIn(expected_phrase, content.sections[0].content)
 
     def test_includes_fallback_note(self):
         metrics = EvalReportMetrics(total_runs=1, pass_count=1, pass_rate=100.0)

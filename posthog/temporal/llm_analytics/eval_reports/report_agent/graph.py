@@ -20,7 +20,7 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
     ReportSection,
 )
 from posthog.temporal.llm_analytics.eval_reports.report_agent.state import EvalReportAgentState
-from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import EVAL_REPORT_TOOLS
+from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import EVAL_REPORT_TOOLS, _ch_ts, _execute_hogql
 
 logger = structlog.get_logger(__name__)
 
@@ -55,8 +55,6 @@ def _compute_metrics(
     with zero counts and logs the exception. The agent cannot fabricate numbers
     because this function is the sole source of truth for `content.metrics`.
     """
-    from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import _ch_ts, _execute_hogql
-
     empty = EvalReportMetrics(period_start=period_start, period_end=period_end)
 
     try:
@@ -298,12 +296,12 @@ def run_eval_report_agent(
             refs_lines = []
             for i, c in enumerate(content.citations, 1):
                 refs_lines.append(f"{i}. `{c.generation_id}` — {c.reason}")
-            content.sections.append(
-                ReportSection(
-                    title="References",
-                    content="\n".join(refs_lines),
-                )
-            )
+            refs_section = ReportSection(title="References", content="\n".join(refs_lines))
+            if len(content.sections) >= MAX_REPORT_SECTIONS:
+                # Replace the last agent section to stay within the cap.
+                content.sections[-1] = refs_section
+            else:
+                content.sections.append(refs_section)
 
         logger.info(
             "eval_report_agent_completed",

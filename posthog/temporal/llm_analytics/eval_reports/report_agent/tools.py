@@ -216,6 +216,7 @@ def sample_eval_results(
         filter: "all", "pass", "fail", or "na"
         limit: Maximum number of results to return (default 50)
     """
+    limit = min(max(1, limit), 500)
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
@@ -605,6 +606,7 @@ def get_top_failure_reasons(
     Args:
         limit: Maximum number of failure reason groups to return (default 10)
     """
+    limit = min(max(1, limit), 500)
     team_id = state["team_id"]
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
