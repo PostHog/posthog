@@ -154,7 +154,7 @@ class TestProcessRunDiffs:
             logic.complete_run(create_result.run_id)
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
-        with patch("products.visual_review.backend.tasks.tasks.logger") as mock_logger:
+        with patch("products.visual_review.backend.diffing.logger") as mock_logger:
             process_diffs(create_result.run_id)
 
             # Check that warning was logged about missing artifacts
