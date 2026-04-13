@@ -2,6 +2,7 @@ import json
 import uuid
 from urllib.parse import urlencode
 
+from django.apps import apps
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -30,8 +31,7 @@ REGION_DOMAINS: dict[str, str] = {
 
 def _get_ticket(ticket_id: str):
     """Fetch a support ticket by ID, restricting to the internal team. Returns None if not found."""
-    from products.conversations.backend.models import Ticket
-
+    Ticket = apps.get_model("conversations", "Ticket")
     try:
         return Ticket.objects.get(id=ticket_id, team_id=POSTHOG_INTERNAL_TEAM_ID)
     except Ticket.DoesNotExist:
