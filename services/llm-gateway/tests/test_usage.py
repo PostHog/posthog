@@ -130,10 +130,14 @@ class TestUsageEndpoint:
         sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
         burst_throttle.get_status = AsyncMock(
-            return_value=CostStatus(used_usd=25.5, limit_usd=100.0, remaining_usd=74.5, resets_in_seconds=3600, exceeded=False)
+            return_value=CostStatus(
+                used_usd=25.5, limit_usd=100.0, remaining_usd=74.5, resets_in_seconds=3600, exceeded=False
+            )
         )
         sustained_throttle.get_status = AsyncMock(
-            return_value=CostStatus(used_usd=25.5, limit_usd=1000.0, remaining_usd=974.5, resets_in_seconds=86400, exceeded=False)
+            return_value=CostStatus(
+                used_usd=25.5, limit_usd=1000.0, remaining_usd=974.5, resets_in_seconds=86400, exceeded=False
+            )
         )
 
         response = authenticated_usage_client.get(
@@ -157,10 +161,14 @@ class TestUsageEndpoint:
         sustained_throttle = next(t for t in runner.throttles if isinstance(t, UserCostSustainedThrottle))
 
         burst_throttle.get_status = AsyncMock(
-            return_value=CostStatus(used_usd=100.0, limit_usd=100.0, remaining_usd=0, resets_in_seconds=3600, exceeded=True)
+            return_value=CostStatus(
+                used_usd=100.0, limit_usd=100.0, remaining_usd=0, resets_in_seconds=3600, exceeded=True
+            )
         )
         sustained_throttle.get_status = AsyncMock(
-            return_value=CostStatus(used_usd=100.0, limit_usd=1000.0, remaining_usd=900.0, resets_in_seconds=86400, exceeded=False)
+            return_value=CostStatus(
+                used_usd=100.0, limit_usd=1000.0, remaining_usd=900.0, resets_in_seconds=86400, exceeded=False
+            )
         )
 
         response = authenticated_usage_client.get(
