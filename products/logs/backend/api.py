@@ -511,7 +511,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @extend_schema(parameters=[_LogsValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="logs").time():
+        with PROPERTY_VALUES_DURATION.labels(endpoint_type="log").time():
             search = request.GET.get("value", "")
             limit = request.GET.get("limit", 100)
             offset = request.GET.get("offset", 0)
