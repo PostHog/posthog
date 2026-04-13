@@ -1028,3 +1028,220 @@ class TestKafkaCascadeOnSelectChange:
         diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
         kafka_creates = [d for d in diffs if d.action == "create" and d.table == "kafka_events"]
         assert len(kafka_creates) == 0, f"Unexpected Kafka recreate: {[d.detail for d in diffs]}"
+
+# -- Dictionary introspection + extended recreate checks --
+
+
+class TestDumpDictionaries:
+    def test_enriches_existing_table_schema(self):
+        """dump_dictionaries populates dict_* fields on the matching TableSchema."""
+        from posthog.clickhouse.migration_tools.schema_introspect import TableSchema, dump_dictionaries
+
+        schema = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+            )
+        }
+
+        class _FakeClient:
+            def execute(self, query, params):
+                assert "system.dictionaries" in query
+                assert params == {"database": "posthog"}
+                return [
+                    (
+                        "channel_definition_dict",
+                        "ClickHouse: posthog.channel_definition",
+                        "ComplexKeyHashed",
+                        3000,
+                        3600,
+                    )
+                ]
+
+        dump_dictionaries(_FakeClient(), "posthog", schema)
+        t = schema["channel_definition_dict"]
+        assert t.dict_source_type == "ClickHouse"
+        assert t.dict_source_raw == "ClickHouse: posthog.channel_definition"
+        assert t.dict_layout_type == "COMPLEXKEYHASHED"
+        assert t.dict_lifetime_min == 3000
+        assert t.dict_lifetime_max == 3600
+
+    def test_skips_rows_without_system_tables_entry(self):
+        """Rows in system.dictionaries with no system.tables counterpart are skipped."""
+        from posthog.clickhouse.migration_tools.schema_introspect import dump_dictionaries
+
+        schema: dict = {}
+
+        class _FakeClient:
+            def execute(self, query, params):
+                return [("orphan_dict", "HTTP: https://x", "Hashed", 60, 120)]
+
+        dump_dictionaries(_FakeClient(), "posthog", schema)
+        # No TableSchema was in schema, so dump_dictionaries adds nothing.
+        assert schema == {}
+
+
+class TestDictionaryRecreateExtended:
+    """Covers the new source/layout param checks in the recreate path."""
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_recreate_on_source_type_change(self, _mock_setting, _mock_cluster):
+        """Changing SOURCE type (CLICKHOUSE -> HTTP) triggers recreate."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(HTTP(url 'https://x' format 'CSVWithNames')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                dict_source_type="HTTP",
+                dict_layout_type="COMPLEX_KEY_HASHED",
+                dict_lifetime_min=3000,
+                dict_lifetime_max=3600,
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        recreates = [d for d in diffs if d.action == "recreate"]
+        assert len(recreates) == 1
+        assert "SOURCE type changed" in recreates[0].detail
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_recreate_on_source_param_change(self, _mock_setting, _mock_cluster):
+        """Changing a SOURCE param (e.g. table) triggers recreate via substring match."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'old_table' PASSWORD 'secret')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                dict_source_type="ClickHouse",
+                dict_layout_type="COMPLEX_KEY_HASHED",
+                dict_lifetime_min=3000,
+                dict_lifetime_max=3600,
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        recreates = [d for d in diffs if d.action == "recreate"]
+        assert len(recreates) == 1
+        assert "SOURCE param 'table'" in recreates[0].detail
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_recreate_on_layout_param_change(self, _mock_setting, _mock_cluster):
+        """Changing LAYOUT params (e.g. PREALLOCATE) triggers recreate."""
+        desired_table = _dict_table()
+        desired_table.dict_layout = {"type": "COMPLEX_KEY_HASHED", "params": {"PREALLOCATE": 1}}
+        desired = _make_desired({"channel_definition_dict": desired_table})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'channel_definition' PASSWORD 'secret')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                dict_source_type="ClickHouse",
+                dict_layout_type="COMPLEX_KEY_HASHED",
+                dict_lifetime_min=3000,
+                dict_lifetime_max=3600,
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        recreates = [d for d in diffs if d.action == "recreate"]
+        assert len(recreates) == 1
+        assert "LAYOUT param 'PREALLOCATE'" in recreates[0].detail
+
+    @_PATCH_RESOLVE
+    @_PATCH_SETTING
+    def test_stable_when_source_and_layout_match(self, _mock_setting, _mock_cluster):
+        """Structured fields matching desired -> 0 diffs (convergence)."""
+        desired = _make_desired({"channel_definition_dict": _dict_table()})
+        current = {
+            "channel_definition_dict": TableSchema(
+                name="channel_definition_dict",
+                engine="Dictionary",
+                engine_full=(
+                    "Dictionary PRIMARY KEY domain, kind "
+                    "SOURCE(CLICKHOUSE(TABLE 'channel_definition' PASSWORD 'secret')) "
+                    "LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 3000 MAX 3600)"
+                ),
+                dict_source_type="ClickHouse",
+                dict_layout_type="COMPLEX_KEY_HASHED",
+                dict_lifetime_min=3000,
+                dict_lifetime_max=3600,
+                columns=[
+                    _live_col("domain", "String"),
+                    _live_col("kind", "String"),
+                    _live_col("domain_type", "Nullable(String)"),
+                ],
+            )
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
+
+
+class TestRenderDictRange:
+    def test_renders_min_max_columns(self):
+        from posthog.clickhouse.migration_tools.state_diff import _render_dict_range
+
+        assert _render_dict_range({"min": "start_date", "max": "end_date"}) == "RANGE(MIN start_date MAX end_date)"
+
+    def test_none_returns_empty(self):
+        from posthog.clickhouse.migration_tools.state_diff import _render_dict_range
+
+        assert _render_dict_range(None) == ""
+
+    def test_missing_keys_raises(self):
+        from posthog.clickhouse.migration_tools.state_diff import _render_dict_range
+
+        try:
+            _render_dict_range({"min": "x"})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("expected ValueError")
+
+
+class TestDictionaryRangeInCreateSql:
+    def test_range_appears_after_lifetime(self):
+        """CREATE DICTIONARY with dict_range emits RANGE(MIN x MAX y) after LIFETIME."""
+        t = _dict_table()
+        t.dict_layout = {"type": "RANGE_HASHED", "params": {"range_lookup_strategy": "max"}}
+        t.dict_range = {"min": "start_date", "max": "end_date"}
+        sql = _generate_create_sql(t, "posthog", "main")
+        # RANGE must come after LIFETIME line
+        assert "LIFETIME(MIN 3000 MAX 3600)" in sql
+        assert "RANGE(MIN start_date MAX end_date)" in sql
+        assert sql.index("RANGE") > sql.index("LIFETIME")
+
+    def test_no_range_when_none(self):
+        """CREATE DICTIONARY without dict_range emits no RANGE clause."""
+        t = _dict_table()
+        sql = _generate_create_sql(t, "posthog", "main")
+        assert "RANGE(" not in sql
+
