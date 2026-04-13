@@ -2,6 +2,7 @@ import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { userLogic } from 'scenes/userLogic'
 
 import type { queryPerformanceLogicType } from './queryPerformanceLogicType'
 
@@ -24,6 +25,8 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        actions.loadPrecomputationTeams()
+        if (userLogic.findMounted()?.values.user?.is_staff) {
+            actions.loadPrecomputationTeams()
+        }
     }),
 ])
