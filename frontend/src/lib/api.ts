@@ -1662,6 +1662,14 @@ export class ApiRequest {
         return this.conversationsTickets(teamId).addPathComponent(id)
     }
 
+    public conversationsViews(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent('views')
+    }
+
+    public conversationsView(shortId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.conversationsViews(teamId).addPathComponent(shortId)
+    }
+
     // Notebooks
     public notebooks(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('notebooks')
@@ -5997,6 +6005,24 @@ const api = {
 
         async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
             return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
+        },
+    },
+
+    conversationsViews: {
+        async list(): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().conversationsViews().get()
+        },
+
+        async get(shortId: string): Promise<any> {
+            return await new ApiRequest().conversationsView(shortId).get()
+        },
+
+        async create(data: { name: string; filters: Record<string, any> }): Promise<any> {
+            return await new ApiRequest().conversationsViews().create({ data })
+        },
+
+        async delete(shortId: string): Promise<void> {
+            return await new ApiRequest().conversationsView(shortId).delete()
         },
     },
 
