@@ -62,7 +62,16 @@ def _parse_dict_ddl_columns(create_query: str) -> list[ColumnSchema]:
     create_table_query. This parser handles only the balanced-parens column list
     that immediately follows the dictionary name.
     """
-    match = re.search(r"CREATE\s+DICTIONARY\s+[`\w.]+\s*\(", create_query, re.IGNORECASE)
+    # Match optional IF NOT EXISTS and optional ON CLUSTER <name> between the
+    # dict identifier and the column list. Our generator emits
+    # `CREATE DICTIONARY IF NOT EXISTS <db>.<name>` — live CH stores the DDL
+    # as it was issued, and legacy migrations may include `ON CLUSTER` too.
+    match = re.search(
+        r"CREATE\s+DICTIONARY\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\w.]+"
+        r"(?:\s+ON\s+CLUSTER\s+[`'\"\w]+)?\s*\(",
+        create_query,
+        re.IGNORECASE,
+    )
     if not match:
         return []
     start = match.end()
