@@ -346,6 +346,7 @@ def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
     except GroupTypeMapping.DoesNotExist:
         return f"group type {group_type_index}"
 
+
 ## Events
 def _generate_events_query_metadata(query: EventsQuery, team: Team) -> InsightMetadata:
     query_summary = _summarize_events_query(query)
