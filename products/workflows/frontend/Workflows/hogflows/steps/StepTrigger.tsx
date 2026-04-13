@@ -2,17 +2,7 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import {
-    IconBolt,
-    IconButton,
-    IconClock,
-    IconLeave,
-    IconPeople,
-    IconPlusSmall,
-    IconTarget,
-    IconWebhooks,
-} from '@posthog/icons'
-import { IconX } from '@posthog/icons'
+import { IconBolt, IconButton, IconClock, IconLeave, IconPeople, IconTarget, IconWebhooks } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -831,45 +821,18 @@ function ConversionGoalSection(): JSX.Element {
 
                 <div className="flex flex-col gap-1 items-start w-full">
                     <LemonLabel>Detect conversion from events</LemonLabel>
-                    {(workflow.conversion?.events ?? []).map(
-                        (eventConfig: { filters?: any; name?: string }, index: number) => (
-                            <div key={index} className="flex flex-col gap-2 p-2 rounded border w-full">
-                                <div className="flex justify-between items-center">
-                                    <LemonLabel>Conversion event {index + 1}</LemonLabel>
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconX />}
-                                        onClick={() => {
-                                            const events = [...(workflow.conversion?.events ?? [])]
-                                            events.splice(index, 1)
-                                            setWorkflowValue('conversion', { ...workflow.conversion, events })
-                                        }}
-                                    />
-                                </div>
-                                <HogFlowEventFilters
-                                    filtersKey={`conversion-event-${index}`}
-                                    filters={eventConfig.filters ?? {}}
-                                    setFilters={(filters) => {
-                                        const events = [...(workflow.conversion?.events ?? [])]
-                                        events[index] = { ...events[index], filters: filters ?? {} }
-                                        setWorkflowValue('conversion', { ...workflow.conversion, events })
-                                    }}
-                                    typeKey={`workflow-conversion-event-${index}`}
-                                    buttonCopy="Select event"
-                                />
-                            </div>
-                        )
-                    )}
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={() => {
-                            const events = [...(workflow.conversion?.events ?? []), { filters: {} }]
-                            setWorkflowValue('conversion', { ...workflow.conversion, events })
-                        }}
-                    >
-                        Add event conversion
-                    </LemonButton>
+                    <HogFlowEventFilters
+                        filtersKey="conversion-events"
+                        filters={workflow.conversion?.events?.[0]?.filters ?? {}}
+                        setFilters={(filters) =>
+                            setWorkflowValue('conversion', {
+                                ...workflow.conversion,
+                                events: [{ filters: filters ?? {} }],
+                            })
+                        }
+                        typeKey="workflow-conversion-event"
+                        buttonCopy="Add conversion event"
+                    />
                 </div>
             </div>
         </div>
