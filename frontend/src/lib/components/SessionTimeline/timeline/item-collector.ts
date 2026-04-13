@@ -104,7 +104,9 @@ export class ItemCollector {
         const selected = allItems.slice(0, count)
 
         if (selected.length > 0) {
-            this.beforeCursor = selected[selected.length - 1].timestamp
+            // Keep a 1 ms overlap so strict `isBefore(cursor)` loaders don't skip
+            // sibling items that share the exact same boundary timestamp.
+            this.beforeCursor = selected[selected.length - 1].timestamp.add(1, 'millisecond')
         }
 
         this.itemCache.add(selected)
@@ -136,7 +138,9 @@ export class ItemCollector {
         const selected = allItems.slice(0, count)
 
         if (selected.length > 0) {
-            this.afterCursor = selected[selected.length - 1].timestamp
+            // Keep a 1 ms overlap so strict `isAfter(cursor)` loaders don't skip
+            // sibling items that share the exact same boundary timestamp.
+            this.afterCursor = selected[selected.length - 1].timestamp.subtract(1, 'millisecond')
         }
 
         this.itemCache.add(selected)

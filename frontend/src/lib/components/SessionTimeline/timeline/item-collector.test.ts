@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { ItemCategory, ItemCollector, ItemLoader, ItemRenderer, TimelineItem } from '.'
+import { compareTimelineItems, ItemCategory, ItemCollector, ItemLoader, ItemRenderer, TimelineItem } from '.'
 
 const renderer: ItemRenderer<TimelineItem> = {
     sourceIcon: () => null,
@@ -14,6 +14,27 @@ function createItem(id: string, category: ItemCategory, timestamp: string): Time
         category,
         timestamp: dayjs.utc(timestamp),
         payload: {},
+    }
+}
+
+function createInMemoryLoader(items: TimelineItem[]): ItemLoader<TimelineItem> {
+    return {
+        loadBefore: jest.fn(async (cursor: dayjs.Dayjs, limit: number) => {
+            const available = items
+                .filter((item) => item.timestamp.isBefore(cursor))
+                .sort((a, b) => compareTimelineItems(b, a))
+            return {
+                items: available.slice(0, limit),
+                hasMoreBefore: available.length > limit,
+            }
+        }),
+        loadAfter: jest.fn(async (cursor: dayjs.Dayjs, limit: number) => {
+            const available = items.filter((item) => item.timestamp.isAfter(cursor)).sort(compareTimelineItems)
+            return {
+                items: available.slice(0, limit),
+                hasMoreAfter: available.length > limit,
+            }
+        }),
     }
 }
 
@@ -110,5 +131,51 @@ describe('ItemCollector', () => {
 
         await collector.loadBefore(10)
         expect(loader.loadBefore).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps before pagination overlapping equal timestamps by 1 ms', async () => {
+        const loader = createInMemoryLoader([
+            createItem('newest', ItemCategory.ERROR_TRACKING, '2024-07-09T12:00:05.000Z'),
+            createItem('same-ts-a', ItemCategory.ERROR_TRACKING, '2024-07-09T12:00:03.000Z'),
+            createItem('same-ts-b', ItemCategory.ERROR_TRACKING, '2024-07-09T12:00:03.000Z'),
+        ])
+
+        const collector = new ItemCollector('session-id', dayjs.utc('2024-07-09T12:00:06.000Z'))
+        collector.addCategory(ItemCategory.ERROR_TRACKING, renderer, loader)
+
+        await collector.loadBefore(2)
+        await collector.loadBefore(2)
+
+        const secondBeforeCursor = (loader.loadBefore as jest.Mock).mock.calls[1][0]
+        expect(secondBeforeCursor.toISOString()).toBe('2024-07-09T12:00:03.001Z')
+        expect(
+            collector
+                .collectItems()
+                .map((item) => item.id)
+                .sort()
+        ).toEqual(['newest', 'same-ts-a', 'same-ts-b'])
+    })
+
+    it('keeps after pagination overlapping equal timestamps by 1 ms', async () => {
+        const loader = createInMemoryLoader([
+            createItem('oldest', ItemCategory.ERROR_TRACKING, '2024-07-09T12:00:01.000Z'),
+            createItem('same-ts-a', ItemCategory.ERROR_TRACKING, '2024-07-09T12:00:03.000Z'),
+            createItem('same-ts-b', ItemCategory.ERROR_TRACKING, '2024-07-09T12:00:03.000Z'),
+        ])
+
+        const collector = new ItemCollector('session-id', dayjs.utc('2024-07-09T12:00:00.000Z'))
+        collector.addCategory(ItemCategory.ERROR_TRACKING, renderer, loader)
+
+        await collector.loadAfter(2)
+        await collector.loadAfter(2)
+
+        const secondAfterCursor = (loader.loadAfter as jest.Mock).mock.calls[1][0]
+        expect(secondAfterCursor.toISOString()).toBe('2024-07-09T12:00:02.999Z')
+        expect(
+            collector
+                .collectItems()
+                .map((item) => item.id)
+                .sort()
+        ).toEqual(['oldest', 'same-ts-a', 'same-ts-b'])
     })
 })
