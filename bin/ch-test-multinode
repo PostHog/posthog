@@ -16,9 +16,9 @@ require_container() {
     fi
 }
 
-require_container posthog-clickhouse-1
-require_container posthog-clickhouse-coordinator-1
-require_container posthog-clickhouse-logs-1
+require_container posthog-multinode-clickhouse-1
+require_container posthog-multinode-clickhouse-coordinator-1
+require_container posthog-multinode-clickhouse-logs-1
 
 SECRET_KEY=test-key-not-real \
     DATABASE_URL=postgres://posthog:posthog@localhost/posthog \
