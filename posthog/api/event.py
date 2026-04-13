@@ -30,6 +30,7 @@ from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -503,7 +504,10 @@ class EventViewSet(
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
-        with tracer.start_as_current_span("events_api_event_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="event").time(),
+            tracer.start_as_current_span("events_api_event_property_values") as span,
+        ):
             span.set_attribute("team_id", query_params.team.pk)
             span.set_attribute("property_key", query_params.key)
             span.set_attribute("is_column", query_params.is_column)

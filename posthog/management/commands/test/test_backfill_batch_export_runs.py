@@ -516,6 +516,20 @@ class TestBackfillCommand:
         workflows = list_schedule_workflows(temporal, str(export.id))
         assert len(workflows) == 0
 
+    def test_allow_all_overlap_policy(self, team, temporal):
+        export = create_noop_export_with_schedule(team, interval="hour")
+        start, end = hour_window(2)
+
+        run_backfill_command(
+            f"--batch-export-id={export.id}",
+            f"--start={start.isoformat()}",
+            f"--end={end.isoformat()}",
+            "--overlap-policy=ALLOW_ALL",
+        )
+
+        workflows = sync_wait_for_workflows(temporal, str(export.id), expected_count=2)
+        assert len(workflows) == 2
+
     def test_schedule_not_found_does_not_raise(self, team, temporal):
         export = create_noop_export_with_schedule(team, interval="hour")
         start, end = hour_window(2)

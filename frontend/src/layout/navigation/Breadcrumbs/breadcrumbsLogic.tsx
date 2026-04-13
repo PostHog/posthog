@@ -208,11 +208,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.syncTitle = (): void => {
-            if (
-                document.visibilityState === 'visible' &&
-                cache.desiredTitle != null &&
-                document.title !== cache.desiredTitle
-            ) {
+            if (cache.desiredTitle == null || document.title === cache.desiredTitle) {
+                return
+            }
+            const isDefault = document.title === 'PostHog' || document.title === 'PostHog Demo'
+            if (document.visibilityState === 'visible' || isDefault) {
                 document.title = cache.desiredTitle
             }
         }

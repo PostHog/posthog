@@ -248,3 +248,90 @@ class TestGenerateInsightMetadata(APIBaseTest):
         prompt_content = mock_openai.call_args[0][0][1]["content"]
         assert "$browser" in prompt_content
         assert "Chrome" in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_events_query_returns_name_and_description(self, mock_openai):
+        mock_openai.return_value = (
+            '{"name": "Recent Events", "description": "Raw events from the last hour."}',
+            10,
+            20,
+        )
+        events_query = {
+            "kind": "EventsQuery",
+            "select": ["*", "event", "timestamp"],
+            "orderBy": ["timestamp DESC"],
+            "after": "-1h",
+        }
+        response = self.client.post(self.url, {"query": events_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "Recent Events"
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "EVENTS table" in prompt_content
+        assert "All events" in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_events_query_with_event_filter(self, mock_openai):
+        mock_openai.return_value = (
+            '{"name": "Pageview Events", "description": "Recent pageview events."}',
+            10,
+            20,
+        )
+        events_query = {
+            "kind": "EventsQuery",
+            "select": ["*", "event", "timestamp"],
+            "event": "$pageview",
+            "after": "-1h",
+        }
+        response = self.client.post(self.url, {"query": events_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "Event: $pageview" in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_events_query_with_property_filters(self, mock_openai):
+        mock_openai.return_value = (
+            '{"name": "Chrome Pageviews", "description": "Pageviews from Chrome browser."}',
+            10,
+            20,
+        )
+        events_query = {
+            "kind": "EventsQuery",
+            "select": ["*", "event", "timestamp"],
+            "event": "$pageview",
+            "properties": [
+                {"type": "event", "key": "$browser", "operator": "exact", "value": "Chrome"},
+            ],
+            "after": "-1h",
+        }
+        response = self.client.post(self.url, {"query": events_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "$browser" in prompt_content
+        assert "Chrome" in prompt_content
+
+    @patch(MOCK_PATH)
+    def test_events_query_with_cohort_filter(self, mock_openai):
+        mock_openai.return_value = (
+            '{"name": "Pageviews Last Hour for Real Persons", "description": "Pageviews filtered to the Real persons cohort."}',
+            10,
+            20,
+        )
+        events_query = {
+            "kind": "EventsQuery",
+            "select": ["*", "event", "timestamp"],
+            "event": "$pageview",
+            "properties": [
+                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"},
+                {"key": "id", "value": 2, "type": "cohort", "operator": "in", "cohort_name": "Real persons"},
+            ],
+            "after": "-1h",
+        }
+        response = self.client.post(self.url, {"query": events_query}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt_content = mock_openai.call_args[0][0][1]["content"]
+        assert "cohort 'Real persons'" in prompt_content
+        assert "$browser" in prompt_content

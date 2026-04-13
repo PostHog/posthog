@@ -66,3 +66,7 @@
 - image: kafka-assigner
   dockerfile: ./rust/Dockerfile
   project: 6kjc85bwm7
+
+- image: hypercache-server
+  dockerfile: ./rust/Dockerfile
+  project: plc74nsj8z

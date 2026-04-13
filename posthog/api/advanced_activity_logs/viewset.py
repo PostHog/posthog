@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -134,7 +134,7 @@ class ActivityLogQueryParamsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["activity_logs"])
+@extend_schema(tags=["activity_logs", "platform_features"])
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
@@ -183,17 +183,20 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
 
 
 class OptionalBooleanField(serializers.BooleanField):
-    """
-    A BooleanField that returns None when not present in the request.
-
-    DRF's standard BooleanField evaluates missing fields to False.
-    """
+    """BooleanField that returns None when missing instead of False."""
 
     default_empty_html = None
 
     def __init__(self, **kwargs):
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)
+
+
+@extend_schema_field({"type": "string"})
+class JSONStringFilterField(serializers.JSONField):
+    """JSONField exposed as a JSON-encoded string in the schema (for query string clients)."""
+
+    pass
 
 
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
@@ -203,7 +206,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     search_text = serializers.CharField(required=False, allow_blank=True)
-    detail_filters = serializers.JSONField(required=False, default={})
+    detail_filters = JSONStringFilterField(required=False)
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
     was_impersonated = OptionalBooleanField(required=False)
     is_system = OptionalBooleanField(required=False)
@@ -238,6 +241,18 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         return json.dumps(obj.detail) if obj.detail else ""
 
 
+class StaticFiltersSerializer(serializers.Serializer):
+    users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
+    scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
+    activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+
+
+class AvailableFiltersResponseSerializer(serializers.Serializer):
+    static_filters = StaticFiltersSerializer(help_text="Pre-computed filter options for scopes, activities, and users.")
+    detail_fields = serializers.DictField(help_text="Discovered detail fields and their value distributions.")
+
+
+@extend_schema(tags=["platform_features"])
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
@@ -322,6 +337,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         return super().get_serializer_class()
 
+    @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):
         filters_serializer = AdvancedActivityLogFiltersSerializer(data=request.query_params)
         filters_serializer.is_valid(raise_exception=True)
@@ -338,6 +354,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @extend_schema(responses={200: AvailableFiltersResponseSerializer})
     @action(detail=False, methods=["GET"])
     def available_filters(self, request, **kwargs):
         queryset = self.get_queryset()

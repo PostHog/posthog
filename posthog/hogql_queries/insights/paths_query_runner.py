@@ -11,6 +11,7 @@ from posthog.schema import (
     FunnelPathType,
     FunnelsActorsQuery,
     FunnelsFilter,
+    FunnelsQuery,
     HogQLQueryModifiers,
     PathCleaningFilter,
     PathsFilter,
@@ -185,6 +186,33 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         else:
             raise ValueError("Unexpected `funnelPathType` for funnel path filter.")
 
+    def _funnel_events_join_expr(self, funnelSource: FunnelsQuery) -> ast.Expr:
+        """Return the events-side expression to join against ``funnel_actors.actor_id``.
+
+        Mirrors ``FunnelEventQuery._aggregation_target_expr`` so that funnels aggregated by
+        group or a HogQL expression (currently ``properties.$session_id``) produce a join
+        condition that actually matches. Without this, ``actor_id`` ends up as a session id
+        or group key while the events side uses ``person_id``, and the join silently returns
+        zero rows.
+
+        Keep this in sync with ``FunnelEventQuery._aggregation_target_expr`` — that function
+        defines the *inside* of the funnel's aggregation; this one mirrors it on the *outside*
+        so the paths query joins events against the right column.
+        """
+        funnelsFilter = funnelSource.funnelsFilter or FunnelsFilter()
+
+        # Group aggregation: events.$group_N
+        if funnelSource.aggregation_group_type_index is not None:
+            return ast.Field(chain=["events", f"$group_{funnelSource.aggregation_group_type_index}"])
+
+        # HogQL aggregation (currently only properties.$session_id is exposed in the UI,
+        # but funnelAggregateByHogQL supports arbitrary expressions).
+        if funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
+            return parse_expr(funnelsFilter.funnelAggregateByHogQL)
+
+        # Default: person aggregation
+        return ast.Field(chain=["events", "person_id"])
+
     def funnel_join(self) -> ast.JoinExpr:
         if not self.query.funnelPathsFilter:
             raise ValueError("Funnel paths filter is required for funnel paths.")
@@ -226,7 +254,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["events", "person_id"]),
+                        left=self._funnel_events_join_expr(funnelSource),
                         right=ast.Field(chain=["funnel_actors", "actor_id"]),
                     ),
                     constraint_type="ON",
@@ -338,7 +366,10 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=event_filters + self._get_event_query()),
             order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=["person_id"])),
+                # Qualify ``events.person_id`` because the optional funnel_actors join exposes its
+                # own ``person_id`` column when the funnel is aggregated by session, which makes an
+                # unqualified reference ambiguous to the HogQL resolver.
+                ast.OrderExpr(expr=ast.Field(chain=["events", "person_id"])),
                 ast.OrderExpr(expr=ast.Field(chain=["events", "timestamp"])),
             ],
         )

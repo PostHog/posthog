@@ -329,4 +329,5 @@ always_required:
     - nodejs
     - capture
     - feature-flags
+    - hypercache-server
     - property-defs-rs
