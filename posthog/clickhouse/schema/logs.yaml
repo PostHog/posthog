@@ -130,19 +130,28 @@ tables:
         on_nodes: LOGS
         columns: inherit log_attributes
 
+    # Materializes per-attribute counts from logs32.attributes_map_str.
+    # Mirrors posthog/clickhouse/logs/logs32.py::LOG_ATTRIBUTES_MV but
+    # references `attributes_map_str` directly instead of the `attributes`
+    # ALIAS column (MV inputs only see stored columns, not aliases).
+    # SELECT kept on one line: CH stores MV as_select collapsed, so matching
+    # that rendering avoids whitespace-around-paren false-positives in the
+    # diff normalizer.
     logs32_to_log_attributes:
         engine: MaterializedView
         source: logs32
         target: log_attributes
-        select: "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (aggregation subquery)"
+        select: "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, service_name AS service_name, resource_fingerprint, mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes_map_str) AS attrs, arrayJoin(attrs) AS attribute, 'log' AS attribute_type, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM {{ database }}.logs32 GROUP BY team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attrs)"
         on_nodes: LOGS
         columns: []
 
+    # Materializes per-resource-attribute counts. Mirrors
+    # posthog/clickhouse/logs/logs32.py::LOG_RESOURCE_ATTRIBUTES_MV.
     logs32_to_resource_attributes:
         engine: MaterializedView
         source: logs32
         target: log_attributes
-        select: "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (aggregation subquery)"
+        select: "SELECT team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attribute_key, attribute_value, attribute_type, attribute_count FROM (SELECT team_id AS team_id, toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket, toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket, service_name AS service_name, resource_fingerprint, arrayJoin(resource_attributes) AS attribute, 'resource' AS attribute_type, attribute.1 AS attribute_key, attribute.2 AS attribute_value, sumSimpleState(1) AS attribute_count FROM {{ database }}.logs32 GROUP BY team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, resource_attributes)"
         on_nodes: LOGS
         columns: []
 
