@@ -674,6 +674,16 @@ def diff_state(
     # so current - desired doesn't emit a spurious DROP for them.
     current_names -= set(skipped_placeholder_mvs)
 
+    # Tracking tables are bookkeeping infrastructure managed by bootstrap,
+    # not declared in any YAML. If they're in current they belong there —
+    # never emit DROP for them (would delete the tool's own state).
+    _TRACKING_TABLES = {
+        "clickhouse_schema_migrations",
+        "infi_clickhouse_orm_migrations",
+        "infi_clickhouse_orm_migrations_distributed",
+    }
+    current_names -= _TRACKING_TABLES
+
     # Tables to drop (in current but not in desired)
     for table_name in sorted(current_names - desired_names):
         current_table = current[table_name]
