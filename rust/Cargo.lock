@@ -3485,7 +3485,6 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "personhog-common",
- "rdkafka",
  "serde",
  "serde_json",
  "sqlx",

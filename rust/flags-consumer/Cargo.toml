@@ -17,7 +17,6 @@ metrics-exporter-prometheus = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
-rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
