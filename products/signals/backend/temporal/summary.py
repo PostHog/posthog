@@ -1,7 +1,7 @@
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from django.db import transaction
 
@@ -10,11 +10,8 @@ import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql import ast
-
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
-from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -29,10 +26,13 @@ from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
-from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
+from products.signals.backend.temporal.signal_queries import (
+    FetchSignalsForReportInput,
+    FetchSignalsForReportOutput,
+    fetch_signals_for_report_activity,
+)
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
-from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = structlog.get_logger(__name__)
 
@@ -239,95 +239,6 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             raise
-
-
-@dataclass
-class FetchSignalsForReportInput:
-    team_id: int
-    report_id: str
-
-
-@dataclass
-class FetchSignalsForReportOutput:
-    signals: list[SignalData]
-
-
-@temporalio.activity.defn
-async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT
-                document_id,
-                content,
-                metadata,
-                timestamp
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY timestamp ASC
-        """
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsFetchForReport",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=input.report_id),
-            },
-        )
-
-        signals = []
-        for row in result.results or []:
-            document_id, content, metadata_str, timestamp_raw = row
-            # HogQL returns datetime objects, but defend against strings too
-            if isinstance(timestamp_raw, str):
-                timestamp_raw = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00"))
-            if timestamp_raw.tzinfo is None:
-                timestamp_raw = timestamp_raw.replace(tzinfo=UTC)
-            # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
-            # no defensive parsing, we want to fail loudly.
-            metadata = json.loads(metadata_str)
-            signals.append(
-                SignalData(
-                    signal_id=document_id,
-                    content=content,
-                    source_product=metadata.get("source_product", ""),
-                    source_type=metadata.get("source_type", ""),
-                    source_id=metadata.get("source_id", ""),
-                    weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp_raw,
-                    extra=metadata.get("extra", {}),
-                )
-            )
-
-        logger.debug(
-            f"Fetched {len(signals)} signals for report {input.report_id}",
-            team_id=input.team_id,
-            report_id=input.report_id,
-            signal_count=len(signals),
-        )
-        return FetchSignalsForReportOutput(signals=signals)
-    except Exception as e:
-        logger.exception(
-            f"Failed to fetch signals for report {input.report_id}: {e}",
-            team_id=input.team_id,
-            report_id=input.report_id,
-        )
-        raise
 
 
 @dataclass

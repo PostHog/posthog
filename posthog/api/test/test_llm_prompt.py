@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -48,7 +50,7 @@ class TestLLMPromptAPI(APIBaseTest):
         self,
         *,
         name: str = "my-prompt",
-        prompt: str = "Prompt content",
+        prompt: Any = "Prompt content",
         version: int = 1,
         is_latest: bool = True,
         deleted: bool = False,
@@ -165,6 +167,38 @@ class TestLLMPromptAPI(APIBaseTest):
         assert prompt_a["version"] == 2
         assert prompt_a["latest_version"] == 2
         assert prompt_a["version_count"] == 2
+        assert prompt_a["prompt"] == "v2"
+        assert prompt_a["prompt_size_bytes"] > 0
+
+    @parameterized.expand(
+        [
+            ("full", True, False),
+            ("preview", False, True),
+            ("none", False, False),
+        ]
+    )
+    def test_list_content_mode(self, mock_feature_enabled, mode, has_prompt, has_preview):
+        self.create_prompt_version(name="content-prompt", prompt="x" * 200)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?content={mode}")
+
+        assert response.status_code == status.HTTP_200_OK
+        prompt = response.json()["results"][0]
+        assert ("prompt" in prompt) is has_prompt
+        assert ("prompt_preview" in prompt) is has_preview
+        assert prompt["prompt_size_bytes"] > 0
+        if has_preview:
+            assert len(prompt["prompt_preview"]) <= 163
+
+    def test_list_can_order_by_prompt_size_bytes(self, mock_feature_enabled):
+        self.create_prompt_version(name="small", prompt="abc")
+        self.create_prompt_version(name="large", prompt="x" * 50)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?order_by=-prompt_size_bytes")
+
+        assert response.status_code == status.HTTP_200_OK
+        names = [prompt["name"] for prompt in response.json()["results"]]
+        assert names == ["large", "small"]
 
     def test_fetch_prompt_by_name_returns_latest_by_default(self, mock_feature_enabled):
         first_version = self.create_prompt_version(name="test-prompt", version=1, is_latest=False, prompt="v1")
@@ -307,6 +341,134 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert str(MAX_PROMPT_VERSION) in response.json()["detail"]
         assert LLMPrompt.objects.filter(team=self.team, name="publish-prompt", deleted=False).count() == 1
+
+    def test_update_prompt_by_name_with_edits_applies_find_replace(self, mock_feature_enabled):
+        self.create_prompt_version(name="edit-prompt", version=1, is_latest=True, prompt="You are a helpful assistant.")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/edit-prompt/",
+            data={
+                "edits": [{"old": "helpful assistant", "new": "expert coding assistant"}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        latest = LLMPrompt.objects.get(team=self.team, name="edit-prompt", version=2, deleted=False)
+        assert latest.prompt == "You are a expert coding assistant."
+
+    def test_update_prompt_by_name_with_multiple_edits_applies_sequentially(self, mock_feature_enabled):
+        self.create_prompt_version(name="multi-edit", version=1, is_latest=True, prompt="Hello world. Goodbye world.")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/multi-edit/",
+            data={
+                "edits": [
+                    {"old": "Hello world", "new": "Hi there"},
+                    {"old": "Goodbye world", "new": "See you later"},
+                ],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest = LLMPrompt.objects.get(team=self.team, name="multi-edit", version=2, deleted=False)
+        assert latest.prompt == "Hi there. See you later."
+
+    @parameterized.expand(
+        [
+            (
+                "old_not_found",
+                "Hello world.",
+                [{"old": "nonexistent text", "new": "replacement"}],
+                "not found",
+                0,
+            ),
+            (
+                "ambiguous_match",
+                "foo bar foo",
+                [{"old": "foo", "new": "baz"}],
+                "matches 2 times",
+                0,
+            ),
+        ]
+    )
+    def test_update_prompt_by_name_with_edits_rejects_bad_edit(
+        self, mock_feature_enabled, _name, prompt, edits, expected_detail, expected_index
+    ):
+        self.create_prompt_version(name="edit-error", version=1, is_latest=True, prompt=prompt)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/edit-error/",
+            data={"edits": edits, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_detail in response.json()["detail"]
+        assert response.json()["edit_index"] == expected_index
+
+    @parameterized.expand(
+        [
+            (
+                "both_provided",
+                {"prompt": "v2", "edits": [{"old": "v1", "new": "v2"}], "base_version": 1},
+            ),
+            (
+                "neither_provided",
+                {"base_version": 1},
+            ),
+        ]
+    )
+    def test_update_prompt_by_name_rejects_invalid_prompt_edits_combo(self, mock_feature_enabled, _name, data):
+        self.create_prompt_version(name="combo-edit", version=1, is_latest=True, prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/combo-edit/",
+            data=data,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_update_prompt_by_name_with_edits_rejects_oversized_result(self, mock_feature_enabled):
+        self.create_prompt_version(name="size-edit", version=1, is_latest=True, prompt="small")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/size-edit/",
+            data={
+                "edits": [{"old": "small", "new": "x" * (MAX_PROMPT_PAYLOAD_BYTES + 1)}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "size limit" in response.json()["detail"]
+
+    def test_update_prompt_by_name_with_edits_on_json_prompt(self, mock_feature_enabled):
+        self.create_prompt_version(
+            name="json-edit",
+            version=1,
+            is_latest=True,
+            prompt={"system": "You are helpful.", "temperature": 0.7},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/json-edit/",
+            data={
+                "edits": [{"old": "You are helpful.", "new": "You are an expert."}],
+                "base_version": 1,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest = LLMPrompt.objects.get(team=self.team, name="json-edit", version=2, deleted=False)
+        assert latest.prompt == {"system": "You are an expert.", "temperature": 0.7}
 
     def test_update_prompt_by_name_forbidden_for_personal_api_key_auth(self, mock_feature_enabled):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")

@@ -3,25 +3,25 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
-from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
+from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, FunnelVizType, IntervalType
+
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
-filters = {
-    "insight": INSIGHT_FUNNELS,
-    "funnel_viz_type": FunnelVizType.TRENDS,
-    "interval": "day",
-    "date_from": "2021-05-01 00:00:00",
-    "date_to": "2021-05-07 23:59:59",
-    "funnel_window_days": 14,
-    "funnel_from_step": 0,
-    "events": [
-        {"id": "step one", "order": 0},
-        {"id": "step two", "order": 1},
-        {"id": "step three", "order": 2},
+funnels_query = FunnelsQuery(
+    series=[
+        EventsNode(event="step one"),
+        EventsNode(event="step two"),
+        EventsNode(event="step three"),
     ],
-}
+    interval=IntervalType.DAY,
+    dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 23:59:59"),
+    funnelsFilter=FunnelsFilter(
+        funnelVizType=FunnelVizType.TRENDS,
+        funnelFromStep=0,
+    ),
+)
 
 
 @freeze_time("2021-05-01")
@@ -59,8 +59,11 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        results = get_actors_legacy_filters(
-            {"funnel_to_step": 1, **filters},
+        assert funnels_query.funnelsFilter
+        results = get_actors(
+            funnels_query.model_copy(
+                update={"funnelsFilter": funnels_query.funnelsFilter.model_copy(update={"funnelToStep": 1})}
+            ),
             self.team,
             funnel_trends_drop_off=False,
             funnel_trends_entrance_period_start="2021-05-01 00:00:00",
@@ -109,8 +112,8 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        results = get_actors_legacy_filters(
-            filters,
+        results = get_actors(
+            funnels_query,
             self.team,
             funnel_trends_drop_off=False,
             funnel_trends_entrance_period_start="2021-05-01 00:00:00",
@@ -148,8 +151,8 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             last_timestamp=timestamp,
         )
 
-        results = get_actors_legacy_filters(
-            filters,
+        results = get_actors(
+            funnels_query,
             self.team,
             funnel_trends_drop_off=True,
             funnel_trends_entrance_period_start="2021-05-01 00:00:00",

@@ -1175,7 +1175,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     {
         path: `Survey`,
         type: 'survey',
-        href: urls.survey('new'),
+        href: urls.surveyWizard('new'),
         iconType: 'survey',
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
@@ -1341,7 +1341,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
         href: urls.llmAnalyticsEvaluations(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
-        tags: ['beta'],
         sceneKey: 'LLMAnalyticsEvaluations',
         sceneKeys: [
             'LLMAnalytics',
@@ -1608,7 +1607,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',

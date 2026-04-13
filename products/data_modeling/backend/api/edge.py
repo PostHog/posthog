@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from rest_framework import filters, serializers, viewsets
 from rest_framework.pagination import PageNumberPagination
@@ -11,6 +12,7 @@ from products.data_modeling.backend.models import Edge
 class EdgeSerializer(serializers.ModelSerializer):
     source_id = serializers.UUIDField(source="source.id", read_only=True)
     target_id = serializers.UUIDField(source="target.id", read_only=True)
+    dag_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Edge
@@ -19,15 +21,20 @@ class EdgeSerializer(serializers.ModelSerializer):
             "source_id",
             "target_id",
             "dag",
+            "dag_name",
             "properties",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "dag_name",
             "created_at",
             "updated_at",
         ]
+
+    def get_dag_name(self, edge: Edge) -> str:
+        return edge.dag.name
 
 
 class EdgePagination(PageNumberPagination):
@@ -47,5 +54,13 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        # TODO(andrew): remove the dag name filter after you have split up team 2 into multiple DAGs
-        return queryset.filter(team_id=self.team_id, dag__name=f"posthog_{self.team_id}").order_by(self.ordering)
+        qs = queryset.filter(team_id=self.team_id).exclude(dag__name__startswith="conflict_")
+        dag_id = self.request.query_params.get("dag")
+        if dag_id:
+            try:
+                UUID(dag_id)
+            except ValueError:
+                dag_id = None
+            else:
+                qs = qs.filter(dag_id=dag_id)
+        return qs.order_by(self.ordering)

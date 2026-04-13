@@ -11,10 +11,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { integrationsGithubReposRetrieve } from '~/generated/core/api'
-import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
+import { integrationsGithubReposRetrieve } from 'products/integrations/frontend/generated/api'
+import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { integrationsLogicType } from './integrationsLogicType'

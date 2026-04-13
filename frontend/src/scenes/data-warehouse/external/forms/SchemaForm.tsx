@@ -251,7 +251,7 @@ const SyncMethodModal = (): JSX.Element => {
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
                 isNewSource
-                onSave={(syncType, incrementalField, incrementalFieldType) => {
+                onSave={(syncType, incrementalField, incrementalFieldType, cdcTableMode) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
                             currentSyncMethodModalSchema,
@@ -259,6 +259,8 @@ const SyncMethodModal = (): JSX.Element => {
                             incrementalField,
                             incrementalFieldType
                         )
+                    } else if (syncType === 'cdc') {
+                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, cdcTableMode)
                     } else {
                         updateSchemaSyncType(currentSyncMethodModalSchema, syncType ?? null, null, null)
                     }

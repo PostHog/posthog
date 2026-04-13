@@ -25,7 +25,9 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
     get_postgres_row_count,
+    get_primary_key_columns,
     get_schemas as get_postgres_schemas,
+    pg_connection,
     postgres_source,
 )
 
@@ -190,6 +192,45 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else:
                 row_counts = {}
 
+            # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
+            # quirk on `information_schema` (rare but possible) only disables CDC
+            # advertising for this listing instead of breaking schema discovery for
+            # everyone — including non-CDC users.
+            try:
+                table_names_by_schema: dict[str, list[str]] = {}
+                for discovered_schema in db_schemas.values():
+                    table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
+                        discovered_schema.source_table_name
+                    )
+
+                tables_with_pks: set[str] = set()
+                with pg_connection(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                ) as conn:
+                    for source_schema, source_table_names in table_names_by_schema.items():
+                        if not source_table_names:
+                            continue
+
+                        source_table_names_with_pks = set(
+                            get_primary_key_columns(conn, source_schema, source_table_names).keys()
+                        )
+                        if not source_table_names_with_pks:
+                            continue
+
+                        for table_name, discovered_schema in db_schemas.items():
+                            if (
+                                discovered_schema.source_schema == source_schema
+                                and discovered_schema.source_table_name in source_table_names_with_pks
+                            ):
+                                tables_with_pks.add(table_name)
+            except Exception as e:
+                capture_exception(e)
+                tables_with_pks = set()
+
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
             incremental_fields: list[IncrementalField] = [
@@ -208,6 +249,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     name=table_name,
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
+                    supports_cdc=table_name in tables_with_pks,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
                     columns=discovered_schema.columns,
@@ -257,6 +299,50 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         return True, None
 
+    def validate_cdc_credentials(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        management_mode: str,
+        tables: list[str],
+        slot_name: str | None = None,
+        publication_name: str | None = None,
+    ) -> tuple[bool, list[str]]:
+        """Validate CDC-specific prerequisites on top of regular credentials.
+
+        Returns (is_valid, list_of_error_messages).
+        """
+        import psycopg
+
+        from posthog.temporal.data_imports.sources.postgres.cdc.prerequisite_validator import validate_cdc_prerequisites
+
+        try:
+            with self.with_ssh_tunnel(config) as (host, port):
+                conn = psycopg.connect(
+                    host=host,
+                    port=port,
+                    dbname=config.database,
+                    user=config.user,
+                    password=config.password,
+                    connect_timeout=15,
+                )
+                try:
+                    errors = validate_cdc_prerequisites(
+                        conn=conn,
+                        management_mode=management_mode,  # type: ignore[arg-type]
+                        tables=tables,
+                        schema=config.schema,
+                        slot_name=slot_name,
+                        publication_name=publication_name,
+                    )
+                finally:
+                    conn.close()
+        except Exception as e:
+            capture_exception(e)
+            return False, [f"Could not connect to validate CDC prerequisites: {e}"]
+
+        return len(errors) == 0, errors
+
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
@@ -271,6 +357,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+
         from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
@@ -286,6 +374,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else None
         )
 
+        # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
+        if schema.is_cdc and schema.cdc_mode == "streaming":
+            raise CDCHandledExternally(
+                f"Schema {schema.name} is in CDC streaming mode — handled by CDCExtractionWorkflow"
+            )
+
+        # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         # Require SSL for sources created after the cutoff date
         require_ssl = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE
 

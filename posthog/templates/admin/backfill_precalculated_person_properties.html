@@ -69,6 +69,17 @@
             {% endif %}
             {{ form.cohort_id.errors }}
         </div>
+
+        <div class="form-row">
+            <label for="{{ form.person_id.id_for_label }}">
+                {{ form.person_id.label }}:
+            </label>
+            {{ form.person_id }}
+            {% if form.person_id.help_text %}
+                <p class="help">{{ form.person_id.help_text }}</p>
+            {% endif %}
+            {{ form.person_id.errors }}
+        </div>
     </fieldset>
 
     <fieldset class="module aligned">

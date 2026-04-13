@@ -105,6 +105,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Download GeoIP database
+              shell: bash
+              run: |
+                  ./bin/download-mmdb
+
             - name: Check for syntax errors, import sort, and code style violations
               shell: bash
               run: |

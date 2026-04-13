@@ -264,10 +264,6 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                           )
                           .filter((part) => part !== null)
 
-            if (changes.length > 0 && listParts.length === 0) {
-                return { description: null }
-            }
-
             const suffix = match(updateLogDetail.type)
                 .with('shared_metric', () => nameOrLinkToSharedMetric(updateLogDetail.name, item_id))
                 .with('holdout', () => <strong>{updateLogDetail.name}</strong>)

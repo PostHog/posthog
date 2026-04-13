@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
+from django.db import models
 
 import structlog
 import temporalio
@@ -25,7 +26,7 @@ from posthog.temporal.llm_analytics.metrics import (
     increment_tokens,
 )
 
-from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
 from products.llm_analytics.backend.llm.config import get_eval_config
 from products.llm_analytics.backend.llm.errors import (
     AuthenticationError,
@@ -194,15 +195,44 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
     await database_sync_to_async(_update)()
 
 
+TRIAL_NOTIFICATION_THRESHOLDS = [50, 75, 100]
+
+
 @temporalio.activity.defn
-async def increment_trial_eval_count_activity(team_id: int) -> None:
-    """Increment trial eval counter after successful execution with PostHog key"""
-    from django.db.models import F
+async def increment_trial_eval_count_activity(team_id: int) -> int | None:
+    """Increment trial eval counter after successful execution with PostHog key.
 
-    def _increment():
-        EvaluationConfig.objects.filter(team_id=team_id).update(trial_evals_used=F("trial_evals_used") + 1)
+    Returns the usage percentage threshold that was just crossed (50, 75, or
+    100), or None if no threshold was crossed. The increment and read are
+    performed atomically via UPDATE ... RETURNING to avoid race conditions
+    where concurrent increments could both see the same threshold.
+    """
+    from django.db import connection
 
-    await database_sync_to_async(_increment)()
+    def _increment() -> int | None:
+        table = EvaluationConfig._meta.db_table
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE {table}
+                SET trial_evals_used = trial_evals_used + 1
+                WHERE team_id = %s
+                RETURNING trial_evals_used, trial_eval_limit
+                """,
+                [team_id],
+            )
+            row = cursor.fetchone()
+            if row is None:
+                logger.warning("No EvaluationConfig found for team during trial increment", team_id=team_id)
+                return None
+            trial_evals_used, trial_eval_limit = row
+
+        for pct in TRIAL_NOTIFICATION_THRESHOLDS:
+            if trial_evals_used == round(trial_eval_limit * pct / 100):
+                return pct
+        return None
+
+    return await database_sync_to_async(_increment)()
 
 
 @temporalio.activity.defn
@@ -213,6 +243,93 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
         Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(enabled=False)
 
     await database_sync_to_async(_disable)()
+
+
+@dataclass
+class SendTrialUsageEmailInputs:
+    team_id: int
+    threshold_pct: int
+
+
+@temporalio.activity.defn
+async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
+    """Send an email to org members about trial evaluation usage.
+
+    Handles both warning emails (50%, 75%) and the exhaustion email (100%).
+    """
+
+    def _send():
+        from posthog.email import EmailMessage, is_email_available
+
+        if not is_email_available(with_absolute_urls=True):
+            logger.info(
+                "Email not available, skipping trial usage notification",
+                team_id=inputs.team_id,
+                threshold_pct=inputs.threshold_pct,
+            )
+            return
+
+        try:
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for trial usage email", team_id=inputs.team_id)
+            return
+
+        config = EvaluationConfig.objects.filter(team_id=inputs.team_id).first()
+        if not config:
+            return
+
+        # Find evaluations that will be affected (on trial, enabled, not deleted)
+        max_listed = 20
+        affected_qs = Evaluation.objects.filter(
+            team_id=inputs.team_id,
+            enabled=True,
+            deleted=False,
+        ).filter(models.Q(model_configuration__isnull=True) | models.Q(model_configuration__provider_key__isnull=True))
+        total_affected = affected_qs.count()
+        affected_evals = list(affected_qs.values_list("name", flat=True)[:max_listed])
+        affected_evals_overflow = max(0, total_affected - max_listed)
+
+        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
+        campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.id}"
+        is_exhausted = inputs.threshold_pct >= 100
+
+        if is_exhausted:
+            subject = "Your LLM analytics trial evaluations have been used up"
+            template_name = "llm_analytics_trial_exhausted"
+        else:
+            subject = f"You've used {inputs.threshold_pct}% of your LLM analytics trial evaluations"
+            template_name = "llm_analytics_trial_warning"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name=template_name,
+            template_context={
+                "trial_eval_limit": config.trial_eval_limit,
+                "trial_evals_used": config.trial_evals_used,
+                "trial_evals_remaining": config.trial_evals_remaining,
+                "threshold_pct": inputs.threshold_pct,
+                "settings_url": settings_url,
+                "affected_evals": affected_evals,
+                "affected_evals_overflow": affected_evals_overflow,
+            },
+        )
+
+        for user in team.organization.members.all():
+            message.add_user_recipient(user)
+
+        if message.to:
+            message.send()
+            logger.info(
+                "Sent trial usage email",
+                team_id=inputs.team_id,
+                org_id=str(team.organization_id),
+                threshold_pct=inputs.threshold_pct,
+                recipient_count=len(message.to),
+            )
+
+    await database_sync_to_async(_send)()
 
 
 @dataclass
@@ -332,7 +449,13 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
         if provider_key_id:
             provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
         else:
-            # Using PostHog key - check trial quota
+            # Using PostHog key — enforce trial model allowlist and quota
+            if model not in TRIAL_MODEL_IDS:
+                raise ApplicationError(
+                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
+                    {"error_type": "model_not_allowed", "model": model},
+                    non_retryable=True,
+                )
             await database_sync_to_async(_check_trial_quota)()
             provider_key = None
     else:
@@ -795,14 +918,28 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     error_type = details.get("error_type")
 
                     # Handle skippable errors - return success with skip info
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
-                        if error_type == "trial_limit_reached":
+                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
+                        if error_type in ("trial_limit_reached", "model_not_allowed"):
                             await temporalio.workflow.execute_activity(
                                 disable_evaluation_activity,
                                 args=[evaluation["id"], evaluation["team_id"]],
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
+                            if temporalio.workflow.patched("trial-usage-email"):
+                                try:
+                                    await temporalio.workflow.execute_activity(
+                                        send_trial_usage_email_activity,
+                                        SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                                        activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                                        schedule_to_close_timeout=timedelta(seconds=30),
+                                        retry_policy=RetryPolicy(maximum_attempts=2),
+                                    )
+                                except Exception:
+                                    temporalio.workflow.logger.exception(
+                                        "Failed to send trial exhausted email",
+                                        team_id=evaluation["team_id"],
+                                    )
                         return {
                             "verdict": None,
                             "skipped": True,
@@ -828,13 +965,30 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
             # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals)
             if not result.get("is_byok"):
-                await temporalio.workflow.execute_activity(
+                threshold_pct = await temporalio.workflow.execute_activity(
                     increment_trial_eval_count_activity,
                     evaluation["team_id"],
                     activity_id=f"increment-trial-{evaluation['id']}",
                     schedule_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+
+                if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
+                    try:
+                        await temporalio.workflow.execute_activity(
+                            send_trial_usage_email_activity,
+                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=threshold_pct),
+                            activity_id=f"send-trial-usage-email-{threshold_pct}pct-{evaluation['team_id']}",
+                            schedule_to_close_timeout=timedelta(seconds=30),
+                            retry_policy=RetryPolicy(maximum_attempts=2),
+                        )
+                    except Exception:
+                        # Email failure should not fail the evaluation workflow
+                        temporalio.workflow.logger.exception(
+                            "Failed to send trial usage email",
+                            team_id=evaluation["team_id"],
+                            threshold_pct=threshold_pct,
+                        )
 
         # Activity 4: Emit evaluation event
         try:

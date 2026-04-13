@@ -92,6 +92,10 @@ class OrganizationSerializer(
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
     )
+    is_member_join_email_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Legacy field; member-join emails are controlled per user in account notification settings.",
+    )
 
     class Meta:
         model = Organization

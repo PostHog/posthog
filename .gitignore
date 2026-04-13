@@ -107,6 +107,7 @@ playwright/.auth/
 playwright/playwright-report/
 playwright/test-results/
 test-results/
+.playwright-mcp/
 
 # Dagster
 .dagster_home/*

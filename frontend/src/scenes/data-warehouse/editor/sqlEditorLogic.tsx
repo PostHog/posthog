@@ -21,7 +21,7 @@ import posthog from 'posthog-js'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -49,6 +49,7 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { queryExportContext } from '~/queries/query'
 import { Query } from '~/queries/Query/Query'
 import {
+    DataTableNode,
     DataVisualizationNode,
     DatabaseSchemaViewTable,
     FileSystemIconType,
@@ -61,15 +62,17 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
-    ExternalDataSource,
     ExportContext,
+    ExternalDataSource,
     LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
 
+import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -156,6 +159,29 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
         ...sanitizedSourceQuery,
         source: normalizeRawQuerySource(sourceQuery.source),
     }
+}
+
+function toDataVisualizationNode(
+    query: QueryBasedInsightModel['query'] | null | undefined
+): DataVisualizationNode | undefined {
+    if (!query) {
+        return undefined
+    }
+    if (query.kind === NodeKind.DataVisualizationNode) {
+        return query as DataVisualizationNode
+    }
+    // Insights created from the old DataTableNode path store the HogQLQuery under `.source`.
+    // Wrap it so the SQL editor can render and save it through the visualization pipeline.
+    if (query.kind === NodeKind.DataTableNode) {
+        const source = (query as DataTableNode).source
+        if (source?.kind === NodeKind.HogQLQuery) {
+            return {
+                kind: NodeKind.DataVisualizationNode,
+                source: source as HogQLQuery,
+            }
+        }
+    }
+    return undefined
 }
 
 function getCurrentVisualizationQuery(
@@ -260,6 +286,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['database', 'databaseLoading', 'connectionId as databaseConnectionId'],
             outputPaneLogic({ tabId: props.tabId }),
             ['activeTab as outputActiveTab'],
+            dataModelingLogic,
+            ['dags', 'selectedDagId'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -287,6 +315,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     actions(() => ({
+        setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => ({
+            tablesAndColumns,
+        }),
         setQueryInput: (queryInput: string | null) => ({ queryInput }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
@@ -312,19 +343,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             name: string,
             materializeAfterSave = false,
             fromDraft?: string,
-            isTest = false,
-            folderId?: string | null
+            dagId?: string,
+            folderId?: string | null,
+            isTest = false
         ) => ({
-            fromDraft,
             name,
             materializeAfterSave,
-            isTest,
+            fromDraft,
+            dagId,
             folderId,
+            isTest,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string) => ({ name }),
         saveAsEndpoint: true,
-        saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
+        saveAsEndpointSubmit: (name: string, description?: string, dagId?: string) => ({ name, description, dagId }),
         updateInsight: true,
         closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
@@ -393,6 +426,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        selectedQueryTablesAndColumns: [
+            {} as Record<string, Record<string, boolean>>,
+            {
+                setSelectedQueryTablesAndColumns: (_, { tablesAndColumns }) => tablesAndColumns,
+            },
+        ],
         finishedLoading: [
             true,
             {
@@ -762,6 +801,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         createTab: async ({ query = '', view, insight, draft }) => {
             // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
+            const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
+            const insightVisualizationQuery = rawInsightVisualizationQuery
+                ? sanitizeSourceQuery(rawInsightVisualizationQuery)
+                : undefined
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
@@ -786,12 +829,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     view,
                     insight,
                     name: tabName,
-                    sourceQuery: insight?.query as DataVisualizationNode | undefined,
+                    sourceQuery: insightVisualizationQuery,
                     draft: draft,
                 })
             }
-            if (insight?.query?.kind === NodeKind.DataVisualizationNode) {
-                actions.setLastRunQuery(sanitizeSourceQuery(insight.query as DataVisualizationNode))
+            if (insightVisualizationQuery) {
+                actions.setLastRunQuery(insightVisualizationQuery)
             }
             if (query) {
                 actions.setQueryInput(query)
@@ -799,11 +842,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setQueryInput(draft.query.query)
             } else if (view) {
                 actions.setQueryInput(view.query?.query ?? '')
-            } else if (insight) {
-                const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
-                if (queryObject && 'query' in queryObject) {
-                    actions.setQueryInput(queryObject.query || '')
-                }
+            } else if (insightVisualizationQuery) {
+                actions.setQueryInput(insightVisualizationQuery.source.query || '')
             }
 
             // Focus the editor after creating a new tab
@@ -839,6 +879,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.setFinishedLoading(false)
         },
         setQueryInput: async ({ queryInput }, breakpoint) => {
+            const tablesAndColumns = await parseQueryTablesAndColumns(queryInput)
+            await breakpoint()
+            actions.setSelectedQueryTablesAndColumns(tablesAndColumns)
+            cache.updateActiveQueryDecoration?.()
+
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
@@ -903,6 +948,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
         },
         saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+            const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]
+
+            // Ensure DAGs are loaded via dataModelingLogic
+            if (multiDagEnabled && values.dags.length === 0) {
+                await dataModelingLogic.asyncActions.loadDags()
+            }
+
             const isStaff = values.user?.is_staff ?? false
             const folderOptions: { value: string | null; label: string }[] = [
                 { value: null, label: 'No folder' },
@@ -939,7 +991,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '', folderId: null, isTest: false },
+                initialValues: {
+                    viewName: values.activeTab?.name || '',
+                    folderId: null,
+                    isTest: false,
+                    dagId: multiDagEnabled
+                        ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
+                        : undefined,
+                },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
@@ -956,33 +1015,58 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                     autoFocus
                                 />
                             </LemonField>
-                            <LemonField name="folderId" label="Folder" className="mt-2">
-                                {({ value, onChange }) => (
-                                    <LemonSelect<string | null>
-                                        value={value}
-                                        onChange={onChange}
-                                        options={[
-                                            ...folderOptions,
-                                            {
-                                                value: '__add_new_folder__',
-                                                label: '+ Add new folder',
-                                                labelInMenu: () => (
-                                                    <button
-                                                        type="button"
-                                                        className="w-full text-left text-primary px-2 py-1.5"
-                                                        onClick={() => createFolderAndSelect(onChange)}
-                                                    >
-                                                        + Add new folder
-                                                    </button>
-                                                ),
-                                            },
-                                        ]}
-                                        disabled={isLoading}
-                                        placeholder="Select a folder"
-                                        fullWidth
-                                    />
+                            <div className="flex gap-2 mt-2">
+                                <LemonField name="folderId" label="Add to folder" className="flex-1">
+                                    {({ value, onChange }) => (
+                                        <LemonSelect<string | null>
+                                            value={value}
+                                            onChange={onChange}
+                                            options={[
+                                                ...folderOptions,
+                                                {
+                                                    value: '__add_new_folder__',
+                                                    label: '+ Add new folder',
+                                                    labelInMenu: () => (
+                                                        <button
+                                                            type="button"
+                                                            className="w-full text-left text-primary px-2 py-1.5"
+                                                            onClick={() => createFolderAndSelect(onChange)}
+                                                        >
+                                                            + Add new folder
+                                                        </button>
+                                                    ),
+                                                },
+                                            ]}
+                                            disabled={isLoading}
+                                            placeholder="Select a folder"
+                                            fullWidth
+                                        />
+                                    )}
+                                </LemonField>
+                                {multiDagEnabled && (
+                                    <LemonField name="dagId" label="Add to DAG" className="flex-1">
+                                        {({ value: dagId, onChange: setDagId }) => (
+                                            <DagSelector
+                                                selectedDagId={dagId}
+                                                onSelectDag={setDagId}
+                                                onCreateDag={(onSelect) => {
+                                                    openCreateDagDialog({
+                                                        existingNames: new Set(
+                                                            dataModelingLogic.values.dags.map((d) => d.name)
+                                                        ),
+                                                        onSubmit: async (dagData) => {
+                                                            const newDag = await api.dataModelingDags.create(dagData)
+                                                            await dataModelingLogic.asyncActions.loadDags()
+                                                            onSelect(newDag.id)
+                                                            lemonToast.success('DAG created')
+                                                        },
+                                                    })
+                                                }}
+                                            />
+                                        )}
+                                    </LemonField>
                                 )}
-                            </LemonField>
+                            </div>
                             {isStaff && (
                                 <LemonField name="isTest" className="mt-2">
                                     {({ value, onChange }) => (
@@ -1009,14 +1093,32 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
                               ? 'Name must be valid'
                               : undefined,
+                    dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                 },
-                onSubmit: async ({ viewName, folderId, isTest }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest, folderId)
+                onSubmit: async ({ viewName, dagId, folderId, isTest }) => {
+                    await asyncActions.saveAsViewSubmit(
+                        viewName,
+                        materializeAfterSave,
+                        fromDraft,
+                        dagId,
+                        folderId,
+                        isTest ?? false
+                    )
+                    if (multiDagEnabled && dagId) {
+                        dataModelingLogic.actions.setSelectedDagId(dagId)
+                    }
                 },
                 shouldAwaitSubmit: true,
             })
         },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false, folderId }) => {
+        saveAsViewSubmit: async ({
+            name,
+            materializeAfterSave = false,
+            fromDraft,
+            dagId,
+            isTest = false,
+            folderId,
+        }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
             const queryToSave = normalizeRawQuerySource({
@@ -1037,6 +1139,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: queryToSave,
                     types,
                     ...(folderId ? { folder_id: folderId } : {}),
+                    ...(dagId ? { dag_id: dagId } : {}),
                     ...(isTest ? { is_test: true } : {}),
                 })
 
@@ -1050,6 +1153,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (fromDraft) {
                     actions.deleteDraft(fromDraft, savedQuery?.name)
                 }
+
+                // reload DAGs so newly created default DAG appears
+                dataModelingLogic.findMounted()?.actions.loadDags()
             } catch {
                 lemonToast.error('Failed to save view')
             }
@@ -1233,6 +1339,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
+            actions.setInsightLoading(true)
+
             const insightName = values.activeTab?.name
             const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
@@ -1241,7 +1349,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 query: currentVisualizationQuery,
             }
 
-            const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+            let savedInsight: QueryBasedInsightModel
+            try {
+                savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+            } catch (e) {
+                actions.setInsightLoading(false)
+                if (e instanceof ApiError) {
+                    lemonToast.error(e.detail ?? 'Could not update insight')
+                } else {
+                    lemonToast.error('Could not update insight')
+                }
+                throw e
+            }
+            actions.setInsightLoading(false)
 
             if (values.activeTab) {
                 actions.updateTab({
@@ -1553,10 +1673,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
 
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
+                // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
+                const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 
                 return (
                     updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsight.query))
+                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
                 )
             },
         ],
@@ -1757,17 +1879,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
 
-        selectedQueryTablesAndColumns: [
-            (s) => [s.queryInput],
-            (queryInput: string | null): Record<string, Record<string, boolean>> => {
-                return parseQueryTablesAndColumns(queryInput)
-            },
-        ],
         selectedQueryColumns: [
-            (s) => [s.queryInput],
-            (queryInput: string | null): Record<string, boolean> => {
-                const tablesAndColumns = parseQueryTablesAndColumns(queryInput)
-
+            (s) => [s.selectedQueryTablesAndColumns],
+            (tablesAndColumns: Record<string, Record<string, boolean>>): Record<string, boolean> => {
                 return Object.fromEntries(
                     Object.entries(tablesAndColumns).flatMap(([table, columns]) => {
                         return Object.keys(columns).map((column) => [`${table}.${column}`, true])
@@ -1983,15 +2097,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         return
                     }
 
-                    let query = ''
-                    if (insight.query?.kind === NodeKind.DataVisualizationNode) {
-                        query = (insight.query as DataVisualizationNode).source.query
-                    }
+                    const insightVisualizationQuery = toDataVisualizationNode(insight.query)
+                    const query = insightVisualizationQuery?.source.query ?? ''
 
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
-                    if (insight.query) {
-                        actions.setSourceQuery(insight.query as DataVisualizationNode)
+                    if (insightVisualizationQuery) {
+                        actions.setSourceQuery(insightVisualizationQuery)
                     }
                     actions.editInsight(queryToOpen, insight)
                     if (!outputTabFromUrl) {
@@ -1999,11 +2111,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
-                    if (
-                        insight.query?.kind === NodeKind.DataVisualizationNode &&
-                        insight.query &&
-                        !searchParams.open_query
-                    ) {
+                    if (insightVisualizationQuery && !searchParams.open_query) {
                         const mountedDataLogic = dataNodeLogic.findMounted({ key: values.dataLogicKey })
                         const response = mountedDataLogic?.values.response
                         const responseLoading = mountedDataLogic?.values.responseLoading ?? false

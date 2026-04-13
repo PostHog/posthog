@@ -1,4 +1,3 @@
-import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -79,7 +78,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -574,7 +573,7 @@ function Chip({
         <Tooltip title={tooltipTitle ?? title}>
             <LemonTag
                 size="small"
-                className={classNames('bg-surface-primary', className)}
+                className={clsx('bg-surface-primary', className)}
                 icon={icon}
                 type={type}
                 onClick={onClick}
@@ -1243,7 +1242,7 @@ const TreeNode = React.memo(function TraceNode({
                         ...(searchQuery?.trim() && { search: searchQuery }),
                     }).url
                 }
-                className={classNames(
+                className={clsx(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
                     isSelected && '!bg-accent-highlight-secondary',
                     isCollapsedDueToFilter && 'min-h-4 min-w-0'
@@ -1444,7 +1443,6 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-        const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
@@ -1497,7 +1495,7 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
+            openInPlayground({ model, provider, input: loadedInput, tools })
         }
 
         return (

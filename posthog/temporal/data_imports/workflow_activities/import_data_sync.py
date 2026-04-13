@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
@@ -29,6 +30,7 @@ from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
@@ -158,18 +160,44 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             config = new_source.parse_config(model.pipeline.job_inputs)
 
             resumable_source_manager: ResumableSourceManager | None = None
-            if isinstance(new_source, ResumableSource):
-                resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                    config, resumable_source_manager, source_inputs
+            try:
+                if isinstance(new_source, ResumableSource):
+                    resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, resumable_source_manager, source_inputs
+                    )
+                elif isinstance(new_source, SimpleSource):
+                    source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
+                        config, source_inputs
+                    )
+                else:
+                    raise TypeError(
+                        f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+                    )
+            except CDCHandledExternally:
+                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
+                # Mark the job as non-billable so it doesn't clutter the Syncs tab
+                from products.data_warehouse.backend.models import ExternalDataJob
+
+                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
+                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
                 )
-            elif isinstance(new_source, SimpleSource):
-                source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
-                    config, source_inputs
-                )
-            else:
-                raise TypeError(
-                    f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
+
+                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
+                # schema now. The schedule is unpaused if the schema transitions back
+                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
+                try:
+                    from products.data_warehouse.backend.data_load.service import pause_external_data_schedule
+
+                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
+                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
+                except Exception:
+                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
+
+                return PipelineResult(
+                    should_trigger_cdp_producer=False,
+                    consumer_manages_job_status=True,
+                    skip_post_import_activities=True,
                 )
 
             return await _run(
