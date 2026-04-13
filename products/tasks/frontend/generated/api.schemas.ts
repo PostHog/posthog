@@ -100,6 +100,8 @@ export interface SandboxEnvironmentListApi {
     repositories?: string[]
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    internal?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -131,6 +133,8 @@ export interface SandboxEnvironmentApi {
     readonly has_environment_variables: boolean
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    readonly internal: boolean
     /** Computed domain allowlist based on network_access_level and allowed_domains */
     readonly effective_domains: readonly string[]
     readonly created_by: UserBasicApi
@@ -233,6 +237,28 @@ export const TaskRunCreateRequestModeEnumApi = {
 } as const
 
 /**
+ * * `user` - user
+ * `bot` - bot
+ */
+export type PrAuthorshipModeEnumApi = (typeof PrAuthorshipModeEnumApi)[keyof typeof PrAuthorshipModeEnumApi]
+
+export const PrAuthorshipModeEnumApi = {
+    User: 'user',
+    Bot: 'bot',
+} as const
+
+/**
+ * * `manual` - manual
+ * `signal_report` - signal_report
+ */
+export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
+
+export const RunSourceEnumApi = {
+    Manual: 'manual',
+    SignalReport: 'signal_report',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface TaskRunCreateRequestApi {
@@ -253,6 +279,20 @@ export interface TaskRunCreateRequestApi {
     pending_user_message?: string
     /** Optional sandbox environment to apply for this cloud run. */
     sandbox_environment_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+
+* `user` - user
+* `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+
+* `manual` - manual
+* `signal_report` - signal_report */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    github_user_token?: string
 }
 
 /**
@@ -734,6 +774,11 @@ export type TasksRunsSessionLogsRetrieveParams = {
      * @maximum 5000
      */
     limit?: number
+    /**
+     * Zero-based offset into the filtered log entries
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type TasksRepositoryReadinessRetrieveParams = {

@@ -51,6 +51,10 @@ export function createErrorTrackingPrepareEventStep<T extends ErrorTrackingPrepa
         delete properties.$set
         delete properties.$set_once
 
+        if (properties['$ip'] && input.team.anonymize_ips) {
+            delete properties['$ip']
+        }
+
         // Timestamp is already validated by the cymbal processing step
         const timestamp = event.timestamp as ISOTimestamp
 

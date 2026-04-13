@@ -13,14 +13,18 @@ import { UUIDT } from '../../utils/utils'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ProcessPersonlessInput, createProcessPersonlessStep } from './process-personless-step'
 
 function createPersonOutputs(hub: Hub) {
     return new IngestionOutputs({
-        [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-        [PERSON_DISTINCT_IDS_OUTPUT]: [
-            { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-        ],
+        [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+        [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            KAFKA_PERSON_DISTINCT_ID,
+            hub.kafkaProducer,
+            'test'
+        ),
     })
 }
 
@@ -75,9 +79,12 @@ describe('createProcessPersonlessStep', () => {
 
         const personRepository = new PostgresPersonRepository(hub.postgres)
         const ingestionWarningsOutputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: [
-                { topic: 'ingestion_warnings_test', producer: hub.kafkaProducer, producerName: 'test' },
-            ],
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                'ingestion_warnings_test',
+                hub.kafkaProducer,
+                'test'
+            ),
         })
         personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
 

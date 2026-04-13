@@ -360,6 +360,7 @@ export function Playlist({
                             size="small"
                             className="mt-2"
                             disabledReason={summarizeDisabledReason}
+                            data-attr="summarize-from-list-recordings-button"
                         >
                             Summarize these recordings
                             <LemonTag type="warning" size="small" className="ml-auto uppercase">

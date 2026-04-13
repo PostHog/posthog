@@ -4,6 +4,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
+import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-01-30'
@@ -53,6 +54,13 @@ export function loadPostHogJS(): void {
                     if (shouldTrackFramerate(loadedInstance)) {
                         console.info('tracking react framerate')
                         startFramerateTracking(loadedInstance)
+                    }
+
+                    if (
+                        !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
+                        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_DETACHED_ELEMENTS)
+                    ) {
+                        startDetachedElementTracking(loadedInstance)
                     }
 
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
