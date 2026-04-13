@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Optional
+from typing import Any, Optional
 
 from rest_framework.exceptions import ValidationError
 
@@ -9,6 +9,7 @@ from posthog.schema import (
     CachedLifecycleQueryResponse,
     DayItem,
     EventsNode,
+    HogQLQueryResponse,
     InsightActorsQueryOptionsResponse,
     IntervalType,
     LifecycleDataWarehouseNode,
@@ -179,7 +180,6 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         )
 
     def _calculate(self) -> LifecycleQueryResponse:
-        series = self.first_series
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
@@ -192,25 +192,50 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             limit_context=self.limit_context,
         )
 
+        result = self.format_results(response)
+
+        return LifecycleQueryResponse(
+            results=result,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
+
+    def format_results(self, response: HogQLQueryResponse) -> list[dict[str, Any]]:
+        """Format raw lifecycle HogQL response into status-grouped series.
+
+        Columns are accessed by name (date, total, status) to support arbitrary
+        column ordering (materialized tables return columns alphabetically).
+        Returns list of dicts with: action, data, count, labels, days, label, status.
+        """
+        series = self.first_series
+        cols = {name: i for i, name in enumerate(response.columns or [])}
+
         # ensure that the items are in a deterministic order
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
-        results = sorted(response.results, key=lambda result: order.get(result[2], 5))
+        raw_results = sorted(response.results or [], key=lambda row: order.get(row[cols["status"]], 5))
 
-        res = []
-        for val in results:
-            counts = val[1]
-            labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in val[0]]
+        results = []
+        for val in raw_results:
+            counts = val[cols["total"]]
+            dates = val[cols["date"]]
+            status = val[cols["status"]]
+            labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in dates]
             days = [
                 item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
-                for item in val[0]
+                for item in dates
             ]
 
             # legacy response compatibility object
             action_object = {}
-            label = "{} - {}".format("", val[2])
+            label = "{} - {}".format("", status)
             if isinstance(series, ActionsNode):
                 action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
-                label = "{} - {}".format(action.name, val[2])
+                label = "{} - {}".format(action.name, status)
                 action_object = {
                     "id": str(action.pk),
                     "name": action.name,
@@ -223,7 +248,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     action_object["custom_name"] = custom_name
             elif isinstance(series, EventsNode):
                 event = series.event
-                label = "{} - {}".format("All events" if event is None else event, val[2])
+                label = "{} - {}".format("All events" if event is None else event, status)
                 action_object = {
                     "id": event,
                     "name": "All events" if event is None else event,
@@ -236,7 +261,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     action_object["custom_name"] = custom_name
             elif isinstance(series, LifecycleDataWarehouseNode):
                 data_warehouse_node = series
-                label = "{} - {}".format(data_warehouse_node.table_name, val[2])
+                label = "{} - {}".format(data_warehouse_node.table_name, status)
                 action_object = {
                     "id": data_warehouse_node.id,
                     "name": data_warehouse_node.table_name,
@@ -249,8 +274,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "created_at_field": data_warehouse_node.created_at_field,
                 }
 
-            additional_values = {"label": label, "status": val[2]}
-            res.append(
+            additional_values = {"label": label, "status": status}
+            results.append(
                 {
                     "action": action_object,
                     "data": [float(c) for c in counts],
@@ -261,16 +286,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 }
             )
 
-        return LifecycleQueryResponse(
-            results=res,
-            timings=response.timings,
-            hogql=hogql,
-            modifiers=self.modifiers,
-            resolved_date_range=ResolvedDateRangeResponse(
-                date_from=self.query_date_range.date_from(),
-                date_to=self.query_date_range.date_to(),
-            ),
-        )
+        return results
 
     @property
     def is_data_warehouse_series(self) -> bool:

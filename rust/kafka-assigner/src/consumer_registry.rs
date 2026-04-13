@@ -52,6 +52,11 @@ impl ConsumerRegistry {
             .map(|c| c.command_tx.clone())
     }
 
+    /// Get the etcd lease ID for a consumer, if connected.
+    pub fn get_lease_id(&self, consumer_name: &str) -> Option<i64> {
+        self.connections.get(consumer_name).map(|c| c.lease_id)
+    }
+
     /// Check if a consumer is connected to this instance.
     pub fn is_connected(&self, consumer_name: &str) -> bool {
         self.connections.contains_key(consumer_name)
@@ -100,6 +105,8 @@ mod tests {
         assert!(!registry.is_connected("c-1"));
         assert!(registry.get_sender("c-0").is_some());
         assert!(registry.get_sender("c-1").is_none());
+        assert_eq!(registry.get_lease_id("c-0"), Some(100));
+        assert_eq!(registry.get_lease_id("c-1"), None);
     }
 
     #[test]

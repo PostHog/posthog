@@ -11,7 +11,8 @@ from posthog.temporal.ai.video_segment_clustering.models import EmitSignalsResul
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
+    from django.conf import settings
+
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
         emit_signals_from_clusters_activity,
@@ -26,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
         FetchSegmentsActivityInputs,
         PrimeSessionEmbeddingsActivityInputs,
     )
+    from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 
     from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 
@@ -172,6 +174,7 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         video_validation_enabled="full",
                     ),
                     id=f"session-summary:single:direct:{team_id}:{session_id}:{prime_info.user_id}:{workflow.uuid4()}",
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     execution_timeout=timedelta(minutes=30),
                     retry_policy=RetryPolicy(
                         maximum_attempts=1,  # No retries - if summarization, just skip this session

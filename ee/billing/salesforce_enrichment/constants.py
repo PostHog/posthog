@@ -116,6 +116,7 @@ METRIC_PERIODS = {"90d": 90, "180d": 180}
 POSTHOG_ORG_GROUP_TYPE_INDEX = 0  # Organizations are group_type_index 0 in PostHog's groups table
 POSTHOG_ORG_ID_FIELD = "Posthog_Org_ID__c"
 POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE = 100
+POSTHOG_FETCH_MAPPINGS_PAGE_SIZE = 10_000  # Page size for fetching org mappings, kept under Temporal's 4 MB gRPC limit
 
 # Salesforce field mappings for PostHog usage signals
 # Format: internal_field_name -> salesforce_custom_field_name

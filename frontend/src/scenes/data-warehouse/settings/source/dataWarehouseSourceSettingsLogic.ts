@@ -89,6 +89,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
+        cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
@@ -461,6 +462,21 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     lemonToast.error(e.message)
                 } else {
                     lemonToast.error('Cant refresh schema at this time')
+                }
+            }
+        },
+        cancelSchema: async ({ schema }) => {
+            try {
+                await api.externalDataSchemas.cancel(schema.id)
+
+                actions.loadSource()
+                posthog.capture('schema sync cancelled', { sourceType: values.source?.source_type })
+                lemonToast.success('Sync cancelled')
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't cancel sync at this time")
                 }
             }
         },

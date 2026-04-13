@@ -17,9 +17,13 @@ from rest_framework.response import Response
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.cloud_utils import is_cloud
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.utils import generate_short_id
+
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +39,25 @@ class DebugCHQueries(viewsets.ViewSet):
         except:
             return None
 
-    def hourly_stats(self, insight_id: str):
+    _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})
+
+    def _log_comment_filter(self, filter_key: str, filter_value: str) -> str:
+        """Build a WHERE clause filtering on a log_comment JSON field."""
+        if filter_key not in self._ALLOWED_FILTER_KEYS:
+            raise ValueError(f"Invalid filter_key: {filter_key!r}")
+        return f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+
+    def hourly_stats(self, filter_key: str, filter_value: str):
         params = {
-            "insight_id": insight_id,
+            "filter_value": filter_value,
             "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
 
-        sql_query = """
+        # nosemgrep: clickhouse-fstring-param-audit - filter_clause from internal _log_comment_filter
+        filter_clause = self._log_comment_filter(filter_key, filter_value)
+        sql_query = f"""
             SELECT
                 hour,
                 sum(successful_queries) AS successful_queries,
@@ -61,7 +75,7 @@ class DebugCHQueries(viewsets.ViewSet):
                         ProfileEvents, log_comment
                     FROM clusterAllReplicas(%(cluster)s, system, query_log)
                     WHERE
-                        JSONExtractString(log_comment, 'insight_id') = %(insight_id)s AND
+                        {filter_clause} AND
                         event_time > %(start_time)s AND
                         query NOT LIKE %(not_query)s AND
                         is_initial_query
@@ -87,14 +101,16 @@ class DebugCHQueries(viewsets.ViewSet):
             for resp in response
         ]
 
-    def stats(self, insight_id: str):
+    def stats(self, filter_key: str, filter_value: str):
         params = {
-            "insight_id": insight_id,
+            "filter_value": filter_value,
             "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
             "cluster": CLICKHOUSE_CLUSTER,
         }
 
-        sql_query = """
+        # nosemgrep: clickhouse-fstring-param-audit - filter_clause from internal _log_comment_filter
+        filter_clause = self._log_comment_filter(filter_key, filter_value)
+        sql_query = f"""
             SELECT
                 count(*) AS total_queries,
                 countIf(exception != '') AS total_exceptions,
@@ -103,11 +119,10 @@ class DebugCHQueries(viewsets.ViewSet):
                 (countIf(exception != '') / count(*)) * 100 AS exception_percentage
             FROM (
                 SELECT
-                    query_id, query, query_start_time, exception, query_duration_ms,
-                    JSONExtractString(log_comment, 'insight_id') AS extracted_insight_id
+                    query_id, query, query_start_time, exception, query_duration_ms
                 FROM clusterAllReplicas(%(cluster)s, system, query_log)
                 WHERE
-                    JSONExtractRaw(log_comment, 'insight_id') = %(insight_id)s AND
+                    {filter_clause} AND
                     event_time > %(start_time)s AND
                     is_initial_query
 
@@ -124,16 +139,17 @@ class DebugCHQueries(viewsets.ViewSet):
             "exception_percentage": response[0][4],
         }
 
-    def queries(self, request: Request, insight_id: Optional[str] = None):
+    def queries(self, request: Request, filter_key: Optional[str] = None, filter_value: Optional[str] = None):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
         }
         limit_clause = ""
 
-        if insight_id:
-            where_clause = "JSONExtractRaw(log_comment, 'insight_id') = %(insight_id)s"
-            params["insight_id"] = insight_id
+        if filter_key and filter_value:
+            # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
+            where_clause = self._log_comment_filter(filter_key, filter_value)
+            params["filter_value"] = filter_value
             limit_clause = "LIMIT 10"
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
@@ -192,12 +208,84 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         insight_id = request.query_params.get("insight_id")
-        queries = self.queries(request, insight_id)
-        response = {"queries": queries}
+        experiment_id = request.query_params.get("experiment_id")
+
+        filter_key = None
+        filter_value = None
         if insight_id:
-            response["stats"] = self.stats(insight_id)
-            response["hourly_stats"] = self.hourly_stats(insight_id)
+            filter_key, filter_value = "insight_id", insight_id
+        elif experiment_id:
+            filter_key, filter_value = "experiment_id", experiment_id
+
+        queries = self.queries(request, filter_key, filter_value)
+        response = {"queries": queries}
+        if filter_key and filter_value:
+            response["stats"] = self.stats(filter_key, filter_value)
+            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
+
+    def _serialize_precomputation_team(self, team: Team, enabled: bool) -> dict:
+        return {
+            "team_id": team.id,
+            "team_name": team.name,
+            "organization_id": str(team.organization.id) if team.organization else None,
+            "organization_name": team.organization.name if team.organization else None,
+            "experiment_precomputation_enabled": enabled,
+        }
+
+    @action(detail=False, methods=["GET", "POST"], url_path="precomputation_teams")
+    def precomputation_teams(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can manage precomputation teams.")
+
+        if request.method == "POST":
+            return self._update_precomputation(request)
+
+        search = request.query_params.get("search", "").strip()
+
+        if search:
+            # Search by org name — return all teams in matching orgs
+            teams = (
+                Team.objects.filter(organization__name__icontains=search)
+                .select_related("organization")
+                .order_by("organization__name", "name")
+            )
+            # Batch-fetch precomputation configs for matched teams
+            configs_by_team = dict(
+                TeamExperimentsConfig.objects.filter(
+                    team__in=teams,
+                    experiment_precomputation_enabled=True,
+                ).values_list("team_id", "experiment_precomputation_enabled")
+            )
+            return Response(
+                [self._serialize_precomputation_team(team, configs_by_team.get(team.id, False)) for team in teams]
+            )
+
+        # Default: only teams with precomputation enabled
+        configs = (
+            TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
+            .select_related("team", "team__organization")
+            .order_by("team__name")
+        )
+        return Response([self._serialize_precomputation_team(config.team, True) for config in configs])
+
+    def _update_precomputation(self, request) -> Response:
+        team_id = request.data.get("team_id")
+        enabled = request.data.get("experiment_precomputation_enabled")
+
+        if team_id is None or enabled is None:
+            raise exceptions.ValidationError("team_id and experiment_precomputation_enabled are required.")
+
+        try:
+            team = Team.objects.select_related("organization").get(id=int(team_id))
+        except (Team.DoesNotExist, TypeError, ValueError):
+            raise exceptions.NotFound(f"Team {team_id} not found.")
+
+        config = get_or_create_team_extension(team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = enabled
+        config.save(update_fields=["experiment_precomputation_enabled"])
+
+        return Response(self._serialize_precomputation_team(team, enabled))
 
     @action(detail=False, methods=["POST"])
     def profile(self, request):

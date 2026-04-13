@@ -22,7 +22,6 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -233,7 +232,26 @@ def get_rows(
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     data_col = table.column("data").to_pylist()
-    rows = [orjson.loads(data_str)["object"] for data_str in data_col if data_str is not None]
+    created_col = table.column("created").to_pylist()
+
+    # Deduplicate by object id, keeping the event with the latest created timestamp.
+    # Multiple webhook events (e.g. customer.created then customer.updated) can reference
+    # the same object, and delta merge doesn't deduplicate within the source batch.
+    best_by_id: dict[str, tuple[int, dict]] = {}
+    for data_str, event_created in zip(data_col, created_col):
+        if data_str is None:
+            continue
+        obj = orjson.loads(data_str)["object"]
+        obj_id = obj.get("id")
+        if obj_id is None:
+            continue
+
+        ts = event_created if isinstance(event_created, int) else 0
+        existing = best_by_id.get(obj_id)
+        if existing is None or ts > existing[0]:
+            best_by_id[obj_id] = (ts, obj)
+
+    rows = [obj for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
 
 
@@ -345,7 +363,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     return True
 
 
-def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
@@ -364,8 +382,8 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
 
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
@@ -400,13 +418,13 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")
 
 
-def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDeletionResult:
+def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookDeletionResult:
     logger = LOGGER.bind()
 
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
@@ -436,11 +454,11 @@ def delete_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookDelet
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
 
 
-def get_external_webhook_info(config: StripeSourceConfig, webhook_url: str) -> ExternalWebhookInfo:
+def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:
     try:
         client = StripeClient(
-            config.stripe_secret_key,
-            stripe_account=config.stripe_account_id,
+            api_key,
+            stripe_account=stripe_account_id,
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),

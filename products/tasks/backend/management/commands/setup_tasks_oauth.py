@@ -18,7 +18,7 @@ class Command(BaseCommand):
                 "name": "Array Dev App",
                 "client_type": OAuthApplication.CLIENT_PUBLIC,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                "redirect_uris": "https://app.posthog.com/callback",
+                "redirect_uris": "http://localhost:8237/callback http://localhost:8239/callback",
                 "algorithm": "RS256",
             },
         )

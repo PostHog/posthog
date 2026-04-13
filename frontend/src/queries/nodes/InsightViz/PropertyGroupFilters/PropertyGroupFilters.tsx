@@ -57,7 +57,7 @@ export function PropertyGroupFilters({
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                     <div className="flex flex-col gap-2 @lg:flex-row @lg:items-center">
-                        <div className="order-2 @lg:order-none">
+                        <div className="order-2 @lg:order-none PropertyGroupFilters__add-filter-group-inline-wrapper">
                             <LemonButton
                                 data-attr={`${pageKey}-add-filter-group-inline`}
                                 type="secondary"
@@ -108,8 +108,8 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <LemonDivider className="flex-1 mx-2" />
-                                                    <div className="flex items-center deprecated-space-x-2">
+                                                    <LemonDivider className="flex-1 mx-2 @max-[410px]/editor-panel:hidden" />
+                                                    <div className="flex items-center gap-1 shrink-0">
                                                         <LemonButton
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}

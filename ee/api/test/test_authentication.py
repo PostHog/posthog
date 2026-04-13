@@ -2,6 +2,7 @@ import os
 import uuid
 import datetime
 from typing import cast
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from freezegun.api import freeze_time
@@ -323,6 +324,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
 
+    def _assert_saml_login_social_failure_redirect(self, response, error_detail_substring: str) -> None:
+        """SocialAuthExceptionMiddleware catches AuthFailed and redirects instead of propagating."""
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        parsed = urlparse(response["Location"])
+        self.assertEqual(parsed.path, "/login")
+        qs = parse_qs(parsed.query)
+        self.assertEqual(qs.get("error_code"), ["social_login_failure"])
+        self.assertIn(error_detail_substring, qs.get("error_detail", [""])[0])
+
     # SAML Metadata
 
     def test_can_get_saml_metadata(self):
@@ -578,18 +588,17 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                format="multipart",
-                follow=True,
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
+            follow=False,
+        )
 
-        self.assertIn("Signature validation failed. SAML Response rejected", str(e.exception))
+        self._assert_saml_login_social_failure_redirect(response, "Signature validation failed. SAML Response rejected")
 
         self.assertEqual(User.objects.count(), user_count)
 
@@ -693,20 +702,19 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Authentication request is invalid. Invalid RelayState.",
+        self._assert_saml_login_social_failure_redirect(
+            response,
+            "Authentication request is invalid. Invalid RelayState.",
         )
 
         # Assert user is not logged in
@@ -783,20 +791,19 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+        self._assert_saml_login_social_failure_redirect(
+            response,
+            "Your organization does not have the required license to use SAML.",
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -832,18 +839,17 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(other_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(other_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertIn("does not match the configured domain", str(e.exception))
+        self._assert_saml_login_social_failure_redirect(response, "does not match the configured domain")
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

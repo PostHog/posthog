@@ -157,7 +157,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if export_context and export_context.get("heatmap_url"):
             ok, err = is_url_allowed(export_context["heatmap_url"])
             if not ok:
-                raise ValidationError({"export_context": ["heatmap_url not allowed"]})
+                raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
         data["team_id"] = self.context["team_id"]
         return data
@@ -296,7 +296,6 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             exported_asset_id=instance.id,
             team_id=team.id,
             distinct_id=distinct_id,
-            export_format=instance.export_format,
             slo=SloConfig(
                 operation=SloOperation.EXPORT,
                 area=SloArea.ANALYTIC_PLATFORM,
@@ -305,6 +304,12 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 distinct_id=distinct_id,
                 start_properties={
                     "export_format": instance.export_format,
+                    "export_type": instance.export_type,
+                    "source": source,
+                },
+                completion_properties={
+                    "export_format": instance.export_format,
+                    "export_type": instance.export_type,
                     "source": source,
                 },
             ),

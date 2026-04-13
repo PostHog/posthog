@@ -176,8 +176,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, or from suppressed)
-            case (S.IN_PROGRESS | S.SUPPRESSED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
+            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if snooze_for is not None:
@@ -225,6 +225,7 @@ class SignalReportArtefact(UUIDModel):
         PRIORITY_JUDGMENT = "priority_judgment"
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
+        SUGGESTED_REVIEWERS = "suggested_reviewers"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

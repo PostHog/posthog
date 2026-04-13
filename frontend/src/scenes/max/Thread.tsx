@@ -597,17 +597,19 @@ function Message({
                                       return null
                                   }
                                   const form = formArgs as unknown as MultiQuestionForm
-                                  // Extract saved answers from the next message's ui_payload if available
-                                  const savedAnswers =
-                                      isAssistantToolCallMessage(nextMessage) &&
-                                      nextMessage.ui_payload?.create_form?.answers
-                                          ? (nextMessage.ui_payload.create_form.answers as Record<string, string>)
+                                  const formResult =
+                                      isAssistantToolCallMessage(nextMessage) && nextMessage.ui_payload?.create_form
+                                          ? (nextMessage.ui_payload.create_form as {
+                                                answers?: Record<string, string | string[]>
+                                                status?: string
+                                            })
                                           : undefined
                                   return (
                                       <MultiQuestionFormRecap
                                           key={`${key}-multi-form`}
                                           form={form}
-                                          savedAnswers={savedAnswers}
+                                          savedAnswers={formResult?.answers}
+                                          formStatus={formResult?.status}
                                       />
                                   )
                               })()

@@ -260,7 +260,7 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector } = useValues(sourceWizardLogic)
+    const { selectedConnector, source } = useValues(sourceWizardLogic)
 
     return selectedConnector ? (
         <div className="space-y-4">
@@ -291,7 +291,7 @@ function SecondStep(): JSX.Element {
 
             <LemonDivider />
 
-            <SourceForm sourceConfig={selectedConnector} />
+            <SourceForm sourceConfig={selectedConnector} initialAccessMethod={source.access_method} />
         </div>
     ) : (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id: 'new' }}>

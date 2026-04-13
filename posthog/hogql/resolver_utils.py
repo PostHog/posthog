@@ -87,7 +87,7 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
         return select.get_alias_for_table_type(type) or ""
     elif isinstance(type, ast.LazyTableType):
         return type.table.to_printed_hogql()
-    elif isinstance(type, ast.TableAliasType):
+    elif isinstance(type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         return type.alias
     elif isinstance(type, ast.SelectQueryAliasType):
         return type.alias
@@ -172,7 +172,7 @@ def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQue
     def visit_table_type(table_type: ast.TableOrSelectType) -> None:
         if isinstance(table_type, ast.TableType):
             table_types.append(table_type)
-        elif isinstance(table_type, ast.TableAliasType):
+        elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             visit_table_type(table_type.table_type)
         elif isinstance(table_type, ast.CTETableType):
             visit_query(table_type.select_query_type)

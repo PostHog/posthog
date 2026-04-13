@@ -1194,8 +1194,6 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
         else:
             check_alert_task(self.alert_id, self.team.id, calculation_interval, insight_id)
 
-        expected_base_properties = {"calculation_interval": calculation_interval, "insight_id": insight_id}
-
         mock_slo_started.assert_called_once()
         started_kwargs = mock_slo_started.call_args.kwargs
         assert started_kwargs["distinct_id"] == self.alert_id
@@ -1205,7 +1203,9 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             team_id=self.team.id,
             resource_id=self.alert_id,
         )
-        assert started_kwargs["extra_properties"] == expected_base_properties
+        assert started_kwargs["extra_properties"]["calculation_interval"] == calculation_interval
+        assert started_kwargs["extra_properties"]["insight_id"] == insight_id
+        assert "correlation_id" in started_kwargs["extra_properties"]
         assert started_kwargs["capture"] is not None  # ph_scoped_capture callable
 
         mock_slo_completed.assert_called_once()
@@ -1219,6 +1219,10 @@ class TestAlertCheckSloInstrumentation(APIBaseTest, ClickhouseDestroyTablesMixin
             resource_id=self.alert_id,
             outcome=expected_outcome,
             duration_ms=completed_kwargs["properties"].duration_ms,
+        )
+        assert (
+            completed_kwargs["extra_properties"]["correlation_id"]
+            == started_kwargs["extra_properties"]["correlation_id"]
         )
         assert completed_kwargs["extra_properties"]["calculation_interval"] == calculation_interval
         assert completed_kwargs["extra_properties"]["insight_id"] == insight_id

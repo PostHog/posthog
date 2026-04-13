@@ -21,6 +21,7 @@ from posthog.schema import (
     MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
     MaxProductInfo,
+    SpendHistoryItem,
 )
 
 from posthog.models.team.team import Team
@@ -1087,3 +1088,57 @@ class TestConversation(APIBaseTest):
 
                 # Verify agent_mode is passed for chat mode
                 self.assertEqual(workflow_inputs.agent_mode, AgentMode.SQL)
+
+    def _make_spend_history(self, count: int) -> list[dict]:
+        return [
+            SpendHistoryItem(
+                id=i,
+                label=f"item_{i}",
+                data=[float(i)],
+                dates=["2023-01-01"],
+            ).model_dump()
+            for i in range(count)
+        ]
+
+    def test_billing_context_strips_large_spend_history(self):
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                billing_data = self.billing_context.model_dump()
+                billing_data["spend_history"] = self._make_spend_history(21)
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "billing_context": billing_data,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_astream.call_args[0][1]
+                self.assertIsNone(workflow_inputs.billing_context.spend_history)
+
+    def test_billing_context_keeps_small_spend_history(self):
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                billing_data = self.billing_context.model_dump()
+                billing_data["spend_history"] = self._make_spend_history(20)
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "billing_context": billing_data,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_astream.call_args[0][1]
+                self.assertIsNotNone(workflow_inputs.billing_context.spend_history)
+                self.assertEqual(len(workflow_inputs.billing_context.spend_history), 20)

@@ -7,6 +7,7 @@ import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLo
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
@@ -19,6 +20,7 @@ import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
+const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
 const STATS_POLL_INTERVAL_MS = 1000
 
 const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
@@ -42,6 +44,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalUniqueVisitors,
         totalBrowsers,
         isLoading,
+        recentEvents,
     } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
@@ -136,6 +139,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     />
                 </LiveChartCard>
             )}
+
+            <div className="mb-6">
+                <LiveChartCard title="Live events" isLoading={false} contentClassName="max-h-80 overflow-y-auto">
+                    <LiveEventsFeed events={recentEvents} columns={LIVE_FEED_COLUMNS} />
+                </LiveChartCard>
+            </div>
         </div>
     )
 }

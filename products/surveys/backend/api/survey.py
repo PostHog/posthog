@@ -821,6 +821,20 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 else:
                     cleaned_question["description"] = description
 
+            for field_name, error_message in [
+                ("buttonText", "Question buttonText must be a string"),
+                ("lowerBoundLabel", "Question lowerBoundLabel must be a string"),
+                ("upperBoundLabel", "Question upperBoundLabel must be a string"),
+            ]:
+                field_value = raw_question.get(field_name)
+                if field_value:
+                    if not isinstance(field_value, str):
+                        raise serializers.ValidationError(error_message)
+                    if nh3.is_html(field_value):
+                        cleaned_question[field_name] = nh3_clean_with_allow_list(field_value)
+                    else:
+                        cleaned_question[field_name] = field_value
+
             # Validate choices first before translation validation to provide clearer error messages
             choices = raw_question.get("choices")
             if choices:
@@ -2778,12 +2792,14 @@ def public_survey_page(request, survey_id: str):
             archived=survey.archived,
             survey_type=survey.type,
         )
+        # Pass appearance so the error page still shows the customer's brand.
         return render(
             request,
             "surveys/error.html",
             {
-                "error_title": "Survey not receiving responses",
-                "error_message": "The requested survey is not receiving responses.",
+                "error_title": "Feels quiet in here",
+                "error_message": "This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
+                "appearance": survey.appearance or {},
             },
             status=404,  # Use 404 instead of 403 to prevent information leakage
         )

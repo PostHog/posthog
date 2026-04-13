@@ -30,6 +30,7 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
 }
 
 describe('BatchExportHogFunctionService', () => {
@@ -459,12 +460,17 @@ describe('BatchExportHogFunctionService', () => {
                     }),
                     fetchGroupTypesByProjectIds: jest.fn(),
                 },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
+                },
             }
 
             const personhogRepo = new PersonHogGroupRepository(
                 hub.groupRepository,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             const personhogGroupsManager = new GroupsManagerService(hub.teamManager, personhogRepo)

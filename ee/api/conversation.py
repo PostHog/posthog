@@ -81,6 +81,13 @@ class MessageMinimalSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=10000)
 
 
+def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
+    """Large spend histories can exceed Temporal's 2MB payload limit."""
+    if billing_context.spend_history and len(billing_context.spend_history) > threshold:
+        billing_context.spend_history = None
+    return billing_context
+
+
 class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
@@ -122,7 +129,7 @@ class MessageSerializer(MessageMinimalSerializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                billing_context = MaxBillingContext.model_validate(billing_context)
+                billing_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = billing_context
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -158,7 +165,7 @@ class QueueMessageSerializer(serializers.Serializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                parsed_context = MaxBillingContext.model_validate(billing_context)
+                parsed_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = parsed_context.model_dump()
             except pydantic.ValidationError as e:
                 capture_exception(e)

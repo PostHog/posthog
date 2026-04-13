@@ -1,10 +1,8 @@
 import { create } from '@bufbuild/protobuf'
 import { Client } from '@connectrpc/connect'
-import { DateTime } from 'luxon'
 
 import { PersonHogService } from '../../generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel } from '../../generated/personhog/personhog/types/v1/common_pb'
-import { GroupKeySchema, ReadOptionsSchema } from '../../generated/personhog/personhog/types/v1/common_pb'
+import { GroupKeySchema } from '../../generated/personhog/personhog/types/v1/common_pb'
 import {
     GetGroupRequestSchema,
     GetGroupTypeMappingsByProjectIdsRequestSchema,
@@ -13,20 +11,7 @@ import {
 } from '../../generated/personhog/personhog/types/v1/group_pb'
 import type { Group as ProtoGroup } from '../../generated/personhog/personhog/types/v1/group_pb'
 import { Group as DomainGroup, GroupTypeIndex } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-
-const textDecoder = new TextDecoder()
-
-function parseJsonBytes(bytes: Uint8Array): any {
-    if (bytes.length === 0) {
-        return null
-    }
-    return parseJSON(textDecoder.decode(bytes))
-}
-
-function epochMsToDateTime(epochMs: bigint): DateTime {
-    return DateTime.fromMillis(Number(epochMs), { zone: 'utc' })
-}
+import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
 
 const VALID_GROUP_TYPE_INDEXES = new Set<number>([0, 1, 2, 3, 4])
 
@@ -49,10 +34,6 @@ function protoGroupToDomain(proto: ProtoGroup): DomainGroup {
         created_at: epochMsToDateTime(proto.createdAt),
         version: Number(proto.version),
     }
-}
-
-function eventualReadOptions() {
-    return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }
 
 export class PersonHogGroupOperations {

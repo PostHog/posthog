@@ -70,7 +70,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     stats_config = models.JSONField(default=dict, null=True, blank=True)
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
 
-    exposure_preaggregation_enabled = models.BooleanField(default=False)
+    only_count_matured_users = models.BooleanField(default=False)
 
     status = models.CharField(
         max_length=20,

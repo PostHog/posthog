@@ -772,6 +772,17 @@
                                             "name": {
                                                 "description": "Name of this mapping template.",
                                                 "type": "string"
+                                            },
+                                            "use_all_events_by_default": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "boolean"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Whether this mapping should match all events by default, hiding the event filter UI."
                                             }
                                         },
                                         "required": ["name"],

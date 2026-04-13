@@ -48,6 +48,7 @@ class CustomHostnameStatus(str, Enum):
     PENDING = "pending"
     MOVED = "moved"
     DELETED = "deleted"
+    BLOCKED = "blocked"
 
 
 @dataclass

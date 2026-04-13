@@ -43,6 +43,8 @@ export enum PluginServerMode {
     ingestion_v2_testing = 'ingestion-v2-testing',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
+    cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
+    ingestion_api = 'ingestion-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -85,7 +87,10 @@ export type CommonConfig = BaseServerConfig & {
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
     PERSONHOG_ADDR: string
-    PERSONHOG_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
+    PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
+    PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -93,6 +98,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_INTERVAL_MS: number
     PERSONHOG_PING_TIMEOUT_MS: number
     PERSONHOG_PING_IDLE_CONNECTION: boolean
+    PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
+    PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
     // Redis
     REDIS_URL: string
@@ -111,6 +118,7 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOG_STATS_LEVEL: LogLevel
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
+    CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
 
@@ -146,6 +154,9 @@ export type CommonConfig = BaseServerConfig & {
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     INTERNAL_API_BASE_URL: string
+    HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
+    HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
+    HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
@@ -232,14 +243,19 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
-        PERSONHOG_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
+        PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
+        PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
-        PERSONHOG_TIMEOUT_MS: 5000,
+        PERSONHOG_TIMEOUT_MS: 1000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
         PERSONHOG_PING_TIMEOUT_MS: 5_000,
         PERSONHOG_PING_IDLE_CONNECTION: true,
+        PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
+        PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
 
         // Redis
         // ok to connect to localhost over plaintext
@@ -260,6 +276,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOG_STATS_LEVEL: 'debug',
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
+        CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
 
@@ -301,6 +318,9 @@ export function getDefaultCommonConfig(): CommonConfig {
             ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
             : 'http://localhost:8000',
         INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
+        HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
+        HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
+        HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,

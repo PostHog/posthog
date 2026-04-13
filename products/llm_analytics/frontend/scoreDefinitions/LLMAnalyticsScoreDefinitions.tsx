@@ -130,13 +130,25 @@ export function LLMAnalyticsScoreDefinitions({ tabId }: { tabId?: string }): JSX
                         <More
                             overlay={
                                 <>
-                                    <LemonButton fullWidth onClick={() => openModal('metadata', scoreDefinition)}>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => openModal('metadata', scoreDefinition)}
+                                        data-attr="llma-scorer-edit-metadata"
+                                    >
                                         Edit metadata
                                     </LemonButton>
-                                    <LemonButton fullWidth onClick={() => openModal('config', scoreDefinition)}>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => openModal('config', scoreDefinition)}
+                                        data-attr="llma-scorer-edit-config"
+                                    >
                                         Edit config
                                     </LemonButton>
-                                    <LemonButton fullWidth onClick={() => openModal('duplicate', scoreDefinition)}>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => openModal('duplicate', scoreDefinition)}
+                                        data-attr="llma-scorer-duplicate"
+                                    >
                                         Duplicate
                                     </LemonButton>
                                     <LemonButton
@@ -144,6 +156,7 @@ export function LLMAnalyticsScoreDefinitions({ tabId }: { tabId?: string }): JSX
                                         fullWidth
                                         onClick={() => toggleArchive(scoreDefinition)}
                                         disabled={isArchivingDefinition(scoreDefinition.id)}
+                                        data-attr="llma-scorer-archive-toggle"
                                     >
                                         {scoreDefinition.archived ? 'Unarchive' : 'Archive'}
                                     </LemonButton>
@@ -166,17 +179,19 @@ export function LLMAnalyticsScoreDefinitions({ tabId }: { tabId?: string }): JSX
                         value={filters.search}
                         onChange={(value) => setFilters({ search: value })}
                         className="min-w-64"
-                        data-attr="score-definitions-search-input"
+                        data-attr="llma-scorers-search-input"
                     />
                     <LemonSelect<ScoreDefinitionKind | ''>
                         value={filters.kind}
                         onChange={(value) => setFilters({ kind: value || '' })}
                         options={KIND_OPTIONS}
+                        data-attr="llma-scorers-kind-filter"
                     />
                     <LemonSelect<'' | 'false' | 'true'>
                         value={filters.archived}
                         onChange={(value) => setFilters({ archived: value === '' ? '' : value || 'false' })}
                         options={ARCHIVED_OPTIONS}
+                        data-attr="llma-scorers-archived-filter"
                     />
                 </div>
 
@@ -190,7 +205,7 @@ export function LLMAnalyticsScoreDefinitions({ tabId }: { tabId?: string }): JSX
                             type="primary"
                             size="small"
                             onClick={() => openModal('create')}
-                            data-attr="create-score-definition-button"
+                            data-attr="llma-scorers-create-button"
                         >
                             New scorer
                         </LemonButton>
@@ -262,7 +277,11 @@ function ScoreDefinitionModal({
                     <>
                         <div className="space-y-1">
                             <label className="text-sm font-medium">Name</label>
-                            <LemonInput value={draft.name} onChange={(value) => setDraftField('name', value)} />
+                            <LemonInput
+                                value={draft.name}
+                                onChange={(value) => setDraftField('name', value)}
+                                data-attr="llma-scorer-name-input"
+                            />
                         </div>
 
                         {isCreateMode ? (
@@ -280,6 +299,7 @@ function ScoreDefinitionModal({
                                                 value: ScoreDefinitionKind
                                             }[]
                                         }
+                                        data-attr="llma-scorer-kind-select"
                                     />
                                 </div>
                             </>
@@ -295,6 +315,7 @@ function ScoreDefinitionModal({
                             <LemonTextArea
                                 value={draft.description}
                                 onChange={(value) => setDraftField('description', value)}
+                                data-attr="llma-scorer-description-input"
                             />
                         </div>
                     </>
@@ -316,6 +337,7 @@ function ScoreDefinitionModal({
                                                 )
                                             }
                                             options={CATEGORICAL_SELECTION_MODE_OPTIONS}
+                                            data-attr="llma-scorer-selection-mode"
                                         />
                                     </div>
 
@@ -352,7 +374,12 @@ function ScoreDefinitionModal({
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <div className="text-sm font-medium">Options</div>
-                                    <LemonButton type="secondary" size="small" onClick={addOption}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={addOption}
+                                        data-attr="llma-scorer-add-option"
+                                    >
                                         Add option
                                     </LemonButton>
                                 </div>
@@ -374,6 +401,7 @@ function ScoreDefinitionModal({
                                             disabledReason={
                                                 draft.options.length <= 1 ? 'Keep at least one option' : undefined
                                             }
+                                            data-attr="llma-scorer-remove-option"
                                         >
                                             Remove
                                         </LemonButton>
@@ -443,10 +471,10 @@ function ScoreDefinitionModal({
             </LemonModalContent>
 
             <LemonModalFooter>
-                <LemonButton type="secondary" onClick={onClose}>
+                <LemonButton type="secondary" onClick={onClose} data-attr="llma-scorer-cancel">
                     Cancel
                 </LemonButton>
-                <LemonButton type="primary" onClick={() => submit()} loading={submitting}>
+                <LemonButton type="primary" onClick={() => submit()} loading={submitting} data-attr="llma-scorer-save">
                     {isConfigMode ? 'Create version' : 'Save'}
                 </LemonButton>
             </LemonModalFooter>

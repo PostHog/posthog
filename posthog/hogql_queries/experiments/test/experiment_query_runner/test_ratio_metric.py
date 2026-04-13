@@ -147,9 +147,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -271,9 +269,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -388,9 +384,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -499,9 +493,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -627,9 +619,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -756,9 +746,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -857,9 +845,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 
@@ -1112,9 +1098,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         # This should not raise an error
         # Without the fix, this will fail with "Function 'quantile' requires at least 1 parameter"
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Verify the query was executed successfully
@@ -1163,7 +1147,6 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             ),
             conversion_window=7,
             conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
-            only_count_matured_users=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1172,6 +1155,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
             metric=metric,
         )
 
+        experiment.only_count_matured_users = True
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
@@ -1249,9 +1233,7 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Only mature users should be counted (1 control, 1 test)

@@ -179,6 +179,115 @@ def dev_intents() -> None:
         click.echo("")
 
 
+@cli.command(name="dev:list-units", help="List autostart units for given intents (used by phrocs)")
+@click.argument("intents", nargs=-1, required=True)
+def dev_list_units(intents: tuple[str, ...]) -> None:
+    """Resolve intents and print autostart unit names, one per line."""
+    try:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    try:
+        resolved = resolver.resolve(list(intents))
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    for unit in sorted(resolved.units):
+        proc_config = registry.get_process_config(unit)
+        if proc_config.get("autostart") is not False:
+            click.echo(unit)
+
+
+@cli.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
+@click.argument("intents", nargs=-1, required=True)
+@click.option(
+    "--include",
+    "include_units",
+    multiple=True,
+    default=None,
+    help="Units to include (saved to config, persists across runs)",
+)
+@click.option(
+    "--exclude",
+    "exclude_units",
+    multiple=True,
+    default=None,
+    help="Units to exclude (saved to config, persists across runs)",
+)
+@click.option(
+    "--skip-autostart",
+    "skip_autostart",
+    multiple=True,
+    default=None,
+    help="Skip autostart units (saved to config, persists across runs)",
+)
+@click.option(
+    "--enable-autostart",
+    "enable_autostart",
+    multiple=True,
+    default=None,
+    help="Enable autostart units (saved to config, persists across runs)",
+)
+def dev_apply(
+    intents: tuple[str, ...],
+    include_units: tuple[str, ...] | None,
+    exclude_units: tuple[str, ...] | None,
+    skip_autostart: tuple[str, ...] | None,
+    enable_autostart: tuple[str, ...] | None,
+) -> None:
+    """Apply a set of intents non-interactively, regenerating the mprocs config."""
+    try:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    output_path = get_generated_mprocs_path()
+
+    # Load existing config to preserve overrides
+    saved_config = load_devenv_config(output_path)
+    if saved_config is None:
+        saved_config = DevenvConfig()
+
+    # Replace intents with the provided args
+    saved_config.intents = list(intents)
+
+    # Replace options only when explicitly provided (default=None)
+    if include_units is not None:
+        saved_config.include_units = list(include_units)
+    if exclude_units is not None:
+        saved_config.exclude_units = list(exclude_units)
+    if skip_autostart is not None:
+        saved_config.skip_autostart = list(skip_autostart)
+    if enable_autostart is not None:
+        saved_config.enable_autostart = list(enable_autostart)
+
+    try:
+        resolved = resolver.resolve(
+            saved_config.intents,
+            include_units=saved_config.include_units,
+            exclude_units=saved_config.exclude_units,
+            skip_autostart=saved_config.skip_autostart,
+            enable_autostart=saved_config.enable_autostart,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    generator = MprocsGenerator(registry)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    generator.generate_and_save(resolved, output_path, saved_config)
+
+    click.echo(str(output_path))
+
+
 @cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
 @click.option("--log", "log_to_files", is_flag=True, help="Log process output to /tmp/posthog-*.log files")
 def dev_setup(log_to_files: bool) -> None:

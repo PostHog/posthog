@@ -165,6 +165,23 @@ class TestTrendsResultsFormatter(BaseTest):
             "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
         )
 
+    def test_trends_aggregated_value_with_null_action(self):
+        results = [
+            {
+                "data": None,
+                "days": [],
+                "count": 0,
+                "aggregated_value": 92.22,
+                "label": "Bounce rate",
+                "action": None,
+                "breakdown_value": ["/news-research"],
+            }
+        ]
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            "Date range|Aggregated value for Bounce rate breakdown for the value `/news-research`\nAll time|92.22",
+        )
+
     def test_trends_aggregated_values_with_comparison(self):
         results = [
             {

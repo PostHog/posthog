@@ -31,6 +31,7 @@ import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } fro
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
+    DEFAULT_DATE_RANGE,
     issueFiltersLogic,
     triggerFilterActions,
     updateFilterSearchParams,
@@ -104,6 +105,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
         setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
+        setListDateRange: (dateRange: DateRange) => ({ dateRange }),
     }),
 
     defaults({
@@ -117,6 +119,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEventLoading: true as boolean,
         similarIssuesMaxDistance: 0.2 as number,
         similarIssuesError: null as string | null,
+        listDateRange: null as DateRange | null,
     }),
 
     reducers(({ values }) => ({
@@ -153,6 +156,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return event
             },
+        },
+        listDateRange: {
+            setListDateRange: (_, { dateRange }) => dateRange,
         },
     })),
 
@@ -301,20 +307,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     selectors(({ actions }) => ({
         breadcrumbs: [
-            (s) => [s.issue, s.dateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (s) => [s.issue, s.listDateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
             (
                 issue: ErrorTrackingRelationalIssue | null,
-                dateRange: DateRange,
+                listDateRange: DateRange | null,
                 filterTestAccounts: boolean,
                 filterGroup: UniversalFiltersGroup,
                 searchQuery: string
             ): Breadcrumb[] => {
                 const exceptionType: string = issue?.name || 'Issue'
-                // We want to keep params in sync between listing and details views
+                // Use the original list date range for back navigation
                 const urlParams = updateFilterSearchParams(
                     {},
                     {
-                        dateRange,
+                        dateRange: listDateRange ?? DEFAULT_DATE_RANGE,
                         filterTestAccounts,
                         filterGroup,
                         searchQuery,
@@ -468,6 +474,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     urlToAction(({ actions, values }) => {
         return {
             '**/error_tracking/:id': (_, params) => {
+                if (values.listDateRange == null) {
+                    actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
+                }
                 triggerFilterActions(params, values, actions)
                 const tab = params.tab as ErrorTrackingIssueSceneCategory | undefined
                 const category = tab && VALID_CATEGORIES.includes(tab) ? tab : DEFAULT_CATEGORY

@@ -2,7 +2,9 @@
 
 import re
 from email.utils import parseaddr
+from typing import Any, cast
 
+from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.http import HttpRequest, HttpResponse
@@ -11,16 +13,31 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 
 from posthog.models.comment import Comment
+from posthog.models.team import Team
 
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.attachments import save_file_to_uploaded_media
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 MAX_EMAIL_BODY_LENGTH = 50_000
+MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
+MAX_ATTACHMENTS = 20
+MAX_FILENAME_LENGTH = 255
+_FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
+
+
+def _sanitize_filename(name: str) -> str:
+    """Strip potentially dangerous characters from an email attachment filename."""
+    name = name.strip().replace("/", "_").replace("\\", "_")
+    name = _FILENAME_STRIP_RE.sub("", name)
+    if len(name) > MAX_FILENAME_LENGTH:
+        name = name[:MAX_FILENAME_LENGTH]
+    return name or "attachment"
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -62,6 +79,81 @@ def _find_thread_ticket(
                 return mapping_by_id[ref_id].ticket
 
     return None
+
+
+def _extract_attachments(request: HttpRequest, team: Team) -> list[dict[str, Any]]:
+    """Read file uploads from the Mailgun webhook and persist them."""
+    attachments: list[dict[str, Any]] = []
+    for _key in list(request.FILES.keys())[:MAX_ATTACHMENTS]:
+        uploaded_file = cast(UploadedFile, request.FILES[_key])
+        if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
+            logger.warning(
+                "email_inbound_attachment_too_large",
+                team_id=team.id,
+                file_name=uploaded_file.name,
+                size=uploaded_file.size,
+            )
+            continue
+
+        file_bytes = uploaded_file.read()
+        safe_name = _sanitize_filename(uploaded_file.name or "attachment")
+        url = save_file_to_uploaded_media(team, safe_name, uploaded_file.content_type or "", file_bytes)
+        if url:
+            attachments.append(
+                {
+                    "url": url,
+                    "name": safe_name,
+                    "content_type": uploaded_file.content_type or "",
+                    "size": uploaded_file.size,
+                }
+            )
+    return attachments
+
+
+def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]) -> tuple[str, dict[str, Any] | None]:
+    """Merge plain text and attachments into content + rich_content."""
+    if not attachments:
+        return text, None
+
+    image_md_parts: list[str] = []
+    file_md_parts: list[str] = []
+    rich_nodes: list[dict[str, Any]] = []
+
+    if text:
+        rich_nodes.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
+
+    for att in attachments:
+        ct = att.get("content_type", "")
+        name = att.get("name", "attachment")
+        url = att["url"]
+
+        if ct.startswith("image/"):
+            image_md_parts.append(f"![{name}]({url})")
+            rich_nodes.append({"type": "image", "attrs": {"src": url, "alt": name}})
+        else:
+            file_md_parts.append(f"[{name}]({url})")
+            rich_nodes.append(
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": name,
+                            "marks": [{"type": "link", "attrs": {"href": url}}],
+                        }
+                    ],
+                }
+            )
+
+    parts = [text] if text else []
+    if image_md_parts:
+        parts.append("\n".join(image_md_parts))
+    if file_md_parts:
+        parts.append("\n".join(file_md_parts))
+    content = "\n\n".join(parts)
+
+    rich_content: dict[str, Any] = {"type": "doc", "content": rich_nodes}
+    return content, rich_content
 
 
 @csrf_exempt
@@ -129,9 +221,14 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
-    # 8-10. Create ticket/comment/mapping in a transaction
+    # 8. Create ticket/comment/mapping in a transaction
+    # Attachments are extracted inside the transaction so UploadedMedia rows roll back
+    # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
     try:
         with transaction.atomic():
+            attachments = _extract_attachments(request, team)
+            content, rich_content = _build_content_with_attachments(content, attachments)
+
             ticket: Ticket | None = None
             if existing_ticket:
                 ticket = Ticket.objects.select_for_update().filter(id=existing_ticket.id, team=team).first()
@@ -163,6 +260,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 "email_from": sender_email,
                 "email_from_name": sender_name,
                 "email_message_id": email_message_id,
+                "email_attachments": attachments if attachments else None,
             }
 
             comment = Comment.objects.create(
@@ -170,6 +268,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 scope="conversations_ticket",
                 item_id=str(ticket.id),
                 content=content,
+                rich_content=rich_content,
                 item_context=item_context,
             )
 

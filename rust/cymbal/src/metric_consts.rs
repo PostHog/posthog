@@ -85,6 +85,11 @@ pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
 
+// Signal metrics
+pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
+pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
+pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
+
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
 pub const CONSUMER_EXCEPTION_PIPELINE: &str = "cymbal_consumer_exception_pipeline";

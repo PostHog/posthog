@@ -948,15 +948,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         'table_name',
                     ]
                 } else if (service === 'Databricks') {
-                    return [
-                        ...generalRequiredFields,
-                        'integration_id',
-                        'http_path',
-                        'catalog',
-                        'schema',
-                        'table_name',
-                        'use_variant_type',
-                    ]
+                    return [...generalRequiredFields, 'integration_id', 'http_path', 'catalog', 'schema', 'table_name']
                 } else if (service === 'AzureBlob') {
                     return [
                         ...generalRequiredFields,

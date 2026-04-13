@@ -1,7 +1,6 @@
 import json
 import asyncio
 import datetime as dt
-import traceback
 
 import temporalio.common
 import temporalio.workflow
@@ -32,6 +31,7 @@ from posthog.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionInfo,
+    SubscriptionTriggerType,
     TrackedSubscriptionInputs,
 )
 
@@ -50,17 +50,11 @@ def _build_outcome_assets(
     successful_asset_ids: list[int] = []
     for asset_id, result in zip(asset_ids, export_results):
         if isinstance(result, BaseException):
-            err = extract_error_details(result)
             outcome_assets.append(
                 ExportAssetResult(
                     exported_asset_id=asset_id,
                     success=False,
-                    error=ExportError(
-                        exception_class=err.exception_class or "",
-                        error_trace=err.error_trace or "",
-                    )
-                    if err.exception_class
-                    else None,
+                    error=extract_error_details(result),
                 )
             )
         else:
@@ -107,6 +101,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     subscription_id=sub.subscription_id,
                     team_id=sub.team_id,
                     distinct_id=sub.distinct_id,
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
                     slo=SloConfig(
                         operation=SloOperation.SUBSCRIPTION_DELIVERY,
                         area=SloArea.ANALYTIC_PLATFORM,
@@ -160,7 +155,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
         assets_with_content = 0
         total_assets = 0
-        errors: list[ExportError] = []
+        asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
 
         try:
@@ -208,18 +203,24 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             outcome_assets, successful_asset_ids = _build_outcome_assets(asset_ids, export_results)
             assets_with_content = len(successful_asset_ids)
             total_assets = len(outcome_assets)
-            errors = [a.error for a in outcome_assets if a.error]
+            asset_errors = [a.error for a in outcome_assets if a.error]
 
-            non_user_errors = [e for e in errors if not is_user_query_error_type(e.exception_class)]
+            non_user_errors = [e for e in asset_errors if not is_user_query_error_type(e.exception_class)]
             if inputs.slo and non_user_errors:
                 inputs.slo.outcome = SloOutcome.FAILURE
+                distinct_classes = sorted({e.exception_class for e in non_user_errors})
+                inputs.slo.completion_properties.setdefault("error_type", "PartialExportFailure")
+                inputs.slo.completion_properties.setdefault(
+                    "error_message",
+                    f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
+                )
 
             # Phase 3: Deliver — send all assets including failed ones (they show
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
 
-            # is_new is true when previous_value is set (target change), false for scheduled delivery
-            is_new = inputs.previous_value is not None
+            # is_new is true for target change triggers, false for scheduled and manual sends
+            is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
 
             await temporalio.workflow.execute_activity(
                 deliver_subscription,
@@ -234,24 +235,18 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=2),
-                    maximum_attempts=3,
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=5,
                 ),
             )
 
         except Exception as e:
-            errors.append(
-                ExportError(
-                    exception_class=type(e).__name__,
-                    error_trace="\n".join(traceback.format_exception(e)[:5]),
-                )
-            )
             caught_error = e
-            # Don't re-raise — let finally run cleanup activities first
+            # Defer the re-raise until after the finally block — see note below.
 
         finally:
             # Advance schedule — always for scheduled deliveries, even on failure
-            if inputs.previous_value is None:
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,
                     inputs.subscription_id,
@@ -263,14 +258,16 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     ),
                 )
 
-            # Enrich SLO completion context
+            # Enrich SLO event with per-insight detail (non-user errors only).
             if inputs.slo:
                 inputs.slo.completion_properties.update(
                     {
                         "assets_with_content": assets_with_content,
                         "total_assets": total_assets,
-                        "errors": [
-                            {"exception_class": e.exception_class, "error_trace": e.error_trace} for e in errors
+                        "asset_errors": [
+                            {"error_type": e.exception_class, "error_trace": e.error_trace}
+                            for e in asset_errors
+                            if not is_user_query_error_type(e.exception_class)
                         ],
                     }
                 )
@@ -297,6 +294,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             distinct_id=inputs.distinct_id,
             previous_value=inputs.previous_value,
             invite_message=inputs.invite_message,
+            trigger_type=inputs.trigger_type,
             slo=SloConfig(
                 operation=SloOperation.SUBSCRIPTION_DELIVERY,
                 area=SloArea.ANALYTIC_PLATFORM,
@@ -305,10 +303,11 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 distinct_id=inputs.distinct_id,
             ),
         )
+        child_id = f"process-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
         await temporalio.workflow.execute_child_workflow(
             ProcessSubscriptionWorkflow.run,
             tracked,
-            id=f"process-subscription-change-{inputs.subscription_id}",
+            id=child_id,
             parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(hours=2),
         )

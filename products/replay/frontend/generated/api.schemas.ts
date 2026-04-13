@@ -168,6 +168,20 @@ export interface MinimalPersonApi {
     readonly last_seen_at: string | null
 }
 
+/**
+ * Initial goal and session outcome coming from LLM.
+ */
+export interface OutcomeApi {
+    /**
+     * @minLength 1
+     * @maxLength 10000
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    success?: boolean | null
+}
+
 export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
 
 export interface SessionRecordingApi {
@@ -212,6 +226,7 @@ export interface SessionRecordingApi {
     /** @nullable */
     readonly activity_score: number | null
     readonly has_summary: boolean
+    readonly summary_outcome: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
 }
@@ -269,6 +284,7 @@ export interface PatchedSessionRecordingApi {
     /** @nullable */
     readonly activity_score?: number | null
     readonly has_summary?: boolean
+    readonly summary_outcome?: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }

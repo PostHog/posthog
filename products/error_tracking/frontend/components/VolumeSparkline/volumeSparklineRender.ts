@@ -13,6 +13,8 @@ const VOLUME_SPARKLINE_EVENT_LABEL_BAR_GAP_PX = 10
 
 const STRIPE_CELL = 12
 
+const DRAG_MIN_DISTANCE_PX = 5
+
 export type VolumeSparklineRenderArgs = {
     data: SparklineData
     width: number
@@ -31,6 +33,9 @@ export type VolumeSparklineRenderArgs = {
     eventLabelPaddingX?: number
     eventLabelPaddingY?: number
     eventMinSpace?: number
+    onRangeSelect?: (startDate: Date, endDate: Date) => void
+    /** Used to namespace window-level d3 drag listeners so multiple sparklines do not clobber each other */
+    sparklineKey: string
 }
 
 function roundedTopBarBottomClipPx(borderRadius: number): number {
@@ -97,7 +102,7 @@ function createeStripePatterns(
     return (color: string) => idByColor.get(color) ?? hashColorId(color)
 }
 
-export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklineRenderArgs): void {
+export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklineRenderArgs): () => void {
     const {
         data,
         width,
@@ -116,14 +121,36 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
         eventLabelPaddingX = 5,
         eventLabelPaddingY = 3,
         eventMinSpace = 2,
+        onRangeSelect,
+        sparklineKey,
     } = args
 
     const svg = d3.select(svgEl)
     svg.selectAll('*').remove()
 
     if (width <= 0 || height <= 0 || data.length < 2) {
-        return
+        return () => {}
     }
+
+    let isDragging = false
+
+    const gatedOnHoverChange = onHoverChange
+        ? (index: number | null, datum: SparklineDatum | null): void => {
+              if (isDragging) {
+                  return
+              }
+              onHoverChange(index, datum)
+          }
+        : undefined
+
+    const gatedOnEventHoverChange = onEventHoverChange
+        ? (event: SparklineEvent<string> | null): void => {
+              if (isDragging) {
+                  return
+              }
+              onEventHoverChange(event)
+          }
+        : undefined
 
     const axisReserve = VOLUME_SPARKLINE_X_AXIS_RESERVE_PX[xAxis]
     const chartHeight = Math.max(1, height - axisReserve)
@@ -174,7 +201,7 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
         .data(occurrences)
         .join('g')
         .attr('class', 'volume-bar')
-        .style('cursor', 'default')
+        .style('cursor', onRangeSelect ? 'crosshair' : 'default')
 
     barGroups.each(function (d, i) {
         const g = d3.select(this)
@@ -227,8 +254,8 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
             .style('pointer-events', 'all')
 
         g.on('mouseover', () => {
-            onEventHoverChange?.(null)
-            onHoverChange?.(i, d)
+            gatedOnEventHoverChange?.(null)
+            gatedOnHoverChange?.(i, d)
             if (showAxisHover) {
                 const axis = svg.select('.volume-sparkline-x-axis-hover')
                 if (d.value === 0) {
@@ -239,6 +266,9 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
                     axis.attr('stroke-opacity', 0)
                 }
             }
+            if (isDragging) {
+                return
+            }
             if (d.animated && d.color) {
                 g.select('.bar-hover-overlay').style('fill', 'white').style('opacity', 0.22)
             } else {
@@ -247,6 +277,9 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
         })
 
         g.on('mouseout', () => {
+            if (isDragging) {
+                return
+            }
             g.select('.bar-hover-overlay').style('opacity', 0).style('fill', 'black')
             g.select('.bar-main').style('fill', spikeBarFill(d, backgroundColor, patternIdFor))
         })
@@ -283,14 +316,40 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
                 eventMinSpace,
                 borderRadius,
             },
-            onHoverChange,
-            onEventHoverChange
+            gatedOnHoverChange,
+            gatedOnEventHoverChange
         )
     }
 
+    // Hover cursor line (vertical indicator) – only for range-selectable charts
+    let hoverCursorLine: d3.Selection<SVGLineElement, unknown, null, undefined> | null = null
+    if (onRangeSelect) {
+        hoverCursorLine = svg
+            .append('line')
+            .attr('class', 'volume-sparkline-hover-cursor')
+            .attr('y1', barPlotTop)
+            .attr('y2', chartHeight)
+            .attr('stroke', 'rgba(128, 128, 128, 0.5)')
+            .attr('stroke-width', 1)
+            .attr('pointer-events', 'none')
+            .style('opacity', 0)
+
+        svg.on('mousemove.cursor', (event: MouseEvent) => {
+            if (isDragging) {
+                return
+            }
+            const [mx] = d3.pointer(event)
+            hoverCursorLine!.attr('x1', mx).attr('x2', mx).style('opacity', 1)
+        })
+    }
+
     svg.on('mouseleave', () => {
-        onEventHoverChange?.(null)
-        onHoverChange?.(null, null)
+        if (isDragging) {
+            return
+        }
+        hoverCursorLine?.style('opacity', 0)
+        gatedOnEventHoverChange?.(null)
+        gatedOnHoverChange?.(null, null)
         if (showAxisHover) {
             svg.select('.volume-sparkline-x-axis-hover').attr('stroke-opacity', 0)
         }
@@ -300,4 +359,153 @@ export function renderVolumeSparkline(svgEl: SVGSVGElement, args: VolumeSparklin
             g.select('.bar-main').style('fill', spikeBarFill(d, backgroundColor, patternIdFor))
         })
     })
+
+    // Drag-to-select range
+    if (onRangeSelect) {
+        let dragStartX = -1
+
+        const selectionOverlay = svg
+            .append('rect')
+            .attr('class', 'drag-selection-overlay')
+            .attr('y', barPlotTop)
+            .attr('height', chartHeight - barPlotTop)
+            .attr('rx', 0)
+            .attr('ry', 0)
+            .style('fill', 'rgba(128, 128, 128, 0.15)')
+            .style('stroke', 'none')
+            .style('pointer-events', 'none')
+            .style('opacity', 0)
+
+        function resetBarStyles(): void {
+            barGroups.each(function (d: SparklineDatum) {
+                const g = d3.select(this)
+                g.select('.bar-main')
+                    .style('fill', spikeBarFill(d, backgroundColor, patternIdFor))
+                    .style('opacity', null)
+                g.select('.bar-hover-overlay').style('opacity', 0).style('fill', 'black')
+            })
+        }
+
+        svg.on('mousedown', (event: MouseEvent) => {
+            if (event.button !== 0) {
+                return
+            }
+            event.preventDefault()
+
+            const [mx] = d3.pointer(event)
+            dragStartX = mx
+
+            onHoverChange?.(null, null)
+            onEventHoverChange?.(null)
+
+            isDragging = true
+
+            svg.style('cursor', 'col-resize')
+            hoverCursorLine?.style('opacity', 0)
+        })
+
+        const handleMouseMove = (event: MouseEvent): void => {
+            if (!isDragging) {
+                return
+            }
+
+            const [mx] = d3.pointer(event, svgEl)
+            const clampedX = Math.max(0, Math.min(mx, width))
+            const left = Math.min(dragStartX, clampedX)
+            const right = Math.max(dragStartX, clampedX)
+
+            selectionOverlay
+                .attr('x', left)
+                .attr('width', Math.max(0, right - left))
+                .style('opacity', 1)
+
+            for (let i = 0; i < occurrences.length; i++) {
+                const binLeft = xScale(occurrences[i].date)
+                if (clampedX >= binLeft && clampedX < binLeft + bandwidth) {
+                    onHoverChange?.(i, occurrences[i])
+                    break
+                }
+            }
+
+            // Highlight bars inside selection, dim bars outside
+            barGroups.each(function (d: SparklineDatum) {
+                const g = d3.select(this)
+                const binLeft = xScale(d.date)
+                const binCenter = binLeft + bandwidth / 2
+                const inSelection = binCenter >= left && binCenter <= right
+
+                if (inSelection) {
+                    g.select('.bar-main').style('opacity', null)
+                    if (d.animated && d.color) {
+                        g.select('.bar-hover-overlay').style('fill', 'white').style('opacity', 0.15)
+                    } else {
+                        g.select('.bar-main').style('fill', hoverBackgroundColor)
+                    }
+                } else {
+                    g.select('.bar-main')
+                        .style('fill', spikeBarFill(d, backgroundColor, patternIdFor))
+                        .style('opacity', 0.3)
+                    g.select('.bar-hover-overlay').style('opacity', 0)
+                }
+            })
+        }
+
+        const handleMouseUp = (event: MouseEvent): void => {
+            if (!isDragging) {
+                return
+            }
+            isDragging = false
+
+            svg.style('cursor', 'crosshair')
+
+            const [mx] = d3.pointer(event, svgEl)
+            const clampedX = Math.max(0, Math.min(mx, width))
+            const dragDist = Math.abs(clampedX - dragStartX)
+
+            selectionOverlay.style('opacity', 0)
+
+            resetBarStyles()
+
+            if (dragDist < DRAG_MIN_DISTANCE_PX) {
+                return
+            }
+
+            const left = Math.min(dragStartX, clampedX)
+            const right = Math.max(dragStartX, clampedX)
+
+            let startDate: Date | null = null
+            let endDate: Date | null = null
+
+            for (const d of occurrences) {
+                const binLeft = xScale(d.date)
+                const binCenter = binLeft + bandwidth / 2
+                if (binCenter >= left && binCenter <= right) {
+                    if (!startDate || d.date < startDate) {
+                        startDate = d.date
+                    }
+                    if (!endDate || d.date > endDate) {
+                        endDate = d.date
+                    }
+                }
+            }
+
+            if (startDate && endDate) {
+                onRangeSelect(startDate, new Date(endDate.getTime() + timeDiff))
+            }
+        }
+
+        const namespace = `sparkline-drag-${sparklineKey}`
+        d3.select(window as EventTarget as Window).on(`mousemove.${namespace}`, handleMouseMove)
+        d3.select(window as EventTarget as Window).on(`mouseup.${namespace}`, handleMouseUp)
+
+        return () => {
+            d3.select(window as EventTarget as Window).on(`mousemove.${namespace}`, null)
+            d3.select(window as EventTarget as Window).on(`mouseup.${namespace}`, null)
+            svg.on('mousemove.cursor', null)
+        }
+    }
+
+    return () => {
+        svg.on('mousemove.cursor', null)
+    }
 }
