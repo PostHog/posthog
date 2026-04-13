@@ -16,6 +16,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
 )
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -34,45 +35,47 @@ class SessionViewSet(
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        with tracer.start_as_current_span("session_api_property_values") as span:
-            team = self.team
+        with PROPERTY_VALUES_DURATION.labels(endpoint_type="session").time():
+            with tracer.start_as_current_span("session_api_property_values") as span:
+                team = self.team
 
-            key = request.GET.get("key")
-            search_term = request.GET.get("value")
+                key = request.GET.get("key")
+                search_term = request.GET.get("value")
 
-            if not key:
-                raise ValidationError(detail=f"Key not provided")
+                if not key:
+                    raise ValidationError(detail=f"Key not provided")
 
-            span.set_attribute("team_id", team.pk)
-            span.set_attribute("property_key", key)
-            span.set_attribute("has_search_term", search_term is not None)
+                span.set_attribute("team_id", team.pk)
+                span.set_attribute("property_key", key)
+                span.set_attribute("has_search_term", search_term is not None)
 
-            modifiers = create_default_modifiers_for_team(team)
-            if (
-                modifiers.sessionTableVersion == SessionTableVersion.V2
-                or modifiers.sessionTableVersion == SessionTableVersion.AUTO
-            ):
-                span.set_attribute("session_table_version", "v2")
-                result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
-            else:
-                span.set_attribute("session_table_version", "v1")
-                result = get_lazy_session_table_values_v1(key, search_term=search_term, team=team)
+                modifiers = create_default_modifiers_for_team(team)
+                if (
+                    modifiers.sessionTableVersion == SessionTableVersion.V2
+                    or modifiers.sessionTableVersion == SessionTableVersion.AUTO
+                ):
+                    span.set_attribute("session_table_version", "v2")
+                    result = get_lazy_session_table_values_v2(key, search_term=search_term, team=team)
+                else:
+                    span.set_attribute("session_table_version", "v1")
+                    result = get_lazy_session_table_values_v1(key, search_term=search_term, team=team)
 
-            span.set_attribute("result_count", len(result))
+                span.set_attribute("result_count", len(result))
 
-            flattened = []
-            for value in result:
-                try:
-                    # Try loading as json for dicts or arrays
-                    flattened.append(json.loads(value[0]))
-                except json.decoder.JSONDecodeError:
-                    flattened.append(value[0])
-            return response.Response(
-                {
-                    "results": [{"name": convert_property_value(value)} for value in flatten(flattened)],
-                    "refreshing": False,
-                }
-            )
+                flattened = []
+                for value in result:
+                    try:
+                        # Try loading as json for dicts or arrays
+                        flattened.append(json.loads(value[0]))
+                    except json.decoder.JSONDecodeError:
+                        flattened.append(value[0])
+
+                return response.Response(
+                    {
+                        "results": [{"name": convert_property_value(value)} for value in flatten(flattened)],
+                        "refreshing": False,
+                    }
+                )
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kwargs) -> response.Response:
