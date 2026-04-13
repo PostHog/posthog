@@ -393,6 +393,7 @@ services:
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
             - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
@@ -401,14 +402,14 @@ services:
             - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
-            - zookeeper
+            - keeper
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
         ports:
-            - '2181:2181'
+            - '9181:9181'
 
     kafka:
         extends:
@@ -416,8 +417,6 @@ services:
             service: kafka
         ports:
             - '9092:9092'
-        depends_on:
-            - zookeeper
 
     kafka_ui:
         extends:

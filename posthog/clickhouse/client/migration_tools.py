@@ -70,9 +70,9 @@ def run_sql_with_exceptions(
     # Store original node_roles for validation purposes before debug override
     original_node_roles = node_roles_list
 
-    if settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT:
-        # In E2E tests, debug mode and hobby deployments, we run migrations on ALL nodes
-        # because we don't have different ClickHouse topologies yet in Docker
+    if node_roles is None and (settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT):
+        # In E2E tests, debug mode and hobby deployments, default to ALL nodes
+        # when no explicit roles were specified by the caller
         node_roles_list = [NodeRole.ALL]
 
     def run_migration():

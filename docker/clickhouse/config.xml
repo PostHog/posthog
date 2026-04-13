@@ -169,12 +169,10 @@
         <host_regexp>.*</host_regexp>
     </remote_url_allow_hosts>
 
-    <zookeeper>
-        <node>
-            <host>zookeeper</host>
-            <port>2181</port>
-        </node>
-    </zookeeper>
+    <!-- Keeper connection is configured via config.d/keeper_main.xml which
+         points at the single dev-stack keeper service (`keeper:9181`). All
+         nodes share this keeper; per-cluster isolation happens in table DDL
+         via the `/clickhouse/{cluster}/tables/...` path convention. -->
 
     <!-- Reloading interval for embedded dictionaries, in seconds. Default: 3600. -->
     <builtin_dictionaries_reload_interval>3600</builtin_dictionaries_reload_interval>

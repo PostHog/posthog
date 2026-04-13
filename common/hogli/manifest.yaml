@@ -371,6 +371,26 @@ docker:
         services:
             - docker
         prompt: true
+    docker:ch-stack-up:
+        bin_script: ch-stack-up
+        description: Start multi-node ClickHouse dev stack (data, coordinator, logs, keeper, kafka)
+        services:
+            - docker
+            - clickhouse
+    docker:ch-stack-down:
+        bin_script: ch-stack-down
+        description: Tear down multi-node ClickHouse dev stack and remove volumes
+        services:
+            - docker
+            - clickhouse
+        prompt: true
+    docker:ch-test-multinode:
+        bin_script: ch-test-multinode
+        description: Run multinode ClickHouse e2e tests against running dev stack
+        services:
+            - docker
+            - clickhouse
+            - testing
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'

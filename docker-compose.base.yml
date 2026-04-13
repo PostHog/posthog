@@ -164,9 +164,22 @@ services:
             timeout: 10s
             retries: 10
 
-    zookeeper:
-        image: zookeeper:3.7.0
+    keeper:
+        image: clickhouse/clickhouse-keeper:25.12.8.9
+        hostname: keeper
         restart: on-failure
+        volumes:
+            - ./docker/clickhouse/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+        healthcheck:
+            # `ruok` is the standard ZK/Keeper liveness probe — returns "imok" when ready.
+            # Without this, dependent services start before keeper accepts connections,
+            # causing ClickHouse to fail with "Can't connect to ZooKeeper" on first apply.
+            # This is what was breaking the hobby CI (see Slack thread 1776067695).
+            test: ['CMD-SHELL', 'echo ruok | nc -w 2 localhost 9181 | grep -q imok || exit 1']
+            interval: 5s
+            timeout: 10s
+            retries: 12
+            start_period: 30s
 
     kafka:
         image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
