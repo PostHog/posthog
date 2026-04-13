@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         # from Django state and dropped NOT NULL. This has been deployed for a
         # full cycle so no running code references the column.
         migrations.RunSQL(
-            sql='ALTER TABLE "posthog_experiment" DROP COLUMN IF EXISTS "exposure_preaggregation_enabled";',
+            sql="ALTER TABLE posthog_experiment DROP COLUMN IF EXISTS exposure_preaggregation_enabled;",
             reverse_sql=migrations.RunSQL.noop,
         ),
     ]
