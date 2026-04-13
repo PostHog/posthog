@@ -121,7 +121,7 @@ def _get_connection(
 
     p_key = serialization.load_pem_private_key(
         private_key.encode("utf-8"),
-        password=passphrase.encode() if passphrase is not None else None,
+        password=passphrase.encode() if passphrase else None,
         backend=default_backend(),
     )
 

@@ -7,6 +7,7 @@ Called by facade/api.py.
 
 import json
 import base64
+import decimal
 import datetime as dt
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -39,6 +40,22 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+def _normalise_to_base64(value: str) -> str:
+    try:
+        int(value, 16)
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
+
+
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -62,6 +79,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 pass
             return "str"
 
+        self.span_filters: list[SpanPropertyFilter] = []
         self.span_attribute_filters: list[SpanPropertyFilter] = []
         self.resource_attribute_filters: list[SpanPropertyFilter] = []
         if self.query.filterGroup and self.query.filterGroup.values:
@@ -70,6 +88,8 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     prop_type = getattr(prop, "type", None)
                     if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                         self.resource_attribute_filters.append(prop)
+                    if prop_type == SpanPropertyFilterType.SPAN:
+                        self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                         if isinstance(prop, SpanPropertyFilter) and prop.value:
                             property_type = "str"
@@ -118,6 +138,27 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     },
                 )
             )
+
+        if self.span_filters:
+            for span_filter in self.span_filters:
+                if span_filter.key in ("trace_id", "span_id"):
+                    if isinstance(span_filter.value, list):
+                        span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
+                    else:
+                        span_filter.value = _normalise_to_base64(str(span_filter.value))
+
+                if span_filter.key in ("duration"):
+                    span_filter.key = "duration_nano"
+
+                    if isinstance(span_filter.value, list):
+                        span_filter.value = [
+                            str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+                        ]
+                    else:
+                        if _is_number(str(span_filter.value)):
+                            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+
+                exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
             exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
@@ -271,6 +312,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "end_time": result[9].replace(tzinfo=ZoneInfo("UTC")),
                 "duration_nano": result[10],
                 "is_root_span": result[11],
+                "matched_filter": result[12],
             }
             results.append(row)
 
@@ -291,7 +333,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             SELECT
                 trace_id
             FROM posthog.trace_spans
-            WHERE {where} AND is_root_span = 1
+            WHERE {where}
+            LIMIT 1 by trace_id
             LIMIT {limit}
         """,
                 placeholders={
@@ -320,19 +363,23 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 timestamp,
                 end_time,
                 duration_nano,
-                is_root_span
+                is_root_span,
+                {where} as matched_filter
             FROM posthog.trace_spans
-            WHERE {where} AND trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
+                "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
             },
         )
         assert isinstance(query, ast.SelectQuery)
 
         query.order_by = [
+            parse_order_expr("is_root_span DESC"),
+            parse_order_expr("matched_filter DESC"),
             parse_order_expr(f"timestamp {order_dir}"),
         ]
 

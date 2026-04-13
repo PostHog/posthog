@@ -98,6 +98,7 @@ class TestExternalDataSchema(APIBaseTest):
             ],
             "incremental_available": False,
             "append_available": True,
+            "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
         }
@@ -195,6 +196,7 @@ class TestExternalDataSchema(APIBaseTest):
             ],
             "incremental_available": True,
             "append_available": True,
+            "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
         }

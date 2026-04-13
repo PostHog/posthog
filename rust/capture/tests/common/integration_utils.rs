@@ -998,7 +998,6 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             Arc::new(sink.clone()),
             redis,
             None, // global_rate_limiter_token_distinctid
-            None, // global_rate_limiter_token
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service

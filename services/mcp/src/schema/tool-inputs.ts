@@ -242,6 +242,13 @@ export const ExperimentCreateSchema = z.object({
         .number()
         .optional()
         .describe('Holdout group ID if this experiment should exclude users from other experiments'),
+
+    allow_unknown_events: z
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+        ),
 })
 
 export const InsightCreateSchema = z.object({
