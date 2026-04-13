@@ -293,6 +293,8 @@ def sample_generation_details(
     # generation_ids from sample_eval_results are $ai_target_event_id values,
     # which reference the event UUID of $ai_generation events (not $ai_generation_id
     # which the SDK doesn't set). Match on the event uuid column.
+    # $ai_output is empty for chat-format SDK calls (most OpenAI/Anthropic).
+    # The actual content lives in $ai_output_choices. Use COALESCE to fall back.
     rows = _execute_hogql(
         team_id,
         f"""
@@ -300,7 +302,10 @@ def sample_generation_details(
             toString(uuid) as generation_id,
             properties.$ai_model as model,
             properties.$ai_input as input,
-            properties.$ai_output as output,
+            coalesce(
+                nullIf(properties.$ai_output, ''),
+                properties.$ai_output_choices
+            ) as output,
             properties.$ai_input_tokens as input_tokens,
             properties.$ai_output_tokens as output_tokens,
             properties.$ai_trace_id as trace_id
