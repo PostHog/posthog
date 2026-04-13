@@ -4441,6 +4441,7 @@ dependencies = [
  "common-hypercache",
  "common-metrics",
  "common-redis",
+ "common-s3",
  "envconfig",
  "health",
  "http-body-util",

@@ -95,6 +95,7 @@ mod tests {
     use super::*;
     use common_hypercache::HyperCacheConfig;
     use common_redis::MockRedisClient;
+    use common_s3::{MockS3Client, S3Client, S3Error};
 
     fn test_config(namespace: &str, value: &str) -> HyperCacheConfig {
         let mut config = HyperCacheConfig::new(
@@ -112,6 +113,23 @@ mod tests {
         config.get_redis_cache_key(&key)
     }
 
+    fn dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3.expect_get_string().returning(|_, key| {
+            let key_owned = key.to_string();
+            Box::pin(async move { Err(S3Error::NotFound(key_owned)) })
+        });
+        Arc::new(mock_s3)
+    }
+
+    fn make_reader(mock_redis: MockRedisClient, config: HyperCacheConfig) -> Arc<HyperCacheReader> {
+        Arc::new(HyperCacheReader::new_with_s3_client(
+            Arc::new(mock_redis),
+            dummy_s3_client(),
+            config,
+        ))
+    }
+
     fn pickle_json(value: &serde_json::Value) -> Vec<u8> {
         let json_str = serde_json::to_string(value).unwrap();
         serde_pickle::to_vec(&json_str, Default::default()).unwrap()
@@ -125,11 +143,7 @@ mod tests {
     async fn test_cache_miss_returns_none() {
         let config = test_config("surveys", "surveys.json");
         let mock_redis = MockRedisClient::new();
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
 
         let result = get_cached_data(&reader, None, CacheNamespace::Surveys, "phc_test").await;
         assert!(result.is_none());
@@ -150,11 +164,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
 
         let result = get_cached_data(&reader, None, CacheNamespace::Surveys, token).await;
         assert_eq!(result, Some(test_data));
@@ -171,11 +181,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
 
         let result = get_cached_data(&reader, None, CacheNamespace::Array, token).await;
         assert!(result.is_none());
@@ -197,11 +203,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
 
         let result = get_cached_data(&reader, None, CacheNamespace::Array, token).await;
         assert_eq!(result, Some(test_config_data));
@@ -214,11 +216,7 @@ mod tests {
         // should return None without hitting the reader.
         let config = test_config("surveys", "surveys.json");
         let mock_redis = MockRedisClient::new();
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
         let negative_cache = NegativeCache::new(100, 300);
 
         let token = "phc_does_not_exist";
@@ -258,11 +256,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
         let negative_cache = NegativeCache::new(100, 300);
 
         let result =
@@ -289,11 +283,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
         let negative_cache = NegativeCache::new(100, 300);
 
         let result = get_cached_data(
@@ -328,11 +318,7 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let reader = make_reader(mock_redis, config);
         let negative_cache = NegativeCache::new(100, 300);
 
         // Pre-seed a tombstone for a key that now has data in Redis.
@@ -359,7 +345,7 @@ mod tests {
         // and S3 also fails, HyperCacheReader surfaces the infrastructure error
         // (not CacheMiss). The get_cached_data function's Err(e) arm returns None
         // without inserting into the negative cache, preventing cache poisoning
-        // during outages.
+        // during outages. Both Redis and S3 must return infra errors.
         let config = test_config("surveys", "surveys.json");
         let token = "phc_infra_error";
         let cache_key = cache_key_for_token(&config, token);
@@ -368,11 +354,16 @@ mod tests {
         mock_redis =
             mock_redis.get_raw_bytes_ret(&cache_key, Err(common_redis::CustomRedisError::Timeout));
 
-        let reader = Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        );
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3.expect_get_string().returning(|_, _| {
+            Box::pin(async { Err(S3Error::OperationFailed("simulated S3 outage".to_string())) })
+        });
+
+        let reader = Arc::new(HyperCacheReader::new_with_s3_client(
+            Arc::new(mock_redis),
+            Arc::new(mock_s3),
+            config,
+        ));
         let negative_cache = NegativeCache::new(100, 300);
 
         let result = get_cached_data(

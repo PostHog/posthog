@@ -314,11 +314,12 @@ impl HyperCacheReader {
     ) -> Result<(Value, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
-        // Track whether any tier confirmed the key doesn't exist (CacheMiss)
-        // vs all tiers having infrastructure errors. This distinction matters
-        // for callers like negative caching: a confirmed miss is safe to
-        // tombstone, but an infrastructure error should not be cached.
-        let mut confirmed_miss = false;
+        // S3 is the authoritative store — only an S3 NotFound confirms the
+        // key genuinely doesn't exist. A Redis miss alone just means we need
+        // to check S3. Infrastructure errors from either tier are tracked
+        // separately so callers (e.g., negative cache) don't tombstone keys
+        // that may exist once the backing store recovers.
+        let mut s3_confirmed_miss = false;
         let mut last_infra_error: Option<HyperCacheError> = None;
 
         // Try Redis first
@@ -354,9 +355,8 @@ impl HyperCacheReader {
             Ok(Err(HyperCacheError::CacheMiss)) => {
                 debug!(
                     cache_key = %redis_cache_key,
-                    "HyperCache Redis confirmed miss, trying S3"
+                    "HyperCache Redis miss, trying S3"
                 );
-                confirmed_miss = true;
             }
             Ok(Err(e)) => {
                 debug!(
@@ -409,7 +409,7 @@ impl HyperCacheReader {
                     cache_key = %s3_cache_key,
                     "HyperCache S3 confirmed miss"
                 );
-                confirmed_miss = true;
+                s3_confirmed_miss = true;
             }
             Ok(Err(e)) => {
                 debug!(
@@ -432,16 +432,12 @@ impl HyperCacheReader {
             }
         }
 
-        // If at least one tier confirmed the key doesn't exist, return CacheMiss.
-        // Otherwise, if we only saw infrastructure errors, surface the error so
-        // callers (e.g., negative cache) can avoid tombstoning a key that might
-        // exist once the backing store recovers.
-        if confirmed_miss {
+        if s3_confirmed_miss {
             debug!(
                 redis_key = %redis_cache_key,
                 s3_key = %s3_cache_key,
                 namespace = %self.config.namespace,
-                "HyperCache confirmed miss: key not found in any tier"
+                "HyperCache confirmed miss: key not found in S3"
             );
             inc(
                 HYPERCACHE_COUNTER_NAME,
@@ -472,6 +468,10 @@ impl HyperCacheReader {
             );
             Err(e)
         } else {
+            // Neither s3_confirmed_miss nor last_infra_error was set. This
+            // should not happen — emit a tombstone metric so we notice.
+            // Return a Timeout rather than CacheMiss so callers don't
+            // tombstone the key in a negative cache.
             inc(
                 TOMBSTONE_COUNTER_NAME,
                 &[
@@ -484,7 +484,9 @@ impl HyperCacheReader {
                 ],
                 1,
             );
-            Err(HyperCacheError::CacheMiss)
+            Err(HyperCacheError::Timeout(
+                "unexpected: no tier set confirmed_miss or infra_error".to_string(),
+            ))
         }
     }
 

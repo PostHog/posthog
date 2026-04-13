@@ -11,6 +11,7 @@ pub mod helpers {
     use common_cache::NegativeCache;
     use common_hypercache::{HyperCacheConfig, HyperCacheReader, KeyType};
     use common_redis::MockRedisClient;
+    use common_s3::{MockS3Client, S3Client, S3Error};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
@@ -22,8 +23,18 @@ pub mod helpers {
         serde_pickle::to_vec(&json_str, Default::default()).unwrap()
     }
 
-    /// Create a HyperCacheReader backed by a MockRedisClient.
-    pub async fn mock_reader(
+    /// S3 mock that returns NotFound for all keys.
+    fn dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3.expect_get_string().returning(|_, key| {
+            let key_owned = key.to_string();
+            Box::pin(async move { Err(S3Error::NotFound(key_owned)) })
+        });
+        Arc::new(mock_s3)
+    }
+
+    /// Create a HyperCacheReader backed by a MockRedisClient and a dummy S3.
+    pub fn mock_reader(
         namespace: &str,
         value: &str,
         mock_redis: MockRedisClient,
@@ -35,11 +46,11 @@ pub mod helpers {
             "test-bucket".to_string(),
         );
         config.token_based = true;
-        Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        )
+        Arc::new(HyperCacheReader::new_with_s3_client(
+            Arc::new(mock_redis),
+            dummy_s3_client(),
+            config,
+        ))
     }
 
     /// Get the Redis cache key for a token-based HyperCache lookup.

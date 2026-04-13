@@ -279,8 +279,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_invalid_token_returns_400() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let router = test_router(surveys, config);
 
         let (status, _) = get(&router, "/array/token.with.dots/config").await;
@@ -289,8 +289,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_missing_returns_404() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let router = test_router(surveys, config);
 
         let (status, _) = get(&router, "/array/phc_unknown/config").await;
@@ -311,8 +311,8 @@ mod tests {
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
 
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", mock).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
         let router = test_router(surveys, config);
 
         let (status, body, headers) =
@@ -347,8 +347,8 @@ mod tests {
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
 
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", mock).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
         let router = test_router(surveys, config);
 
         let (status, body) = get(&router, &format!("/array/{token}/config")).await;
@@ -379,8 +379,8 @@ mod tests {
         let mut mock = MockRedisClient::new();
         mock = mock.get_raw_bytes_ret(&key, Ok(pickle_json(&config_data)));
 
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", mock).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", mock);
         let router = test_router(surveys, config);
 
         let (status, body, headers) =
@@ -403,8 +403,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_js_missing_returns_404() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let router = test_router(surveys, config);
 
         let (status, _) = get(&router, "/array/phc_unknown/config.js").await;
@@ -413,8 +413,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_negative_cache_short_circuits_config_miss() {
-        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new()).await;
-        let config = mock_reader("array", "config.json", MockRedisClient::new()).await;
+        let surveys = mock_reader("surveys", "surveys.json", MockRedisClient::new());
+        let config = mock_reader("array", "config.json", MockRedisClient::new());
         let (router, _surveys_nc, config_nc) = test_router_with_negative_cache(surveys, config);
 
         let token = "phc_neg_cache_test";
