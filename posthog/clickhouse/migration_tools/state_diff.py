@@ -333,6 +333,18 @@ def _columns_sql(columns: list[ColumnDef]) -> str:
 # Value types: YAML admits str/int/bool for source+layout params.
 
 
+def _normalize_layout_type(layout: str) -> str:
+    """Normalize a dictionary LAYOUT type name for semantic comparison.
+
+    CH auto-prepends COMPLEX_KEY_ when the primary key is non-integer or
+    composite. HASHED with String key → COMPLEX_KEY_HASHED. RANGE_HASHED with
+    String key → COMPLEX_KEY_RANGE_HASHED. These are semantically identical
+    — the YAML declares HASHED but CH stores COMPLEX_KEY_HASHED. Strip the
+    prefix to compare.
+    """
+    return re.sub(r"^COMPLEX_KEY_", "", layout.upper())
+
+
 def _render_dict_param(key: str, value: object) -> str:
     """Render one `key value` pair inside a SOURCE(...) or LAYOUT(...) clause.
 
@@ -789,100 +801,94 @@ def diff_state(
                         structural_recreate = True
 
         if _is_dictionary(desired_table.engine):
-            # Dictionaries don't support ALTER — any change in metadata (primary key,
-            # source type, source params, layout type, layout params, lifetime,
-            # range) forces DROP + CREATE. Structured fields populated by
-            # dump_dictionaries are checked first; engine_full substring matches
-            # cover params that aren't decomposed by introspection (URL, DB,
-            # query text, layout params like PREALLOCATE). False positives only
-            # rewrite the same DDL, so err on the side of recreate.
-            if current_table.engine_full:
-                haystack = current_table.engine_full
-                if desired_table.primary_key and f"PRIMARY KEY {desired_table.primary_key}" not in haystack:
+            # Dictionaries don't support ALTER — structural metadata changes
+            # force DROP + CREATE. Keep this check conservative: only trigger
+            # on changes we can verify unambiguously. CH normalizes stored DDL
+            # in ways that would false-positive any substring param check
+            # (password is masked as [HIDDEN], layout types auto-upgrade from
+            # RANGE_HASHED → COMPLEX_KEY_RANGE_HASHED when the key is complex,
+            # param casing flips between YAML form and CH uppercasing, URL
+            # query string ordering is not stable). We rely on engine_full
+            # (sourced from create_table_query in schema_introspect) for
+            # primary key + range comparisons only.
+            haystack = current_table.engine_full or ""
+            if desired_table.primary_key and haystack:
+                if f"PRIMARY KEY {desired_table.primary_key}" not in haystack:
                     structural_details.append(f"PRIMARY KEY changed (desired: {desired_table.primary_key})")
                     structural_recreate = True
-                # Layout type — prefer structured comparison, fall back to substring.
-                desired_layout_type = (
-                    desired_table.dict_layout.get("type", "") if desired_table.dict_layout else ""
-                ).upper()
-                if desired_layout_type:
-                    current_layout_type = (current_table.dict_layout_type or "").upper()
-                    if current_layout_type:
-                        if current_layout_type != desired_layout_type:
-                            structural_details.append(
-                                f"LAYOUT type changed: {current_layout_type} -> {desired_layout_type}"
-                            )
-                            structural_recreate = True
-                    elif desired_layout_type not in haystack.upper():
-                        structural_details.append(f"LAYOUT changed (desired: {desired_layout_type})")
-                        structural_recreate = True
-                # Layout params — substring check against engine_full.
-                # system.dictionaries doesn't expose per-param values (e.g.
-                # PREALLOCATE 1, SHARDS 4, size_in_cells 100000).
-                if desired_table.dict_layout:
-                    for param_key, param_val in (desired_table.dict_layout.get("params") or {}).items():
-                        rendered = _render_dict_param(param_key, param_val)
-                        if rendered not in haystack:
-                            structural_details.append(f"LAYOUT param '{param_key}' changed (desired: {rendered})")
-                            structural_recreate = True
-                # Source type — prefer structured, fall back to substring.
-                if desired_table.dict_source and desired_table.dict_source.get("type"):
-                    desired_source_type = desired_table.dict_source["type"].upper()
-                    current_source_type = (current_table.dict_source_type or "").upper()
-                    if current_source_type and current_source_type != desired_source_type:
+            # Layout type — normalize COMPLEX_KEY_ prefix both sides because
+            # CH auto-prepends it when the primary key has multiple columns or
+            # is a non-integer type. HASHED with String key stores as
+            # COMPLEX_KEY_HASHED; RANGE_HASHED with String key stores as
+            # COMPLEX_KEY_RANGE_HASHED. Semantically identical.
+            desired_layout_type = (
+                desired_table.dict_layout.get("type", "") if desired_table.dict_layout else ""
+            ).upper()
+            if desired_layout_type:
+                current_layout_type = (current_table.dict_layout_type or "").upper()
+                # Dicts report empty layout_type when NOT_LOADED; fall back to
+                # scanning engine_full for the layout DDL clause.
+                if not current_layout_type and haystack:
+                    layout_match = re.search(r"LAYOUT\(\s*(\w+)", haystack, re.IGNORECASE)
+                    if layout_match:
+                        current_layout_type = layout_match.group(1).upper()
+                if current_layout_type:
+                    norm_desired = _normalize_layout_type(desired_layout_type)
+                    norm_current = _normalize_layout_type(current_layout_type)
+                    if norm_desired != norm_current:
                         structural_details.append(
-                            f"SOURCE type changed: {current_source_type} -> {desired_source_type}"
+                            f"LAYOUT type changed: {current_layout_type} -> {desired_layout_type}"
                         )
                         structural_recreate = True
-                    elif not current_source_type and desired_source_type not in haystack.upper():
-                        structural_details.append(f"SOURCE type changed (desired: {desired_source_type})")
+            # Source type — compare kinds only (CLICKHOUSE vs HTTP vs MYSQL).
+            # Param-level diffs are NOT checked: passwords are masked in the
+            # stored DDL, users vary across environments, query text
+            # ordering/whitespace is reformatted by CH. Structural source
+            # kind changes are rare and safe to catch here.
+            if desired_table.dict_source and desired_table.dict_source.get("type"):
+                desired_source_type = desired_table.dict_source["type"].upper()
+                current_source_type = (current_table.dict_source_type or "").upper()
+                if not current_source_type and haystack:
+                    source_match = re.search(r"SOURCE\(\s*(\w+)", haystack, re.IGNORECASE)
+                    if source_match:
+                        current_source_type = source_match.group(1).upper()
+                if current_source_type and current_source_type != desired_source_type:
+                    structural_details.append(f"SOURCE type changed: {current_source_type} -> {desired_source_type}")
+                    structural_recreate = True
+            # Lifetime — prefer structured comparison (ints), fall back to
+            # substring scan of engine_full when the dict is NOT_LOADED.
+            if desired_table.dict_lifetime:
+                lt = desired_table.dict_lifetime
+                desired_min = int(lt.get("min", 0))
+                desired_max = int(lt.get("max", 0))
+                current_min = current_table.dict_lifetime_min
+                current_max = current_table.dict_lifetime_max
+                if not (current_min or current_max) and haystack:
+                    lifetime_match = re.search(r"LIFETIME\(\s*MIN\s+(\d+)\s+MAX\s+(\d+)", haystack, re.IGNORECASE)
+                    if lifetime_match:
+                        current_min = int(lifetime_match.group(1))
+                        current_max = int(lifetime_match.group(2))
+                if (current_min or current_max) and (current_min != desired_min or current_max != desired_max):
+                    structural_details.append(
+                        f"LIFETIME changed: {current_min}/{current_max} -> {desired_min}/{desired_max}"
+                    )
+                    structural_recreate = True
+            # RANGE clause — compare presence + column names only, not formatting.
+            if desired_table.dict_range and haystack:
+                desired_min_col = desired_table.dict_range.get("min", "")
+                desired_max_col = desired_table.dict_range.get("max", "")
+                range_match = re.search(r"RANGE\(\s*MIN\s+(\w+)\s+MAX\s+(\w+)", haystack, re.IGNORECASE)
+                if range_match:
+                    current_min_col, current_max_col = range_match.group(1), range_match.group(2)
+                    if (current_min_col, current_max_col) != (desired_min_col, desired_max_col):
+                        structural_details.append(
+                            f"RANGE changed: ({current_min_col}, {current_max_col}) -> "
+                            f"({desired_min_col}, {desired_max_col})"
+                        )
                         structural_recreate = True
-                # Source params — substring check. CH renders SOURCE params in
-                # the DDL verbatim, so any URL/DB/table/query change shows up in
-                # engine_full. Match against both the rendered YAML form
-                # ("key 'val'") and the CH-uppercased form ("KEY 'val'") to
-                # avoid false positives on case variations alone.
-                #
-                # `password` and `user` are excluded because they're resolved
-                # from Django settings (via __from_settings__) and vary across
-                # envs — triggering recreate on a legitimate env difference
-                # (dev vs prod password) would cause unwanted DDL churn.
-                # Structural source changes (table, URL, query, DB) still fire.
-                if desired_table.dict_source:
-                    for param_key, param_val in desired_table.dict_source.items():
-                        if param_key in ("type", "password", "user"):
-                            continue
-                        rendered = _render_dict_param(param_key, param_val)
-                        rendered_upper = _render_dict_param(param_key.upper(), param_val)
-                        if rendered not in haystack and rendered_upper not in haystack:
-                            structural_details.append(f"SOURCE param '{param_key}' changed (desired: {param_val!r})")
-                            structural_recreate = True
-                # Lifetime — prefer structured comparison (ints), fall back to substring.
-                if desired_table.dict_lifetime:
-                    lt = desired_table.dict_lifetime
-                    desired_min = int(lt.get("min", 0))
-                    desired_max = int(lt.get("max", 0))
-                    if current_table.dict_lifetime_min or current_table.dict_lifetime_max:
-                        if (
-                            current_table.dict_lifetime_min != desired_min
-                            or current_table.dict_lifetime_max != desired_max
-                        ):
-                            structural_details.append(
-                                f"LIFETIME changed: "
-                                f"{current_table.dict_lifetime_min}/{current_table.dict_lifetime_max} "
-                                f"-> {desired_min}/{desired_max}"
-                            )
-                            structural_recreate = True
-                    elif f"MIN {desired_min}" not in haystack or f"MAX {desired_max}" not in haystack:
-                        structural_details.append(f"LIFETIME changed (desired: {lt})")
-                        structural_recreate = True
-                # RANGE clause — substring check. system.dictionaries doesn't
-                # break out RANGE column names (part of the DDL only).
-                if desired_table.dict_range:
-                    rendered_range = _render_dict_range(desired_table.dict_range)
-                    if rendered_range and rendered_range not in haystack:
-                        structural_details.append(f"RANGE changed (desired: {rendered_range})")
-                        structural_recreate = True
+                elif "RANGE(" not in haystack.upper():
+                    structural_details.append(f"RANGE missing (desired: MIN {desired_min_col} MAX {desired_max_col})")
+                    structural_recreate = True
 
         if structural_recreate:
             detail_str = "; ".join(structural_details)
