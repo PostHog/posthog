@@ -185,7 +185,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
         handleGithubCallback: async ({ searchParams }) => {
-            const { state, installation_id } = searchParams
+            const { state, installation_id, code } = searchParams
             const { next, token } = fromParamsGivenUrl(state ?? '')
             const stateToken = token || state
             let replaceUrl: string = next || urls.settings('project-integrations')
@@ -198,7 +198,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                     await api.integrations.create({
                         kind: 'github',
-                        config: { installation_id, state: stateToken },
+                        config: { installation_id, state: stateToken, code },
                     })
 
                     actions.loadIntegrations()

@@ -340,9 +340,15 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             ) : node.data.config.type === 'manual' ? (
                 <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'schedule' ? (
-                <LemonField.Pure error={validationResult?.errors?.schedule}>
-                    <RecurringSchedulePicker />
-                </LemonField.Pure>
+                <div className="flex flex-col gap-2 w-full">
+                    <p className="text-xs text-muted mb-0">
+                        Schedule triggers run without a person or event. If your workflow needs to target specific
+                        users, use a batch trigger instead.
+                    </p>
+                    <LemonField.Pure error={validationResult?.errors?.schedule}>
+                        <RecurringSchedulePicker />
+                    </LemonField.Pure>
+                </div>
             ) : node.data.config.type === 'batch' ? (
                 <StepTriggerConfigurationBatch action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
