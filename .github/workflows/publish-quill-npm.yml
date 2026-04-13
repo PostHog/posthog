@@ -54,9 +54,10 @@ jobs:
             # step so a failure shows up on the exact step that broke.
             - name: Publish @posthog/quill-tokens
               id: publish-tokens
+              working-directory: packages/quill/packages/tokens
               run: |
-                  pnpm --filter "@posthog/quill-tokens" publish --tag "$NPM_TAG" --no-git-checks --access public
-                  VERSION=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
+                  npm publish --tag "$NPM_TAG" --access public
+                  VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
                   NODE_AUTH_TOKEN: ''
@@ -65,9 +66,10 @@ jobs:
 
             - name: Publish @posthog/quill
               id: publish-quill
+              working-directory: packages/quill/packages/quill
               run: |
-                  pnpm --filter "@posthog/quill" publish --tag "$NPM_TAG" --no-git-checks --access public
-                  VERSION=$(node -p "require('./packages/quill/packages/quill/package.json').version")
+                  npm publish --tag "$NPM_TAG" --access public
+                  VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
                   NODE_AUTH_TOKEN: ''
@@ -91,7 +93,7 @@ jobs:
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage
-                  token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
                   payload: |
-                      channel: "${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}"
+                      channel: "C0AMDUUG09F"
                       text: "${{ job.status == 'success' && ':white_check_mark:' || ':red_circle:' }} Quill npm publish (${{ inputs.tag }}): ${{ job.status }}\n${{ steps.versions.outputs.summary }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
