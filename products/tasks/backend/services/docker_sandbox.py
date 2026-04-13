@@ -47,6 +47,7 @@ from .sandbox import (
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    parse_sandbox_repo_mount_map,
     wait_for_health_check,
 )
 
@@ -278,6 +279,13 @@ class DockerSandbox(SandboxBase):
             host_port = DockerSandbox._find_available_port()
             port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
 
+            mount_map = parse_sandbox_repo_mount_map()
+            volume_args: list[str] = []
+            for repo_key, local_path in mount_map.items():
+                org, repo = repo_key.split("/", 1)
+                container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+                volume_args.extend(["-v", f"{local_path}:{container_path}"])
+
             docker_args = [
                 "docker",
                 "run",
@@ -294,6 +302,7 @@ class DockerSandbox(SandboxBase):
                 f"--cpus={config.cpu_cores}",
                 *env_args,
                 *port_args,
+                *volume_args,
                 image,
                 "tail",
                 "-f",
@@ -519,6 +528,13 @@ class DockerSandbox(SandboxBase):
                 )
 
         return result
+
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+        mount_map = parse_sandbox_repo_mount_map()
+        if repository.lower() in mount_map:
+            logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
+            return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        return super().clone_repository(repository, github_token, shallow)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""

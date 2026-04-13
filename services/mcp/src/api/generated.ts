@@ -16047,6 +16047,8 @@ export namespace Schemas {
        * @nullable
        */
       default_branch?: string | null;
+      /** Whether more branches exist beyond the returned page */
+      has_more: boolean;
     }
 
     export interface GitHubRepo {
@@ -16057,6 +16059,8 @@ export namespace Schemas {
 
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
+      /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
     }
 
     export interface Group {
@@ -21108,6 +21112,8 @@ export namespace Schemas {
       repositories?: string[];
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      internal?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -22150,6 +22156,31 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Ticket[];
+    }
+
+    /**
+     * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+     */
+    export type TicketViewFilters = {[key: string]: unknown};
+
+    export interface TicketView {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 400 */
+      name: string;
+      /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+      filters?: TicketViewFilters;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedTicketViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketView[];
     }
 
     export interface TraceReviewScore {
@@ -25019,6 +25050,8 @@ export namespace Schemas {
       readonly has_environment_variables?: boolean;
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      readonly internal?: boolean;
       /** Computed domain allowlist based on network_access_level and allowed_domains */
       readonly effective_domains?: readonly string[];
       readonly created_by?: UserBasic;
@@ -29942,6 +29975,8 @@ export namespace Schemas {
       readonly has_environment_variables: boolean;
       /** If true, only the creator can see this environment. Otherwise visible to whole team. */
       private?: boolean;
+      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+      readonly internal: boolean;
       /** Computed domain allowlist based on network_access_level and allowed_domains */
       readonly effective_domains: readonly string[];
       readonly created_by: UserBasic;
@@ -32317,10 +32352,35 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string;
+    };
+
+    export type EnvironmentsIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type EnvironmentsLogsAlertsListParams = {
@@ -32960,6 +33020,17 @@ export namespace Schemas {
     };
 
     export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ConversationsViewsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -35518,10 +35589,35 @@ export namespace Schemas {
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string;
+    };
+
+    export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type LiveDebuggerBreakpointsListParams = {

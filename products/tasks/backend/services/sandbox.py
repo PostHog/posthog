@@ -11,6 +11,7 @@ This module exports:
 
 from __future__ import annotations
 
+import os
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -128,11 +129,14 @@ class SandboxBase(ABC):
         org_path = f"{WORKING_DIR}/repos/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
+        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
+        # files get fetched on demand. Shallow clones are already small enough.
+        blob_filter = "" if shallow else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
+            f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
@@ -200,6 +204,34 @@ class SandboxBase(ABC):
 _ExecuteFn = Callable[..., ExecutionResult]
 
 _logger = structlog.get_logger(__name__)
+
+
+def parse_sandbox_repo_mount_map() -> dict[str, str]:
+    """Parse SANDBOX_REPO_MOUNT_MAP into {lower(org/repo): expanded_local_path}.
+
+    Used by Docker sandbox for bind mounts and by task activities for user-facing logs.
+    Format: ``org/repo:/local/path,org2/repo2:~/other/path``
+    """
+    raw = os.environ.get("SANDBOX_REPO_MOUNT_MAP", "")
+    if not raw:
+        return {}
+
+    result: dict[str, str] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split(":", 1)
+        if len(parts) != 2 or "/" not in parts[0]:
+            _logger.warning(f"Ignoring malformed SANDBOX_REPO_MOUNT_MAP entry: {entry}")
+            continue
+        repo_key = parts[0].strip().lower()
+        local_path = os.path.expanduser(parts[1].strip())
+        if not os.path.isdir(local_path):
+            _logger.warning(f"SANDBOX_REPO_MOUNT_MAP: path does not exist, skipping: {local_path}")
+            continue
+        result[repo_key] = os.path.abspath(local_path)
+    return result
 
 
 def wait_for_health_check(
@@ -301,6 +333,7 @@ __all__ = [
     "SANDBOX_TTL_SECONDS",
     "SandboxBase",
     "WORKING_DIR",
+    "parse_sandbox_repo_mount_map",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "wait_for_health_check",

@@ -396,6 +396,10 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
+        applyTitleAndIcon: (title: string, iconType: FileSystemIconType | 'loading' | 'blank') => ({
+            title,
+            iconType,
+        }),
         loadPinnedTabsFromBackend: true,
         setPinnedStateFromBackend: (pinnedState: PersistedPinnedState) => ({ pinnedState }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
@@ -855,6 +859,24 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        applyTitleAndIcon: ({ title, iconType }) => {
+            if (!title || title === '...' || title === 'Loading...') {
+                // When the tab is loading, don't flicker between the loaded title and the new one
+                return
+            }
+            const activeIndex = values.tabs.findIndex((t) => t.active)
+            if (activeIndex !== -1) {
+                actions.setTabs(
+                    values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType, badge: false } : tab))
+                )
+            }
+            if (!process?.env?.STORYBOOK) {
+                // Persists the changed tab titles in location.history without a replace/push action.
+                // Outside the action's event loop to avoid race conditions with subscribing.
+                // Somehow it messes up Storybook, so disabled for it.
+                window.setTimeout(() => router.actions.refreshRouterState(), 1)
+            }
+        },
         freezeTabWidths: () => {
             const tabRow = document.querySelector('.scene-tab-row')
             if (!tabRow) {
@@ -1514,21 +1536,16 @@ export const sceneLogic = kea<sceneLogicType>([
                             iconType,
                         },
                     ])
+                    if (!process?.env?.STORYBOOK) {
+                        window.setTimeout(() => router.actions.refreshRouterState(), 1)
+                    }
                 } else {
-                    if (!title || title === '...' || title === 'Loading...') {
-                        // When the tab is loading, don't flicker between the loaded title and the new one
+                    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+                        cache.pendingTitleAndIcon = { title, iconType }
                         return
                     }
-                    const newTabs = values.tabs.map((tab, i) =>
-                        i === activeIndex ? { ...tab, title, iconType, badge: false } : tab
-                    )
-                    actions.setTabs(newTabs)
-                }
-                if (!process?.env?.STORYBOOK) {
-                    // This persists the changed tab titles in location.history without a replace/push action.
-                    // We'll do it outside the action's event loop to avoid race conditions with subscribing.
-                    // Somehow it messes up Storybook, so disabled for it.
-                    window.setTimeout(() => router.actions.refreshRouterState(), 1)
+                    cache.pendingTitleAndIcon = null
+                    actions.applyTitleAndIcon(title, iconType)
                 }
             },
             tabs: () => {
@@ -1569,6 +1586,24 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
         }, 'pinnedTabsBackendPersist')
+    }),
+
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible' && cache.pendingTitleAndIcon) {
+                        const { title, iconType } = cache.pendingTitleAndIcon
+                        cache.pendingTitleAndIcon = null
+                        actions.applyTitleAndIcon(title, iconType)
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            'titleAndIconVisibilitySync',
+            { pauseOnPageHidden: false }
+        )
     }),
 
     afterMount(({ actions, cache, values }) => {
