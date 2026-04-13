@@ -165,9 +165,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         # with a "failure" event for what is really a 4xx client error.
         # Externally-handled formats (videos via VideoExportWorkflow, PDF via
         # the sharing flow) are routed elsewhere and bypass this check.
-        if export_format and export_format not in ExportedAsset.EXTERNALLY_HANDLED_FORMATS:
-            if export_format not in ExportedAsset.DISPATCHABLE_FORMATS:
-                raise ValidationError({"export_format": [f"{export_format} is not currently supported."]})
+        if export_format not in (ExportedAsset.EXTERNALLY_HANDLED_FORMATS | ExportedAsset.DISPATCHABLE_FORMATS):
+            raise ValidationError({"export_format": [f"{export_format} is not currently supported."]})
 
         data["team_id"] = self.context["team_id"]
         return data
