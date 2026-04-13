@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
@@ -54,3 +55,47 @@ class TestAlterReplicatedValidation(unittest.TestCase):
 
         self.assertEqual(operation._sharded, True)
         self.assertEqual(operation._is_alter_on_replicated_table, False)
+
+    @patch("posthog.clickhouse.client.migration_tools.settings")
+    def test_explicit_node_roles_respected_in_debug_mode(self, mock_settings):
+        """Explicit node_roles should not be overridden to ALL in debug mode."""
+        mock_settings.DEBUG = True
+        mock_settings.E2E_TESTING = False
+        mock_settings.CLOUD_DEPLOYMENT = ""
+
+        operation = run_sql_with_exceptions(
+            sql="ALTER TABLE test ADD COLUMN x String",
+            node_roles=[NodeRole.DATA],
+        )
+
+        self.assertEqual(operation._node_roles, [NodeRole.DATA])
+
+    @patch("posthog.clickhouse.client.migration_tools.settings")
+    def test_none_node_roles_defaults_to_all_in_debug_mode(self, mock_settings):
+        """When node_roles is None, debug mode should still override to ALL."""
+        mock_settings.DEBUG = True
+        mock_settings.E2E_TESTING = False
+        mock_settings.CLOUD_DEPLOYMENT = ""
+
+        operation = run_sql_with_exceptions(
+            sql="ALTER TABLE test ADD COLUMN x String",
+            node_roles=None,
+        )
+
+        # node_roles=None -> default [NodeRole.DATA] -> override to [NodeRole.ALL]
+        # original_node_roles captured before override = [NodeRole.DATA]
+        self.assertEqual(operation._node_roles, [NodeRole.DATA])
+
+    @patch("posthog.clickhouse.client.migration_tools.settings")
+    def test_explicit_node_roles_in_cloud_mode(self, mock_settings):
+        """In cloud mode with no debug, None node_roles keeps default DATA."""
+        mock_settings.DEBUG = False
+        mock_settings.E2E_TESTING = False
+        mock_settings.CLOUD_DEPLOYMENT = "US"
+
+        operation = run_sql_with_exceptions(
+            sql="ALTER TABLE test ADD COLUMN x String",
+            node_roles=None,
+        )
+
+        self.assertEqual(operation._node_roles, [NodeRole.DATA])

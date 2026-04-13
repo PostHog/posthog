@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Run the multinode ClickHouse e2e test suite against a running dev stack.
+# Start the stack first with `./bin/ch-stack-up`.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+require_container() {
+    local name=$1
+    if ! docker ps --format '{{.Names}}' | grep -q "^${name}$"; then
+        echo "ERROR: container ${name} is not running. Start the stack first:"
+        echo "  ./bin/ch-stack-up"
+        exit 1
+    fi
+}
+
+require_container posthog-clickhouse-1
+require_container posthog-clickhouse-coordinator-1
+require_container posthog-clickhouse-logs-1
+
+SECRET_KEY=test-key-not-real \
+    DATABASE_URL=postgres://localhost/posthog \
+    DEBUG=1 \
+    .venv/bin/pytest posthog/clickhouse/test/test_e2e_multinode.py -v -m multinode

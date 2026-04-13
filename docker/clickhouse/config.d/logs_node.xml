@@ -1,0 +1,19 @@
+<clickhouse>
+    <tcp_port>9000</tcp_port>
+    <remote_servers>
+        <posthog_logs>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_logs>
+    </remote_servers>
+    <macros>
+        <shard>01</shard>
+        <replica>ch1</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>logs</hostClusterRole>
+    </macros>
+</clickhouse>
