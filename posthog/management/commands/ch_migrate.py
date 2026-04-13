@@ -246,6 +246,7 @@ class Command(BaseCommand):
 
         all_diffs = []
         for cluster_name, states in by_cluster.items():
+            used_fallback = False
             try:
                 cluster_obj = get_cluster_by_name(cluster_name)
                 current = _union_from_cluster(cluster_obj)
@@ -284,6 +285,7 @@ class Command(BaseCommand):
                     )
                     try:
                         current = _fallback_union()
+                        used_fallback = True
                     except Exception as fallback_exc:
                         print(
                             f"Warning: fallback to migrations cluster also failed for "
@@ -310,6 +312,17 @@ class Command(BaseCommand):
             # Pass 2: cluster-wide orphan scan. A live table is a real orphan
             # only when no ecosystem on this cluster claims it. Tracking tables
             # and placeholder MVs are managed elsewhere — never drop them.
+            #
+            # Skip pass 2 when `current` came from the migrations-cluster
+            # fallback — those tables represent a different cluster's live
+            # state, so no ecosystem on *this* cluster claims any of them
+            # and every table would become a spurious DROP. The fallback is
+            # still useful for pass 1 (diff_state correctly emits creates for
+            # tables missing from the fallback union too), just not for
+            # cluster-scoped orphan detection.
+            if used_fallback:
+                continue
+
             cluster_desired_names: set[str] = set()
             for desired in states:
                 cluster_desired_names.update(desired.tables.keys())
