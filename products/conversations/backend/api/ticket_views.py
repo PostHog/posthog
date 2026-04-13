@@ -82,7 +82,7 @@ class TicketViewViewSet(
             request=self.request,
         )
 
-    def perform_create(self, serializer: TicketViewSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         self._track("ticket view created", serializer.save())
 
     def perform_destroy(self, instance: TicketView) -> None:
