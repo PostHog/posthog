@@ -1,15 +1,113 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use rand::Rng;
-use serde_json::{json, Value};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::config::BenchmarkConfig;
 
-/// All generated data needed for the benchmark workload phases.
+/// Lightweight person registry — no properties stored.
+/// Properties are generated on-the-fly during population and workload phases.
 pub struct PersonRegistry {
-    /// (team_id, person_uuid, properties) for each person.
-    pub persons: Vec<(i32, Uuid, Value)>,
+    /// (team_id, person_uuid) for each person.
+    pub persons: Vec<(i32, Uuid)>,
     /// (team_id, person_uuid, distinct_id) — one entry per distinct_id.
     pub distinct_ids: Vec<(i32, Uuid, String)>,
+}
+
+/// Shared, Arc-wrapped data for all workload phases.
+/// Constructed once after registry generation; tasks clone the Arc (O(1)).
+pub struct BenchmarkData {
+    /// (team_id, person_uuid) for each person.
+    pub persons: Arc<Vec<(i32, Uuid)>>,
+    /// (team_id, person_uuid, distinct_id) — one entry per distinct_id.
+    pub distinct_ids: Arc<Vec<(i32, Uuid, String)>>,
+    /// team_id -> indices into `distinct_ids` for the first distinct_id per person.
+    /// Used by merge phases to select source/target persons without cloning data.
+    pub team_person_indices: Arc<HashMap<i32, Vec<usize>>>,
+    /// Weighted CDF for team selection: Vec of (cumulative_probability, team_id).
+    /// Larger teams are selected proportionally more often, matching production traffic.
+    pub team_cdf: Arc<Vec<(f64, i32)>>,
+}
+
+/// Build the shared BenchmarkData from a PersonRegistry, consuming it by move.
+///
+/// Builds team indices and weighted CDF once. All fields are Arc-wrapped for
+/// zero-cost task sharing.
+pub fn build_benchmark_data(registry: PersonRegistry) -> BenchmarkData {
+    let team_person_indices = build_team_person_indices(&registry.distinct_ids);
+    let team_cdf = build_team_cdf(&team_person_indices);
+
+    BenchmarkData {
+        persons: Arc::new(registry.persons),
+        distinct_ids: Arc::new(registry.distinct_ids),
+        team_person_indices: Arc::new(team_person_indices),
+        team_cdf: Arc::new(team_cdf),
+    }
+}
+
+/// Build a map of team_id -> Vec<usize>, where each usize is an index into
+/// `distinct_ids` pointing to the first distinct_id for a given person.
+fn build_team_person_indices(distinct_ids: &[(i32, Uuid, String)]) -> HashMap<i32, Vec<usize>> {
+    let mut seen_persons = std::collections::HashSet::new();
+    let mut map: HashMap<i32, Vec<usize>> = HashMap::new();
+
+    for (idx, (team_id, person_uuid, _)) in distinct_ids.iter().enumerate() {
+        if seen_persons.insert((*team_id, *person_uuid)) {
+            map.entry(*team_id).or_default().push(idx);
+        }
+    }
+
+    map
+}
+
+/// Build a cumulative distribution function for weighted team selection.
+///
+/// Teams are weighted proportionally to their person count, so a team with
+/// 10x more persons is selected 10x more often. Only teams with >= 2 persons
+/// are included (merges require at least 2).
+fn build_team_cdf(team_person_indices: &HashMap<i32, Vec<usize>>) -> Vec<(f64, i32)> {
+    let mut entries: Vec<(i32, usize)> = team_person_indices
+        .iter()
+        .filter(|(_, v)| v.len() >= 2)
+        .map(|(&tid, v)| (tid, v.len()))
+        .collect();
+
+    // Sort by team_id for deterministic ordering.
+    entries.sort_by_key(|(tid, _)| *tid);
+
+    let eligible_total: f64 = entries.iter().map(|(_, count)| *count as f64).sum();
+    if eligible_total == 0.0 {
+        return Vec::new();
+    }
+
+    let mut cumulative = 0.0;
+    let mut cdf = Vec::with_capacity(entries.len());
+
+    for (tid, count) in &entries {
+        cumulative += *count as f64 / eligible_total;
+        cdf.push((cumulative, *tid));
+    }
+
+    // Fix floating-point edge case: ensure the last entry is exactly 1.0.
+    if let Some(last) = cdf.last_mut() {
+        last.0 = 1.0;
+    }
+
+    cdf
+}
+
+/// Select a team_id from the CDF using weighted random selection.
+///
+/// Uses binary search for O(log n) lookup. Returns None if the CDF is empty.
+pub fn select_team_weighted(cdf: &[(f64, i32)], rng: &mut impl Rng) -> Option<i32> {
+    if cdf.is_empty() {
+        return None;
+    }
+    let r: f64 = rng.gen();
+    let idx = cdf.partition_point(|(cum, _)| *cum < r);
+    Some(cdf[idx.min(cdf.len() - 1)].1)
 }
 
 /// Generate a JSONB properties object targeting approximately `target_bytes` total serialized size.
@@ -67,15 +165,13 @@ pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
 ///   This matches production where the top 2-3 teams hold the majority of persons.
 /// - 86% get 1 distinct_id, 14% get 2 (matching measured ~1.14 distinct_ids/person ratio).
 /// - Distinct IDs use UUID format (~36 bytes) to match real-world ID lengths.
-/// - Properties target ~700 bytes each.
+/// - Properties are NOT stored — generated on-the-fly during population.
 pub fn generate_person_registry(config: &BenchmarkConfig, rng: &mut impl Rng) -> PersonRegistry {
     let scale = config.scale as usize;
     let teams = config.teams;
 
     // Zipf-weighted team sizes: weight(rank) = 1 / rank^1.5.
-    let weights: Vec<f64> = (1..=teams)
-        .map(|i| 1.0 / (i as f64).powf(1.5))
-        .collect();
+    let weights: Vec<f64> = (1..=teams).map(|i| 1.0 / (i as f64).powf(1.5)).collect();
     let total_weight: f64 = weights.iter().sum();
 
     let mut team_counts: Vec<usize> = weights
@@ -98,9 +194,8 @@ pub fn generate_person_registry(config: &BenchmarkConfig, rng: &mut impl Rng) ->
         let team_id = (team_idx as i32) + 1;
         for _ in 0..count {
             let person_uuid = Uuid::new_v4();
-            let properties = generate_properties(rng, 700);
 
-            persons.push((team_id, person_uuid, properties));
+            persons.push((team_id, person_uuid));
 
             // UUID-format distinct_id (~36 bytes, matching real-world ID length).
             let mut bytes = [0u8; 16];
@@ -122,14 +217,4 @@ pub fn generate_person_registry(config: &BenchmarkConfig, rng: &mut impl Rng) ->
         persons,
         distinct_ids,
     }
-}
-
-/// Minimal properties for property-update workload (avoids allocation overhead
-/// from generating full 700-byte objects on every iteration).
-pub fn generate_small_properties_update(rng: &mut impl Rng) -> Value {
-    let ts: u64 = rng.gen();
-    json!({
-        "last_seen": ts,
-        "$browser": "Chrome",
-    })
 }

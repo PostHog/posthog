@@ -14,6 +14,7 @@ use flags_consumer::storage::postgres::PostgresStorage;
 use rand::SeedableRng;
 
 use crate::config::BenchmarkConfig;
+use crate::data_gen::build_benchmark_data;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -50,19 +51,18 @@ async fn main() -> anyhow::Result<()> {
     storage.ping().await?;
     tracing::info!("database connected");
 
-    // Schema + population.
-    let registry = if config.skip_populate {
+    // Generate lightweight registry (no properties stored — ~20 bytes/person).
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let registry = data_gen::generate_person_registry(&config, &mut rng);
+
+    // Schema + population (if not skipped).
+    if config.skip_populate {
         if !schema::table_exists(&pool).await? {
             anyhow::bail!("--skip-populate but flags_person_lookup table does not exist");
         }
-        tracing::info!("skipping population, generating in-memory registry only");
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-        data_gen::generate_person_registry(&config, &mut rng)
+        tracing::info!("skipping population");
     } else {
         schema::create_schema(&pool).await?;
-
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-        let registry = data_gen::generate_person_registry(&config, &mut rng);
 
         let pop_start = Instant::now();
         population::populate(&pool, &storage, &registry, config.batch_size).await?;
@@ -70,9 +70,14 @@ async fn main() -> anyhow::Result<()> {
             elapsed_secs = pop_start.elapsed().as_secs(),
             "population complete"
         );
+    }
 
-        registry
-    };
+    // Build shared benchmark data: Arc-wrapped, pre-computed team indices and CDF.
+    let data = build_benchmark_data(registry);
+    tracing::info!(
+        teams_with_merges = data.team_cdf.len(),
+        "benchmark data ready"
+    );
 
     // Reset pg_stat counters for clean per-phase deltas.
     metrics::reset_stats(&pool).await;
@@ -81,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     let mut results = Vec::new();
 
     tracing::info!("=== Phase 1: Sustained property updates ===");
-    let r = workloads::phase_property_updates(&pool, &registry, &config).await?;
+    let r = workloads::phase_property_updates(&pool, &data, &config).await?;
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 1 complete");
     results.push(r);
 
@@ -89,14 +94,14 @@ async fn main() -> anyhow::Result<()> {
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 2: Identification appends ===");
-    let r = workloads::phase_identification_appends(&pool, &registry, &config).await?;
+    let r = workloads::phase_identification_appends(&pool, &data, &config).await?;
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 2 complete");
     results.push(r);
 
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 3: Merge workload ===");
-    let r = workloads::phase_merges(&pool, &registry, &config, "Merges", None, None).await?;
+    let r = workloads::phase_merges(&pool, &data, &config, "Merges", None, None).await?;
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 3 complete");
     results.push(r);
 
@@ -111,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
     let burst_name = format!("Burst merges ({}x)", config.burst_factor);
     let r = workloads::phase_merges(
         &pool,
-        &registry,
+        &data,
         &config,
         &burst_name,
         Some(burst_concurrency),
@@ -124,8 +129,7 @@ async fn main() -> anyhow::Result<()> {
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 5: Concurrent reads + writes ===");
-    let (write_r, read_r) =
-        workloads::phase_concurrent_reads_writes(&pool, &registry, &config).await?;
+    let (write_r, read_r) = workloads::phase_concurrent_reads_writes(&pool, &data, &config).await?;
     tracing::info!(
         write_ops = write_r.latency.count,
         read_ops = read_r.latency.count,
@@ -137,8 +141,7 @@ async fn main() -> anyhow::Result<()> {
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 6: Post-burst steady-state recovery ===");
-    let r =
-        workloads::phase_merges(&pool, &registry, &config, "Post-burst merges", None, None).await?;
+    let r = workloads::phase_merges(&pool, &data, &config, "Post-burst merges", None, None).await?;
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 6 complete");
     results.push(r);
 

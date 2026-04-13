@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::BenchmarkConfig;
-use crate::data_gen::{generate_small_properties_update, PersonRegistry};
+use crate::data_gen::{generate_properties, select_team_weighted, BenchmarkData};
 use crate::metrics::{self, LatencyStats, PgSnapshot};
 
 /// Result of a single workload phase.
@@ -29,9 +29,10 @@ pub struct PhaseResult {
 ///
 /// These updates change `properties` and `person_version` only — no `distinct_ids`
 /// mutation, so the GIN index should remain untouched and updates should be HOT-eligible.
+/// Properties are generated at ~700 bytes per update to match production row sizes.
 pub async fn phase_property_updates(
     pool: &PgPool,
-    registry: &PersonRegistry,
+    data: &BenchmarkData,
     config: &BenchmarkConfig,
 ) -> anyhow::Result<PhaseResult> {
     let before = metrics::capture_snapshot(pool).await?;
@@ -43,7 +44,7 @@ pub async fn phase_property_updates(
 
     for task_id in 0..config.concurrency {
         let storage = PostgresStorage::new(pool.clone());
-        let persons = registry.persons.clone();
+        let persons = data.persons.clone();
         let batch_size = config.batch_size;
         let version_counter = version_counter.clone();
         let error_counter = error_counter.clone();
@@ -63,11 +64,11 @@ pub async fn phase_property_updates(
                 while batch.len() < actual_batch {
                     let idx = rng.gen_range(0..persons.len());
                     if seen.insert(idx) {
-                        let (team_id, person_uuid, _) = &persons[idx];
+                        let (team_id, person_uuid) = &persons[idx];
                         batch.push(PersonUpdateData {
                             team_id: *team_id,
                             person_uuid: *person_uuid,
-                            properties: generate_small_properties_update(&mut rng),
+                            properties: generate_properties(&mut rng, 700),
                             version: version_counter.fetch_add(1, Ordering::Relaxed),
                         });
                     }
@@ -116,7 +117,7 @@ pub async fn phase_property_updates(
 /// Each operation mutates the distinct_ids array and forces a GIN index update.
 pub async fn phase_identification_appends(
     pool: &PgPool,
-    registry: &PersonRegistry,
+    data: &BenchmarkData,
     config: &BenchmarkConfig,
 ) -> anyhow::Result<PhaseResult> {
     let before = metrics::capture_snapshot(pool).await?;
@@ -128,7 +129,7 @@ pub async fn phase_identification_appends(
 
     for task_id in 0..config.concurrency {
         let storage = PostgresStorage::new(pool.clone());
-        let persons = registry.persons.clone();
+        let persons = data.persons.clone();
         let version_counter = version_counter.clone();
         let error_counter = error_counter.clone();
 
@@ -138,7 +139,7 @@ pub async fn phase_identification_appends(
 
             while Instant::now() < deadline {
                 let idx = rng.gen_range(0..persons.len());
-                let (team_id, person_uuid, _) = &persons[idx];
+                let (team_id, person_uuid) = &persons[idx];
 
                 // UUID-format distinct_id (~36 bytes) matching real-world ID length.
                 let mut did_bytes = [0u8; 16];
@@ -181,16 +182,19 @@ pub async fn phase_identification_appends(
     })
 }
 
-/// Phase 3 / Phase 4: Merge workload — reassign a distinct_id from one person to another.
+/// Phase 3 / Phase 4 / Phase 6: Merge workload — reassign a distinct_id from one person to another.
 ///
 /// This triggers `array_remove` on the source person and `array_append` on the target,
 /// causing two GIN index updates per operation. This is the core scenario for the benchmark.
+///
+/// Teams are selected proportionally to their person count (weighted CDF), so large
+/// teams get more merge traffic — matching production where traffic correlates with team size.
 ///
 /// `concurrency_override` lets the burst phase (Phase 4) use a higher task count.
 /// `duration_override` lets the burst phase run for a shorter window.
 pub async fn phase_merges(
     pool: &PgPool,
-    registry: &PersonRegistry,
+    data: &BenchmarkData,
     config: &BenchmarkConfig,
     name: &str,
     concurrency_override: Option<usize>,
@@ -203,30 +207,13 @@ pub async fn phase_merges(
     let version_counter = Arc::new(AtomicI64::new(10_000_000));
     let error_counter = Arc::new(AtomicU64::new(0));
 
-    // Build a lookup of team_id -> list of (person_uuid, first_distinct_id) for merge selection.
-    let team_data: Arc<std::collections::HashMap<i32, Vec<(Uuid, String)>>> = {
-        let mut map: std::collections::HashMap<i32, Vec<(Uuid, String)>> =
-            std::collections::HashMap::new();
-        // Group the first distinct_id per person by team.
-        let mut seen_persons = std::collections::HashSet::new();
-        for (team_id, person_uuid, did) in &registry.distinct_ids {
-            if seen_persons.insert(person_uuid) {
-                map.entry(*team_id)
-                    .or_default()
-                    .push((*person_uuid, did.clone()));
-            }
-        }
-        Arc::new(map)
-    };
-
-    let teams: Vec<i32> = team_data.keys().copied().collect();
-
     let mut handles = Vec::with_capacity(concurrency);
 
     for task_id in 0..concurrency {
         let storage = PostgresStorage::new(pool.clone());
-        let team_data = team_data.clone();
-        let teams = teams.clone();
+        let distinct_ids = data.distinct_ids.clone();
+        let team_indices = data.team_person_indices.clone();
+        let team_cdf = data.team_cdf.clone();
         let version_counter = version_counter.clone();
         let error_counter = error_counter.clone();
 
@@ -235,22 +222,26 @@ pub async fn phase_merges(
             let mut rng = StdRng::seed_from_u64(2000 + task_id as u64);
 
             while Instant::now() < deadline {
-                // Pick a random team with at least 2 persons.
-                let team_id = teams[rng.gen_range(0..teams.len())];
-                let persons = match team_data.get(&team_id) {
-                    Some(p) if p.len() >= 2 => p,
+                // Weighted team selection: larger teams get proportionally more traffic.
+                let team_id = match select_team_weighted(&team_cdf, &mut rng) {
+                    Some(tid) => tid,
+                    None => continue,
+                };
+
+                let indices = match team_indices.get(&team_id) {
+                    Some(idx) if idx.len() >= 2 => idx,
                     _ => continue,
                 };
 
                 // Pick source and target persons (different).
-                let src_idx = rng.gen_range(0..persons.len());
-                let mut tgt_idx = rng.gen_range(0..persons.len());
-                while tgt_idx == src_idx {
-                    tgt_idx = rng.gen_range(0..persons.len());
+                let src_local = rng.gen_range(0..indices.len());
+                let mut tgt_local = rng.gen_range(0..indices.len());
+                while tgt_local == src_local {
+                    tgt_local = rng.gen_range(0..indices.len());
                 }
 
-                let (_src_uuid, src_did) = &persons[src_idx];
-                let (tgt_uuid, _) = &persons[tgt_idx];
+                let (_, _, src_did) = &distinct_ids[indices[src_local]];
+                let (_, tgt_uuid, _) = &distinct_ids[indices[tgt_local]];
 
                 let assignment = DistinctIdAssignmentData {
                     team_id,
@@ -292,10 +283,11 @@ pub async fn phase_merges(
 /// Phase 5: Concurrent reads and writes.
 ///
 /// Runs merge writers alongside GIN-indexed read queries to measure whether
-/// GIN maintenance degrades read latency.
+/// GIN maintenance degrades read latency. Writers use weighted team selection
+/// matching the merge phases.
 pub async fn phase_concurrent_reads_writes(
     pool: &PgPool,
-    registry: &PersonRegistry,
+    data: &BenchmarkData,
     config: &BenchmarkConfig,
 ) -> anyhow::Result<(PhaseResult, PhaseResult)> {
     let before = metrics::capture_snapshot(pool).await?;
@@ -304,30 +296,15 @@ pub async fn phase_concurrent_reads_writes(
     let write_errors = Arc::new(AtomicU64::new(0));
     let read_errors = Arc::new(AtomicU64::new(0));
 
-    // Build team data for merges (same as phase_merges).
-    let team_data: Arc<std::collections::HashMap<i32, Vec<(Uuid, String)>>> = {
-        let mut map: std::collections::HashMap<i32, Vec<(Uuid, String)>> =
-            std::collections::HashMap::new();
-        let mut seen = std::collections::HashSet::new();
-        for (team_id, person_uuid, did) in &registry.distinct_ids {
-            if seen.insert(person_uuid) {
-                map.entry(*team_id)
-                    .or_default()
-                    .push((*person_uuid, did.clone()));
-            }
-        }
-        Arc::new(map)
-    };
-    let teams: Vec<i32> = team_data.keys().copied().collect();
-
     let mut write_handles = Vec::with_capacity(config.concurrency);
     let mut read_handles = Vec::with_capacity(config.concurrency);
 
-    // Spawn writer tasks (merge workload).
+    // Spawn writer tasks (merge workload with weighted team selection).
     for task_id in 0..config.concurrency {
         let storage = PostgresStorage::new(pool.clone());
-        let team_data = team_data.clone();
-        let teams = teams.clone();
+        let distinct_ids = data.distinct_ids.clone();
+        let team_indices = data.team_person_indices.clone();
+        let team_cdf = data.team_cdf.clone();
         let version_counter = version_counter.clone();
         let write_errors = write_errors.clone();
 
@@ -336,20 +313,24 @@ pub async fn phase_concurrent_reads_writes(
             let mut rng = StdRng::seed_from_u64(5000 + task_id as u64);
 
             while Instant::now() < deadline {
-                let team_id = teams[rng.gen_range(0..teams.len())];
-                let persons = match team_data.get(&team_id) {
-                    Some(p) if p.len() >= 2 => p,
+                let team_id = match select_team_weighted(&team_cdf, &mut rng) {
+                    Some(tid) => tid,
+                    None => continue,
+                };
+
+                let indices = match team_indices.get(&team_id) {
+                    Some(idx) if idx.len() >= 2 => idx,
                     _ => continue,
                 };
 
-                let src_idx = rng.gen_range(0..persons.len());
-                let mut tgt_idx = rng.gen_range(0..persons.len());
-                while tgt_idx == src_idx {
-                    tgt_idx = rng.gen_range(0..persons.len());
+                let src_local = rng.gen_range(0..indices.len());
+                let mut tgt_local = rng.gen_range(0..indices.len());
+                while tgt_local == src_local {
+                    tgt_local = rng.gen_range(0..indices.len());
                 }
 
-                let (_, src_did) = &persons[src_idx];
-                let (tgt_uuid, _) = &persons[tgt_idx];
+                let (_, _, src_did) = &distinct_ids[indices[src_local]];
+                let (_, tgt_uuid, _) = &distinct_ids[indices[tgt_local]];
 
                 let assignment = DistinctIdAssignmentData {
                     team_id,
@@ -373,7 +354,7 @@ pub async fn phase_concurrent_reads_writes(
     // Spawn reader tasks (the production GIN-indexed lookup).
     for task_id in 0..config.concurrency {
         let pool = pool.clone();
-        let distinct_ids = registry.distinct_ids.clone();
+        let distinct_ids = data.distinct_ids.clone();
         let read_errors = read_errors.clone();
 
         read_handles.push(tokio::spawn(async move {

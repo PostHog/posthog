@@ -1,14 +1,17 @@
 use flags_consumer::storage::{postgres::PostgresStorage, types::PersonUpdateData};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::data_gen::PersonRegistry;
+use crate::data_gen::{generate_properties, PersonRegistry};
 
 /// Populate the flags_person_lookup table from a PersonRegistry.
 ///
-/// Uses `batch_upsert_persons` for person rows (batched, fast), then a custom
-/// batch UPDATE for distinct_ids (since `upsert_distinct_id` is single-row
-/// transactional and too slow for bulk loading).
+/// Properties are generated on-the-fly per batch using a separate seeded RNG
+/// (seed 43), decoupled from the structural RNG (seed 42) so that removing
+/// properties from the registry doesn't change distinct_id distribution.
+/// Each batch's properties are dropped after the DB insert.
 pub async fn populate(
     pool: &PgPool,
     storage: &PostgresStorage,
@@ -18,14 +21,16 @@ pub async fn populate(
     let total = registry.persons.len();
     tracing::info!(total, "populating person rows");
 
+    let mut prop_rng = StdRng::seed_from_u64(43);
+
     // Step 1: Insert person rows via batch_upsert_persons.
     for (batch_idx, chunk) in registry.persons.chunks(batch_size).enumerate() {
         let updates: Vec<PersonUpdateData> = chunk
             .iter()
-            .map(|(team_id, uuid, props)| PersonUpdateData {
+            .map(|(team_id, uuid)| PersonUpdateData {
                 team_id: *team_id,
                 person_uuid: *uuid,
-                properties: props.clone(),
+                properties: generate_properties(&mut prop_rng, 700),
                 version: 1,
             })
             .collect();
@@ -69,10 +74,6 @@ async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> a
         let person_uuids: Vec<Uuid> = chunk.iter().map(|((_, uuid), _)| *uuid).collect();
         let did_arrays: Vec<Vec<String>> = chunk.iter().map(|(_, dids)| dids.clone()).collect();
 
-        // Use UNNEST with array columns to batch-update distinct_ids.
-        // sqlx doesn't natively support text[][] in UNNEST, so we update in two passes:
-        // first set the primary distinct_id for all, then append second distinct_ids.
-
         // Primary distinct_ids (first element of each person's array).
         let primary_dids: Vec<String> = did_arrays.iter().map(|dids| dids[0].clone()).collect();
 
@@ -91,7 +92,7 @@ async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> a
         .execute(pool)
         .await?;
 
-        // Second distinct_ids for persons that have two (the 5% case).
+        // Second distinct_ids for persons that have two (the 14% case).
         let mut extra_team_ids = Vec::new();
         let mut extra_uuids = Vec::new();
         let mut extra_dids = Vec::new();
