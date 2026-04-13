@@ -1047,6 +1047,10 @@ projects_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"conversations/views", conversations.TicketViewViewSet, "environment_conversations_views", ["team_id"]
+)
+
 projects_router.register(
     r"hog_function_templates",
     hog_function_template.PublicHogFunctionTemplateViewSet,
@@ -1217,6 +1221,13 @@ environments_router.register(
     r"revenue_analytics/taxonomy",
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
     "environment_revenue_analytics_taxonomy",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"revenue_analytics/joins",
+    revenue_analytics.RevenueAnalyticsJoinViewSet,
+    "environment_revenue_analytics_joins",
     ["team_id"],
 )
 

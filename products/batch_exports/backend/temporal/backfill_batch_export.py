@@ -150,9 +150,14 @@ async def update_batch_export_backfill_model(inputs: UpdateBatchExportBackfillIn
                 lambda: BatchExportRun.objects.filter(
                     backfill_id=inputs.id,
                     status=BatchExportRun.Status.COMPLETED,
-                ).aggregate(total=Sum("records_completed"))
+                ).aggregate(
+                    total_completed=Sum("records_completed"),
+                    total_failed=Sum("records_failed"),
+                )
             )()
-            total_records_count = result["total"]
+            total_records_count = result["total_completed"]
+            if total_records_count is not None and result["total_failed"] is not None:
+                total_records_count += result["total_failed"]
 
             if estimated_records_count is not None:
                 logger.info(

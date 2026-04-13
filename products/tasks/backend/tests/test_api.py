@@ -3,10 +3,12 @@ import time
 import uuid
 import asyncio
 import threading
-from typing import ClassVar
+from collections.abc import Iterator
+from typing import ClassVar, cast
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
 
 import jwt
@@ -1685,6 +1687,83 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertGreaterEqual(len(events), 1)
         self.assertTrue(all(event["data"]["notification"]["method"] == "_posthog/console" for event in events), events)
         self.assertEqual(events[-1]["data"]["notification"]["params"]["message"], "late hello")
+
+
+class TestTaskRunRedisStreamKeepalive(TestCase):
+    def test_read_stream_entries_yields_keepalive_sentinel_when_idle(self):
+        class StubRedis:
+            def __init__(self):
+                self.calls = 0
+
+            async def xread(self, *_args, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return []
+                return [
+                    [
+                        b"task-run-stream:test",
+                        [
+                            (
+                                b"1-0",
+                                {b"data": json.dumps({"type": "STREAM_STATUS", "status": "complete"}).encode("utf-8")},
+                            )
+                        ],
+                    ]
+                ]
+
+        async def collect_items() -> list[object]:
+            redis_stream = TaskRunRedisStream("task-run-stream:test")
+            redis_stream._redis_client = StubRedis()
+            items: list[object] = []
+            # Force the idle branch immediately so the test does not wait on wall-clock time.
+            async for item in redis_stream.read_stream_entries(keepalive_interval_seconds=0):
+                items.append(item)
+            return items
+
+        self.assertEqual(asyncio.run(collect_items()), [None])
+
+
+class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
+    def _stream_url(self, task: Task, run: TaskRun) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/"
+
+    def test_stream_emits_keepalive_comments_while_idle(self):
+        task = self.create_task()
+        run = task.create_run()
+
+        async def fake_read_stream_entries(self, *args, **kwargs):
+            yield None
+            yield (
+                "1-0",
+                {
+                    "type": "notification",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "notification": {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/console",
+                        "params": {
+                            "sessionId": str(run.id),
+                            "level": "info",
+                            "message": "after idle gap",
+                        },
+                    },
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "wait_for_stream", new=AsyncMock(return_value=True)),
+            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream"),
+            )
+            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("event: keepalive", content)
+        self.assertIn('"type": "keepalive"', content)
+        self.assertIn("after idle gap", content)
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
