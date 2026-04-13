@@ -236,9 +236,6 @@ def deliver_email_report(
                     subject=subject,
                     template_name="evaluation_report",
                     template_context={
-                        "title": f"{evaluation_name}: {content.title}"
-                        if content.title
-                        else f"Evaluation report: {evaluation_name}",
                         "evaluation_name": evaluation_name,
                         "period_start": period_start_display,
                         "period_end": period_end_display,
