@@ -221,7 +221,7 @@ def deliver_email_report(
     evaluation_url = absolute_uri(f"/project/{project_id}/llm-analytics/evaluations/{evaluation_id}")
     period_start_display = _format_period_for_display(period_start)
     period_end_display = _format_period_for_display(period_end)
-    subject_title = content.title or f"Evaluation report for {evaluation_name}"
+    subject_title = content.title or "Evaluation report"
     subject = f"{evaluation_name}: {subject_title}"
 
     for target in targets:
@@ -236,7 +236,9 @@ def deliver_email_report(
                     subject=subject,
                     template_name="evaluation_report",
                     template_context={
-                        "title": content.title or f"Evaluation report for {evaluation_name}",
+                        "title": f"{evaluation_name}: {content.title}"
+                        if content.title
+                        else f"Evaluation report: {evaluation_name}",
                         "evaluation_name": evaluation_name,
                         "period_start": period_start_display,
                         "period_end": period_end_display,
@@ -275,7 +277,7 @@ def deliver_slack_report(
     citation_map = _build_citation_map(content.citations)
     errors: list[str] = []
 
-    header_text = content.title or f"Evaluation report: {evaluation_name}"
+    header_text = f"{evaluation_name}: {content.title}" if content.title else f"Evaluation report: {evaluation_name}"
     # Slack header blocks are limited to 150 chars, enforce that here.
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
