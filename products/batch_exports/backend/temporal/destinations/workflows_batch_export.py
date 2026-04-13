@@ -37,7 +37,11 @@ from products.batch_exports.backend.temporal.utils import (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = ["NotFoundErrorGroup", "BadRequestErrorGroup"]
+NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "NotFoundErrorGroup",
+    "BadRequestErrorGroup",
+    "HogFunctionErrorThresholdExceeded",
+]
 HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
@@ -107,6 +111,20 @@ class NotFoundErrorGroup(ClientResponseErrorGroup):
         return NotFoundErrorGroup(self.message, excs)
 
 
+class HogFunctionErrorThresholdExceeded(Exception):
+    """Raised when too many Hog function executions fail with status=error."""
+
+    def __init__(self, failed_count: int, total_count: int, latest_error: str | None = None):
+        self.failed_count = failed_count
+        self.total_count = total_count
+        self.latest_error = latest_error
+
+        message = f"Hog function error rate above threshold: {failed_count}/{total_count} executions failed."
+        if latest_error:
+            message += f" Latest error message: '{latest_error}'"
+        super().__init__(message)
+
+
 def _make_exception(
     exc: type[aiohttp.ClientResponseError], err: aiohttp.ClientResponseError
 ) -> aiohttp.ClientResponseError:
@@ -127,6 +145,8 @@ class WorkflowsConsumer(Consumer):
         request_task_group: asyncio.TaskGroup,
         model: str = "events",
         max_concurrent_requests: int = 1_000,
+        hog_function_error_threshold_pct: float = 0.5,
+        hog_function_error_threshold_min_requests: int = 100,
     ):
         super().__init__(model=model)
 
@@ -140,6 +160,12 @@ class WorkflowsConsumer(Consumer):
         self.session = session
         self.request_task_group = request_task_group
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        # Abort once failure ratio crosses `pct`, but only after `min_requests` requests.
+        self.hog_function_error_threshold_pct = hog_function_error_threshold_pct
+        self.hog_function_error_threshold_min_requests = hog_function_error_threshold_min_requests
+        self.total_requests_count = 0
+        # Most recent hog function error message, used for error reporting.
+        self.latest_hog_function_error: str | None = None
 
     async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
@@ -180,12 +206,26 @@ class WorkflowsConsumer(Consumer):
                             raise _make_exception(InternalServerError, err)
                 else:
                     response_body = await response.json()
+                    self.total_requests_count += 1
                     if response_body.get("status") == "error":
-                        self.logger.warning(
-                            "Hog function execution failed",
-                            errors=response_body.get("errors", []),
-                        )
+                        errors = response_body.get("errors", [])
+                        self.logger.warning("Hog function execution failed", errors=errors)
                         self.records_failed_count += 1
+                        if errors:
+                            self.latest_hog_function_error = errors[-1]
+
+                        if (
+                            self.total_requests_count >= self.hog_function_error_threshold_min_requests
+                            and self.records_failed_count / self.total_requests_count
+                            >= self.hog_function_error_threshold_pct
+                        ):
+                            exc = HogFunctionErrorThresholdExceeded(
+                                failed_count=self.records_failed_count,
+                                total_count=self.total_requests_count,
+                                latest_error=self.latest_hog_function_error,
+                            )
+                            self.external_logger.error(str(exc))
+                            raise exc
 
     async def finalize_file(self):
         """Required by consumer interface."""
@@ -290,6 +330,12 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
             except* NotFound as exc_group:
                 raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
+            except* HogFunctionErrorThresholdExceeded as exc_group:
+                raise HogFunctionErrorThresholdExceeded(
+                    failed_count=consumer.records_failed_count,
+                    total_count=consumer.total_requests_count,
+                    latest_error=consumer.latest_hog_function_error,
+                ) from exc_group
 
         return consumer.collect_result()
 
