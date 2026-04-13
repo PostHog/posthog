@@ -310,7 +310,13 @@ class Team(UUIDTClassicModel):
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
+    # Set to True the first time any event is ingested for this team (historical or live).
+    # Legacy "has ever received an event" signal used throughout the product.
     ingested_event = models.BooleanField(default=False)
+    # Set to True the first time a live (non-historical) event is ingested for this team.
+    # Tracked separately from `ingested_event` so growth activation metrics can distinguish
+    # teams that actually produced traffic from those that only imported historical data.
+    ingested_live_event = models.BooleanField(default=False)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(
