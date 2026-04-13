@@ -119,7 +119,14 @@ export const getToolsFromContext = async (
 ): Promise<Tool<ZodObjectAny>[]> => {
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
-    const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
+
+    // Fetch evaluated feature flags for the current user (cached in StateManager)
+    const evaluatedFlags = await context.stateManager.getEvaluatedFlags()
+
+    const effectiveOptions =
+        aiConsentGiven !== undefined || evaluatedFlags !== undefined
+            ? { ...options, aiConsentGiven, evaluatedFlags }
+            : options
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))

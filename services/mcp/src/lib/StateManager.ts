@@ -7,6 +7,7 @@ import type { State } from '@/tools/types'
 import type { ScopedCache } from './cache/ScopedCache'
 
 const AI_CONSENT_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+const FEATURE_FLAGS_TTL_MS = 5 * 60 * 1000 // 5 minutes (shorter TTL for feature flags)
 
 export class StateManager {
     private _cache: ScopedCache<State>
@@ -194,6 +195,46 @@ export class StateManager {
                 await this._cache.set('aiConsentGiven', consent)
                 await this._cache.set('aiConsentFetchedAt', Date.now())
                 return consent
+            }
+        } catch {}
+
+        return undefined
+    }
+
+    /**
+     * Invalidate cached feature flags, forcing a re-fetch on next access.
+     */
+    async invalidateEvaluatedFlags(): Promise<void> {
+        await this._cache.delete('evaluatedFlags')
+        await this._cache.delete('evaluatedFlagsFetchedAt')
+    }
+
+    /**
+     * Get evaluated feature flags for the current user.
+     * Returns a map of flag key to value (boolean or string for multivariate flags).
+     * Results are cached for performance with a short TTL.
+     */
+    async getEvaluatedFlags(): Promise<Record<string, boolean | string> | undefined> {
+        const fetchedAt = await this._cache.get('evaluatedFlagsFetchedAt')
+        const isExpired = !fetchedAt || Date.now() - fetchedAt > FEATURE_FLAGS_TTL_MS
+        if (!isExpired) {
+            const cached = await this._cache.get('evaluatedFlags')
+            if (cached !== undefined) {
+                return cached
+            }
+        }
+
+        try {
+            const projectId = await this.getProjectId()
+            if (!projectId) {
+                return undefined
+            }
+
+            const result = await this._api.featureFlags({ projectId }).myFlags()
+            if (result.success) {
+                await this._cache.set('evaluatedFlags', result.data)
+                await this._cache.set('evaluatedFlagsFetchedAt', Date.now())
+                return result.data
             }
         } catch {}
 

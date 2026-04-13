@@ -4,6 +4,21 @@ import generatedToolDefinitionsJson from '../../schema/generated-tool-definition
 import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
+/**
+ * Feature flag configuration for conditional tool availability.
+ * String form: flag key — tool is enabled when flag is true.
+ * Object form: { key, invert } — tool is enabled when flag matches expected state.
+ */
+export const FeatureFlagConfigSchema = z.union([
+    z.string(),
+    z.object({
+        key: z.string(),
+        invert: z.boolean().optional(),
+    }),
+])
+
+export type FeatureFlagConfig = z.infer<typeof FeatureFlagConfigSchema>
+
 export const ToolDefinitionSchema = z.object({
     description: z.string(),
     category: z.string(),
@@ -13,6 +28,8 @@ export const ToolDefinitionSchema = z.object({
     required_scopes: z.array(z.string()),
     new_mcp: z.boolean().optional(),
     requires_ai_consent: z.boolean().optional(),
+    /** Feature flag that controls tool availability at runtime. */
+    feature_flag: FeatureFlagConfigSchema.optional(),
     annotations: z.object({
         destructiveHint: z.boolean(),
         idempotentHint: z.boolean(),
@@ -75,14 +92,53 @@ export interface ToolFilterOptions {
     excludeTools?: string[] | undefined
     readOnly?: boolean | undefined
     aiConsentGiven?: boolean | undefined
+    /**
+     * Evaluated feature flags for the current user. Keys are flag keys, values are
+     * the flag result (boolean or string for multivariate flags). When provided,
+     * tools with feature_flag config are filtered based on their flag evaluation.
+     */
+    evaluatedFlags?: Record<string, boolean | string> | undefined
 }
 
 function normalizeFeatureName(name: string): string {
     return name.replace(/-/g, '_')
 }
 
+/**
+ * Check if a tool should be enabled based on its feature flag configuration
+ * and the evaluated flags for the current user.
+ */
+function isToolEnabledByFeatureFlag(
+    featureFlagConfig: FeatureFlagConfig | undefined,
+    evaluatedFlags: Record<string, boolean | string> | undefined
+): boolean {
+    // No feature flag config means the tool is always enabled
+    if (!featureFlagConfig) {
+        return true
+    }
+
+    // If we don't have evaluated flags, skip tools with feature flag requirements
+    // (they'll be filtered out until flags are available)
+    if (!evaluatedFlags) {
+        return false
+    }
+
+    // Parse the feature flag config
+    const flagKey = typeof featureFlagConfig === 'string' ? featureFlagConfig : featureFlagConfig.key
+    const invert = typeof featureFlagConfig === 'object' && featureFlagConfig.invert === true
+
+    // Get the evaluated flag value
+    const flagValue = evaluatedFlags[flagKey]
+
+    // Determine if the flag is "on" (truthy for boolean, or any non-empty string for multivariate)
+    const flagIsOn = flagValue === true || (typeof flagValue === 'string' && flagValue !== '')
+
+    // Apply invert logic: if invert is true, enable when flag is off
+    return invert ? !flagIsOn : flagIsOn
+}
+
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven } = options || {}
+    const { features, tools, version, readOnly, aiConsentGiven, evaluatedFlags } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -119,6 +175,10 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     if (!aiConsentGiven) {
         entries = entries.filter(([_, definition]) => !definition.requires_ai_consent)
     }
+
+    // Filter by feature flag configuration
+    // Tools with feature_flag config are only included if the flag evaluates appropriately
+    entries = entries.filter(([_, definition]) => isToolEnabledByFeatureFlag(definition.feature_flag, evaluatedFlags))
 
     return entries.map(([toolName, _]) => toolName)
 }

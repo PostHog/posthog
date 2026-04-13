@@ -7,6 +7,33 @@
  */
 import { z } from 'zod'
 
+/**
+ * Feature flag configuration for conditional tool availability.
+ *
+ * String form: `feature_flag: "my-flag-key"` — tool is enabled when flag is true.
+ * Object form: `feature_flag: { key: "my-flag-key", invert: true }` — tool is enabled when flag is false.
+ *
+ * Use the object form with `invert: true` when deprecating old tools in favor of new ones.
+ * The new tool would use `feature_flag: "experiment-key"` (enabled when flag is on),
+ * while the old tool would use `feature_flag: { key: "experiment-key", invert: true }` (disabled when flag is on).
+ */
+export const FeatureFlagConfigSchema = z.union([
+    z.string(),
+    z
+        .object({
+            /** The feature flag key to evaluate. */
+            key: z.string(),
+            /**
+             * When true, the tool is enabled when the flag is false/off.
+             * Use this for old tools being replaced by new ones behind a feature flag.
+             */
+            invert: z.boolean().optional(),
+        })
+        .strict(),
+])
+
+export type FeatureFlagConfig = z.infer<typeof FeatureFlagConfigSchema>
+
 export const ToolConfigSchema = z
     .object({
         operation: z.string(),
@@ -58,6 +85,14 @@ export const ToolConfigSchema = z
          * LLMs internally should set this to true.
          */
         requires_ai_consent: z.boolean().optional(),
+        /**
+         * Feature flag that controls tool availability. When set, the tool is only
+         * exposed if the flag evaluates to the expected value for the current user.
+         *
+         * String: tool is enabled when flag is true.
+         * Object with `invert: true`: tool is enabled when flag is false.
+         */
+        feature_flag: FeatureFlagConfigSchema.optional(),
         /**
          * Maps original OpenAPI field names to MCP-safe aliases. The generated tool
          * schema uses the alias (which must match ^[a-zA-Z0-9_.-]{1,64}$), while
@@ -284,6 +319,14 @@ export const QueryWrapperToolConfigSchema = z
          * `{baseUrl}{url_prefix}` instead of the default `/insights/new?q=...`.
          */
         url_prefix: z.string().optional(),
+        /**
+         * Feature flag that controls tool availability. When set, the tool is only
+         * exposed if the flag evaluates to the expected value for the current user.
+         *
+         * String: tool is enabled when flag is true.
+         * Object with `invert: true`: tool is enabled when flag is false.
+         */
+        feature_flag: FeatureFlagConfigSchema.optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

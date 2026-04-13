@@ -998,4 +998,37 @@ export class ApiClient {
         }
         return result.data
     }
+
+    /**
+     * Feature flag evaluation for the current user.
+     * Returns evaluated flags as a map of flag key to value (boolean or string for multivariate).
+     */
+    featureFlags({ projectId }: { projectId: string }): Endpoint {
+        return {
+            /**
+             * Get all feature flags evaluated for the current user.
+             * Returns a map of flag keys to their evaluated values.
+             */
+            myFlags: async (): Promise<Result<Record<string, boolean | string>>> => {
+                const result = await this.fetchJson<
+                    Array<{
+                        feature_flag: { key: string }
+                        value: boolean | string
+                    }>
+                >(`${this.baseUrl}/api/projects/${projectId}/feature_flags/my_flags/`)
+
+                if (!result.success) {
+                    return result
+                }
+
+                // Transform array response into a map of flag key -> value
+                const flagsMap: Record<string, boolean | string> = {}
+                for (const item of result.data) {
+                    flagsMap[item.feature_flag.key] = item.value
+                }
+
+                return { success: true, data: flagsMap }
+            },
+        }
+    }
 }

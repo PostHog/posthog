@@ -22,6 +22,10 @@ export type State = {
     clientName: string | undefined
     aiConsentGiven: boolean | undefined
     aiConsentFetchedAt: number | undefined
+    /** Cached evaluated feature flags for the current user (map of flag key to value). */
+    evaluatedFlags: Record<string, boolean | string> | undefined
+    /** Timestamp when evaluated flags were last fetched. */
+    evaluatedFlagsFetchedAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined>
