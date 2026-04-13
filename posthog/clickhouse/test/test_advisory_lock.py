@@ -53,7 +53,9 @@ class TestAdvisoryLock(unittest.TestCase):
         self.assertEqual(reason, "")
         # Four calls: CREATE ON CLUSTER + check SELECT + INSERT + verify SELECT
         self.assertEqual(client.execute.call_count, 4)
-        mock_sleep.assert_called_once_with(0.5)
+        mock_sleep.assert_called_once_with(5)
+        verify_sql = client.execute.call_args_list[3].args[0]
+        self.assertIn("ORDER BY applied_at ASC, host ASC", verify_sql)
 
     @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
     def test_advisory_lock_same_host_allows_reacquire(self, mock_sleep: MagicMock) -> None:

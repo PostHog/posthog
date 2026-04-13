@@ -56,15 +56,28 @@ def _resolve_physical_cluster(logical_name: str) -> str:
 
 
 def _resolve_setting(key: str) -> str:
-    """Resolve a __from_settings__ sentinel to its Django settings value."""
+    """Resolve a __from_settings__ sentinel to its Django settings value.
+
+    Each key resolves independently. Only `kafka_broker_list` falls back to the
+    dev-stack broker host — credentials (`password`, `user`) return an empty
+    string when unset, which renders as an empty SOURCE/LAYOUT param. Prior
+    behavior returned `kafka:9092` for every unset key, corrupting non-Kafka
+    rendered DDL like `PASSWORD 'kafka:9092'` for Dictionary sources.
+    """
     attr = _SETTINGS_RESOLUTION.get(key)
     if attr:
         val = getattr(django_settings, attr, None)
         if val:
             return ",".join(val) if isinstance(val, list) else str(val)
-    # Fallback for local dev — warn so misconfigured prod envs are visible
-    logger.warning("Setting %s (Django attr %s) is unset, falling back to kafka:9092", key, attr or key)
-    return "kafka:9092"
+    if key == "kafka_broker_list":
+        logger.warning(
+            "Setting %s (Django attr %s) is unset, falling back to kafka:9092", key, attr or key
+        )
+        return "kafka:9092"
+    logger.warning(
+        "Setting %s (Django attr %s) is unset, returning empty string", key, attr or key
+    )
+    return ""
 
 
 @dataclass
@@ -376,8 +389,17 @@ def _normalize_layout_type(layout: str) -> str:
     String key → COMPLEX_KEY_RANGE_HASHED. These are semantically identical
     — the YAML declares HASHED but CH stores COMPLEX_KEY_HASHED. Strip the
     prefix to compare.
+
+    The two introspection sources (`layout_name` column vs `LAYOUT(...)` clause
+    parsed out of `create_table_query`) disagree on underscores — one stores
+    `COMPLEX_KEY_RANGE_HASHED`, the other `COMPLEXKEYRANGEHASHED`. Strip all
+    underscores after the prefix strip so both forms compare equal regardless
+    of which introspection path produced the string.
     """
-    return re.sub(r"^COMPLEX_KEY_", "", layout.upper())
+    upper = layout.upper()
+    upper = re.sub(r"^COMPLEX_KEY_", "", upper)
+    upper = re.sub(r"^COMPLEXKEY", "", upper)
+    return upper.replace("_", "")
 
 
 def _render_dict_param(key: str, value: object) -> str:
