@@ -1,0 +1,53 @@
+/*
+ * Tailwind entry point for @posthog/quill.
+ *
+ * This file is the INPUT to the Tailwind CLI at library build time —
+ * `tsx scripts/build-css.ts` runs `@tailwindcss/cli` with this file as
+ * input, scans the primitives/components/blocks source trees for class
+ * usage, and emits `dist/quill.css` as a flat pre-compiled stylesheet.
+ *
+ * Consumers never see this file. They import the compiled result via
+ * `@posthog/quill/styles.css` and their bundler treats it as plain CSS —
+ * no Tailwind required on the consumer side.
+ *
+ * Everything @import'ed here is a build-time devDependency of
+ * `@posthog/quill`. At runtime the consumer only ships the compiled
+ * dist/quill.css output.
+ */
+
+@import 'tailwindcss';
+@import 'shadcn/tailwind.css';
+@import 'tw-animate-css';
+@import '@posthog/quill-tokens/color-system.css';
+@import '@posthog/quill-tokens/tailwind-lib.css';
+
+/*
+ * Scan the source of every quill sub-package so Tailwind generates every
+ * utility class primitives/components/blocks reference. Paths resolve
+ * relative to THIS file at build time (Tailwind v4 behavior), so they
+ * work from inside the monorepo regardless of where the aggregate lives.
+ */
+@source "../../primitives/src";
+@source "../../components/src";
+@source "../../blocks/src";
+
+/*
+ * Base layer — the one universal reset the primitives genuinely need.
+ *
+ * `* { @apply border-border outline-ring/50 }` is load-bearing: primitives
+ * like Accordion, Card, and Input write plain `border` (no colour
+ * modifier) expecting the default border colour to resolve to
+ * `--color-border`. Without this reset, Tailwind v4 falls back to
+ * `border-color: currentColor`, which is text-coloured (black in light,
+ * white in dark) and breaks every bordered component visually.
+ *
+ * Deliberately NOT setting `body { bg-background text-foreground }`. The
+ * consumer owns their page chrome — quill is a library, not an app
+ * shell. Apps that want quill to own the full page surface can opt in
+ * explicitly with `<body className="bg-background text-foreground">`.
+ */
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+}

@@ -350,13 +350,6 @@ def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
         return f"group type {group_type_index}"
 
 
-def _generate_events_query_metadata(query: EventsQuery, team: Team) -> InsightMetadata:
-    query_summary = _summarize_events_query(query)
-    type_guidance = _NAMING_GUIDANCE.get("EventsQuery", "")
-
-    return _request_metadata_from_llm(query_summary, type_guidance, team)
-
-
 # Standalone actors (e.g. Persons opened as new insights)
 def _generate_standalone_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
     query_summary = _summarize_standalone_actors_query(query)
@@ -380,6 +373,13 @@ def _summarize_standalone_actors_query(query: ActorsQuery) -> str:
 
 
 ## Events
+def _generate_events_query_metadata(query: EventsQuery, team: Team) -> InsightMetadata:
+    query_summary = _summarize_events_query(query)
+    type_guidance = _NAMING_GUIDANCE.get("EventsQuery", "")
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
 def _summarize_events_query(query: EventsQuery) -> str:
     """Extract a human-readable summary from an EventsQuery."""
     lines: list[str] = ["Type: EventsQuery"]

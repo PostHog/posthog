@@ -2099,7 +2099,7 @@ export async function onEventImplementation(
 
         const entry = parseLogEvent(
             parsedResponse,
-            cache.sandboxEventIndex++,
+            `sandbox-${cache.sandboxEventIndex++}`,
             cache.sandboxToolMap as Map<string, LogEntry>
         )
         if (!entry) {

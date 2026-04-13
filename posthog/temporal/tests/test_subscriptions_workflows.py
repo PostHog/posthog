@@ -898,6 +898,25 @@ async def test_export_error_slo_outcome(
     assert completed_calls[0].kwargs["properties"]["outcome"] == expected_outcome
 
 
+@pytest.mark.parametrize(
+    "error_factory,expected_outcome,expected_error_type,expected_error_msg",
+    [
+        pytest.param(
+            lambda: RuntimeError("ClickHouse connection timeout"),
+            SloOutcome.FAILURE,
+            "PartialExportFailure",
+            "1 export(s) failed: RuntimeError",
+            id="non_user_error_sets_slo_error_type",
+        ),
+        pytest.param(
+            lambda: QueryError("Invalid HogQL query"),
+            SloOutcome.SUCCESS,
+            None,
+            None,
+            id="user_error_keeps_slo_success",
+        ),
+    ],
+)
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
@@ -912,6 +931,10 @@ async def test_partial_export_failure_delivers_successful_assets(
     temporal_client: Client,
     team,
     user,
+    error_factory,
+    expected_outcome: SloOutcome,
+    expected_error_type: str | None,
+    expected_error_msg: str | None,
 ):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="partial fail", created_by=user)
     insights = []
@@ -922,12 +945,11 @@ async def test_partial_export_failure_delivers_successful_assets(
 
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
-    # First insight fails with a system error, the other two succeed
     fail_insight_id = insights[0].id
 
     def fake_export(asset_obj, **kwargs):
         if asset_obj.insight_id == fail_insight_id:
-            raise RuntimeError("ClickHouse connection timeout")
+            raise error_factory()
         asset_obj.content_location = "s3://bucket/ok.png"
         asset_obj.save(update_fields=["content_location"])
 
@@ -973,12 +995,22 @@ async def test_partial_export_failure_delivers_successful_assets(
         delivered_assets = call[0][2]  # third positional arg is assets list
         assert len(delivered_assets) == 3
 
-    # One subscription-level SLO event: failure (system error is a real SLO failure)
     completed_calls = [
         c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
     ]
     assert len(completed_calls) == 1
     props = completed_calls[0].kwargs["properties"]
-    assert props["outcome"] == SloOutcome.FAILURE
+    assert props["outcome"] == expected_outcome
     assert props["assets_with_content"] == 2
     assert props["total_assets"] == 3
+
+    # Non-user errors populate top-level error_type/error_message and asset_errors;
+    # user errors are reclassified as SUCCESS and filtered out of both.
+    if expected_error_type:
+        assert props["error_type"] == expected_error_type
+        assert props["error_message"] == expected_error_msg
+        assert len(props["asset_errors"]) == 1
+        assert "Traceback" in props["asset_errors"][0]["error_trace"]
+    else:
+        assert "error_type" not in props
+        assert props["asset_errors"] == []

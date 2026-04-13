@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useId } from 'react'
 
-import { IconHeartFilled } from '@posthog/icons'
+import { IconBuilding, IconHeartFilled } from '@posthog/icons'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -12,7 +12,16 @@ import { DashboardTemplateType } from '~/types'
 const templateItemButtonResetClass = 'appearance-none p-0 m-0 w-full cursor-pointer text-left font-inherit'
 
 const templateItemFocusClass =
-    'outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-3000 focus-visible:ring-offset-2'
+    'outline-none focus-visible:ring-2 focus-visible:ring-primary-3000 focus-visible:ring-offset-2'
+
+const noCoverRowHover =
+    'hover:border-primary-3000-hover hover:shadow-md hover:-translate-y-px active:translate-y-0 active:shadow-sm'
+
+const buildingIconShellClass =
+    'flex shrink-0 items-center justify-center rounded-md bg-fill-secondary text-secondary transition-colors group-hover:text-primary'
+
+const featuredImageColumnClass =
+    'relative shrink-0 w-40 sm:w-44 h-[132px] overflow-hidden transition-transform duration-300 ease-out will-change-transform group-hover:scale-[1.04]'
 
 export type TemplateItemSize = 'default' | 'large'
 
@@ -24,6 +33,50 @@ export interface DashboardTemplateItemProps {
     /** Larger card + image for featured row experiment */
     size?: TemplateItemSize
     showFavourite?: boolean
+    /** When false, omit cover art (e.g. project templates with no `image_url`). */
+    showCover?: boolean
+}
+
+function TemplateItemBuildingGlyph({ size }: { size: 'sm' | 'lg' }): JSX.Element {
+    const isLarge = size === 'lg'
+    return (
+        <span className={clsx(buildingIconShellClass, isLarge ? 'size-12' : 'size-10')} aria-hidden>
+            <IconBuilding className={isLarge ? 'size-6' : 'size-5'} />
+        </span>
+    )
+}
+
+function TemplateItemTitleDescription({
+    titleId,
+    template,
+    wrapClassName,
+    titleClassName,
+    descriptionClassName,
+}: {
+    titleId: string
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description'>
+    wrapClassName: string
+    titleClassName: string
+    descriptionClassName: string
+}): JSX.Element {
+    return (
+        <div className={wrapClassName}>
+            <h5 id={titleId} className={titleClassName}>
+                {template?.template_name}
+            </h5>
+            <p className={descriptionClassName}>{template?.dashboard_description ?? ' '}</p>
+        </div>
+    )
+}
+
+function noCoverButtonClass(isLarge: boolean): string {
+    return clsx(
+        templateItemButtonResetClass,
+        'group TemplateItem flex flex-row items-start rounded-md border border-border bg-bg-light text-left shadow-sm transition-all duration-200',
+        noCoverRowHover,
+        templateItemFocusClass,
+        isLarge ? 'relative min-h-0 gap-4 p-4' : 'gap-3 p-3'
+    )
 }
 
 export function TemplateItem({
@@ -33,12 +86,11 @@ export function TemplateItem({
     'data-attr': dataAttr,
     size = 'default',
     showFavourite = false,
+    showCover = true,
 }: DashboardTemplateItemProps): JSX.Element {
     const titleId = useId()
     const isLarge = size === 'large'
     const imageHeightClass = 'h-30'
-    const featuredImageColumnClass =
-        'relative shrink-0 w-40 sm:w-44 h-[132px] overflow-hidden transition-transform duration-300 ease-out will-change-transform group-hover:scale-[1.04]'
 
     const favouriteHeart = showFavourite ? (
         <Tooltip title="Users love this template">
@@ -47,6 +99,31 @@ export function TemplateItem({
             </span>
         </Tooltip>
     ) : null
+
+    if (!showCover) {
+        return (
+            <button
+                type="button"
+                className={noCoverButtonClass(isLarge)}
+                onClick={onClick}
+                data-attr={dataAttr}
+                aria-labelledby={titleId}
+            >
+                {isLarge ? favouriteHeart : null}
+                <TemplateItemBuildingGlyph size={isLarge ? 'lg' : 'sm'} />
+                <TemplateItemTitleDescription
+                    titleId={titleId}
+                    template={template}
+                    wrapClassName={clsx('min-w-0 flex-1 flex flex-col', isLarge ? 'gap-1' : 'gap-0.5')}
+                    titleClassName={clsx('min-w-0 font-semibold leading-snug', isLarge ? 'text-base' : 'text-sm')}
+                    descriptionClassName={clsx(
+                        'text-secondary m-0 group-hover:line-clamp-none',
+                        isLarge ? 'text-sm line-clamp-4' : 'text-xs line-clamp-2'
+                    )}
+                />
+            </button>
+        )
+    }
 
     if (isLarge) {
         return (
@@ -75,14 +152,13 @@ export function TemplateItem({
                     {favouriteHeart}
                 </div>
 
-                <div className="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center gap-1 z-10 overflow-y-auto transition-colors duration-200 group-hover:bg-primary-highlight/25">
-                    <h5 id={titleId} className="min-w-0 text-base leading-tight">
-                        {template?.template_name}
-                    </h5>
-                    <p className="text-secondary text-sm m-0 line-clamp-3 group-hover:line-clamp-none">
-                        {template?.dashboard_description ?? ' '}
-                    </p>
-                </div>
+                <TemplateItemTitleDescription
+                    titleId={titleId}
+                    template={template}
+                    wrapClassName="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center gap-1 z-10 overflow-y-auto transition-colors duration-200 group-hover:bg-primary-highlight/25"
+                    titleClassName="min-w-0 text-base leading-tight"
+                    descriptionClassName="text-secondary text-sm m-0 line-clamp-3 group-hover:line-clamp-none"
+                />
             </button>
         )
     }
@@ -111,14 +187,13 @@ export function TemplateItem({
 
             {favouriteHeart}
 
-            <div className="px-2 py-1 overflow-y-auto grow z-10 flex flex-col gap-1">
-                <h5 id={titleId} className="min-w-0">
-                    {template?.template_name}
-                </h5>
-                <p className="text-secondary text-xs line-clamp-2 group-hover:line-clamp-none">
-                    {template?.dashboard_description ?? ' '}
-                </p>
-            </div>
+            <TemplateItemTitleDescription
+                titleId={titleId}
+                template={template}
+                wrapClassName="px-2 py-1 overflow-y-auto grow z-10 flex flex-col gap-1"
+                titleClassName="min-w-0"
+                descriptionClassName="text-secondary text-xs line-clamp-2 group-hover:line-clamp-none"
+            />
         </button>
     )
 }

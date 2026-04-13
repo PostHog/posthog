@@ -111,7 +111,7 @@ export default function TracingScene(): JSX.Element {
             <TracingFilterBar />
             {!sparklineLoading && totalSpansMatchingFilters > 0 && (
                 <div className="text-xs text-muted px-1">
-                    {totalSpansMatchingFilters.toLocaleString()} traces matching filters
+                    {totalSpansMatchingFilters.toLocaleString()} spans matching filters
                 </div>
             )}
             <LemonTable

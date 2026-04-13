@@ -172,6 +172,7 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 rolloutPercentage,
+                new Set(),
                 'test'
             )
             manager = new PersonsManagerService(mockTeamManager, personhogRepo, 'http://localhost:8000')
@@ -241,6 +242,7 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             manager = new PersonsManagerService(mockTeamManager, personhogRepo, 'http://localhost:8000')
@@ -280,6 +282,7 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 0,
+                new Set(),
                 'test'
             )
             const postgresManager = new PersonsManagerService(mockTeamManager, postgresRepo, 'http://localhost:8000')
@@ -305,6 +308,7 @@ describe('PersonsManagerService + PersonHogPersonRepository integration', () => 
                 mockPostgres,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             const manager = new PersonsManagerService(mockTeamManager, personhogRepo, 'http://localhost:8000')

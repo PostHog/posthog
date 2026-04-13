@@ -4,6 +4,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
@@ -247,8 +248,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        usesNewQueryRunner,
+        isExperimentDraft,
+        exposureCriteria,
+        showDebugPanel,
+    } = useValues(experimentLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -278,6 +286,11 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    {showDebugPanel && (
+                        <div className="mb-4">
+                            <DebugCHQueries experimentId={typeof experiment.id === 'number' ? experiment.id : null} />
+                        </div>
+                    )}
                     {!usesNewQueryRunner && (
                         <LemonBanner type="warning" className="mb-4">
                             This is a legacy experiment. Metrics can no longer be edited.
