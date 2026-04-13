@@ -38,6 +38,7 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.insight import capture_legacy_api_call
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -628,7 +629,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
-        with tracer.start_as_current_span("person_api_property_values") as span:
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time(),
+            tracer.start_as_current_span("person_api_property_values") as span,
+        ):
             key = request.GET.get("key")
             value = request.GET.get("value")
 
