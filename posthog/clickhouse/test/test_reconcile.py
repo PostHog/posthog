@@ -1373,6 +1373,17 @@ class TestSatelliteRoleLint(unittest.TestCase):
         errors = _check_cross_cluster_targeting(self._state_with_engine("Distributed", ["LOGS"]))
         self.assertEqual(errors, [], f"LOGS on Distributed should be valid: {errors}")
 
+    def test_distributed_accepts_ingestion_and_data_roles(self) -> None:
+        """P1-5 (Codex round 2): Distributed tables can live on DATA,
+        INGESTION_SMALL, and INGESTION_MEDIUM — existing YAMLs
+        (document_embeddings, heatmaps, session_replay) target those roles
+        for writable passthrough tables. The earlier lint rejected them."""
+        from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
+
+        for role in ("DATA", "INGESTION_SMALL", "INGESTION_MEDIUM", "INGESTION_EVENTS"):
+            errors = _check_cross_cluster_targeting(self._state_with_engine("Distributed", [role]))
+            self.assertEqual(errors, [], f"{role} on Distributed should be valid: {errors}")
+
     def test_kafka_on_aux_passes_lint(self) -> None:
         from posthog.clickhouse.migration_tools.validator import _check_cross_cluster_targeting
 
@@ -1631,3 +1642,297 @@ class TestComputeDiffsPerCluster(unittest.TestCase):
         self.assertIsNone(err)
         # Fallback to migrations cluster should have been taken
         self.assertIn(migrations_cluster, calls, f"Migrations-cluster fallback not used: {calls}")
+
+
+class TestComputeDiffsEmitsDropsForRemovedTables(unittest.TestCase):
+    """P1-2 (Codex round 2): _compute_diffs earlier filtered `current` to the
+    intersection with `desired.tables`, which hid every drop. Removing a table
+    from YAML silently left it live. The fix passes the full `current` dict
+    into diff_state while still avoiding spurious drops from other ecosystems
+    sharing the same physical cluster.
+    """
+
+    def test_drop_emitted_when_table_missing_from_yaml(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        # Only ecosystem `events` — no one claims `legacy_orphan`.
+        events_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        main_cluster = MagicMock(name="main-cluster")
+
+        def fake_dump(_cluster_obj, _database):
+            # dump_schema_all_hosts returns {HostInfo: {table_name: TableSchema}}.
+            # Use a simple string key — _union_from_cluster only iterates values.
+            return {
+                "host1": {
+                    "sharded_events": _make_table_schema(
+                        "sharded_events",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    # Live but not in YAML — must emit drop.
+                    "legacy_orphan": _make_table_schema(
+                        "legacy_orphan",
+                        engine="MergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                }
+            }
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[events_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                return_value=main_cluster,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual([d.table for d in drops], ["legacy_orphan"])
+
+    def test_no_drops_for_tables_owned_by_sibling_ecosystems(self) -> None:
+        """heatmaps and events both live on cluster `main`. An events-only
+        diff should not drop the heatmaps table (which is present in `current`
+        but only claimed by the heatmaps ecosystem)."""
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        events_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+        heatmaps_state = DesiredState(
+            ecosystem="heatmaps",
+            cluster="main",
+            tables={
+                "sharded_heatmaps": _make_desired_table(
+                    "sharded_heatmaps",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        main_cluster = MagicMock(name="main-cluster")
+
+        def fake_dump(_cluster_obj, _database):
+            return {
+                "host1": {
+                    "sharded_events": _make_table_schema(
+                        "sharded_events",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                    "sharded_heatmaps": _make_table_schema(
+                        "sharded_heatmaps",
+                        engine="ReplicatedMergeTree",
+                        columns=[ColumnSchema(name="id", type="UUID")],
+                    ),
+                }
+            }
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[events_state, heatmaps_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                return_value=main_cluster,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual(drops, [], f"Unexpected drops: {[d.table for d in drops]}")
+
+
+class TestComputeDiffsTagsClusterOnDiffs(unittest.TestCase):
+    """P1-3 (Codex round 2): each StateDiff must carry the cluster it targets
+    so handle_apply can route steps to the correct physical cluster instead of
+    funneling everything through the main migrations cluster."""
+
+    def test_diffs_tagged_with_source_cluster(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from posthog.management.commands.ch_migrate import Command
+
+        logs_state = DesiredState(
+            ecosystem="logs",
+            cluster="logs",
+            tables={
+                "logs_table": _make_desired_table(
+                    "logs_table",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+        main_state = DesiredState(
+            ecosystem="events",
+            cluster="main",
+            tables={
+                "sharded_events": _make_desired_table(
+                    "sharded_events",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    order_by=["id"],
+                ),
+            },
+        )
+
+        def fake_get_cluster_by_name(name: str, **_kw):
+            return MagicMock(name=f"{name}-cluster")
+
+        def fake_dump(_cluster_obj, _database):
+            return {}  # empty live state → every table becomes a create
+
+        with (
+            patch(
+                "posthog.clickhouse.migration_tools.desired_state.parse_desired_state_dir",
+                return_value=[logs_state, main_state],
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.get_cluster_by_name",
+                side_effect=fake_get_cluster_by_name,
+            ),
+            patch(
+                "posthog.management.commands.ch_migrate.is_known_cluster",
+                return_value=True,
+            ),
+            patch(
+                "posthog.clickhouse.migration_tools.schema_introspect.dump_schema_all_hosts",
+                side_effect=fake_dump,
+            ),
+        ):
+            cmd = Command()
+            diffs, err = cmd._compute_diffs("posthog", "/tmp/fake_schema_dir")
+
+        self.assertIsNone(err)
+        by_cluster = {d.table: d.cluster for d in diffs}
+        self.assertEqual(by_cluster.get("logs_table"), "logs")
+        self.assertEqual(by_cluster.get("sharded_events"), "main")
+
+
+class TestManifestStepCarriesCluster(unittest.TestCase):
+    """P1-3 (Codex round 2): cluster tag propagates from StateDiff to
+    ManifestStep so the apply loop can resolve the per-step cluster."""
+
+    def test_generate_manifest_steps_copies_cluster(self) -> None:
+        from posthog.clickhouse.migration_tools.plan_generator import generate_manifest_steps
+
+        diff = StateDiff(
+            action="create",
+            table="foo",
+            detail="create foo",
+            sql="CREATE TABLE foo (id UInt64) ENGINE = MergeTree ORDER BY id",
+            node_roles=["ALL"],
+            cluster="logs",
+        )
+        steps = generate_manifest_steps([diff])
+        self.assertEqual(len(steps), 1)
+        step, _sql = steps[0]
+        self.assertEqual(step.cluster, "logs")
+
+
+class TestDiffStatePlaceholderMvNotDropped(unittest.TestCase):
+    """P1-4 (Codex round 2): placeholder-select MVs are excluded from
+    desired_names but must also be excluded from current_names. Otherwise
+    diff_state emits a DROP against every legacy MV the YAML stubbed out."""
+
+    def test_placeholder_mv_present_in_live_is_not_dropped(self) -> None:
+        desired = _make_desired_state(
+            {
+                "stub_mv": _make_desired_table(
+                    "stub_mv",
+                    engine="MaterializedView",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["ALL"],
+                    target="target_table",
+                    select="SELECT ... FROM source",  # placeholder sentinel
+                ),
+            }
+        )
+        current = {
+            "stub_mv": _make_table_schema(
+                "stub_mv",
+                engine="MaterializedView",
+                columns=[ColumnSchema(name="id", type="UUID")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual(drops, [], f"Placeholder MV should not be dropped: {[d.table for d in drops]}")
+
+    def test_placeholder_mv_trailing_dots_variant(self) -> None:
+        """The `, ...` trailing-cols placeholder must also be exempt."""
+        desired = _make_desired_state(
+            {
+                "stub_mv": _make_desired_table(
+                    "stub_mv",
+                    engine="MaterializedView",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["ALL"],
+                    target="target_table",
+                    select="SELECT id, timestamp, ... FROM source",
+                ),
+            }
+        )
+        current = {
+            "stub_mv": _make_table_schema(
+                "stub_mv",
+                engine="MaterializedView",
+                columns=[ColumnSchema(name="id", type="UUID")],
+            ),
+        }
+        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        drops = [d for d in diffs if d.action == "drop"]
+        self.assertEqual(drops, [], f"Trailing-dots placeholder MV should not be dropped: {[d.table for d in drops]}")

@@ -28,3 +28,7 @@ class ManifestStep:
     comment: str = ""
     sharded: bool = False
     is_alter_on_replicated_table: bool = False
+    # Logical cluster name this step targets. Empty string means the caller
+    # should use the default migrations cluster. Propagated from StateDiff
+    # so the runner can resolve the correct physical cluster per step.
+    cluster: str = ""

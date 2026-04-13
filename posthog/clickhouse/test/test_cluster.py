@@ -499,3 +499,39 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+def test_logs_role_does_not_trigger_dev_fallback() -> None:
+    """P1-6 (Codex round 2): the DEBUG/TEST fallback in __hosts_by_roles was
+    originally added for INGESTION_* roles that have no dedicated dev node.
+    LOGS has a dedicated clickhouse-logs node in the multi-node dev stack, so
+    the fallback must NOT fire for LOGS. Otherwise a LOGS-role migration
+    fans out onto every main-cluster host instead of just the logs node."""
+    # Main cluster has only data+coordinator nodes — no LOGS host in this view.
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(
+        return_value=[
+            ("data1", "9000", "1", "1", "online", "data"),
+            ("data2", "9000", "1", "2", "online", "data"),
+            ("coord", "9000", "1", "3", "online", "coordinator"),
+        ]
+    )
+
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+    # Access the name-mangled private helper the same way other tests do.
+    hosts_by_roles = cluster._ClickhouseCluster__hosts_by_roles  # type: ignore[attr-defined]
+    all_hosts = cluster._ClickhouseCluster__hosts  # type: ignore[attr-defined]
+
+    with patch("posthog.clickhouse.cluster.settings.DEBUG", True):
+        # LOGS role with no matching host should return empty set — caller
+        # decides how to handle the miss. Fallback to all hosts would be wrong
+        # because LOGS migrations must not hit the main cluster's data nodes.
+        result = hosts_by_roles(all_hosts, [NodeRole.LOGS])
+        assert result == set(), (
+            f"LOGS role should not trigger dev fallback: got {[h.host_cluster_role for h in result]}"
+        )
+
+        # INGESTION_SMALL has no dedicated dev node — the fallback SHOULD still
+        # fire for it, to match legacy migrate_clickhouse behavior.
+        ingestion_result = hosts_by_roles(all_hosts, [NodeRole.INGESTION_SMALL])
+        assert len(ingestion_result) > 0, "INGESTION_SMALL should still hit the DEBUG fallback (no dedicated dev node)"
