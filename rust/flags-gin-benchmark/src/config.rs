@@ -15,7 +15,7 @@ pub struct BenchmarkConfig {
     pub scale: u64,
 
     /// Number of teams to spread data across.
-    #[arg(long, default_value = "10")]
+    #[arg(long, default_value = "100")]
     pub teams: i32,
 
     /// Duration in seconds for each workload phase.

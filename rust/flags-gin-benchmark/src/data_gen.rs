@@ -62,31 +62,59 @@ pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
 
 /// Generate a full person registry from the benchmark config.
 ///
-/// - `scale` persons spread evenly across `teams` teams.
-/// - 95% get 1 distinct_id, 5% get 2.
+/// - `scale` persons distributed across `teams` teams following a Zipf distribution
+///   (weight = 1/rank^1.5), so a few mega-teams dominate and most teams are small.
+///   This matches production where the top 2-3 teams hold the majority of persons.
+/// - 86% get 1 distinct_id, 14% get 2 (matching measured ~1.14 distinct_ids/person ratio).
+/// - Distinct IDs use UUID format (~36 bytes) to match real-world ID lengths.
 /// - Properties target ~700 bytes each.
 pub fn generate_person_registry(config: &BenchmarkConfig, rng: &mut impl Rng) -> PersonRegistry {
     let scale = config.scale as usize;
     let teams = config.teams;
 
+    // Zipf-weighted team sizes: weight(rank) = 1 / rank^1.5.
+    let weights: Vec<f64> = (1..=teams)
+        .map(|i| 1.0 / (i as f64).powf(1.5))
+        .collect();
+    let total_weight: f64 = weights.iter().sum();
+
+    let mut team_counts: Vec<usize> = weights
+        .iter()
+        .map(|w| ((w / total_weight) * scale as f64).round() as usize)
+        .collect();
+
+    // Fix rounding drift: add or remove from the largest team.
+    let total: usize = team_counts.iter().sum();
+    match total.cmp(&scale) {
+        std::cmp::Ordering::Greater => team_counts[0] -= total - scale,
+        std::cmp::Ordering::Less => team_counts[0] += scale - total,
+        std::cmp::Ordering::Equal => {}
+    }
+
     let mut persons = Vec::with_capacity(scale);
-    let mut distinct_ids = Vec::with_capacity((scale as f64 * 1.05) as usize);
+    let mut distinct_ids = Vec::with_capacity((scale as f64 * 1.14) as usize);
 
-    for i in 0..scale {
-        let team_id = (i as i32 % teams) + 1;
-        let person_uuid = Uuid::new_v4();
-        let properties = generate_properties(rng, 700);
+    for (team_idx, &count) in team_counts.iter().enumerate() {
+        let team_id = (team_idx as i32) + 1;
+        for _ in 0..count {
+            let person_uuid = Uuid::new_v4();
+            let properties = generate_properties(rng, 700);
 
-        persons.push((team_id, person_uuid, properties));
+            persons.push((team_id, person_uuid, properties));
 
-        // First distinct_id (everyone gets one).
-        let did = format!("did_{team_id}_{i}");
-        distinct_ids.push((team_id, person_uuid, did));
+            // UUID-format distinct_id (~36 bytes, matching real-world ID length).
+            let mut bytes = [0u8; 16];
+            rng.fill(&mut bytes);
+            let did = Uuid::from_bytes(bytes).to_string();
+            distinct_ids.push((team_id, person_uuid, did));
 
-        // 5% get a second distinct_id.
-        if rng.gen_ratio(1, 20) {
-            let did2 = format!("did_{team_id}_{i}_alt");
-            distinct_ids.push((team_id, person_uuid, did2));
+            // 14% get a second distinct_id (matching measured ~1.14 ratio).
+            if rng.gen_ratio(14, 100) {
+                let mut bytes2 = [0u8; 16];
+                rng.fill(&mut bytes2);
+                let did2 = Uuid::from_bytes(bytes2).to_string();
+                distinct_ids.push((team_id, person_uuid, did2));
+            }
         }
     }
 

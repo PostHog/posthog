@@ -122,7 +122,6 @@ pub async fn phase_identification_appends(
     let before = metrics::capture_snapshot(pool).await?;
     let deadline = Instant::now() + Duration::from_secs(config.duration_secs);
     let version_counter = Arc::new(AtomicI64::new(1_000_000));
-    let did_counter = Arc::new(AtomicU64::new(0));
     let error_counter = Arc::new(AtomicU64::new(0));
 
     let mut handles = Vec::with_capacity(config.concurrency);
@@ -131,7 +130,6 @@ pub async fn phase_identification_appends(
         let storage = PostgresStorage::new(pool.clone());
         let persons = registry.persons.clone();
         let version_counter = version_counter.clone();
-        let did_counter = did_counter.clone();
         let error_counter = error_counter.clone();
 
         handles.push(tokio::spawn(async move {
@@ -141,12 +139,15 @@ pub async fn phase_identification_appends(
             while Instant::now() < deadline {
                 let idx = rng.gen_range(0..persons.len());
                 let (team_id, person_uuid, _) = &persons[idx];
-                let did_id = did_counter.fetch_add(1, Ordering::Relaxed);
+
+                // UUID-format distinct_id (~36 bytes) matching real-world ID length.
+                let mut did_bytes = [0u8; 16];
+                rng.fill(&mut did_bytes);
 
                 let assignment = DistinctIdAssignmentData {
                     team_id: *team_id,
                     person_uuid: *person_uuid,
-                    distinct_id: format!("new_did_{did_id}").into_boxed_str(),
+                    distinct_id: Uuid::from_bytes(did_bytes).to_string().into_boxed_str(),
                     version: version_counter.fetch_add(1, Ordering::Relaxed),
                 };
 

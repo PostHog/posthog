@@ -134,6 +134,14 @@ async fn main() -> anyhow::Result<()> {
     results.push(write_r);
     results.push(read_r);
 
+    metrics::reset_stats(&pool).await;
+
+    tracing::info!("=== Phase 6: Post-burst steady-state recovery ===");
+    let r =
+        workloads::phase_merges(&pool, &registry, &config, "Post-burst merges", None, None).await?;
+    tracing::info!(ops = r.latency.count, errors = r.errors, "phase 6 complete");
+    results.push(r);
+
     // Print final report.
     report::print_report(&config, &results);
 
