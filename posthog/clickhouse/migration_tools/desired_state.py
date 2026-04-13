@@ -40,6 +40,12 @@ class DesiredTable:
     select: str | None = None  # for MV: the SELECT statement
     settings: dict[str, str] | None = None  # for Kafka: engine settings
     inherit_columns_from: str | None = None
+    # Dictionary-only fields. All three (dict_source/dict_layout/dict_lifetime)
+    # are required alongside primary_key when engine == "Dictionary".
+    primary_key: str | None = None
+    dict_source: dict[str, Any] | None = None  # {"type": "CLICKHOUSE", "table": "...", ...}
+    dict_layout: dict[str, Any] | None = None  # {"type": "COMPLEX_KEY_HASHED", "params": {...}}
+    dict_lifetime: dict[str, int] | None = None  # {"min": 3000, "max": 3600}
 
 
 @dataclass
@@ -111,6 +117,25 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
     if settings and isinstance(settings, dict):
         settings = {k: str(v) for k, v in settings.items()}
 
+    # Dictionary engines read `source`/`layout`/`lifetime` as nested mappings,
+    # not the scalar `source` used by Distributed (which is a table name string).
+    # Route the Dictionary form into dict_* fields so the two don't collide.
+    dict_source: dict[str, Any] | None = None
+    dict_layout: dict[str, Any] | None = None
+    dict_lifetime: dict[str, int] | None = None
+    primary_key = raw.get("primary_key")
+    source_raw = raw.get("source")
+    if engine.lower() == "dictionary":
+        if isinstance(source_raw, dict):
+            dict_source = source_raw
+            source_raw = None  # don't leak the mapping into DesiredTable.source
+        layout_raw = raw.get("layout")
+        if isinstance(layout_raw, dict):
+            dict_layout = layout_raw
+        lifetime_raw = raw.get("lifetime")
+        if isinstance(lifetime_raw, dict):
+            dict_lifetime = {k: int(v) for k, v in lifetime_raw.items()}
+
     return DesiredTable(
         name=name,
         engine=engine,
@@ -120,11 +145,15 @@ def _parse_table(name: str, raw: dict[str, Any], all_tables: dict[str, Any]) -> 
         partition_by=raw.get("partition_by"),
         sharded=raw.get("sharded", False),
         sharding_key=raw.get("sharding_key"),
-        source=raw.get("source"),
+        source=source_raw if isinstance(source_raw, str) else None,
         target=raw.get("target"),
         select=raw.get("select"),
         settings=settings,
         inherit_columns_from=inherit_from,
+        primary_key=primary_key,
+        dict_source=dict_source,
+        dict_layout=dict_layout,
+        dict_lifetime=dict_lifetime,
     )
 
 
