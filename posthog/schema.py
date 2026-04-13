@@ -1726,6 +1726,11 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class MultipleVariantHandling(StrEnum):
+    EXCLUDE = "exclude"
+    FIRST_SEEN = "first_seen"
+
+
 class Kind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
@@ -1734,11 +1739,6 @@ class Kind(StrEnum):
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
-
-
-class MultipleVariantHandling(StrEnum):
-    EXCLUDE = "exclude"
-    FIRST_SEEN = "first_seen"
 
 
 class ExperimentExposureTimeSeries(BaseModel):
