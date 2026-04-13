@@ -43,8 +43,10 @@ services:
         restart: on-failure
         logging: *default-logging
         depends_on:
-            - kafka
-            - keeper
+            kafka:
+                condition: service_healthy
+            keeper:
+                condition: service_healthy
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -60,6 +62,13 @@ services:
         extends:
             file: docker-compose.base.yml
             service: keeper
+        # Hobby clones posthog into ./posthog/ subdir, so the base's
+        # ./docker/clickhouse/keeper_config.xml path doesn't resolve.
+        # Override with the hobby-relative path + add persistent volumes.
+        volumes:
+            - ./posthog/docker/clickhouse/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+            - keeper-data:/var/lib/clickhouse-keeper
+            - keeper-logs:/var/log/clickhouse-keeper
 
     kafka:
         extends:
@@ -536,3 +545,5 @@ volumes:
     redis7-data:
     kafka-data:
     redpanda-data:
+    keeper-data:
+    keeper-logs:
