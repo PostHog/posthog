@@ -317,4 +317,6 @@ tools:
         enabled: false
     dashboards-bulk-update-tags-create:
         operation: dashboards_bulk_update_tags_create
+    dashboard-templates-copy-between-projects-create:
+        operation: dashboard_templates_copy_between_projects_create
         enabled: false
