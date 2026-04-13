@@ -571,7 +571,7 @@ class Command(BaseCommand):
             rows = client.execute(
                 f"SELECT migration_number, migration_name, host, direction, applied_at, success "
                 f"FROM {database}.{TRACKING_TABLE_NAME} "
-                f"WHERE migration_number > 0 AND host = %(host)s "
+                f"WHERE host = %(host)s "
                 f"ORDER BY applied_at DESC LIMIT 50",
                 {"host": node_filter},
             )
@@ -579,7 +579,6 @@ class Command(BaseCommand):
             rows = client.execute(
                 f"SELECT migration_number, migration_name, host, direction, applied_at, success "
                 f"FROM {database}.{TRACKING_TABLE_NAME} "
-                f"WHERE migration_number > 0 "
                 f"ORDER BY applied_at DESC LIMIT 50"
             )
 
