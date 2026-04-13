@@ -3,6 +3,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import {
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
+    isBoxPlotMissingProperty,
     syncSelectedVariablesToQuery,
     validateQuery,
 } from './queryUtils'
@@ -189,5 +190,29 @@ describe('validateQuery', () => {
             properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
         }
         expect(validateQuery(trendsQuery)).toBe(true)
+    })
+})
+
+describe('isBoxPlotMissingProperty', () => {
+    it('returns true when there are no series', () => {
+        expect(isBoxPlotMissingProperty([])).toBe(true)
+    })
+
+    it('returns true when a series is missing math_property', () => {
+        expect(
+            isBoxPlotMissingProperty([
+                { kind: NodeKind.EventsNode, event: '$pageview', math_property: 'duration' },
+                { kind: NodeKind.EventsNode, event: '$signup' },
+            ])
+        ).toBe(true)
+    })
+
+    it('returns false when all series have math_property', () => {
+        expect(
+            isBoxPlotMissingProperty([
+                { kind: NodeKind.EventsNode, event: '$pageview', math_property: 'duration' },
+                { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
+            ])
+        ).toBe(false)
     })
 })

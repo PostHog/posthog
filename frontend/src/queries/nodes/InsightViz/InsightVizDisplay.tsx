@@ -26,6 +26,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
@@ -173,7 +174,7 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && (!series?.length || series.some((s) => !s?.math_property))) {
+        if (display === ChartDisplayType.BoxPlot && isBoxPlotMissingProperty(series)) {
             return <BoxPlotMissingPropertyState />
         }
 
