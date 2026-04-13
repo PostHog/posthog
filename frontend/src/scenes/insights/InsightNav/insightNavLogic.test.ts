@@ -649,6 +649,90 @@ describe('insightNavLogic', () => {
                 ])
             })
 
+            it('restores original breakdowns on round-trip even after edits on intermediate type', async () => {
+                const trendsWithMultipleBreakdowns: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                        version: 2,
+                        breakdownFilter: {
+                            breakdowns: [
+                                { property: '$browser', type: 'event' },
+                                { property: '$os', type: 'event' },
+                            ],
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithMultipleBreakdowns)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                // User edits the single-breakdown while on Funnels
+                const currentFunnel = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                await expectLogic(builtInsightDataLogic, () => {
+                    builtInsightDataLogic.actions.setQuery({
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...currentFunnel,
+                            breakdownFilter: { ...currentFunnel.breakdownFilter, breakdown: '$device_type' },
+                        },
+                    } as InsightVizNode)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                // Original multi-breakdown wins over the edit made on Funnels
+                const trendsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsQuery.breakdownFilter?.breakdowns).toEqual([
+                    { property: '$browser', type: 'event' },
+                    { property: '$os', type: 'event' },
+                ])
+            })
+
+            it('restores minute interval on round-trip even after edits on intermediate type', async () => {
+                const trendsWithMinute: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                        interval: 'minute',
+                        version: 2,
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsWithMinute)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                // User edits interval while on Funnels
+                const currentFunnel = (builtInsightDataLogic.values.query as InsightVizNode).source as FunnelsQuery
+                await expectLogic(builtInsightDataLogic, () => {
+                    builtInsightDataLogic.actions.setQuery({
+                        kind: NodeKind.InsightVizNode,
+                        source: { ...currentFunnel, interval: 'day' },
+                    } as InsightVizNode)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const trendsQuery = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsQuery.interval).toBe('minute')
+            })
+
             it('preserves breakdownFilter through round-trip via unsupported type', async () => {
                 const trendsWithBreakdown: InsightVizNode = {
                     kind: NodeKind.InsightVizNode,

@@ -92,7 +92,6 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
-    kind?: NodeKind
     series?: (AnyEntityNode | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
@@ -532,6 +531,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
 
+    if (isWebAnalyticsInsightQuery(query)) {
+        return newCache
+    }
+
     // Preserve explicit removals for global filters when merging with the existing cache.
     newCache.properties = query.properties === undefined ? undefined : JSON.parse(JSON.stringify(query.properties))
 
@@ -561,10 +564,6 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     // Preserve minute interval through types that downgrade it to hour
     if (cache?.interval === 'minute' && !isTrendsQuery(query)) {
         newCache.interval = cache.interval
-    }
-
-    if (isWebAnalyticsInsightQuery(query)) {
-        return newCache
     }
 
     /** store the insight specific filter in commonFilter */
