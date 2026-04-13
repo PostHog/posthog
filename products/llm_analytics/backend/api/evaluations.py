@@ -276,6 +276,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def perform_create(self, serializer):
         instance = serializer.save()
 
+        # Auto-create a default report config so reports are generated from the start.
+        # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+        # and users add email/Slack delivery targets later if they want notifications.
+        from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
+
+        EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=instance,
+        )
+
         # Calculate properties for tracking
         conditions = instance.conditions or []
         condition_count = len(conditions)
