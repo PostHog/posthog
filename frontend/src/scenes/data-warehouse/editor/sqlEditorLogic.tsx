@@ -22,6 +22,7 @@ import posthog from 'posthog-js'
 import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -252,16 +253,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         initialize: true,
         loadUpstream: (modelId: string) => ({ modelId }),
         saveAsView: (materializeAfterSave = false, fromDraft?: string) => ({ fromDraft, materializeAfterSave }),
-        saveAsViewSubmit: (name: string, materializeAfterSave = false, fromDraft?: string, isTest = false) => ({
+        saveAsViewSubmit: (
+            name: string,
+            materializeAfterSave = false,
+            fromDraft?: string,
+            isTest = false,
+            queryOverride?: string
+        ) => ({
             fromDraft,
             name,
             materializeAfterSave,
             isTest,
+            queryOverride,
         }),
         saveAsInsight: true,
-        saveAsInsightSubmit: (name: string) => ({ name }),
+        saveAsInsightSubmit: (name: string, queryOverride?: string) => ({ name, queryOverride }),
         saveAsEndpoint: true,
-        saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
+        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string) => ({
+            name,
+            description,
+            queryOverride,
+        }),
         updateInsight: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
@@ -492,728 +504,845 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, props, actions, asyncActions, cache }) => ({
-        fixErrorsSuccess: ({ response }) => {
-            actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
+    listeners(({ values, props, actions, asyncActions, cache }) => {
+        /**
+         * Resolve which query the user wants to save. Priority:
+         *   1. A non-empty editor selection (user explicitly highlighted text)
+         *   2. The query under the cursor, when the editor contains multiple statements
+         *   3. The full editor text
+         *
+         * Returns the text to save and an optional human-readable label for the save dialog.
+         */
+        const resolveQueryToSave = (): { query: string; label: string | null } => {
+            const fullText = values.queryInput ?? ''
+            const editorInstance = props.editor
 
-            posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
-        },
-        fixErrorsFailure: () => {
-            posthog.capture('ai-error-fixer-failure')
-        },
-        insertTextAtCursor: ({ text }) => {
-            const editor = props.editor
-            if (!editor) {
-                return
+            if (editorInstance) {
+                const model = editorInstance.getModel()
+                const selection = editorInstance.getSelection()
+                if (model && selection && !selection.isEmpty()) {
+                    const selectedText = model.getValueInRange(selection).trim()
+                    if (selectedText) {
+                        return { query: selectedText, label: 'Selection' }
+                    }
+                }
             }
 
-            const position = editor.getPosition()
-            if (!position) {
-                return
+            const queries = splitQueries(fullText)
+            if (queries.length <= 1) {
+                return { query: fullText, label: null }
             }
 
-            editor.executeEdits('insert-variable', [
-                {
-                    range: {
-                        startLineNumber: position.lineNumber,
-                        startColumn: position.column,
-                        endLineNumber: position.lineNumber,
-                        endColumn: position.column,
+            if (editorInstance) {
+                const model = editorInstance.getModel()
+                const position = editorInstance.getPosition()
+                if (model && position) {
+                    const cursorOffset = model.getOffsetAt(position)
+                    const match = findQueryAtCursor(queries, cursorOffset)
+                    if (match) {
+                        const index = queries.findIndex((q) => q.start === match.start)
+                        return {
+                            query: match.query,
+                            label: `Query ${index + 1} of ${queries.length}`,
+                        }
+                    }
+                }
+            }
+
+            const last = queries[queries.length - 1]
+            return { query: last.query, label: `Query ${queries.length} of ${queries.length}` }
+        }
+
+        const renderSaveTargetPreview = (resolved: { query: string; label: string | null }): JSX.Element | null => {
+            if (!resolved.label) {
+                return null
+            }
+            return (
+                <div className="mt-2 mb-3">
+                    <div className="text-muted text-xs mb-1">Saving: {resolved.label}</div>
+                    <CodeSnippet language={Language.SQL} wrap compact maxLinesWithoutExpansion={8}>
+                        {resolved.query}
+                    </CodeSnippet>
+                </div>
+            )
+        }
+
+        return {
+            fixErrorsSuccess: ({ response }) => {
+                actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
+
+                posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
+            },
+            fixErrorsFailure: () => {
+                posthog.capture('ai-error-fixer-failure')
+            },
+            insertTextAtCursor: ({ text }) => {
+                const editor = props.editor
+                if (!editor) {
+                    return
+                }
+
+                const position = editor.getPosition()
+                if (!position) {
+                    return
+                }
+
+                editor.executeEdits('insert-variable', [
+                    {
+                        range: {
+                            startLineNumber: position.lineNumber,
+                            startColumn: position.column,
+                            endLineNumber: position.lineNumber,
+                            endColumn: position.column,
+                        },
+                        text,
                     },
-                    text,
-                },
-            ])
+                ])
 
-            // Move cursor to end of inserted text
-            editor.setPosition({
-                lineNumber: position.lineNumber,
-                column: position.column + text.length,
-            })
+                // Move cursor to end of inserted text
+                editor.setPosition({
+                    lineNumber: position.lineNumber,
+                    column: position.column + text.length,
+                })
 
-            editor.focus()
-        },
-        shareTab: () => {
-            const currentTab = values.activeTab
-            if (!currentTab) {
-                return
-            }
+                editor.focus()
+            },
+            shareTab: () => {
+                const currentTab = values.activeTab
+                if (!currentTab) {
+                    return
+                }
 
-            if (currentTab.insight) {
-                const currentUrl = new URL(window.location.href)
-                const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                shareUrl.searchParams.set('open_insight', currentTab.insight.short_id)
+                if (currentTab.insight) {
+                    const currentUrl = new URL(window.location.href)
+                    const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
+                    shareUrl.searchParams.set('open_insight', currentTab.insight.short_id)
 
-                if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
-                    const query = (currentTab.insight.query as DataVisualizationNode).source.query
-                    if (values.queryInput !== query) {
+                    if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
+                        const query = (currentTab.insight.query as DataVisualizationNode).source.query
+                        if (values.queryInput !== query) {
+                            shareUrl.searchParams.set('open_query', values.queryInput ?? '')
+                        }
+                    }
+
+                    void copyToClipboard(shareUrl.toString(), 'share link')
+                } else if (currentTab.view) {
+                    const currentUrl = new URL(window.location.href)
+                    const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
+                    shareUrl.searchParams.set('open_view', currentTab.view.id)
+
+                    if (values.queryInput != currentTab.view.query?.query) {
                         shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                     }
-                }
 
-                void copyToClipboard(shareUrl.toString(), 'share link')
-            } else if (currentTab.view) {
-                const currentUrl = new URL(window.location.href)
-                const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                shareUrl.searchParams.set('open_view', currentTab.view.id)
-
-                if (values.queryInput != currentTab.view.query?.query) {
+                    void copyToClipboard(shareUrl.toString(), 'share link')
+                } else {
+                    const currentUrl = new URL(window.location.href)
+                    const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
                     shareUrl.searchParams.set('open_query', values.queryInput ?? '')
+
+                    void copyToClipboard(shareUrl.toString(), 'share link')
+                }
+            },
+            setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
+                // If there's no active tab, create one first to ensure Monaco Editor is available
+                if (!values.activeTab) {
+                    actions.createTab(suggestedQueryInput)
+                    return
                 }
 
-                void copyToClipboard(shareUrl.toString(), 'share link')
-            } else {
-                const currentUrl = new URL(window.location.href)
-                const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                shareUrl.searchParams.set('open_query', values.queryInput ?? '')
-
-                void copyToClipboard(shareUrl.toString(), 'share link')
-            }
-        },
-        setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
-            // If there's no active tab, create one first to ensure Monaco Editor is available
-            if (!values.activeTab) {
-                actions.createTab(suggestedQueryInput)
-                return
-            }
-
-            // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
-            // Only skip diff mode if the editor is completely empty
-            if (values.queryInput && values.queryInput.trim() !== '') {
-                actions._setSuggestionPayload({
-                    suggestedValue: suggestedQueryInput,
-                    originalValue: values.queryInput, // Store the current content as original for diff mode
-                    acceptText: aiSuggestionOnAcceptText,
-                    rejectText: aiSuggestionOnRejectText,
-                    onAccept: aiSuggestionOnAccept,
-                    onReject: aiSuggestionOnReject,
-                    source,
-                    diffShowRunButton: true,
-                })
-            } else {
-                actions.setQueryInput(suggestedQueryInput)
-            }
-        },
-        onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
-            values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
-
-            // Re-create the model to prevent it from being purged
-            if (props.monaco && values.activeTab) {
-                const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                if (!existingModel) {
-                    const newModel = props.monaco.editor.createModel(
-                        values.suggestedQueryInput,
-                        'hogQL',
-                        values.activeTab.uri
-                    )
-                    cache.createdModels = cache.createdModels || []
-                    cache.createdModels.push(newModel)
-
-                    initModel(
-                        newModel,
-                        codeEditorLogic({
-                            key: `hogql-editor-${props.tabId}`,
-                            query: values.suggestedQueryInput,
-                            language: 'hogQL',
-                        })
-                    )
-
-                    // Handle both diff editor and regular editor
-                    if (props.editor && 'getModifiedEditor' in props.editor) {
-                        // It's a diff editor, set model on the modified editor
-                        const modifiedEditor = (props.editor as any).getModifiedEditor()
-                        modifiedEditor.setModel(newModel)
-                    } else {
-                        // Regular editor
-                        props.editor?.setModel(newModel)
-                    }
+                // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
+                // Only skip diff mode if the editor is completely empty
+                if (values.queryInput && values.queryInput.trim() !== '') {
+                    actions._setSuggestionPayload({
+                        suggestedValue: suggestedQueryInput,
+                        originalValue: values.queryInput, // Store the current content as original for diff mode
+                        acceptText: aiSuggestionOnAcceptText,
+                        rejectText: aiSuggestionOnRejectText,
+                        onAccept: aiSuggestionOnAccept,
+                        onReject: aiSuggestionOnReject,
+                        source,
+                        diffShowRunButton: true,
+                    })
                 } else {
-                    // Handle both diff editor and regular editor
-                    if (props.editor && 'getModifiedEditor' in props.editor) {
-                        // It's a diff editor, set model on the modified editor
-                        const modifiedEditor = (props.editor as any).getModifiedEditor()
-                        modifiedEditor.setModel(existingModel)
+                    actions.setQueryInput(suggestedQueryInput)
+                }
+            },
+            onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
+                values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
+
+                // Re-create the model to prevent it from being purged
+                if (props.monaco && values.activeTab) {
+                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
+                    if (!existingModel) {
+                        const newModel = props.monaco.editor.createModel(
+                            values.suggestedQueryInput,
+                            'hogQL',
+                            values.activeTab.uri
+                        )
+                        cache.createdModels = cache.createdModels || []
+                        cache.createdModels.push(newModel)
+
+                        initModel(
+                            newModel,
+                            codeEditorLogic({
+                                key: `hogql-editor-${props.tabId}`,
+                                query: values.suggestedQueryInput,
+                                language: 'hogQL',
+                            })
+                        )
+
+                        // Handle both diff editor and regular editor
+                        if (props.editor && 'getModifiedEditor' in props.editor) {
+                            // It's a diff editor, set model on the modified editor
+                            const modifiedEditor = (props.editor as any).getModifiedEditor()
+                            modifiedEditor.setModel(newModel)
+                        } else {
+                            // Regular editor
+                            props.editor?.setModel(newModel)
+                        }
                     } else {
-                        // Regular editor
-                        props.editor?.setModel(existingModel)
+                        // Handle both diff editor and regular editor
+                        if (props.editor && 'getModifiedEditor' in props.editor) {
+                            // It's a diff editor, set model on the modified editor
+                            const modifiedEditor = (props.editor as any).getModifiedEditor()
+                            modifiedEditor.setModel(existingModel)
+                        } else {
+                            // Regular editor
+                            props.editor?.setModel(existingModel)
+                        }
                     }
                 }
-            }
-            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
-            actions._setSuggestionPayload(null)
-        },
-        onRejectSuggestedQueryInput: () => {
-            values.suggestionPayload?.onReject(actions, values, props)
+                posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
+                actions._setSuggestionPayload(null)
+            },
+            onRejectSuggestedQueryInput: () => {
+                values.suggestionPayload?.onReject(actions, values, props)
 
-            // Re-create the model to prevent it from being purged
-            if (props.monaco && values.activeTab) {
-                const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                if (!existingModel) {
-                    const newModel = props.monaco.editor.createModel(
-                        values.queryInput ?? '',
-                        'hogQL',
-                        values.activeTab.uri
-                    )
-                    cache.createdModels = cache.createdModels || []
-                    cache.createdModels.push(newModel)
-                    initModel(
-                        newModel,
-                        codeEditorLogic({
-                            key: `hogql-editor-${props.tabId}`,
-                            query: values.queryInput ?? '',
-                            language: 'hogQL',
-                        })
-                    )
+                // Re-create the model to prevent it from being purged
+                if (props.monaco && values.activeTab) {
+                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
+                    if (!existingModel) {
+                        const newModel = props.monaco.editor.createModel(
+                            values.queryInput ?? '',
+                            'hogQL',
+                            values.activeTab.uri
+                        )
+                        cache.createdModels = cache.createdModels || []
+                        cache.createdModels.push(newModel)
+                        initModel(
+                            newModel,
+                            codeEditorLogic({
+                                key: `hogql-editor-${props.tabId}`,
+                                query: values.queryInput ?? '',
+                                language: 'hogQL',
+                            })
+                        )
 
-                    // Handle both diff editor and regular editor
-                    if (props.editor && 'getModifiedEditor' in props.editor) {
-                        // It's a diff editor, set model on the modified editor
-                        const modifiedEditor = (props.editor as any).getModifiedEditor()
-                        modifiedEditor.setModel(newModel)
+                        // Handle both diff editor and regular editor
+                        if (props.editor && 'getModifiedEditor' in props.editor) {
+                            // It's a diff editor, set model on the modified editor
+                            const modifiedEditor = (props.editor as any).getModifiedEditor()
+                            modifiedEditor.setModel(newModel)
+                        } else {
+                            // Regular editor
+                            props.editor?.setModel(newModel)
+                        }
                     } else {
-                        // Regular editor
-                        props.editor?.setModel(newModel)
-                    }
-                } else {
-                    // Handle both diff editor and regular editor
-                    if (props.editor && 'getModifiedEditor' in props.editor) {
-                        // It's a diff editor, set model on the modified editor
-                        const modifiedEditor = (props.editor as any).getModifiedEditor()
-                        modifiedEditor.setModel(existingModel)
-                    } else {
-                        // Regular editor
-                        props.editor?.setModel(existingModel)
+                        // Handle both diff editor and regular editor
+                        if (props.editor && 'getModifiedEditor' in props.editor) {
+                            // It's a diff editor, set model on the modified editor
+                            const modifiedEditor = (props.editor as any).getModifiedEditor()
+                            modifiedEditor.setModel(existingModel)
+                        } else {
+                            // Regular editor
+                            props.editor?.setModel(existingModel)
+                        }
                     }
                 }
-            }
-            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
-            actions._setSuggestionPayload(null)
-        },
-        editView: ({ query, view }) => {
-            actions.setActiveTab(OutputTab.Materialization)
-            actions.createTab(query, view)
-        },
-        editInsight: ({ query, insight }) => {
-            actions.createTab(query, undefined, insight)
-        },
-        createTab: async ({ query = '', view, insight, draft }) => {
-            // Use tabId to ensure each browser tab has its own unique Monaco model
-            const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
+                posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
+                actions._setSuggestionPayload(null)
+            },
+            editView: ({ query, view }) => {
+                actions.setActiveTab(OutputTab.Materialization)
+                actions.createTab(query, view)
+            },
+            editInsight: ({ query, insight }) => {
+                actions.createTab(query, undefined, insight)
+            },
+            createTab: async ({ query = '', view, insight, draft }) => {
+                // Use tabId to ensure each browser tab has its own unique Monaco model
+                const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
-            if (props.monaco) {
-                const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
-                let model = props.monaco.editor.getModel(uri)
-                if (!model) {
-                    model = props.monaco.editor.createModel(query, 'hogQL', uri)
-                    cache.createdModels = cache.createdModels || []
-                    cache.createdModels.push(model)
-                    props.editor?.setModel(model)
-                    initModel(
-                        model,
-                        codeEditorLogic({
-                            key: `hogql-editor-${props.tabId}`,
-                            query: values.sourceQuery?.source.query ?? '',
-                            language: 'hogQL',
-                        })
-                    )
+                if (props.monaco) {
+                    const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
+                    let model = props.monaco.editor.getModel(uri)
+                    if (!model) {
+                        model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                        cache.createdModels = cache.createdModels || []
+                        cache.createdModels.push(model)
+                        props.editor?.setModel(model)
+                        initModel(
+                            model,
+                            codeEditorLogic({
+                                key: `hogql-editor-${props.tabId}`,
+                                query: values.sourceQuery?.source.query ?? '',
+                                language: 'hogQL',
+                            })
+                        )
+                    }
+
+                    actions.updateTab({
+                        uri,
+                        view,
+                        insight,
+                        name: tabName,
+                        sourceQuery: insight?.query as DataVisualizationNode | undefined,
+                        draft: draft,
+                    })
+                }
+                if (query) {
+                    actions.setQueryInput(query)
+                } else if (draft) {
+                    actions.setQueryInput(draft.query.query)
+                } else if (view) {
+                    actions.setQueryInput(view.query?.query ?? '')
+                } else if (insight) {
+                    const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
+                    if (queryObject && 'query' in queryObject) {
+                        actions.setQueryInput(queryObject.query || '')
+                    }
                 }
 
-                actions.updateTab({
-                    uri,
-                    view,
-                    insight,
-                    name: tabName,
-                    sourceQuery: insight?.query as DataVisualizationNode | undefined,
-                    draft: draft,
-                })
-            }
-            if (query) {
-                actions.setQueryInput(query)
-            } else if (draft) {
-                actions.setQueryInput(draft.query.query)
-            } else if (view) {
-                actions.setQueryInput(view.query?.query ?? '')
-            } else if (insight) {
-                const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
-                if (queryObject && 'query' in queryObject) {
-                    actions.setQueryInput(queryObject.query || '')
+                // Focus the editor after creating a new tab
+                props.editor?.focus()
+            },
+            setSourceQuery: ({ sourceQuery }) => {
+                if (!values.activeTab) {
+                    return
                 }
-            }
 
-            // Focus the editor after creating a new tab
-            props.editor?.focus()
-        },
-        setSourceQuery: ({ sourceQuery }) => {
-            if (!values.activeTab) {
-                return
-            }
-
-            const currentTab = values.activeTab
-            if (currentTab) {
-                actions.updateTab({
-                    ...currentTab,
-                    sourceQuery,
-                })
-            }
-        },
-        initialize: async () => {
-            actions.setFinishedLoading(false)
-        },
-        runSubquery: async () => {
-            if (!props.editor) {
-                actions.runQuery()
-                return
-            }
-            const model = props.editor.getModel()
-            const position = props.editor.getPosition()
-            if (!model || !position) {
-                actions.runQuery()
-                return
-            }
-
-            const fullText = values.queryInput ?? ''
-            const queries = splitQueries(fullText)
-            const cursorOffset = model.getOffsetAt(position)
-            const activeQuery = findQueryAtCursor(queries, cursorOffset)
-
-            if (!activeQuery) {
-                actions.runQuery()
-                return
-            }
-
-            const subquery = await findInnermostSelectAtOffset(activeQuery.query, cursorOffset, activeQuery.start)
-
-            const rangeToRun = subquery ?? activeQuery
-
-            // Flash highlight on the subquery/query about to run
-            const startPos = model.getPositionAt(rangeToRun.start)
-            const endPos = model.getPositionAt(rangeToRun.end)
-            cache.activeQueryDecorationIds = props.editor.deltaDecorations(cache.activeQueryDecorationIds ?? [], [
-                {
-                    range: {
-                        startLineNumber: startPos.lineNumber,
-                        startColumn: startPos.column,
-                        endLineNumber: endPos.lineNumber,
-                        endColumn: endPos.column,
-                    },
-                    options: { className: 'active-query-highlight-flash' },
-                },
-            ])
-
-            // Remove flash after a short delay and restore normal decoration
-            setTimeout(() => {
-                cache.updateActiveQueryDecoration?.()
-            }, 600)
-
-            actions.runQuery(rangeToRun.query)
-        },
-        setQueryInput: async ({ queryInput }, breakpoint) => {
-            // Keep suggestion payload active - let user make edits and then decide to approve/reject
-            // if editing a view, track latest history id changes are based on
-            if (values.activeTab?.view && values.activeTab?.view.query?.query) {
-                if (queryInput === values.activeTab.view?.query?.query) {
-                    actions.deleteInProgressViewEdit(values.activeTab.view.id)
-                } else if (
-                    !values.inProgressViewEdits[values.activeTab.view.id] &&
-                    values.activeTab.view.latest_history_id
-                ) {
-                    actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
+                const currentTab = values.activeTab
+                if (currentTab) {
+                    actions.updateTab({
+                        ...currentTab,
+                        sourceQuery,
+                    })
                 }
-            }
+            },
+            initialize: async () => {
+                actions.setFinishedLoading(false)
+            },
+            runSubquery: async () => {
+                if (!props.editor) {
+                    actions.runQuery()
+                    return
+                }
+                const model = props.editor.getModel()
+                const position = props.editor.getPosition()
+                if (!model || !position) {
+                    actions.runQuery()
+                    return
+                }
 
-            await breakpoint(500)
-
-            actions.syncUrlWithQuery()
-        },
-        saveDraft: async ({ queryInput, viewId }) => {
-            if (values.activeTab) {
-                actions.saveAsDraft(
-                    {
-                        kind: NodeKind.HogQLQuery,
-                        query: queryInput,
-                    },
-                    viewId,
-                    values.activeTab
-                )
-            }
-        },
-        saveAsDraftSuccess: ({ draft, tab: tabToUpdate }) => {
-            actions.updateTab({ ...tabToUpdate, name: draft.name, draft: draft })
-        },
-        runQuery: ({ queryOverride, switchTab }) => {
-            let query: string
-            if (queryOverride) {
-                // Explicit override (e.g. user selected text and pressed Cmd+Enter)
-                query = queryOverride
-            } else {
-                // No override — find the query under the cursor
                 const fullText = values.queryInput ?? ''
                 const queries = splitQueries(fullText)
-                if (queries.length > 1 && props.editor) {
-                    const model = props.editor.getModel()
-                    const position = props.editor.getPosition()
-                    if (model && position) {
-                        const cursorOffset = model.getOffsetAt(position)
-                        const match = findQueryAtCursor(queries, cursorOffset)
-                        query = match?.query ?? fullText
+                const cursorOffset = model.getOffsetAt(position)
+                const activeQuery = findQueryAtCursor(queries, cursorOffset)
+
+                if (!activeQuery) {
+                    actions.runQuery()
+                    return
+                }
+
+                const subquery = await findInnermostSelectAtOffset(activeQuery.query, cursorOffset, activeQuery.start)
+
+                const rangeToRun = subquery ?? activeQuery
+
+                // Flash highlight on the subquery/query about to run
+                const startPos = model.getPositionAt(rangeToRun.start)
+                const endPos = model.getPositionAt(rangeToRun.end)
+                cache.activeQueryDecorationIds = props.editor.deltaDecorations(cache.activeQueryDecorationIds ?? [], [
+                    {
+                        range: {
+                            startLineNumber: startPos.lineNumber,
+                            startColumn: startPos.column,
+                            endLineNumber: endPos.lineNumber,
+                            endColumn: endPos.column,
+                        },
+                        options: { className: 'active-query-highlight-flash' },
+                    },
+                ])
+
+                // Remove flash after a short delay and restore normal decoration
+                setTimeout(() => {
+                    cache.updateActiveQueryDecoration?.()
+                }, 600)
+
+                actions.runQuery(rangeToRun.query)
+            },
+            setQueryInput: async ({ queryInput }, breakpoint) => {
+                // Keep suggestion payload active - let user make edits and then decide to approve/reject
+                // if editing a view, track latest history id changes are based on
+                if (values.activeTab?.view && values.activeTab?.view.query?.query) {
+                    if (queryInput === values.activeTab.view?.query?.query) {
+                        actions.deleteInProgressViewEdit(values.activeTab.view.id)
+                    } else if (
+                        !values.inProgressViewEdits[values.activeTab.view.id] &&
+                        values.activeTab.view.latest_history_id
+                    ) {
+                        actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
+                    }
+                }
+
+                await breakpoint(500)
+
+                actions.syncUrlWithQuery()
+            },
+            saveDraft: async ({ queryInput, viewId }) => {
+                if (values.activeTab) {
+                    actions.saveAsDraft(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: queryInput,
+                        },
+                        viewId,
+                        values.activeTab
+                    )
+                }
+            },
+            saveAsDraftSuccess: ({ draft, tab: tabToUpdate }) => {
+                actions.updateTab({ ...tabToUpdate, name: draft.name, draft: draft })
+            },
+            runQuery: ({ queryOverride, switchTab }) => {
+                let query: string
+                if (queryOverride) {
+                    // Explicit override (e.g. user selected text and pressed Cmd+Enter)
+                    query = queryOverride
+                } else {
+                    // No override — find the query under the cursor
+                    const fullText = values.queryInput ?? ''
+                    const queries = splitQueries(fullText)
+                    if (queries.length > 1 && props.editor) {
+                        const model = props.editor.getModel()
+                        const position = props.editor.getPosition()
+                        if (model && position) {
+                            const cursorOffset = model.getOffsetAt(position)
+                            const match = findQueryAtCursor(queries, cursorOffset)
+                            query = match?.query ?? fullText
+                        } else {
+                            query = fullText
+                        }
                     } else {
                         query = fullText
                     }
-                } else {
-                    query = fullText
                 }
-            }
 
-            const newSource = {
-                ...values.sourceQuery.source,
-                query,
-            }
+                const newSource = {
+                    ...values.sourceQuery.source,
+                    query,
+                }
 
-            actions.setSourceQuery({
-                ...values.sourceQuery,
-                source: newSource,
-            })
-            actions.setLastRunQuery({
-                ...values.sourceQuery,
-                source: newSource,
-            })
-            if (!cache.umountDataNode) {
-                cache.umountDataNode = dataNodeLogic({
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: newSource,
+                })
+                actions.setLastRunQuery({
+                    ...values.sourceQuery,
+                    source: newSource,
+                })
+                if (!cache.umountDataNode) {
+                    cache.umountDataNode = dataNodeLogic({
+                        key: values.dataLogicKey,
+                        query: newSource,
+                    }).mount()
+                }
+
+                dataNodeLogic({
                     key: values.dataLogicKey,
                     query: newSource,
-                }).mount()
-            }
+                }).actions.loadData(!switchTab ? 'force_async' : 'async')
 
-            dataNodeLogic({
-                key: values.dataLogicKey,
-                query: newSource,
-            }).actions.loadData(!switchTab ? 'force_async' : 'async')
+                // Mark the first query task as complete when the query is run
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
+            },
+            saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+                const isStaff = values.user?.is_staff ?? false
+                const resolved = resolveQueryToSave()
+                LemonDialog.openForm({
+                    title: 'Save as view',
+                    initialValues: { viewName: values.activeTab?.name || '', isTest: false },
+                    description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
+                    content: (isLoading) =>
+                        isLoading ? (
+                            <div className="h-[37px] flex items-center">
+                                <ViewEmptyState />
+                            </div>
+                        ) : (
+                            <>
+                                <LemonField name="viewName">
+                                    <LemonInput
+                                        data-attr="sql-editor-input-save-view-name"
+                                        disabled={isLoading}
+                                        placeholder="Please enter the name of the view"
+                                        autoFocus
+                                    />
+                                </LemonField>
+                                {isStaff && (
+                                    <LemonField name="isTest" className="mt-2">
+                                        {({ value, onChange }) => (
+                                            <div className="flex items-center gap-2">
+                                                <LemonCheckbox
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    data-attr="sql-editor-input-save-view-is-test"
+                                                    label="Is this view for testing only?"
+                                                />
+                                                <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
+                                                    <span className="text-muted cursor-pointer">&#9432;</span>
+                                                </Tooltip>
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                )}
+                                {renderSaveTargetPreview(resolved)}
+                            </>
+                        ),
+                    errors: {
+                        viewName: (name) =>
+                            !name
+                                ? 'You must enter a name'
+                                : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+                                  ? 'Name must be valid'
+                                  : undefined,
+                    },
+                    onSubmit: async ({ viewName, isTest }) => {
+                        await asyncActions.saveAsViewSubmit(
+                            viewName,
+                            materializeAfterSave,
+                            fromDraft,
+                            isTest,
+                            resolved.query
+                        )
+                    },
+                    shouldAwaitSubmit: true,
+                })
+            },
+            saveAsViewSubmit: async ({
+                name,
+                materializeAfterSave = false,
+                fromDraft,
+                isTest = false,
+                queryOverride,
+            }) => {
+                const query: HogQLQuery = values.sourceQuery.source
 
-            // Mark the first query task as complete when the query is run
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
-        },
-        saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
-            const isStaff = values.user?.is_staff ?? false
-            LemonDialog.openForm({
-                title: 'Save as view',
-                initialValues: { viewName: values.activeTab?.name || '', isTest: false },
-                description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
-                content: (isLoading) =>
-                    isLoading ? (
-                        <div className="h-[37px] flex items-center">
-                            <ViewEmptyState />
-                        </div>
-                    ) : (
+                const queryToSave = {
+                    ...query,
+                    query: queryOverride ?? values.queryInput ?? '',
+                }
+
+                const logic = dataNodeLogic({
+                    key: values.dataLogicKey,
+                    query: queryToSave,
+                })
+
+                const response = logic.values.response
+                const types = response && 'types' in response ? (response.types ?? []) : []
+                // If the editor holds more than one statement, the saved view only represents a
+                // subset of what the user is working on — keep the current tab as-is and open the
+                // new view in its own tab instead of rebinding the success handler.
+                const isMultiQuery = splitQueries(values.queryInput ?? '').length > 1
+                if (isMultiQuery) {
+                    cache.skipBindTabToNewView = true
+                }
+                try {
+                    await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
+                        name,
+                        query: queryToSave,
+                        types,
+                        ...(isTest ? { is_test: true } : {}),
+                    })
+
+                    // Saved queries are unique by team,name
+                    const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
+                        (q) => q.name === name
+                    )
+
+                    if (materializeAfterSave && savedQuery) {
+                        await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
+                    }
+
+                    if (fromDraft) {
+                        actions.deleteDraft(fromDraft, savedQuery?.name)
+                    }
+
+                    if (isMultiQuery && savedQuery) {
+                        actions.createTab(savedQuery.query?.query ?? queryToSave.query, savedQuery)
+                    }
+                } catch {
+                    lemonToast.error('Failed to save view')
+                } finally {
+                    cache.skipBindTabToNewView = false
+                }
+            },
+            saveAsInsight: async () => {
+                const effectiveVisualizationType = dataVisualizationLogic.findMounted({
+                    key: values.dataLogicKey,
+                    query: values.sourceQuery,
+                    dataNodeCollectionId: values.dataLogicKey,
+                    editMode: true,
+                })?.values.effectiveVisualizationType
+
+                const defaultDisplay = getDisplayTypeToSaveInsight(
+                    values.outputActiveTab,
+                    values.sourceQuery.display,
+                    effectiveVisualizationType
+                )
+
+                const resolved = resolveQueryToSave()
+                const sourceQueryForPreview: DataVisualizationNode = {
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        query: resolved.query,
+                    },
+                    display: defaultDisplay,
+                }
+
+                LemonDialog.openForm({
+                    title: 'Save as new insight',
+                    initialValues: {
+                        name: '',
+                    },
+                    content: (
                         <>
-                            <LemonField name="viewName">
+                            <LemonField name="name">
                                 <LemonInput
-                                    data-attr="sql-editor-input-save-view-name"
-                                    disabled={isLoading}
-                                    placeholder="Please enter the name of the view"
+                                    data-attr="insight-name"
+                                    placeholder="Please enter the new name"
                                     autoFocus
                                 />
                             </LemonField>
-                            {isStaff && (
-                                <LemonField name="isTest" className="mt-2">
-                                    {({ value, onChange }) => (
-                                        <div className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={value}
-                                                onChange={onChange}
-                                                data-attr="sql-editor-input-save-view-is-test"
-                                                label="Is this view for testing only?"
-                                            />
-                                            <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
-                                                <span className="text-muted cursor-pointer">&#9432;</span>
-                                            </Tooltip>
-                                        </div>
-                                    )}
-                                </LemonField>
-                            )}
+                            <div className="mt-3">
+                                <div className="text-muted text-xs mb-1">
+                                    Preview{resolved.label ? ` — ${resolved.label}` : ''}
+                                </div>
+                                <div className="bg-bg-light max-h-[60vh] overflow-auto">
+                                    <Query readOnly embedded query={sourceQueryForPreview} />
+                                </div>
+                            </div>
                         </>
                     ),
-                errors: {
-                    viewName: (name) =>
-                        !name
-                            ? 'You must enter a name'
-                            : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                              ? 'Name must be valid'
-                              : undefined,
-                },
-                onSubmit: async ({ viewName, isTest }) => {
-                    await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft, isTest)
-                },
-                shouldAwaitSubmit: true,
-            })
-        },
-        saveAsViewSubmit: async ({ name, materializeAfterSave = false, fromDraft, isTest = false }) => {
-            const query: HogQLQuery = values.sourceQuery.source
+                    errors: {
+                        name: (name) => (!name ? 'You must enter a name' : undefined),
+                    },
+                    onSubmit: async ({ name }) => actions.saveAsInsightSubmit(name, resolved.query),
+                })
+            },
+            saveAsInsightSubmit: async ({ name, queryOverride }) => {
+                const effectiveVisualizationType = dataVisualizationLogic.findMounted({
+                    key: values.dataLogicKey,
+                    query: values.sourceQuery,
+                    dataNodeCollectionId: values.dataLogicKey,
+                    editMode: true,
+                })?.values.effectiveVisualizationType
 
-            const queryToSave = {
-                ...query,
-                query: values.queryInput ?? '',
-            }
+                const display = getDisplayTypeToSaveInsight(
+                    values.outputActiveTab,
+                    values.sourceQuery.display,
+                    effectiveVisualizationType
+                )
 
-            const logic = dataNodeLogic({
-                key: values.dataLogicKey,
-                query: queryToSave,
-            })
+                const sourceQueryToSave: DataVisualizationNode = {
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        query: queryOverride ?? values.sourceQuery.source.query,
+                    },
+                    display,
+                }
 
-            const response = logic.values.response
-            const types = response && 'types' in response ? (response.types ?? []) : []
-            try {
-                await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
+                const insight = await insightsApi.create({
                     name,
-                    query: queryToSave,
-                    types,
-                    ...(isTest ? { is_test: true } : {}),
+                    query: sourceQueryToSave,
+                    saved: true,
                 })
+                const logic = insightLogic({
+                    dashboardItemId: insight.short_id,
+                    doNotLoad: true,
+                })
+                const umount = logic.mount()
+                logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
+                const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
+                cache.timeouts = cache.timeouts || []
+                cache.timeouts.push(timeoutId)
 
-                // Saved queries are unique by team,name
-                const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
+                lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
 
-                if (materializeAfterSave && savedQuery) {
-                    await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
-                }
-
-                if (fromDraft) {
-                    actions.deleteDraft(fromDraft, savedQuery?.name)
-                }
-            } catch {
-                lemonToast.error('Failed to save view')
-            }
-        },
-        saveAsInsight: async () => {
-            const effectiveVisualizationType = dataVisualizationLogic.findMounted({
-                key: values.dataLogicKey,
-                query: values.sourceQuery,
-                dataNodeCollectionId: values.dataLogicKey,
-                editMode: true,
-            })?.values.effectiveVisualizationType
-
-            const defaultDisplay = getDisplayTypeToSaveInsight(
-                values.outputActiveTab,
-                values.sourceQuery.display,
-                effectiveVisualizationType
-            )
-
-            LemonDialog.openForm({
-                title: 'Save as new insight',
-                initialValues: {
-                    name: '',
-                },
-                content: (
-                    <>
-                        <LemonField name="name">
-                            <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
-                        </LemonField>
-                        <div className="mt-3">
-                            <div className="text-muted text-xs mb-1">Preview</div>
-                            <div className="bg-bg-light max-h-[60vh] overflow-auto">
-                                <Query
-                                    readOnly
-                                    embedded
-                                    query={{
-                                        ...values.sourceQuery,
-                                        display: defaultDisplay,
-                                    }}
+                router.actions.push(urls.insightView(insight.short_id))
+            },
+            saveAsEndpoint: async () => {
+                const resolved = resolveQueryToSave()
+                LemonDialog.openForm({
+                    title: 'Save as endpoint',
+                    initialValues: {
+                        name: '',
+                        description: '',
+                    },
+                    content: (
+                        <>
+                            <LemonField name="name">
+                                <LemonInput
+                                    data-attr="endpoint-name"
+                                    placeholder="Please enter the endpoint name"
+                                    autoFocus
                                 />
-                            </div>
-                        </div>
-                    </>
-                ),
-                errors: {
-                    name: (name) => (!name ? 'You must enter a name' : undefined),
-                },
-                onSubmit: async ({ name }) => actions.saveAsInsightSubmit(name),
-            })
-        },
-        saveAsInsightSubmit: async ({ name }) => {
-            const effectiveVisualizationType = dataVisualizationLogic.findMounted({
-                key: values.dataLogicKey,
-                query: values.sourceQuery,
-                dataNodeCollectionId: values.dataLogicKey,
-                editMode: true,
-            })?.values.effectiveVisualizationType
-
-            const display = getDisplayTypeToSaveInsight(
-                values.outputActiveTab,
-                values.sourceQuery.display,
-                effectiveVisualizationType
-            )
-
-            const insight = await insightsApi.create({
-                name,
-                query: { ...values.sourceQuery, display } as DataVisualizationNode,
-                saved: true,
-            })
-            const logic = insightLogic({
-                dashboardItemId: insight.short_id,
-                doNotLoad: true,
-            })
-            const umount = logic.mount()
-            logic.actions.setInsight(insight, { fromPersistentApi: true, overrideQuery: true })
-            const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
-            cache.timeouts = cache.timeouts || []
-            cache.timeouts.push(timeoutId)
-
-            lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
-
-            router.actions.push(urls.insightView(insight.short_id))
-        },
-        saveAsEndpoint: async () => {
-            LemonDialog.openForm({
-                title: 'Save as endpoint',
-                initialValues: {
-                    name: '',
-                    description: '',
-                },
-                content: (
-                    <>
-                        <LemonField name="name">
-                            <LemonInput
-                                data-attr="endpoint-name"
-                                placeholder="Please enter the endpoint name"
-                                autoFocus
-                            />
-                        </LemonField>
-                        <LemonField name="description" className="mt-2">
-                            <LemonInput
-                                data-attr="endpoint-description"
-                                placeholder="Please enter a description (optional)"
-                            />
-                        </LemonField>
-                    </>
-                ),
-                errors: {
-                    name: (name) => validateEndpointName(name?.trim() || ''),
-                },
-                onSubmit: async ({ name, description }) => actions.saveAsEndpointSubmit(name, description),
-            })
-        },
-        saveAsEndpointSubmit: async ({ name, description }) => {
-            try {
-                const endpoint = await api.endpoint.create({
-                    name: slugify(name),
-                    description: description || undefined,
-                    query: {
-                        ...(values.sourceQuery.source as HogQLQuery),
-                        query: values.queryInput ?? '',
+                            </LemonField>
+                            <LemonField name="description" className="mt-2">
+                                <LemonInput
+                                    data-attr="endpoint-description"
+                                    placeholder="Please enter a description (optional)"
+                                />
+                            </LemonField>
+                            {renderSaveTargetPreview(resolved)}
+                        </>
+                    ),
+                    errors: {
+                        name: (name) => validateEndpointName(name?.trim() || ''),
                     },
+                    onSubmit: async ({ name, description }) =>
+                        actions.saveAsEndpointSubmit(name, description, resolved.query),
                 })
-                lemonToast.success('Endpoint created')
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
-                router.actions.push(urls.endpoint(endpoint.name))
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to create endpoint')
-            }
-        },
-        updateInsight: async () => {
-            if (!values.editingInsight) {
-                return
-            }
-
-            const insightName = values.activeTab?.name
-
-            const insightRequest: Partial<QueryBasedInsightModel> = {
-                name: insightName ?? values.editingInsight.name,
-                query: values.sourceQuery,
-            }
-
-            const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
-
-            if (values.activeTab) {
-                actions.updateTab({
-                    ...values.activeTab,
-                    insight: savedInsight,
-                })
-            }
-            const loadedLogic = insightLogic.findMounted({
-                dashboardItemId: values.editingInsight.short_id,
-                dashboardId: undefined,
-            })
-            if (loadedLogic) {
-                loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
-            }
-
-            lemonToast.info(
-                `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
-            )
-
-            router.actions.push(urls.insightView(savedInsight.short_id))
-        },
-        loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
-            if (values.activeTab?.view) {
-                const updatedView = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
-                if (updatedView && values.activeTab) {
-                    // Preserve the query from the active tab since list response doesn't include it
-                    const viewWithQuery = { ...updatedView, query: values.activeTab.view.query }
-                    actions.updateTab({ ...values.activeTab, view: viewWithQuery })
+            },
+            saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
+                try {
+                    const endpoint = await api.endpoint.create({
+                        name: slugify(name),
+                        description: description || undefined,
+                        query: {
+                            ...(values.sourceQuery.source as HogQLQuery),
+                            query: queryOverride ?? values.queryInput ?? '',
+                        },
+                    })
+                    lemonToast.success('Endpoint created')
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
+                    router.actions.push(urls.endpoint(endpoint.name))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
-            }
-        },
-        deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
-            if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
-                actions.createTab()
-            }
-        },
-        createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
-            const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
-            if (newView) {
-                const oldTab = values.activeTab
-                // Only update the tab if it doesn't have a view (new query being saved)
-                // or if it's the same view being recreated (edge case)
-                if (oldTab && (!oldTab.view || oldTab.view.id === newView.id)) {
-                    actions.updateTab({ ...oldTab, view: newView })
+            },
+            updateInsight: async () => {
+                if (!values.editingInsight) {
+                    return
                 }
-            }
-        },
-        updateView: async ({ view, draftId }) => {
-            const latestView = await api.dataWarehouseSavedQueries.get(view.id)
-            // Only check for conflicts if there's an activity log (latest_history_id exists)
-            // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
-            // and we should allow the update to proceed without showing a false conflict
-            if (
-                latestView?.latest_history_id != null &&
-                view.edited_history_id !== latestView.latest_history_id &&
-                view.query?.query !== latestView?.query?.query
-            ) {
-                actions._setSuggestionPayload({
-                    suggestedValue: values.queryInput!,
-                    originalValue: latestView?.query?.query,
-                    acceptText: 'Confirm changes',
-                    rejectText: 'Cancel',
-                    diffShowRunButton: false,
-                    onAccept: async () => {
-                        actions.setQueryInput(view.query?.query ?? '')
-                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                            ...view,
-                            edited_history_id: latestView?.latest_history_id,
-                        })
-                        actions.updateViewSuccess(view, draftId)
-                    },
-                    onReject: () => {},
+
+                const insightName = values.activeTab?.name
+
+                const insightRequest: Partial<QueryBasedInsightModel> = {
+                    name: insightName ?? values.editingInsight.name,
+                    query: values.sourceQuery,
+                }
+
+                const savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
+
+                if (values.activeTab) {
+                    actions.updateTab({
+                        ...values.activeTab,
+                        insight: savedInsight,
+                    })
+                }
+                const loadedLogic = insightLogic.findMounted({
+                    dashboardItemId: values.editingInsight.short_id,
+                    dashboardId: undefined,
                 })
-                lemonToast.error('View has been edited by another user. Review changes to update.')
-            } else {
-                await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
-                actions.updateViewSuccess(view, draftId)
-            }
-        },
-        updateViewSuccess: ({ view, draftId }) => {
-            if (draftId) {
-                actions.deleteDraft(draftId, view?.name)
-            }
-        },
-        deleteDraftSuccess: ({ draftId, viewName }) => {
-            if (values.activeTab && values.activeTab.draft?.id === draftId) {
-                actions.updateTab({
-                    ...values.activeTab,
-                    draft: undefined,
-                    name: viewName ?? values.activeTab.name,
-                })
-            }
-        },
-    })),
+                if (loadedLogic) {
+                    loadedLogic.actions.setInsight(savedInsight, { overrideQuery: true, fromPersistentApi: true })
+                }
+
+                lemonToast.info(
+                    `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
+                )
+
+                router.actions.push(urls.insightView(savedInsight.short_id))
+            },
+            loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
+                if (values.activeTab?.view) {
+                    const updatedView = dataWarehouseSavedQueries.find((v) => v.id === values.activeTab?.view?.id)
+                    if (updatedView && values.activeTab) {
+                        // Preserve the query from the active tab since list response doesn't include it
+                        const viewWithQuery = { ...updatedView, query: values.activeTab.view.query }
+                        actions.updateTab({ ...values.activeTab, view: viewWithQuery })
+                    }
+                }
+            },
+            deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
+                if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
+                    actions.createTab()
+                }
+            },
+            createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
+                if (cache.skipBindTabToNewView) {
+                    return
+                }
+                const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
+                if (newView) {
+                    const oldTab = values.activeTab
+                    // Only update the tab if it doesn't have a view (new query being saved)
+                    // or if it's the same view being recreated (edge case)
+                    if (oldTab && (!oldTab.view || oldTab.view.id === newView.id)) {
+                        actions.updateTab({ ...oldTab, view: newView })
+                    }
+                }
+            },
+            updateView: async ({ view, draftId }) => {
+                const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+                // Only check for conflicts if there's an activity log (latest_history_id exists)
+                // When there's no activity log, both edited_history_id and latest_history_id are null/undefined,
+                // and we should allow the update to proceed without showing a false conflict
+                if (
+                    latestView?.latest_history_id != null &&
+                    view.edited_history_id !== latestView.latest_history_id &&
+                    view.query?.query !== latestView?.query?.query
+                ) {
+                    actions._setSuggestionPayload({
+                        suggestedValue: values.queryInput!,
+                        originalValue: latestView?.query?.query,
+                        acceptText: 'Confirm changes',
+                        rejectText: 'Cancel',
+                        diffShowRunButton: false,
+                        onAccept: async () => {
+                            actions.setQueryInput(view.query?.query ?? '')
+                            await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                                ...view,
+                                edited_history_id: latestView?.latest_history_id,
+                            })
+                            actions.updateViewSuccess(view, draftId)
+                        },
+                        onReject: () => {},
+                    })
+                    lemonToast.error('View has been edited by another user. Review changes to update.')
+                } else {
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
+                    actions.updateViewSuccess(view, draftId)
+                }
+            },
+            updateViewSuccess: ({ view, draftId }) => {
+                if (draftId) {
+                    actions.deleteDraft(draftId, view?.name)
+                }
+            },
+            deleteDraftSuccess: ({ draftId, viewName }) => {
+                if (values.activeTab && values.activeTab.draft?.id === draftId) {
+                    actions.updateTab({
+                        ...values.activeTab,
+                        draft: undefined,
+                        name: viewName ?? values.activeTab.name,
+                    })
+                }
+            },
+        }
+    }),
     subscriptions(({ actions, values, cache }) => ({
         queryInput: async (queryInput: string | null) => {
             const result = await parseQueryTablesAndColumns(queryInput)
@@ -1370,7 +1499,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         isSourceQueryLastRun: [
             (s) => [s.queryInput, s.lastRunQuery],
             (queryInput, lastRunQuery) => {
-                return queryInput === lastRunQuery?.source.query
+                if (!lastRunQuery) {
+                    return false
+                }
+                if (queryInput === lastRunQuery.source.query) {
+                    return true
+                }
+                // Multi-query editor: if the last-run text matches any statement in the script,
+                // consider it "up to date" — the save flow resolves the target query at submit time.
+                const queries = splitQueries(queryInput ?? '')
+                return queries.some((q) => q.query === lastRunQuery.source.query)
             },
         ],
         updateInsightButtonEnabled: [

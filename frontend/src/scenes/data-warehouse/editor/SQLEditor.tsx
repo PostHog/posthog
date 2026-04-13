@@ -29,6 +29,7 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
+import { splitQueries } from './multiQueryUtils'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
@@ -282,6 +283,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return ['Saving...', Spinner]
         }
 
+        if (splitQueries(queryInput ?? '').length > 1) {
+            return ['Views must be a single query — remove extra statements to update', IconDownload]
+        }
+
         if (!response) {
             return ['Run query to update', IconDownload]
         }
@@ -291,7 +296,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         }
 
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response, queryInput])
 
     if (isEmbeddedMode) {
         return null
