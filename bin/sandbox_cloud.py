@@ -322,7 +322,7 @@ def _cloud_render_user_data(
     claude_credentials: str,
     claude_settings: str,
     claude_json: str,
-    s3_archive_url: str,
+    s3_archive_manifest: str,
     jetbrains: str,
 ) -> str:
     """Returns base64-encoded gzip data for AWS user-data."""
@@ -342,7 +342,7 @@ def _cloud_render_user_data(
             "__CLAUDE_CREDENTIALS_B64__": b64(claude_credentials),
             "__CLAUDE_SETTINGS_B64__": b64(claude_settings),
             "__CLAUDE_JSON_B64__": b64(claude_json),
-            "__S3_ARCHIVE_URL_B64__": b64(s3_archive_url),
+            "__S3_ARCHIVE_MANIFEST_B64__": b64(s3_archive_manifest),
         },
     )
 
@@ -440,28 +440,46 @@ def _cloud_discover_ubuntu_ami(config: dict) -> str:
     return ami_id
 
 
-def _cloud_generate_presigned_url(config: dict) -> str:
+def _cloud_generate_presigned_urls(config: dict) -> str:
+    """Download the cache manifest from S3 and pre-sign each chunk URL.
+
+    Returns a JSON string: [{"name": "base.tar.zst", "url": "https://..."}, ...]
+    """
     bucket = config["s3_bucket"]
     key = config["s3_key"]
-    s3_uri = f"s3://{bucket}/{key}"
+    prefix = key.replace(".tar.zst", "")
+    manifest_uri = f"s3://{bucket}/{prefix}/manifest.json"
 
-    result = _aws(config, "s3", "ls", s3_uri)
-    if not result.stdout.strip():
-        fatal(f"Docker cache archive not found at {s3_uri}\n  Upload it first: bin/sandbox cloud upload-cache")
-
-    info(f"Generating pre-signed URL for {s3_uri}...")
-    result = _aws(
-        config,
-        "s3",
-        "presign",
-        s3_uri,
-        "--expires-in",
-        "3600",
+    # Download manifest (bypass _aws() so we can handle "not found" without fataling)
+    result = subprocess.run(
+        ["aws", "--region", config["region"], "--profile", config["aws_profile"], "s3", "cp", manifest_uri, "-"],
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    url = result.stdout.strip()
-    if not url:
-        fatal("Failed to generate pre-signed S3 URL")
-    return url
+    if result.returncode != 0:
+        fatal(
+            f"Cache manifest not found at {manifest_uri}\n"
+            "  Build the cache first: bin/sandbox cloud build-cache\n"
+            "  Or upload from local:  bin/sandbox cloud upload-cache"
+        )
+    manifest = json.loads(result.stdout)
+
+    chunks = manifest.get("chunks", [])
+    if not chunks:
+        fatal(f"Cache manifest at {manifest_uri} has no chunks listed")
+
+    info(f"Generating pre-signed URLs for {len(chunks)} cache chunks...")
+    urls = []
+    for chunk_name in chunks:
+        chunk_uri = f"s3://{bucket}/{prefix}/{chunk_name}"
+        result = _aws(config, "s3", "presign", chunk_uri, "--expires-in", "3600")
+        url = result.stdout.strip()
+        if not url:
+            fatal(f"Failed to generate pre-signed URL for {chunk_uri}")
+        urls.append({"name": chunk_name, "url": url})
+
+    return json.dumps(urls)
 
 
 def _abort_if_instance_exists(config: dict, branch: str) -> None:
@@ -506,7 +524,7 @@ def _negotiate_branch_ref(branch: str) -> None:
 def _launch_instance(config: dict, branch: str, owner: str, hostname: str) -> str:
     """Render user-data, call ec2 run-instances, wait for instance-running, return instance id."""
     ami_id = _cloud_discover_ubuntu_ami(config)
-    s3_archive_url = _cloud_generate_presigned_url(config)
+    s3_archive_manifest = _cloud_generate_presigned_urls(config)
     tailscale_key = _cloud_get_tailscale_key(config)
     ssh_keys, claude_credentials, claude_settings, claude_json = _cloud_gather_auth()
     jetbrains = _local_jetbrains_preference()
@@ -522,7 +540,7 @@ def _launch_instance(config: dict, branch: str, owner: str, hostname: str) -> st
         claude_credentials=claude_credentials,
         claude_settings=claude_settings,
         claude_json=claude_json,
-        s3_archive_url=s3_archive_url,
+        s3_archive_manifest=s3_archive_manifest,
         jetbrains=jetbrains,
     )
 
@@ -795,10 +813,61 @@ def cmd_cloud_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
+def _ensure_jetbrains_in_cache() -> None:
+    """Install both JetBrains IDEs into Docker volumes for inclusion in cache."""
+    products = [
+        ("intellij", "IIU", "IntelliJ IDEA Ultimate"),
+        ("pycharm", "PCP", "PyCharm Professional"),
+    ]
+    for product, code, name in products:
+        volume = f"sandbox-{product}"
+        run(["docker", "volume", "create", volume], capture=True, check=False)
+        result = run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{volume}:/opt/idea",
+                "alpine",
+                "sh",
+                "-c",
+                "test -x /opt/idea/bin/remote-dev-server.sh && echo yes",
+            ],
+            capture=True,
+            check=False,
+        )
+        if result.stdout.strip() == "yes":
+            info(f"  {name} already in cache")
+            continue
+
+        info(f"  Downloading {name}...")
+        api_url = f"https://data.services.jetbrains.com/products/releases?code={code}&latest=true&type=release"
+        result = run(["curl", "-sfL", api_url], capture=True)
+        download_url = json.loads(result.stdout)[code][0]["downloads"]["linux"]["link"]
+        run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{volume}:/opt/idea",
+                "-e",
+                f"DL_URL={download_url}",
+                "alpine",
+                "sh",
+                "-c",
+                "apk add --no-cache curl > /dev/null 2>&1 && "
+                'curl -fSL "$DL_URL" | tar -xzf - -C /opt/idea --strip-components=1',
+            ]
+        )
+        info(f"  {name} installed into {volume}")
+
+
 def cmd_cloud_upload_cache() -> None:
     config = _ensure_cloud_config()
-    s3_uri = f"s3://{config['s3_bucket']}/{config['s3_key']}"
-    archive_path = "/tmp/docker-data.tar.zst"
+    s3_key = config["s3_key"]
+    s3_prefix = s3_key.replace(".tar.zst", "")
 
     info("Archiving Docker data for cloud sandbox cache...")
 
@@ -807,12 +876,44 @@ def cmd_cloud_upload_cache() -> None:
         fatal("Docker is not running. Start Docker first.")
     info(f"  Docker has {result.stdout.strip()} images")
 
+    info("Ensuring JetBrains IDEs are in cache...")
+    _ensure_jetbrains_in_cache()
+
     info("Stopping sandbox containers...")
     run(["docker", "compose", "-p", "sandbox-cache-init", "down", "-t", "0"], check=False, capture=True)
 
-    info("Creating archive (this may take a few minutes)...")
-    # Docker Desktop on macOS shares /tmp between the host and the VM, so
-    # writing to /tmp inside this container lands at /tmp on the host.
+    archive_dir = Path("/tmp/docker-cache")
+    if archive_dir.exists():
+        shutil.rmtree(archive_dir)
+    archive_dir.mkdir()
+
+    num_chunks = 4
+    # The shell script runs inside Alpine to access Docker Desktop's /var/lib/docker.
+    # It creates split archives: base.tar.zst (everything except overlay2) plus
+    # overlay2-{0..N}.tar.zst (overlay2 entries partitioned round-robin).
+    split_script = (
+        (
+            "set -e && "
+            "apk add --no-cache zstd > /dev/null 2>&1 && "
+            "(cd /docker && ls -1 | grep -v '^overlay2$' | tar cf - -T -) | zstd -T0 -3 > /output/base.tar.zst & "
+            "BASE_PID=$! ; "
+            "OVERLAY_PIDS='' ; "
+            "if [ -d /docker/overlay2 ]; then "
+            "ls -1 /docker/overlay2 > /tmp/entries.txt; "
+            "for i in $(seq 0 __LAST_CHUNK__); do "
+            "awk -v c=$i -v n=__NUM_CHUNKS__ '(NR-1) % n == c {print \"overlay2/\" $0}' "
+            "/tmp/entries.txt > /tmp/chunk-${i}.txt; "
+            "tar cf - -C /docker -T /tmp/chunk-${i}.txt | zstd -T0 -3 > /output/overlay2-${i}.tar.zst & "
+            'OVERLAY_PIDS="$OVERLAY_PIDS $!" ; '
+            "done; fi; "
+            "wait $BASE_PID || exit 1; "
+            "for pid in $OVERLAY_PIDS; do wait $pid || exit 1; done"
+        )
+        .replace("__NUM_CHUNKS__", str(num_chunks))
+        .replace("__LAST_CHUNK__", str(num_chunks - 1))
+    )
+
+    info("Creating split archives (this may take several minutes)...")
     run(
         [
             "docker",
@@ -821,24 +922,32 @@ def cmd_cloud_upload_cache() -> None:
             "-v",
             "/var/lib/docker:/docker:ro",
             "-v",
-            "/tmp:/output",
+            "/tmp/docker-cache:/output",
             "alpine",
             "sh",
             "-c",
-            "apk add --no-cache zstd > /dev/null 2>&1 && "
-            "tar cf - -C /docker . | zstd -T0 -3 > /output/docker-data.tar.zst",
+            split_script,
         ]
     )
 
-    archive_size = Path(archive_path).stat().st_size
-    info(f"  Archive size: {archive_size / (1024 * 1024):.0f} MB")
+    # Build manifest from the generated chunk files
+    chunks = sorted(f for f in os.listdir(archive_dir) if f.endswith(".tar.zst"))
+    manifest = {"version": 2, "chunks": chunks}
+    (archive_dir / "manifest.json").write_text(json.dumps(manifest))
 
-    info(f"Uploading to {s3_uri}...")
-    _aws(config, "s3", "cp", archive_path, s3_uri, capture=False)
+    total_size = sum((archive_dir / c).stat().st_size for c in chunks)
+    info(f"  {len(chunks)} chunks, total {total_size / (1024 * 1024):.0f} MB")
+    for c in chunks:
+        info(f"    {c}: {(archive_dir / c).stat().st_size / (1024 * 1024):.0f} MB")
 
-    Path(archive_path).unlink(missing_ok=True)
+    s3_base = f"s3://{config['s3_bucket']}/{s3_prefix}"
+    info(f"Uploading to {s3_base}/...")
+    for f in os.listdir(archive_dir):
+        _aws(config, "s3", "cp", str(archive_dir / f), f"{s3_base}/{f}", capture=False)
 
-    success(f"Docker cache uploaded to {s3_uri} ({archive_size / (1024 * 1024):.0f} MB)")
+    shutil.rmtree(archive_dir, ignore_errors=True)
+
+    success(f"Docker cache uploaded to {s3_base}/ ({total_size / (1024 * 1024):.0f} MB)")
 
 
 def _cloud_export_credentials(config: dict) -> str:
@@ -886,8 +995,9 @@ def cmd_cloud_build_cache() -> None:
     )
     user_data = base64.b64encode(rendered.encode()).decode()
 
+    s3_prefix = config["s3_key"].replace(".tar.zst", "")
     info(f"Launching cache builder instance...")
-    info(f"  S3 target: s3://{config['s3_bucket']}/{config['s3_key']}")
+    info(f"  S3 target: s3://{config['s3_bucket']}/{s3_prefix}/")
 
     result = _aws(
         config,
@@ -938,7 +1048,8 @@ def cmd_cloud_build_cache() -> None:
     timeout = 3600
     elapsed = 0
     interval = 30
-    s3_uri = f"s3://{config['s3_bucket']}/{config['s3_key']}"
+    s3_prefix = config["s3_key"].replace(".tar.zst", "")
+    manifest_uri = f"s3://{config['s3_bucket']}/{s3_prefix}/manifest.json"
     while elapsed < timeout:
         state_result = _aws(
             config,
@@ -957,19 +1068,20 @@ def cmd_cloud_build_cache() -> None:
             if state == "stopping":
                 time.sleep(30)
             info("Build instance stopped. Verifying S3 upload...")
-            verify = _aws(config, "s3", "ls", s3_uri)
+            # Check for the split-archive manifest (new format)
+            verify = _aws(config, "s3", "ls", manifest_uri)
             if verify.stdout.strip():
                 success("Cache built and uploaded successfully!")
-                info(f"  {s3_uri}")
-                parts = verify.stdout.strip().split()
-                if len(parts) >= 3:
-                    size_bytes = int(parts[2])
-                    info(f"  Size: {size_bytes / (1024 * 1024):.0f} MB")
+                # List all chunk files for summary
+                chunk_list = _aws(config, "s3", "ls", f"s3://{config['s3_bucket']}/{s3_prefix}/")
+                if chunk_list.stdout.strip():
+                    for line in chunk_list.stdout.strip().splitlines():
+                        info(f"  {line.strip()}")
             else:
                 if state != "terminated":
                     _aws(config, "ec2", "terminate-instances", "--instance-ids", instance_id)
                 fatal(
-                    f"Build failed — S3 object not found at {s3_uri}.\n"
+                    f"Build failed — cache manifest not found at {manifest_uri}.\n"
                     f"  Start instance to debug:\n"
                     f"    aws ec2 start-instances --instance-ids {instance_id} "
                     f"--profile {config['aws_profile']} --region {config['region']}\n"

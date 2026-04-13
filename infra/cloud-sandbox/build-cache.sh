@@ -94,21 +94,91 @@ log "Building database cache (this takes ~10-15 min)..."
 sudo -u ubuntu sg docker -c "python3 bin/sandbox rebuild-cache"
 log "Database cache built"
 
-log "Archiving Docker data..."
+# Install JetBrains IDEs into shared Docker volumes so cloud sandboxes skip
+# the ~40s download during bin/sandbox create.
+install_jetbrains_to_volume() {
+    local code="$1" name="$2" volume="$3"
+    local check
+    check=$(docker run --rm -v "${volume}:/opt/idea" alpine sh -c \
+        "test -x /opt/idea/bin/remote-dev-server.sh && echo yes" 2>/dev/null || true)
+    if [ "$check" = "yes" ]; then
+        log "$name already installed in $volume"
+        return
+    fi
+    local api_url="https://data.services.jetbrains.com/products/releases?code=${code}&latest=true&type=release"
+    local download_url
+    download_url=$(curl -sfL "$api_url" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(data['${code}'][0]['downloads']['linux']['link'])")
+    log "Downloading $name..."
+    docker run --rm -v "${volume}:/opt/idea" -e "DL_URL=${download_url}" alpine sh -c \
+        'apk add --no-cache curl > /dev/null 2>&1 && curl -fSL "$DL_URL" | tar -xzf - -C /opt/idea --strip-components=1'
+    log "$name installed into $volume"
+}
+
+log "Installing JetBrains IDEs into cache..."
+install_jetbrains_to_volume "IIU" "IntelliJ IDEA Ultimate" "sandbox-intellij" &
+JB_PID1=$!
+install_jetbrains_to_volume "PCP" "PyCharm Professional" "sandbox-pycharm" &
+JB_PID2=$!
+wait $JB_PID1 || { log "ERROR: IntelliJ install failed"; exit 1; }
+wait $JB_PID2 || { log "ERROR: PyCharm install failed"; exit 1; }
+log "JetBrains IDEs ready"
+
+log "Creating split archive of Docker data..."
 log "Docker data size: $(du -sh /var/lib/docker | cut -f1)"
 systemctl stop docker.socket docker
 
-# Write archive to NVMe if available (EBS root is only 40GB)
-if [ "$USE_NVME" = true ]; then
-    ARCHIVE_PATH="/mnt/nvme/docker-data.tar.zst"
-else
-    ARCHIVE_PATH="/tmp/docker-data.tar.zst"
-fi
-tar cf - -C /var/lib/docker . | zstd -T0 -3 > "$ARCHIVE_PATH"
-log "Archive created: $(du -h "$ARCHIVE_PATH" | cut -f1)"
+NUM_CACHE_CHUNKS=4
 
-log "Uploading to s3://$S3_BUCKET/$S3_KEY..."
-aws s3 cp "$ARCHIVE_PATH" "s3://$S3_BUCKET/$S3_KEY" --region "$AWS_REGION"
+if [ "$USE_NVME" = true ]; then
+    ARCHIVE_DIR="/mnt/nvme/docker-cache"
+else
+    ARCHIVE_DIR="/tmp/docker-cache"
+fi
+mkdir -p "$ARCHIVE_DIR"
+
+# Base archive: everything except top-level overlay2.
+# Can't use --exclude=overlay2 because it also strips image/overlay2/.
+(cd /var/lib/docker && ls -1 | grep -v '^overlay2$' | tar cf - -T -) | zstd -T0 -3 > "$ARCHIVE_DIR/base.tar.zst" &
+BASE_PID=$!
+
+# Split overlay2 into chunks for parallel extraction on the consumer side.
+# Round-robin assignment by sorted entry name distributes layers roughly evenly.
+if [ -d "/var/lib/docker/overlay2" ]; then
+    ls -1 /var/lib/docker/overlay2 > /tmp/overlay2-entries.txt
+    TOTAL_ENTRIES=$(wc -l < /tmp/overlay2-entries.txt)
+    log "Splitting $TOTAL_ENTRIES overlay2 entries across $NUM_CACHE_CHUNKS chunks..."
+
+    for i in $(seq 0 $((NUM_CACHE_CHUNKS - 1))); do
+        awk -v c="$i" -v n="$NUM_CACHE_CHUNKS" \
+            '(NR-1) % n == c {print "overlay2/" $0}' \
+            /tmp/overlay2-entries.txt > "/tmp/overlay2-chunk-${i}.txt"
+        tar cf - -C /var/lib/docker -T "/tmp/overlay2-chunk-${i}.txt" \
+            | zstd -T0 -3 > "$ARCHIVE_DIR/overlay2-${i}.tar.zst" &
+    done
+fi
+
+wait "$BASE_PID"
+wait
+log "All archive chunks created"
+
+# Build manifest listing the chunks
+S3_PREFIX="${S3_KEY%.tar.zst}"
+python3 -c "
+import json, os
+archive_dir = '$ARCHIVE_DIR'
+chunks = sorted(f for f in os.listdir(archive_dir) if f.endswith('.tar.zst'))
+with open(os.path.join(archive_dir, 'manifest.json'), 'w') as fh:
+    json.dump({'version': 2, 'chunks': chunks}, fh)
+for c in chunks:
+    size = os.path.getsize(os.path.join(archive_dir, c)) / (1024*1024)
+    print(f'  {c}: {size:.0f} MB')
+"
+
+log "Uploading to s3://$S3_BUCKET/$S3_PREFIX/..."
+aws s3 cp "$ARCHIVE_DIR/" "s3://$S3_BUCKET/$S3_PREFIX/" --recursive --region "$AWS_REGION"
 log "Upload complete"
 
 BUILD_STATUS="complete"

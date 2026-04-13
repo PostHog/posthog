@@ -10,10 +10,10 @@
 #   1. Install Tailscale + join network (enables SSH for debugging)
 #   2. Write SSH keys + Claude auth
 #   3. Detect + format + mount NVMe instance store
-#   4. Install Docker, aria2, zstd, git, python3-yaml (single apt batch)
-#   5. Background: S3 download (aria2c, 16 connections) + git clone
+#   4. Install base deps (aria2, zstd, git, python3-yaml)
+#   5. Background: per-chunk S3 downloads + git clone
 #   6. Foreground: Docker repo + install
-#   7. Wait for S3 download, extract to NVMe, symlink /var/lib/docker
+#   7. Wait for each chunk download, extract immediately (overlap I/O)
 #   8. Start Docker
 #   9. Wait for git clone, checkout branch
 #  10. bin/sandbox create <branch> --no-attach
@@ -45,13 +45,12 @@ SANDBOX_JETBRAINS="__SANDBOX_JETBRAINS__"
 CLAUDE_CREDENTIALS_B64="__CLAUDE_CREDENTIALS_B64__"
 CLAUDE_SETTINGS_B64="__CLAUDE_SETTINGS_B64__"
 CLAUDE_JSON_B64="__CLAUDE_JSON_B64__"
-S3_ARCHIVE_URL_B64="__S3_ARCHIVE_URL_B64__"
+S3_ARCHIVE_MANIFEST_B64="__S3_ARCHIVE_MANIFEST_B64__"
 TAILSCALE_AUTH_KEY_B64="__TAILSCALE_AUTH_KEY_B64__"
 SSH_AUTHORIZED_KEYS_B64="__SSH_AUTHORIZED_KEYS_B64__"
 
-S3_ARCHIVE_URL=""
-if [ -n "$S3_ARCHIVE_URL_B64" ]; then
-    S3_ARCHIVE_URL=$(echo "$S3_ARCHIVE_URL_B64" | base64 -d)
+if [ -n "$S3_ARCHIVE_MANIFEST_B64" ]; then
+    echo "$S3_ARCHIVE_MANIFEST_B64" | base64 -d > /tmp/cache-manifest.json
 fi
 TAILSCALE_AUTH_KEY=""
 if [ -n "$TAILSCALE_AUTH_KEY_B64" ]; then
@@ -208,33 +207,41 @@ apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml aria2
 
 # Download to NVMe (or /tmp on EBS) so extraction is NVMe→NVMe.
 if [ "$USE_NVME" = true ]; then
-    ARCHIVE_DL_PATH="/mnt/nvme/docker-data.tar.zst"
+    ARCHIVE_DL_DIR="/mnt/nvme/docker-cache"
 else
-    ARCHIVE_DL_PATH="/tmp/docker-data.tar.zst"
+    ARCHIVE_DL_DIR="/tmp/docker-cache"
 fi
 
-S3_DL_PID=""
-if [ -n "$S3_ARCHIVE_URL" ]; then
-    log "Starting S3 download (background, 16 parallel connections)..."
-    s3_download() {
-        local dl_dir dl_name
-        dl_dir=$(dirname "$ARCHIVE_DL_PATH")
-        dl_name=$(basename "$ARCHIVE_DL_PATH")
-        for attempt in 1 2 3; do
-            if aria2c -x 16 -s 16 -j 1 --max-connection-per-server=16 \
-                    --file-allocation=none --auto-file-renaming=false \
-                    --console-log-level=warn --summary-interval=10 \
-                    -d "$dl_dir" -o "$dl_name" "$S3_ARCHIVE_URL"; then
-                return 0
-            fi
-            log "S3 download attempt $attempt failed, retrying in 5s..."
-            rm -f "$ARCHIVE_DL_PATH"
-            sleep 5
-        done
-        return 1
-    }
-    s3_download &
-    S3_DL_PID=$!
+# Start one background download per cache chunk. Each chunk gets its own
+# aria2c process so we can wait on individual completions and begin
+# extracting as soon as each chunk lands — overlapping extraction I/O
+# with download of later chunks.
+CHUNK_NAMES=()
+CHUNK_DL_PIDS=()
+if [ -f /tmp/cache-manifest.json ]; then
+    mkdir -p "$ARCHIVE_DL_DIR"
+    log "Starting cache chunk downloads in background..."
+    while IFS=$'\t' read -r name url; do
+        CHUNK_NAMES+=("$name")
+        (
+            for attempt in 1 2 3; do
+                if aria2c -x 8 -s 8 --max-connection-per-server=8 \
+                        --file-allocation=none --auto-file-renaming=false \
+                        --console-log-level=error \
+                        -d "$ARCHIVE_DL_DIR" -o "$name" "$url" 2>/dev/null; then
+                    exit 0
+                fi
+                sleep 5
+            done
+            exit 1
+        ) &
+        CHUNK_DL_PIDS+=($!)
+    done < <(python3 -c "
+import json
+for e in json.load(open('/tmp/cache-manifest.json')):
+    print(e['name'] + '\t' + e['url'])
+")
+    log "Started ${#CHUNK_NAMES[@]} chunk downloads"
 fi
 
 log "Cloning PostHog repo (background)..."
@@ -255,19 +262,30 @@ install_docker_overlay2
 # Stop Docker — we need to populate /var/lib/docker from the S3 cache first.
 systemctl stop docker.socket docker
 log "Docker installed (stopped for cache extraction)"
-if [ -n "$S3_DL_PID" ]; then
-    log "Waiting for S3 download..."
-    wait "$S3_DL_PID" || { log "ERROR: All S3 download attempts failed"; exit 1; }
-    log "Downloaded $(du -h "$ARCHIVE_DL_PATH" | cut -f1)"
-
-    log "Extracting Docker cache..."
+if [ "${#CHUNK_DL_PIDS[@]}" -gt 0 ]; then
     mkdir -p /var/lib/docker
     extract_start=$SECONDS
-    tar -C /var/lib/docker -I 'zstd -T0' -xf "$ARCHIVE_DL_PATH"
-    log "Extracted Docker cache in $((SECONDS - extract_start))s"
-    rm -f "$ARCHIVE_DL_PATH"
+    EXTRACT_PIDS=()
+
+    # Wait for each chunk download sequentially, then kick off its extraction in
+    # the background immediately. Disk throughput is the bottleneck — starting
+    # extraction as soon as each chunk lands maximizes the overlap between I/O
+    # and the download of later chunks.
+    for i in "${!CHUNK_NAMES[@]}"; do
+        name="${CHUNK_NAMES[$i]}"
+        wait "${CHUNK_DL_PIDS[$i]}"
+        log "Extracting $name..."
+        (tar -C /var/lib/docker -I 'zstd -T0' -xf "$ARCHIVE_DL_DIR/$name" && rm -f "$ARCHIVE_DL_DIR/$name") &
+        EXTRACT_PIDS+=($!)
+    done
+
+    for pid in "${EXTRACT_PIDS[@]}"; do
+        wait "$pid"
+    done
+
+    log "Extracted ${#CHUNK_NAMES[@]} chunks in $((SECONDS - extract_start))s"
 else
-    log "WARNING: No S3 archive URL provided, Docker starts with no cached images"
+    log "WARNING: No cache manifest provided, Docker starts with no cached images"
 fi
 
 systemctl start docker
