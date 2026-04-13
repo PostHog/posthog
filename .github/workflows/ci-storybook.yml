@@ -28,6 +28,7 @@ jobs:
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
             mode: ${{ steps.detect.outputs.mode }}
+            matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -79,6 +80,22 @@ jobs:
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
                     fi
+                  fi
+
+            # Build the visual-regression matrix.
+            # On PRs, only run chromium shards — no story currently opts into webkit snapshots
+            # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
+            # minutes without producing snapshot diffs. WebKit render-error coverage is
+            # preserved on master/merge_group.
+            - name: Build matrix
+              id: matrix
+              run: |
+                  CHROMIUM='{"browser":"chromium","shard_count":16,"shard":1},{"browser":"chromium","shard_count":16,"shard":2},{"browser":"chromium","shard_count":16,"shard":3},{"browser":"chromium","shard_count":16,"shard":4},{"browser":"chromium","shard_count":16,"shard":5},{"browser":"chromium","shard_count":16,"shard":6},{"browser":"chromium","shard_count":16,"shard":7},{"browser":"chromium","shard_count":16,"shard":8},{"browser":"chromium","shard_count":16,"shard":9},{"browser":"chromium","shard_count":16,"shard":10},{"browser":"chromium","shard_count":16,"shard":11},{"browser":"chromium","shard_count":16,"shard":12},{"browser":"chromium","shard_count":16,"shard":13},{"browser":"chromium","shard_count":16,"shard":14},{"browser":"chromium","shard_count":16,"shard":15},{"browser":"chromium","shard_count":16,"shard":16}'
+                  WEBKIT='{"browser":"webkit","shard_count":4,"shard":1},{"browser":"webkit","shard_count":4,"shard":2},{"browser":"webkit","shard_count":4,"shard":3},{"browser":"webkit","shard_count":4,"shard":4}'
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    echo "matrix={\"include\":[${CHROMIUM}]}" >> $GITHUB_OUTPUT
+                  else
+                    echo "matrix={\"include\":[${CHROMIUM},${WEBKIT}]}" >> $GITHUB_OUTPUT
                   fi
 
     build-storybook:
@@ -149,70 +166,11 @@ jobs:
             image: ghcr.io/posthog/playwright:v1.45.0
         strategy:
             fail-fast: false
-            matrix:
-                # Shard counts and worker config (maxWorkers in common/storybook/package.json)
-                # are tuned for runner CPU — consult #team-devex before changing
-                include:
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 1
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 2
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 3
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 4
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 5
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 6
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 7
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 8
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 9
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 10
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 11
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 12
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 13
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 14
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 15
-                    - browser: chromium
-                      shard_count: 16
-                      shard: 16
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 1
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 2
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 3
-                    - browser: webkit
-                      shard_count: 4
-                      shard: 4
+            # Shard counts and worker config (maxWorkers in common/storybook/package.json)
+            # are tuned for runner CPU — consult #team-devex before changing.
+            # Matrix is built dynamically in the `changes` job: chromium-only on PRs,
+            # chromium + webkit on master/merge_group.
+            matrix: ${{ fromJson(needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -240,9 +198,6 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
-
-            - name: Install CI utilities with pnpm
-              run: pnpm install http-server wait-on -g
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -438,9 +393,6 @@ jobs:
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
-
-            - name: Install CI utilities
-              run: pnpm install http-server wait-on -g
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
