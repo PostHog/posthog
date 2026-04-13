@@ -120,6 +120,49 @@ async def fetch_count_triggered_eval_reports_activity(
     return FetchDueEvalReportsOutput(report_ids=report_ids)
 
 
+def _find_nth_eval_timestamp(
+    team_id: int,
+    evaluation_id: str,
+    n: int,
+    before: dt.datetime,
+) -> dt.datetime:
+    """Find the timestamp of the Nth-most-recent eval result.
+
+    Returns the timestamp so the report window covers exactly the last N evals.
+    Falls back to 24h ago if there are fewer than N results.
+    """
+    from posthog.hogql.parser import parse_select
+    from posthog.hogql.query import execute_hogql_query
+
+    from posthog.models import Team
+
+    team = Team.objects.get(id=team_id)
+    before_str = before.strftime("%Y-%m-%d %H:%M:%S.%f")
+    query = parse_select(
+        f"""
+        SELECT min(ts) FROM (
+            SELECT timestamp as ts
+            FROM events
+            WHERE event = '$ai_evaluation'
+                AND properties.$ai_evaluation_id = '{evaluation_id}'
+                AND timestamp <= '{before_str}'
+            ORDER BY timestamp DESC
+            LIMIT {int(n)}
+        )
+        """
+    )
+    result = execute_hogql_query(query=query, team=team)
+    rows = result.results or []
+    if rows and rows[0][0] is not None:
+        ts = rows[0][0]
+        if isinstance(ts, dt.datetime):
+            if ts.tzinfo is None:
+                return ts.replace(tzinfo=dt.UTC)
+            return ts
+    # Fallback: 24h ago
+    return before - dt.timedelta(days=1)
+
+
 @temporalio.activity.defn
 async def prepare_report_context_activity(
     inputs: PrepareReportContextInput,
@@ -145,10 +188,16 @@ async def prepare_report_context_activity(
         if inputs.manual:
             # Manual "Generate now": always look back one full frequency period
             # so the user always gets a meaningful report regardless of last delivery.
-            # Count-triggered reports don't have a time-based frequency, so we use
-            # the time since last delivery (or start_date) to capture all new evals.
             if report.frequency == "every_n":
-                period_start = report.last_delivered_at or report.start_date
+                # For count-triggered reports, sample the most recent N evals so
+                # "Generate now" always produces something useful even if the
+                # threshold hasn't been crossed yet.
+                period_start = _find_nth_eval_timestamp(
+                    team_id=report.team_id,
+                    evaluation_id=str(evaluation.id),
+                    n=report.trigger_threshold or 100,
+                    before=now,
+                )
             else:
                 period_start = now - freq_deltas.get(report.frequency, dt.timedelta(days=1))
         elif report.last_delivered_at:
