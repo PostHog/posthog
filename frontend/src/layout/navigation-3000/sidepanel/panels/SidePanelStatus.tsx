@@ -6,7 +6,7 @@ import { LemonBadgeProps, Tooltip } from '@posthog/lemon-ui'
 
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+import { getStatusPageUrl } from '~/layout/navigation-3000/incident/incidentStatus'
 
 import { sidePanelLogic } from '../sidePanelLogic'
 import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
@@ -41,7 +41,7 @@ export const SidePanelStatus = (): JSX.Element => {
 
     useEffect(() => {
         // Redirect to the external status page
-        window.open(INCIDENT_IO_STATUS_PAGE_BASE, '_blank')?.focus()
+        window.open(getStatusPageUrl(), '_blank')?.focus()
         closeSidePanel()
     }, [closeSidePanel])
 

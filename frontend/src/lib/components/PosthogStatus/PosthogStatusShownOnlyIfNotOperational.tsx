@@ -4,6 +4,8 @@ import { Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { getStatusPageUrl } from '~/layout/navigation-3000/incident/incidentStatus'
+
 import { healthMenuLogic } from '../HealthMenu/healthMenuLogic'
 
 export function PosthogStatusShownOnlyIfNotOperational({
@@ -31,7 +33,7 @@ export function PosthogStatusShownOnlyIfNotOperational({
                     iconOnly: iconOnly,
                     menuItem: !iconOnly,
                 }}
-                to="https://posthogstatus.com"
+                to={getStatusPageUrl()}
                 tooltip={!iconOnly ? tooltipText : undefined}
                 tooltipCloseDelayMs={0}
                 target="_blank"

@@ -7,7 +7,7 @@ import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HealthMenu/healthMenuLogic'
 import { HeartHog, SleepingHog, WarningHog } from 'lib/components/hedgehogs'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+import { getStatusPageUrl } from '~/layout/navigation-3000/incident/incidentStatus'
 
 const STATUS_CONFIG: Record<
     PostHogStatusBadgeStatus,
@@ -42,7 +42,7 @@ export const PlatformStatusBanner = (): JSX.Element => {
             hideIcon={false}
             action={{
                 children: 'View status page',
-                to: INCIDENT_IO_STATUS_PAGE_BASE,
+                to: getStatusPageUrl(),
                 targetBlank: true,
             }}
         >

@@ -50,6 +50,18 @@ export interface IncidentIoSummary {
 export const INCIDENT_IO_STATUS_PAGE_BASE = 'https://www.posthogstatus.com'
 export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
+const HOSTNAME_REGION_MAP: Record<string, string> = {
+    'us.posthog.com': '/us',
+    'eu.posthog.com': '/eu',
+    localhost: '/us',
+    '127.0.0.1': '/us',
+}
+
+export function getStatusPageUrl(): string {
+    const suffix = HOSTNAME_REGION_MAP[window.location.hostname] ?? ''
+    return `${INCIDENT_IO_STATUS_PAGE_BASE}${suffix}`
+}
+
 const DEFAULT_STATUS: NormalizedStatus = 'operational'
 
 let currentStatus: NormalizedStatus = DEFAULT_STATUS

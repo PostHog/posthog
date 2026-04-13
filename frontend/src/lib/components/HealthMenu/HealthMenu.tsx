@@ -11,6 +11,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 
+import { getStatusPageUrl } from '~/layout/navigation-3000/incident/incidentStatus'
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { sdkDoctorLogic } from '~/scenes/onboarding/sdks/sdkDoctorLogic'
 
@@ -76,7 +77,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
                         targetBlankIcon
                         target="_blank"
                         buttonProps={{ menuItem: true }}
-                        to="https://posthogstatus.com"
+                        to={getStatusPageUrl()}
                         tooltip={postHogStatusTooltip}
                         tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
@@ -194,7 +195,7 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                         targetBlankIcon
                         target="_blank"
                         buttonProps={{ menuItem: true }}
-                        to="https://posthogstatus.com"
+                        to={getStatusPageUrl()}
                         tooltip={postHogStatusTooltip}
                         tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
