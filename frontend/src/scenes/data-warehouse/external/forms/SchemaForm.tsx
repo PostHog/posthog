@@ -164,6 +164,51 @@ export default function SchemaForm(): JSX.Element {
                                 },
                             },
                             {
+                                key: 'primary_key',
+                                title: 'Primary key',
+                                align: 'right',
+                                tooltip:
+                                    'The column(s) used to uniquely identify rows for deduplication during incremental syncs. Auto-detected if not set.',
+                                isHidden:
+                                    !shouldShowSyncColumns ||
+                                    !databaseSchema.some((schema) => schema.sync_type === 'incremental'),
+                                render: function RenderPrimaryKey(_, schema) {
+                                    if (schema.sync_type !== 'incremental') {
+                                        return (
+                                            <span className="text-xs text-muted-foreground">
+                                                No primary key selected
+                                            </span>
+                                        )
+                                    }
+
+                                    if (!schema.primary_key_columns || schema.primary_key_columns.length === 0) {
+                                        const detected = schema.detected_primary_keys
+                                        if (detected && detected.length > 0) {
+                                            return (
+                                                <div className="flex items-center justify-end gap-1 flex-wrap">
+                                                    {detected.map((col) => (
+                                                        <LemonTag key={col} type="muted">
+                                                            {col}
+                                                        </LemonTag>
+                                                    ))}
+                                                </div>
+                                            )
+                                        }
+                                        return <span className="text-xs text-muted-foreground">None detected</span>
+                                    }
+
+                                    return (
+                                        <div className="flex items-center justify-end gap-1 flex-wrap">
+                                            {schema.primary_key_columns.map((col) => (
+                                                <LemonTag key={col} type="default">
+                                                    {col}
+                                                </LemonTag>
+                                            ))}
+                                        </div>
+                                    )
+                                },
+                            },
+                            {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',
@@ -243,18 +288,19 @@ const SyncMethodModal = (): JSX.Element => {
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
                 isNewSource
-                onSave={(syncType, incrementalField, incrementalFieldType, cdcTableMode) => {
+                onSave={(syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
                             currentSyncMethodModalSchema,
                             syncType,
                             incrementalField,
-                            incrementalFieldType
+                            incrementalFieldType,
+                            primaryKeyColumns
                         )
                     } else if (syncType === 'cdc') {
-                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, cdcTableMode)
+                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, null, cdcTableMode)
                     } else {
-                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType ?? null, null, null)
+                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType ?? null, null, null, null)
                     }
 
                     toggleSchemaShouldSync(currentSyncMethodModalSchema, true)
