@@ -1,0 +1,4 @@
+week_start: 2026-04-07
+week_end: 2026-04-14
+event: $pageview
+count: 4
