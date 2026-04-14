@@ -29,9 +29,8 @@ FROM (
         countIf(event = '$ai_embedding') as embeddings,
         countIf(properties.$ai_is_error = 'true') as errors,
         sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding')) as trace_cost,
-        if(
-            anyIf(toFloat(properties.$ai_latency), event = '$ai_trace') > 0,
-            anyIf(toFloat(properties.$ai_latency), event = '$ai_trace'),
+        coalesce(
+            nullIf(anyIf(toFloat(properties.$ai_latency), event = '$ai_trace'), 0),
             sumIf(toFloat(properties.$ai_latency), event IN ('$ai_generation', '$ai_embedding', '$ai_span'))
         ) as trace_latency,
         min(timestamp) as first_seen,
