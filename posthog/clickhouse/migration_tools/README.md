@@ -4,7 +4,7 @@ Declarative, Terraform-style schema management for ClickHouse.
 
 ## Architecture
 
-```
+```text
 schema/*.yaml          desired state (what you want)
      |
      v
