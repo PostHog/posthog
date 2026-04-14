@@ -377,4 +377,48 @@ describe('stripUnsupportedQueryFields', () => {
 
         expect(original.breakdownFilter).toEqual({ breakdown: '$browser' })
     })
+
+    describe('formula fields', () => {
+        it.each([
+            [NodeKind.FunnelsQuery, 'funnelsFilter'],
+            [NodeKind.StickinessQuery, 'stickinessFilter'],
+            [NodeKind.RetentionQuery, 'retentionFilter'],
+            [NodeKind.PathsQuery, 'pathsFilter'],
+            [NodeKind.LifecycleQuery, 'lifecycleFilter'],
+        ])('strips formula/formulas/formulaNodes from %s.%s', (kind, filterKey) => {
+            const input = {
+                kind,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                [filterKey]: {
+                    formula: 'A+B',
+                    formulas: ['A+B'],
+                    formulaNodes: [{ formula: 'A+B', custom_name: 'Sum' }],
+                    someValidField: 'keep-me',
+                },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result[filterKey].formula).toBeUndefined()
+            expect(result[filterKey].formulas).toBeUndefined()
+            expect(result[filterKey].formulaNodes).toBeUndefined()
+            expect(result[filterKey].someValidField).toBe('keep-me')
+        })
+
+        it('preserves formula fields on TrendsQuery.trendsFilter', () => {
+            const input = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                trendsFilter: {
+                    formula: 'A+B',
+                    formulaNodes: [{ formula: 'A+B' }],
+                },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result.trendsFilter.formula).toBe('A+B')
+            expect(result.trendsFilter.formulaNodes).toEqual([{ formula: 'A+B' }])
+        })
+    })
 })

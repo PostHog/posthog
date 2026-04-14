@@ -15,6 +15,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
+    filterKeyForQuery,
     getMathTypeWarning,
     isEventsNode,
     isFunnelsQuery,
@@ -308,6 +309,8 @@ type InsightQueryNodeWithLeakedFields = InsightQueryNode & {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
+const FORMULA_FIELDS = ['formula', 'formulas', 'formulaNodes'] as const
+
 export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQueryNode => {
     const cleaned: InsightQueryNodeWithLeakedFields = { ...query }
 
@@ -319,6 +322,19 @@ export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQue
     }
     if (!isPathsQuery(query)) {
         delete cleaned.funnelPathsFilter
+    }
+
+    // formula fields only belong on trendsFilter of a TrendsQuery
+    if (!isTrendsQuery(query) && !isWebAnalyticsInsightQuery(query) && !isHogQLQuery(query)) {
+        const filterKey = filterKeyForQuery(query)
+        const filter = filterForQuery(query)
+        if (filter && FORMULA_FIELDS.some((k) => k in filter)) {
+            const strippedFilter = { ...filter }
+            for (const k of FORMULA_FIELDS) {
+                delete (strippedFilter as Record<string, unknown>)[k]
+            }
+            ;(cleaned as Record<string, unknown>)[filterKey] = strippedFilter
+        }
     }
 
     return cleaned
