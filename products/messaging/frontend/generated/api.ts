@@ -174,15 +174,15 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
 /**
  * Remove the Customer.io webhook integration and reset inbound sync state.
  */
-export const getMessagingCategoriesRemoveWebhookIntegrationDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_webhook_integration/`
+export const getMessagingCategoriesRemoveWebhookConfigDestroyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/remove_webhook_config/`
 }
 
-export const messagingCategoriesRemoveWebhookIntegrationDestroy = async (
+export const messagingCategoriesRemoveWebhookConfigDestroy = async (
     projectId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getMessagingCategoriesRemoveWebhookIntegrationDestroyUrl(projectId), {
+    return apiMutator<void>(getMessagingCategoriesRemoveWebhookConfigDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
     })

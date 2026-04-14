@@ -1861,8 +1861,8 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('save_webhook_config')
     }
 
-    public messagingCategoriesRemoveWebhookIntegration(): ApiRequest {
-        return this.messagingCategories().addPathComponent('remove_webhook_integration')
+    public messagingCategoriesRemoveWebhookConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_webhook_config')
     }
 
     public messagingPreferences(): ApiRequest {

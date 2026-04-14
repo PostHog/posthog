@@ -85,7 +85,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setWebhookSigningSecret: (secret: string) => ({ secret }),
         saveWebhookConfig: true,
         toggleWebhook: (enabled: boolean) => ({ enabled }),
-        removeWebhookIntegration: true,
+        removeWebhookConfig: true,
         setIsSavingWebhook: (isSaving: boolean) => ({ isSaving }),
         setWebhookError: (error: string | null) => ({ error }),
     }),
@@ -179,13 +179,13 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 setWebhookError: (_, { error }) => error,
                 saveWebhookConfig: () => null,
                 toggleWebhook: () => null,
-                removeWebhookIntegration: () => null,
+                removeWebhookConfig: () => null,
             },
         ],
-        isRemovingWebhookIntegration: [
+        isRemovingWebhookConfig: [
             false,
             {
-                removeWebhookIntegration: () => true,
+                removeWebhookConfig: () => true,
                 loadSyncConfigSuccess: () => false,
                 loadSyncConfigFailure: () => false,
             },
@@ -372,9 +372,9 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 actions.setIsSavingWebhook(false)
             }
         },
-        removeWebhookIntegration: async () => {
+        removeWebhookConfig: async () => {
             try {
-                await new ApiRequest().messagingCategoriesRemoveWebhookIntegration().delete()
+                await new ApiRequest().messagingCategoriesRemoveWebhookConfig().delete()
                 actions.setWebhookSigningSecret('')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to remove webhook integration')

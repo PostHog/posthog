@@ -312,15 +312,9 @@ function Step2Content(): JSX.Element {
 }
 
 function Step3Content(): JSX.Element {
-    const {
-        syncConfig,
-        webhookUrl,
-        webhookSigningSecret,
-        isSavingWebhook,
-        webhookError,
-        isRemovingWebhookIntegration,
-    } = useValues(customerIOImportLogic)
-    const { setWebhookSigningSecret, saveWebhookConfig, toggleWebhook, removeWebhookIntegration } =
+    const { syncConfig, webhookUrl, webhookSigningSecret, isSavingWebhook, webhookError, isRemovingWebhookConfig } =
+        useValues(customerIOImportLogic)
+    const { setWebhookSigningSecret, saveWebhookConfig, toggleWebhook, removeWebhookConfig } =
         useActions(customerIOImportLogic)
 
     const webhookEnabled = syncConfig?.webhook_enabled ?? false
@@ -377,8 +371,8 @@ function Step3Content(): JSX.Element {
                                     type="tertiary"
                                     status="danger"
                                     tooltip="Remove signing secret"
-                                    onClick={removeWebhookIntegration}
-                                    loading={isRemovingWebhookIntegration}
+                                    onClick={removeWebhookConfig}
+                                    loading={isRemovingWebhookConfig}
                                     icon={<IconTrash className="text-danger" />}
                                 />
                             }

@@ -237,7 +237,7 @@ class MessageCategoryViewSet(
         )
 
     @action(detail=False, methods=["delete"])
-    def remove_webhook_integration(self, request, **kwargs):
+    def remove_webhook_config(self, request, **kwargs):
         """Remove the Customer.io webhook integration and reset inbound sync state."""
         Integration.objects.filter(team_id=self.team_id, kind="customerio-webhook").delete()
         try:
