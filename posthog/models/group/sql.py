@@ -1,7 +1,7 @@
 from posthog import settings
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_GROUPS_WS, KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -81,6 +81,44 @@ group_properties,
 _timestamp,
 _offset
 FROM {KAFKA_GROUPS_TABLE}
+"""
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_GROUPS_WS_TABLE = "kafka_groups_ws"
+GROUPS_WS_MV = "groups_ws_mv"
+
+DROP_KAFKA_GROUPS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_GROUPS_WS_TABLE}"
+DROP_GROUPS_WS_MV_SQL = f"DROP TABLE IF EXISTS {GROUPS_WS_MV}"
+
+
+def KAFKA_GROUPS_WS_TABLE_SQL():
+    return GROUPS_TABLE_BASE_SQL.format(
+        table_name=KAFKA_GROUPS_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_GROUPS,
+            group=CONSUMER_GROUP_GROUPS_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def GROUPS_WS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE):
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_WS_MV}
+TO {target_table}
+AS SELECT
+group_type_index,
+group_key,
+created_at,
+team_id,
+group_properties,
+_timestamp,
+_offset
+FROM {KAFKA_GROUPS_WS_TABLE}
 """
 
 

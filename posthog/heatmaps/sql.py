@@ -1,7 +1,12 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_HEATMAPS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_HEATMAPS,
+    CONSUMER_GROUP_HEATMAPS_WS,
+    kafka_engine,
+    ttl_period,
+)
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_HEATMAP_EVENTS
 
@@ -164,4 +169,51 @@ TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA
 
 ALTER_TABLE_ADD_TTL_PERIOD = lambda: (
     f"ALTER TABLE {HEATMAPS_DATA_TABLE()} MODIFY {ttl_period('timestamp', 90, unit='DAY')}"
+)
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_HEATMAPS_WS_TABLE = "kafka_heatmaps_ws"
+HEATMAPS_WS_MV = "heatmaps_ws_mv"
+
+DROP_KAFKA_HEATMAPS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_HEATMAPS_WS_TABLE}"
+DROP_HEATMAPS_WS_MV_SQL = f"DROP TABLE IF EXISTS {HEATMAPS_WS_MV}"
+
+KAFKA_HEATMAPS_WS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
+    table_name=KAFKA_HEATMAPS_WS_TABLE,
+    engine=kafka_engine(
+        topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        group=CONSUMER_GROUP_HEATMAPS_WS,
+        named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+    ),
+)
+
+HEATMAPS_WS_TABLE_MV_SQL = (
+    lambda: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+TO {database}.{target_table}
+AS SELECT
+    session_id,
+    team_id,
+    distinct_id,
+    timestamp,
+    x,
+    y,
+    scale_factor,
+    viewport_width,
+    viewport_height,
+    pointer_target_fixed,
+    current_url,
+    type,
+    _timestamp,
+    _offset,
+    _partition
+FROM {database}.{from_table}
+""".format(
+        mv_name=HEATMAPS_WS_MV,
+        target_table="writable_heatmaps",
+        from_table=KAFKA_HEATMAPS_WS_TABLE,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
