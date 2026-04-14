@@ -34,7 +34,7 @@ export const Horizontal: Story = {
                 {Array.from({ length: 100 }, (_, i) => (
                     <li
                         key={i}
-                        className="flex items-center justify-center rounded-lg bg-gray-100 text-sm font-bold text-gray-600"
+                        className="flex items-center justify-center rounded-lg bg-muted text-sm font-bold text-gray-600 dark:text-gray-400"
                     >
                         {i + 1}
                     </li>

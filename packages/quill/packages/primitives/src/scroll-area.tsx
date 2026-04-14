@@ -3,6 +3,70 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 
+// Base-UI sets data-overflow-{x,y}-{start,end} attributes on the Root when the
+// viewport has scrollable content remaining in that direction. Two pseudos on Root
+// (::before = start edges left+top, ::after = end edges right+bottom) each stack two
+// inset box-shadows driven by CSS custom properties, toggled via the data attrs.
+// Injected once at module load rather than authored as Tailwind arbitrary values —
+// the box-shadow syntax with nested commas and var() interactions is unreliable in
+// Tailwind's arbitrary-property parser.
+const SCROLL_SHADOWS_STYLE_ID = 'quill-scroll-area-shadows'
+const scrollShadowsCss = `
+[data-component="scroll-area"][data-scroll-shadows="true"] {
+    --shadow-x-start: 0 0 0 0 transparent;
+    --shadow-x-end: 0 0 0 0 transparent;
+    --shadow-y-start: 0 0 0 0 transparent;
+    --shadow-y-end: 0 0 0 0 transparent;
+}
+[data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-start] {
+    --shadow-x-start: 16px 0 16px -16px rgb(0 0 0 / 25%);
+}
+[data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-end] {
+    --shadow-x-end: -16px 0 16px -16px rgb(0 0 0 / 25%);
+}
+[data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-start] {
+    --shadow-y-start: 0 16px 16px -16px rgb(0 0 0 / 25%);
+}
+[data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-end] {
+    --shadow-y-end: 0 -16px 16px -16px rgb(0 0 0 / 25%);
+}
+[data-component="scroll-area"][data-scroll-shadows="true"]::before,
+[data-component="scroll-area"][data-scroll-shadows="true"]::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    border-radius: inherit;
+    transition: box-shadow 200ms ease;
+}
+[data-component="scroll-area"][data-scroll-shadows="true"]::before {
+    box-shadow: var(--shadow-x-start) inset, var(--shadow-y-start) inset;
+}
+[data-component="scroll-area"][data-scroll-shadows="true"]::after {
+    box-shadow: var(--shadow-x-end) inset, var(--shadow-y-end) inset;
+}
+.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-start] {
+    --shadow-x-start: 28px 0 24px -16px rgb(0 0 0 / 100%);
+}
+.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-x-end] {
+    --shadow-x-end: -28px 0 24px -16px rgb(0 0 0 / 100%);
+}
+.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-start] {
+    --shadow-y-start: 0 28px 24px -16px rgb(0 0 0 / 100%);
+}
+.dark [data-component="scroll-area"][data-scroll-shadows="true"][data-overflow-y-end] {
+    --shadow-y-end: 0 -28px 24px -16px rgb(0 0 0 / 100%);
+}
+`
+
+if (typeof document !== 'undefined' && !document.getElementById(SCROLL_SHADOWS_STYLE_ID)) {
+    const styleEl = document.createElement('style')
+    styleEl.id = SCROLL_SHADOWS_STYLE_ID
+    styleEl.textContent = scrollShadowsCss
+    document.head.appendChild(styleEl)
+}
+
 function ScrollArea({
     className,
     children,
@@ -20,13 +84,7 @@ function ScrollArea({
         >
             <ScrollAreaPrimitive.Viewport
                 data-slot="scroll-area-viewport"
-                className={cn(
-                    'size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1',
-                    '[[data-scroll-shadows=true]_&]:before:content-[""] [[data-scroll-shadows=true]_&]:before:block [[data-scroll-shadows=true]_&]:before:left-0 [[data-scroll-shadows=true]_&]:before:w-full [[data-scroll-shadows=true]_&]:before:absolute [[data-scroll-shadows=true]_&]:before:pointer-events-none [[data-scroll-shadows=true]_&]:before:transition-[height] [[data-scroll-shadows=true]_&]:before:duration-100 [[data-scroll-shadows=true]_&]:before:ease-out [[data-scroll-shadows=true]_&]:before:top-0 [[data-scroll-shadows=true]_&]:before:z-1 [[data-scroll-shadows=true]_&]:before:[--scroll-area-overflow-y-start:inherit] [[data-scroll-shadows=true]_&]:before:h-[min(20px,var(--scroll-area-overflow-y-start))] ',
-                    '[[data-scroll-shadows=true]_&]:after:content-[""] [[data-scroll-shadows=true]_&]:after:block [[data-scroll-shadows=true]_&]:after:left-0 [[data-scroll-shadows=true]_&]:after:w-full [[data-scroll-shadows=true]_&]:after:absolute [[data-scroll-shadows=true]_&]:after:pointer-events-none [[data-scroll-shadows=true]_&]:after:transition-[height] [[data-scroll-shadows=true]_&]:after:duration-100 [[data-scroll-shadows=true]_&]:after:ease-out [[data-scroll-shadows=true]_&]:after:bottom-0 [[data-scroll-shadows=true]_&]:after:z-1 [[data-scroll-shadows=true]_&]:after:[--scroll-area-overflow-y-end:inherit] [[data-scroll-shadows=true]_&]:after:h-[min(20px,var(--scroll-area-overflow-y-end,20px))]',
-                    '[[data-scroll-shadows=true]_&]:before:bg-linear-to-b [[data-scroll-shadows=true]_&]:before:from-background [[data-scroll-shadows=true]_&]:before:to-transparent',
-                    '[[data-scroll-shadows=true]_&]:after:bg-linear-to-t [[data-scroll-shadows=true]_&]:after:from-background [[data-scroll-shadows=true]_&]:after:to-transparent'
-                )}
+                className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>
