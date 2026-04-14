@@ -81,6 +81,9 @@ class QueryResult:
     team_id: int
     version: str  # "v1" or "v3"
     elapsed: float
+    total_users: float
+    total_sessions: float
+    total_occurrences: float
 
 
 @dataclass
@@ -131,11 +134,35 @@ def _build_filter_group(filter_name: str) -> PropertyGroupFilter | None:
     return None
 
 
-def _run_query(team: Team, query: ErrorTrackingQuery) -> float:
+@dataclass
+class RunResult:
+    elapsed: float
+    total_users: float
+    total_sessions: float
+    total_occurrences: float
+
+
+def _run_query(team: Team, query: ErrorTrackingQuery) -> RunResult:
     runner = ErrorTrackingQueryRunner(team=team, query=query)
     start = time.monotonic()
-    runner.calculate()
-    return time.monotonic() - start
+    response = runner.calculate()
+    elapsed = time.monotonic() - start
+
+    total_users = 0.0
+    total_sessions = 0.0
+    total_occurrences = 0.0
+    for issue in response.results:
+        if issue.aggregations:
+            total_users += issue.aggregations.users
+            total_sessions += issue.aggregations.sessions
+            total_occurrences += issue.aggregations.occurrences
+
+    return RunResult(
+        elapsed=elapsed,
+        total_users=total_users,
+        total_sessions=total_sessions,
+        total_occurrences=total_occurrences,
+    )
 
 
 def _build_query(
@@ -168,10 +195,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--team-ids",
-            type=int,
-            nargs="+",
+            type=str,
             required=True,
-            help="Team IDs to benchmark against.",
+            help="Comma-separated team IDs to benchmark against (e.g. 2,5,10).",
         )
         parser.add_argument(
             "--iterations",
@@ -186,11 +212,13 @@ class Command(BaseCommand):
             help="Max concurrent queries against ClickHouse. Default: 4.",
         )
 
-    def handle(self, *, team_ids: list[int], iterations: int, concurrency: int, **options):
+    def handle(self, *, team_ids: str, iterations: int, concurrency: int, **options):
         logger.setLevel(logging.INFO)
 
+        parsed_team_ids = [int(t.strip()) for t in team_ids.split(",")]
+
         teams_by_id: dict[int, Team] = {}
-        for tid in team_ids:
+        for tid in parsed_team_ids:
             try:
                 teams_by_id[tid] = Team.objects.get(id=tid)
             except Team.DoesNotExist:
@@ -206,7 +234,7 @@ class Command(BaseCommand):
                 for filter_name in filter_names:
                     for order_by in SORT_FIELDS:
                         for direction in SORT_DIRECTIONS:
-                            for tid in team_ids:
+                            for tid in parsed_team_ids:
                                 tasks.append(
                                     (iteration, date_label, date_from, filter_name, order_by, direction, tid, "v1")
                                 )
@@ -217,7 +245,7 @@ class Command(BaseCommand):
         total_queries = len(tasks)
         logger.info(
             "benchmark_starting",
-            teams=team_ids,
+            teams=parsed_team_ids,
             iterations=iterations,
             total_queries=total_queries,
             concurrency=concurrency,
@@ -241,7 +269,7 @@ class Command(BaseCommand):
             )
 
             try:
-                elapsed = _run_query(team, query)
+                result = _run_query(team, query)
             except Exception:
                 logger.exception(
                     "query_failed",
@@ -252,7 +280,12 @@ class Command(BaseCommand):
                     order_by=order_by.value,
                     direction=direction.value,
                 )
-                elapsed = float("nan")
+                result = RunResult(
+                    elapsed=float("nan"),
+                    total_users=float("nan"),
+                    total_sessions=float("nan"),
+                    total_occurrences=float("nan"),
+                )
 
             collector.add(
                 QueryResult(
@@ -262,7 +295,10 @@ class Command(BaseCommand):
                     direction=direction.value,
                     team_id=tid,
                     version=version,
-                    elapsed=elapsed,
+                    elapsed=result.elapsed,
+                    total_users=result.total_users,
+                    total_sessions=result.total_sessions,
+                    total_occurrences=result.total_occurrences,
                 )
             )
 
@@ -276,8 +312,16 @@ class Command(BaseCommand):
             for future in as_completed(futures):
                 future.result()  # re-raise any unexpected errors
 
-        csv_output = _format_csv(collector, team_ids, iterations)
+        csv_output = _format_csv(collector, parsed_team_ids, iterations)
         self.stdout.write(csv_output)
+
+
+@dataclass
+class _AveragedResult:
+    elapsed: float
+    total_users: float
+    total_sessions: float
+    total_occurrences: float
 
 
 def _format_csv(collector: BenchmarkCollector, team_ids: list[int], iterations: int) -> str:
@@ -285,27 +329,57 @@ def _format_csv(collector: BenchmarkCollector, team_ids: list[int], iterations: 
     writer = csv.writer(output)
 
     # Group results by (date_range, filter_name, order_by, direction, team_id, version) and average across iterations
-    totals: dict[tuple[str, str, str, str, int, str], float] = {}
+    elapsed_totals: dict[tuple[str, str, str, str, int, str], list[float]] = {}
     for r in collector.results:
         key = (r.date_range, r.filter_name, r.order_by, r.direction, r.team_id, r.version)
-        totals[key] = totals.get(key, 0.0) + r.elapsed
-    averaged = {k: v / iterations for k, v in totals.items()}
+        if key not in elapsed_totals:
+            elapsed_totals[key] = [0.0, 0.0, 0.0, 0.0]
+        elapsed_totals[key][0] += r.elapsed
+        elapsed_totals[key][1] += r.total_users
+        elapsed_totals[key][2] += r.total_sessions
+        elapsed_totals[key][3] += r.total_occurrences
 
-    writer.writerow(["date_range", "filter", "order_by", "direction", "team_id", "v1_avg_s", "v3_avg_s"])
+    averaged: dict[tuple[str, str, str, str, int, str], _AveragedResult] = {}
+    for k, v in elapsed_totals.items():
+        averaged[k] = _AveragedResult(
+            elapsed=v[0] / iterations,
+            total_users=v[1] / iterations,
+            total_sessions=v[2] / iterations,
+            total_occurrences=v[3] / iterations,
+        )
+
+    writer.writerow(
+        [
+            "date_range",
+            "filter",
+            "order_by",
+            "direction",
+            "team_id",
+            "v1_avg_s",
+            "v3_avg_s",
+            "v1_users",
+            "v1_sessions",
+            "v1_occurrences",
+            "v3_users",
+            "v3_sessions",
+            "v3_occurrences",
+        ]
+    )
+
+    nan = float("nan")
+    empty = _AveragedResult(elapsed=nan, total_users=nan, total_sessions=nan, total_occurrences=nan)
 
     filter_names = [FILTER_NONE, FILTER_EVENT_PROPERTY, FILTER_ISSUE_PROPERTY]
     for date_label, _ in DATE_RANGES:
         for filter_name in filter_names:
             for order_by in SORT_FIELDS:
                 for direction in SORT_DIRECTIONS:
-                    v1_times: list[float] = []
-                    v3_times: list[float] = []
+                    v1_results: list[_AveragedResult] = []
+                    v3_results: list[_AveragedResult] = []
 
                     for tid in team_ids:
-                        v1_key = (date_label, filter_name, order_by.value, direction.value, tid, "v1")
-                        v3_key = (date_label, filter_name, order_by.value, direction.value, tid, "v3")
-                        v1_avg = averaged.get(v1_key, float("nan"))
-                        v3_avg = averaged.get(v3_key, float("nan"))
+                        v1 = averaged.get((date_label, filter_name, order_by.value, direction.value, tid, "v1"), empty)
+                        v3 = averaged.get((date_label, filter_name, order_by.value, direction.value, tid, "v3"), empty)
                         writer.writerow(
                             [
                                 date_label,
@@ -313,25 +387,36 @@ def _format_csv(collector: BenchmarkCollector, team_ids: list[int], iterations: 
                                 order_by.value,
                                 direction.value,
                                 str(tid),
-                                f"{v1_avg:.3f}",
-                                f"{v3_avg:.3f}",
+                                f"{v1.elapsed:.3f}",
+                                f"{v3.elapsed:.3f}",
+                                f"{v1.total_users:.0f}",
+                                f"{v1.total_sessions:.0f}",
+                                f"{v1.total_occurrences:.0f}",
+                                f"{v3.total_users:.0f}",
+                                f"{v3.total_sessions:.0f}",
+                                f"{v3.total_occurrences:.0f}",
                             ]
                         )
-                        v1_times.append(v1_avg)
-                        v3_times.append(v3_avg)
+                        v1_results.append(v1)
+                        v3_results.append(v3)
 
                     if len(team_ids) > 1:
-                        agg_v1 = sum(v1_times) / len(v1_times)
-                        agg_v3 = sum(v3_times) / len(v3_times)
+                        n = len(team_ids)
                         writer.writerow(
                             [
                                 date_label,
                                 filter_name,
                                 order_by.value,
                                 direction.value,
-                                "ALL",
-                                f"{agg_v1:.3f}",
-                                f"{agg_v3:.3f}",
+                                "AVERAGE",
+                                f"{sum(r.elapsed for r in v1_results) / n:.3f}",
+                                f"{sum(r.elapsed for r in v3_results) / n:.3f}",
+                                f"{sum(r.total_users for r in v1_results) / n:.0f}",
+                                f"{sum(r.total_sessions for r in v1_results) / n:.0f}",
+                                f"{sum(r.total_occurrences for r in v1_results) / n:.0f}",
+                                f"{sum(r.total_users for r in v3_results) / n:.0f}",
+                                f"{sum(r.total_sessions for r in v3_results) / n:.0f}",
+                                f"{sum(r.total_occurrences for r in v3_results) / n:.0f}",
                             ]
                         )
 
