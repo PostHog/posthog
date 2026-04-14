@@ -6058,6 +6058,7 @@ export type RawBatchExportRun = {
     records_completed?: number
     records_failed?: number
     bytes_exported?: number
+    latest_error?: string | null
 }
 
 export type BatchExportRun = {
