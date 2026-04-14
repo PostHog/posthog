@@ -387,7 +387,10 @@ class EventViewSet(
             result = ClickhouseEventSerializer(
                 query_result[0:limit],
                 many=True,
-                context={"people": self._get_people(query_result, team)},
+                context={
+                    "people": self._get_people(query_result, team),
+                    **self._get_restricted_properties_context(request, team),
+                },
             ).data
 
             next_url: Optional[str] = None
@@ -447,7 +450,7 @@ class EventViewSet(
         if len(query_result) == 0:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
-        query_context = {}
+        query_context = {**self._get_restricted_properties_context(request, self.team)}
         if request.query_params.get("include_person", False):
             query_context["people"] = self._get_people(query_result, self.team)
 
@@ -497,8 +500,8 @@ class EventViewSet(
         if key == "custom_event":
             return self._custom_event_values(query_params)
         else:
-            # Check if this property is hidden (enterprise feature)
-            if self._is_property_hidden(key, team):
+            # Check if this property is hidden (enterprise feature) or restricted by field-level access control
+            if self._is_property_hidden(key, team) or self._is_property_restricted(key, team):
                 return self._return_with_short_cache([], refreshing=False)
 
             return self._event_property_values(query_params, refresh=refresh)
@@ -665,6 +668,24 @@ class EventViewSet(
         resp["Cache-Control"] = "max-age=10"
         return resp
 
+    def _get_restricted_properties_context(self, request: request.Request, team: Team) -> dict:
+        """Returns serializer context entries for field-level access control."""
+        from products.platform_features.backend.field_access_control import get_restricted_property_names
+
+        user = request.user if request.user.is_authenticated else None
+        return {
+            "restricted_event_properties": get_restricted_property_names(
+                team_id=team.pk,
+                user=user,
+                property_type=PropertyDefinition.Type.EVENT,
+            ),
+            "restricted_person_properties": get_restricted_property_names(
+                team_id=team.pk,
+                user=user,
+                property_type=PropertyDefinition.Type.PERSON,
+            ),
+        }
+
     @tracer.start_as_current_span("events_api_is_property_hidden")
     def _is_property_hidden(self, key: str, team: Team) -> bool:
         property_is_hidden = False
@@ -682,6 +703,18 @@ class EventViewSet(
             pass
 
         return property_is_hidden
+
+    def _is_property_restricted(self, key: str, team: Team) -> bool:
+        """Checks if a property key is restricted for the current user."""
+        from products.platform_features.backend.field_access_control import get_restricted_property_names
+
+        user = self.request.user if self.request.user.is_authenticated else None
+        restricted = get_restricted_property_names(
+            team_id=team.pk,
+            user=user,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
+        return key in restricted
 
     @tracer.start_as_current_span("events_api_custom_event_values")
     def _custom_event_values(self, query_params: EventValueQueryParams) -> response.Response:

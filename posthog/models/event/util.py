@@ -324,7 +324,11 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        return parse_properties(event["properties"])
+        props = parse_properties(event["properties"])
+        restricted = self.context.get("restricted_event_properties")
+        if restricted:
+            props = {k: v for k, v in props.items() if k not in restricted}
+        return props
 
     @extend_schema_field(serializers.CharField())
     def get_event(self, event):
@@ -341,11 +345,14 @@ class ClickhouseEventSerializer(serializers.Serializer):
             return None
 
         person = self.context["people"][event["distinct_id"]]
+        restricted = self.context.get("restricted_person_properties", set())
         return {
             "is_identified": person.is_identified,
             "distinct_ids": person.distinct_ids[:1],  # only send the first one to avoid a payload bloat
             "properties": {
-                key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
+                key: person.properties[key]
+                for key in ["email", "name", "username"]
+                if key in person.properties and key not in restricted
             },
         }
 

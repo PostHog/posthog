@@ -103,6 +103,12 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
+    exclude_restricted = serializers.BooleanField(
+        help_text="Whether to exclude properties that the current user does not have read access to via field-level access control",
+        required=False,
+        default=False,
+    )
+
     verified = serializers.BooleanField(
         help_text="Filter by verified status. True returns only verified, false returns only unverified.",
         required=False,
@@ -347,6 +353,23 @@ class QueryContext:
                 ),
             )
         return self
+
+    def with_restricted_filter(self, restricted_property_names: set[str]) -> Self:
+        if not restricted_property_names:
+            return self
+        restricted_filter = f" AND NOT {self.property_definition_table}.name = ANY(%(restricted_properties)s)"
+        return dataclasses.replace(
+            self,
+            excluded_properties_filter=(
+                self.excluded_properties_filter + restricted_filter
+                if self.excluded_properties_filter
+                else restricted_filter
+            ),
+            params={
+                **self.params,
+                "restricted_properties": list(restricted_property_names),
+            },
+        )
 
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
@@ -666,6 +689,11 @@ class PropertyDefinitionViewSet(
                 .with_hidden_filter(
                     query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE
                 )
+                .with_restricted_filter(
+                    self._get_restricted_property_names(prop_type)
+                    if query.validated_data.get("exclude_restricted", False)
+                    else set()
+                )
                 .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
             )
 
@@ -690,6 +718,22 @@ class PropertyDefinitionViewSet(
 
             serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
+
+    def _get_restricted_property_names(self, prop_type: str) -> set[str]:
+        """Returns the set of property names that are restricted for the current user and property type."""
+        from products.platform_features.backend.field_access_control import get_restricted_property_names
+
+        type_map = {
+            "event": PropertyDefinition.Type.EVENT,
+            "person": PropertyDefinition.Type.PERSON,
+            "group": PropertyDefinition.Type.GROUP,
+            "session": PropertyDefinition.Type.SESSION,
+        }
+        pd_type = type_map.get(prop_type)
+        if pd_type is None:
+            return set()
+        user = self.request.user if self.request.user.is_authenticated else None
+        return get_restricted_property_names(team_id=self.team_id, user=user, property_type=pd_type)
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
@@ -798,6 +842,12 @@ class PropertyDefinitionViewSet(
         # hidden filter
         if v.get("exclude_hidden", False) and prop.get("hidden", False):
             return False
+
+        # field-level access control filter
+        if v.get("exclude_restricted", False):
+            restricted = self._get_restricted_property_names(v.get("type", "event"))
+            if prop["name"] in restricted:
+                return False
 
         # verified filter — virtual properties don't participate in the
         # enterprise verification system, so exclude them whenever the
