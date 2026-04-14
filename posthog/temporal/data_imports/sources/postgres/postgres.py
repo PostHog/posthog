@@ -1056,6 +1056,7 @@ def postgres_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
+    is_initial_sync: bool = False,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -1130,11 +1131,10 @@ def postgres_source(
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
-                    # For partitioned tables on initial load (no real cursor yet),
-                    # use pg_class.reltuples estimate to avoid scanning all partitions.
-                    is_initial_load = should_use_incremental_field and db_incremental_field_last_value is None
+                    # For partitioned tables on initial sync, use pg_class.reltuples
+                    # estimate to avoid scanning all partitions with a COUNT(*).
                     rows_to_sync: int | None = None
-                    if is_initial_load:
+                    if is_initial_sync:
                         try:
                             if _is_partitioned_table(cursor, schema, table_name):
                                 logger.debug("Partitioned table detected, using estimated row count")
