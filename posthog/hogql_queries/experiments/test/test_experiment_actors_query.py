@@ -21,8 +21,12 @@ from parameterized import parameterized
 
 from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, ExperimentFunnelMetric, ExperimentQuery
 
+from posthog.hogql.context import HogQLContext
+
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import print_cohort_hogql_query
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -467,3 +471,121 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         # user_before_exposure should NOT be counted because their signup was before exposure
         assert len(response.results) == 1
         assert response.results[0][1]["distinct_ids"][0] == "user_after_exposure"
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_experiment_funnel_actors_cohort_creation(self):
+        """
+        Reproduce #24037: "Save as cohort" from experiment persons modal creates empty cohort.
+
+        The frontend sends ActorsQuery { source: ExperimentActorsQuery, select: ["actor", "matched_recordings"] }
+        to the cohort API. print_cohort_hogql_query must produce valid SQL that returns actor_id values.
+        """
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+        self._create_funnel_data_both_variants(f"$feature/{feature_flag.key}")
+        flush_persons_and_events()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=1,
+            funnelStepBreakdown="control",
+            includeRecordings=True,
+            featureFlagKey=feature_flag.key,
+        )
+
+        # This mirrors what personsModalLogic.ts sends to the cohort API
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["actor", "matched_recordings"],
+            orderBy=[],
+            search="",
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test cohort from experiment",
+            is_static=True,
+            query=actors_query.model_dump(mode="json"),
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        assert "actor_id" in sql
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_experiment_funnel_actors_cohort_sanitizes_recordings(self):
+        """
+        Verify that cohort creation strips includeRecordings and matched_recordings
+        from the query, avoiding the aggregate_funnel_array UDF in cohort SQL.
+        """
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=1,
+            funnelStepBreakdown="control",
+            includeRecordings=True,
+            featureFlagKey=feature_flag.key,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["actor", "matched_recordings"],
+            orderBy=[],
+            search="",
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test cohort from experiment",
+            is_static=True,
+            query=actors_query.model_dump(mode="json"),
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        assert "actor_id" in sql
+        # matched_recordings / matching_events should be stripped from cohort SQL
+        assert "matching_events" not in sql
+        assert "matched_recordings" not in sql
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_experiment_funnel_actors_cohort_strips_search(self):
+        """
+        Verify that search terms are stripped from cohort queries so all matching
+        persons are included, not just those matching a modal search filter.
+        """
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=1,
+            funnelStepBreakdown="control",
+            includeRecordings=False,
+            featureFlagKey=feature_flag.key,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["actor"],
+            orderBy=[],
+            search="some-email@example.com",
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test cohort with search",
+            is_static=True,
+            query=actors_query.model_dump(mode="json"),
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        assert "actor_id" in sql
+        # Search term should NOT appear in cohort SQL
+        assert "some-email@example.com" not in sql
