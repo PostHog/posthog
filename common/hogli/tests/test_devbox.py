@@ -1021,13 +1021,11 @@ class TestSharingFunctions:
     def test_share_workspace_builds_correct_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured_args: list[str] = []
 
-        monkeypatch.setattr(
-            coder,
-            "_run",
-            lambda args, capture_output=False: (
-                captured_args.extend(args) or subprocess.CompletedProcess(args, 0, "", "")
-            ),
-        )
+        def fake_run(args: list[str], capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+            captured_args.extend(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder, "_run", fake_run)
 
         coder.share_workspace("devbox-test-user", ["alice", "bob"], role="admin")
         assert captured_args == ["coder", "sharing", "share", "devbox-test-user", "--user", "alice:admin,bob:admin"]
