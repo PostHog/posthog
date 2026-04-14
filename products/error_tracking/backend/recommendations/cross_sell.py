@@ -18,17 +18,11 @@ def compute(team: Team) -> dict[str, Any]:
     products: list[dict[str, Any]] = [
         {
             "key": "session_replay",
-            "name": "Session replay",
-            "enable_url": "/replay/home",
             "enabled": bool(team.session_recording_opt_in),
-            "reason": "See what the user did right before the error happened.",
         },
         {
             "key": "logs",
-            "name": "Logs",
-            "enable_url": "/logs",
             "enabled": _team_has_logs(team.id),
-            "reason": "Jump straight to application output around the failure.",
         },
     ]
 
