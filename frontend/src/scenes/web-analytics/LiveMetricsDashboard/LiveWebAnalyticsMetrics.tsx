@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { IconGlobe } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
@@ -17,7 +19,7 @@ import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
-import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
 const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
@@ -31,6 +33,21 @@ const getBrowserKey = (d: BrowserBreakdownItem): string => d.browser
 const getBrowserLabel = (d: BrowserBreakdownItem): string => d.browser
 const getDeviceKey = (d: DeviceBreakdownItem): string => d.device
 const getDeviceLabel = (d: DeviceBreakdownItem): string => d.device
+const getCountryKey = (d: CountryBreakdownItem): string => d.country
+const getCountryLabel = (d: CountryBreakdownItem): string => COUNTRY_CODE_TO_LONG_NAME[d.country] ?? d.country
+const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
+    if (d.country === 'Other') {
+        return <IconGlobe className="w-4 h-4 flex-shrink-0 text-muted" />
+    }
+    return (
+        <span
+            className="w-4 h-4 inline-flex items-center justify-center text-base leading-none flex-shrink-0"
+            aria-hidden
+        >
+            {countryCodeToFlag(d.country)}
+        </span>
+    )
+}
 
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const {
@@ -38,6 +55,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         deviceBreakdown,
         browserBreakdown,
         countryBreakdown,
+        topCountryBreakdown,
         topPaths,
         topReferrers,
         totalPageviews,
@@ -99,25 +117,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_REFERRERS] && (
-                    <LiveTopReferrersTable
-                        referrers={topReferrers}
-                        isLoading={isLoading}
-                        totalPageviews={totalPageviews}
-                    />
-                )}
-                <BreakdownLiveCard<DeviceBreakdownItem>
-                    title="Devices"
-                    data={deviceBreakdown}
-                    getKey={getDeviceKey}
-                    getLabel={getDeviceLabel}
-                    emptyMessage="No device data"
-                    statLabel="unique devices"
-                    isLoading={isLoading}
-                />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <LiveTopReferrersTable referrers={topReferrers} isLoading={isLoading} totalPageviews={totalPageviews} />
                 <BreakdownLiveCard<BrowserBreakdownItem>
                     title="Browsers"
                     data={browserBreakdown}
@@ -127,6 +127,28 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     emptyMessage="No browser data"
                     statLabel="unique browsers"
                     totalCount={totalBrowsers}
+                    isLoading={isLoading}
+                />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <BreakdownLiveCard<DeviceBreakdownItem>
+                    title="Devices"
+                    data={deviceBreakdown}
+                    getKey={getDeviceKey}
+                    getLabel={getDeviceLabel}
+                    emptyMessage="No device data"
+                    statLabel="unique devices"
+                    isLoading={isLoading}
+                />
+                <BreakdownLiveCard<CountryBreakdownItem>
+                    title="Countries"
+                    data={topCountryBreakdown}
+                    getKey={getCountryKey}
+                    getLabel={getCountryLabel}
+                    renderIcon={renderCountryIcon}
+                    emptyMessage="No country data"
+                    statLabel="unique visitors"
                     isLoading={isLoading}
                 />
             </div>

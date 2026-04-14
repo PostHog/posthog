@@ -15,7 +15,7 @@ import type {
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
-    PaginatedConversationListApi,
+    PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
@@ -62,8 +62,8 @@ export const conversationsList = async (
     projectId: string,
     params?: ConversationsListParams,
     options?: RequestInit
-): Promise<PaginatedConversationListApi> => {
-    return apiMutator<PaginatedConversationListApi>(getConversationsListUrl(projectId, params), {
+): Promise<PaginatedConversationMinimalListApi> => {
+    return apiMutator<PaginatedConversationMinimalListApi>(getConversationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

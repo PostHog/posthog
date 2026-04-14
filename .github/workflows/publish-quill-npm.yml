@@ -63,6 +63,14 @@ jobs:
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
+                  # actions/setup-node's `registry-url` input exports
+                  # NODE_AUTH_TOKEN=XXXXX-XXXXX-XXXXX-XXXXX as a placeholder and
+                  # writes it into .npmrc. With OIDC trusted publishing we do
+                  # not have a real token, so we must clear it at the step
+                  # level — otherwise npm sends the placeholder as the bearer
+                  # token and the registry returns a 404. Matches the pattern
+                  # in release.yml and build-hogql-parser-npm.yml.
+                  NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 
@@ -74,6 +82,7 @@ jobs:
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
+                  NODE_AUTH_TOKEN: ''
                   NPM_CONFIG_PROVENANCE: true
                   NPM_TAG: ${{ inputs.tag }}
 

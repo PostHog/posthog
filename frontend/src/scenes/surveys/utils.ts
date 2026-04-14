@@ -10,6 +10,7 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
     BasicSurveyQuestion,
+    CyclotronJobInvocationGlobals,
     CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
@@ -96,6 +97,92 @@ export function getSurveyResponseKey(questionIndex: number): string {
 
 export function getSurveyIdBasedResponseKey(questionId: string): string {
     return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
+}
+
+type SurveyExampleContext = Pick<Survey, 'id' | 'name' | 'questions'> | null | undefined
+
+function getExampleSurveyResponseValue(question: SurveyQuestion, index: number): string | string[] | undefined {
+    switch (question.type) {
+        case SurveyQuestionType.Open:
+            return question.question || `Example answer ${index + 1}`
+        case SurveyQuestionType.Rating:
+            return String(question.scale >= 10 ? 9 : Math.min(question.scale, 4))
+        case SurveyQuestionType.SingleChoice:
+            return question.choices[0] || `Option ${index + 1}`
+        case SurveyQuestionType.MultipleChoice:
+            return question.choices.slice(0, Math.min(question.choices.length, 2))
+        case SurveyQuestionType.Link:
+            return undefined
+    }
+}
+
+export function buildSurveyExampleInvocationGlobals({
+    survey,
+    projectId,
+    projectName,
+    projectUrl,
+    source,
+    timestamp = new Date().toISOString(),
+    eventUuid = '00000000-0000-0000-0000-000000000000',
+    distinctId = 'example-distinct-id',
+    personId = 'person-id',
+    personName = 'Jane Doe',
+    personEmail = 'jane@example.com',
+}: {
+    survey: SurveyExampleContext
+    projectId: number
+    projectName: string
+    projectUrl: string
+    source?: CyclotronJobInvocationGlobals['source']
+    timestamp?: string
+    eventUuid?: string
+    distinctId?: string
+    personId?: string
+    personName?: string
+    personEmail?: string
+}): CyclotronJobInvocationGlobals {
+    const responseProperties = Object.fromEntries(
+        (survey?.questions ?? [])
+            .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
+            .map((question, index) => [
+                getSurveyIdBasedResponseKey(question.id!),
+                getExampleSurveyResponseValue(question, index),
+            ])
+            .filter(([, value]) => value !== undefined)
+    )
+
+    return {
+        project: {
+            id: projectId,
+            name: projectName,
+            url: projectUrl,
+        },
+        event: {
+            event: SurveyEventName.SENT,
+            uuid: eventUuid,
+            distinct_id: distinctId,
+            timestamp,
+            elements_chain: '',
+            properties: {
+                [SurveyEventProperties.SURVEY_ID]: survey?.id && survey.id !== NEW_SURVEY.id ? survey.id : 'survey-id',
+                $survey_name: survey?.name || 'Survey',
+                [SurveyEventProperties.SURVEY_COMPLETED]: true,
+                [SurveyEventProperties.SURVEY_SUBMISSION_ID]: 'survey-submission-id',
+                ...responseProperties,
+            },
+            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(timestamp)}`,
+        },
+        person: {
+            id: personId,
+            name: personName,
+            url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+            properties: {
+                email: personEmail,
+            },
+        },
+        groups: {},
+        ...(source ? { source } : {}),
+    }
 }
 
 // Helper function to generate the response field keys with proper typing
@@ -1029,12 +1116,6 @@ export function getSurveyNotificationFilters(
     onlyCompletedResponses: boolean = true
 ): CyclotronJobFiltersType {
     const properties: EventPropertyFilter[] = [
-        {
-            key: SurveyEventProperties.SURVEY_RESPONSE,
-            type: PropertyFilterType.Event,
-            value: 'is_set',
-            operator: PropertyOperator.IsSet,
-        },
         {
             key: SurveyEventProperties.SURVEY_ID,
             type: PropertyFilterType.Event,
