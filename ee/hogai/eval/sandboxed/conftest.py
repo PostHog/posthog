@@ -69,13 +69,16 @@ def _cleanup_eval_containers():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _django_live_server(django_db_blocker):
+def _django_live_server(django_db_setup, django_db_blocker):
     """Start an in-process Django HTTP server on the test database.
 
     Uses Django's ``LiveServerThread`` (same mechanism as pytest-django's
     ``live_server`` fixture, but session-scoped). The sandbox Docker container
     calls this server via ``host.docker.internal`` for API requests,
     log persistence, and the LLM gateway.
+
+    Depends on ``django_db_setup`` so the test database is created before
+    any subprocess (LLM gateway, MCP) tries to connect to it.
     """
     from pytest_django.live_server_helper import LiveServer
 
@@ -230,7 +233,7 @@ def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_bl
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _llm_gateway(_django_live_server):
+def _llm_gateway(_django_live_server, demo_org_team_user):
     """Start the LLM gateway as a subprocess.
 
     Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
@@ -251,9 +254,9 @@ def _llm_gateway(_django_live_server):
     from django.db import connections
 
     conn = connections["default"]
-    # conn.settings_dict["NAME"] has the original DB name; the actual test DB
-    # name is available on the connection wrapper after the test runner creates it.
-    db_name = conn.settings_dict.get("TEST", {}).get("NAME") or f"test_{conn.settings_dict['NAME']}"
+    # After django_db_setup runs, settings_dict["NAME"] is already rewritten to
+    # the test DB name (pytest-django does this in-place), so don't re-prefix it.
+    db_name = conn.settings_dict["NAME"]
     db_user = conn.settings_dict.get("USER", "posthog")
     db_password = conn.settings_dict.get("PASSWORD", "posthog")
     db_host = conn.settings_dict.get("HOST", "localhost")
@@ -346,9 +349,20 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         "NODE_ENV": "development",
     }
 
+    # Wrangler's .dev.vars file (committed) overrides process env, so we must
+    # pass --var on the CLI to point the MCP at our in-process Django test DB.
+    wrangler_vars = [
+        f"POSTHOG_API_BASE_URL:{api_url}",
+        f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
+        f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
+    ]
+    var_args: list[str] = []
+    for v in wrangler_vars:
+        var_args.extend(["--var", v])
+
     logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
     proc = subprocess.Popen(
-        ["pnpm", "wrangler", "dev", "--port", str(MCP_PORT)],
+        ["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
         cwd=mcp_dir,
         env=env,
         stdout=subprocess.PIPE,

@@ -39,7 +39,7 @@ def create_isolated_demo_data(
     """
     org_name = f"Hedgebox Inc. ({label})"
     today = datetime.date.today()
-    email = f"eval-{label}-{today.isoformat()}"
+    email = f"eval-{label}-{today.isoformat()}@posthog.test"
 
     with django_db_blocker.unblock():
         # Check for existing data from today
@@ -50,7 +50,11 @@ def create_isolated_demo_data(
             assert team is not None
             membership = existing_org.memberships.first()
             assert membership is not None
-            return existing_org, team, membership.user
+            user = membership.user
+            if "@" not in (user.email or ""):
+                user.email = email
+                user.save(update_fields=["email"])
+            return existing_org, team, user
 
         print(f"Generating demo data for '{label}'...")  # noqa: T201
         matrix = HedgeboxMatrix(
