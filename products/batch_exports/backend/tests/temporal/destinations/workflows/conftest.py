@@ -121,7 +121,7 @@ class Handler:
             should_error = True
         if should_error:
             self.hog_function_errors_returned += 1
-            return aiohttp.web.json_response({"status": "error", "errors": ["hog function failed"], "logs": []})
+            return aiohttp.web.json_response({"status": "error", "errors": ["Hog Function failed"], "logs": []})
         return aiohttp.web.json_response({"status": "success", "errors": [], "logs": []})
 
 

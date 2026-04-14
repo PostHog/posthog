@@ -337,8 +337,8 @@ async def test_insert_into_workflows_activity_from_stage_fails_when_hog_function
 
     assert result.error is not None
     assert result.error.type == "HogFunctionErrorThresholdExceeded"
-    assert "Hog function error rate above threshold" in result.error.message
-    assert "hog function failed" in result.error.message
+    assert "Hog Function error rate above threshold" in result.error.message
+    assert "Hog Function failed" in result.error.message
     # Threshold requires >=100 requests to have been made before aborting.
     assert len(handler.data) >= 100
     # And the run aborted before consuming every generated event.
