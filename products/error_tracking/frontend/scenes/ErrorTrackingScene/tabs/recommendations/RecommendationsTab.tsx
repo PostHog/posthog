@@ -1,12 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { CrossSellRecommendationCard } from './CrossSellRecommendationCard'
 import { isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
 
 export function RecommendationsTab(): JSX.Element {
     const { recommendations, recommendationsLoading } = useValues(recommendationsTabLogic)
+    const { refreshRecommendations } = useActions(recommendationsTabLogic)
 
     if (recommendationsLoading && recommendations.length === 0) {
         return (
@@ -25,17 +27,30 @@ export function RecommendationsTab(): JSX.Element {
     }
 
     return (
-        <div className="columns-1 md:columns-2 xl:columns-3 gap-4">
-            {recommendations.map((recommendation) => {
-                if (isCrossSellRecommendation(recommendation)) {
-                    return (
-                        <div key={recommendation.id} className="break-inside-avoid mb-4">
-                            <CrossSellRecommendationCard recommendation={recommendation} />
-                        </div>
-                    )
-                }
-                return null
-            })}
+        <div>
+            <div className="flex justify-end mb-2">
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    loading={recommendationsLoading}
+                    onClick={refreshRecommendations}
+                >
+                    Refresh
+                </LemonButton>
+            </div>
+            <div className="columns-1 md:columns-2 xl:columns-3 gap-4">
+                {recommendations.map((recommendation) => {
+                    if (isCrossSellRecommendation(recommendation)) {
+                        return (
+                            <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                <CrossSellRecommendationCard recommendation={recommendation} />
+                            </div>
+                        )
+                    }
+                    return null
+                })}
+            </div>
         </div>
     )
 }

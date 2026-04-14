@@ -12,6 +12,7 @@ export interface CrossSellProduct {
     key: string
     name: string
     enable_url: string
+    enabled: boolean
     reason: string
 }
 

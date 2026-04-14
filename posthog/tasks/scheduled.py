@@ -76,6 +76,7 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.error_tracking.backend.tasks import run_all_error_tracking_recommendations
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -164,6 +165,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender.add_periodic_task(10, redis_celery_queue_depth.s(), name="10 sec queue probe")
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
+    sender.add_periodic_task(
+        30, run_all_error_tracking_recommendations.s(), name="30 sec error tracking recommendations"
+    )
     sender.add_periodic_task(
         QueryStatusManager.POLL_INTERVAL_SECONDS,
         start_poll_query_performance.s(),

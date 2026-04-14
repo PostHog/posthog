@@ -3461,10 +3461,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
-                    ? new ApiRequest().insightSharing(insightId).get()
-                    : recordingId
-                        ? new ApiRequest().recordingSharing(recordingId).get()
-                        : null
+                  ? new ApiRequest().insightSharing(insightId).get()
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).get()
+                    : null
         },
 
         async update(
@@ -3482,10 +3482,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
-                    ? new ApiRequest().insightSharing(insightId).update({ data })
-                    : recordingId
-                        ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                        : null
+                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    : null
         },
 
         async createPassword(
@@ -3503,10 +3503,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharingPasswords(dashboardId).create({ data })
                 : insightId
-                    ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
-                    : recordingId
-                        ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
-                        : null
+                  ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
+                    : null
         },
 
         async deletePassword(
@@ -3524,10 +3524,10 @@ const api = {
             dashboardId
                 ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
                 : insightId
-                    ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
-                    : recordingId
-                        ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
-                        : null
+                  ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
+                  : recordingId
+                    ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
+                    : null
         },
     },
 
@@ -3685,8 +3685,8 @@ const api = {
                 offset?: number
                 search?: string
             } = {
-                    limit: LINK_PAGE_SIZE,
-                }
+                limit: LINK_PAGE_SIZE,
+            }
         ): Promise<CountedPaginatedResponse<LinkType>> {
             return await new ApiRequest().links().withQueryString(args).get()
         },
@@ -3880,6 +3880,10 @@ const api = {
 
         async listRecommendations(): Promise<{ results: ErrorTrackingRecommendationRun[] }> {
             return await new ApiRequest().errorTrackingRecommendations().get()
+        },
+
+        async refreshRecommendations(): Promise<{ results: ErrorTrackingRecommendationRun[] }> {
+            return await new ApiRequest().errorTrackingRecommendations().withAction('refresh').create()
         },
 
         async createRule(
@@ -4636,8 +4640,8 @@ const api = {
                 search?: string
                 archived?: boolean
             } = {
-                    limit: SURVEY_PAGE_SIZE,
-                }
+                limit: SURVEY_PAGE_SIZE,
+            }
         ): Promise<CountedPaginatedResponse<Survey>> {
             return await new ApiRequest().surveys().withQueryString(args).get()
         },
@@ -5753,10 +5757,10 @@ const api = {
         }
     ): Promise<
         T extends { [response: string]: any }
-        ? T['response'] extends (infer P) | undefined
-        ? P
-        : T['response']
-        : Record<string, any>
+            ? T['response'] extends (infer P) | undefined
+                ? P
+                : T['response']
+            : Record<string, any>
     > {
         const bodyKind = (query as { kind?: string }).kind
         const pathKind = queryOptions?.queryKind
@@ -6175,23 +6179,23 @@ const api = {
             signal,
         }:
             | {
-                method?: 'GET'
-                /** GET requests cannot contain a body, use URL params instead. */
-                data?: never
-                onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
-                headers?: Record<string, string>
-                signal?: AbortSignal
-            }
+                  method?: 'GET'
+                  /** GET requests cannot contain a body, use URL params instead. */
+                  data?: never
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
             | {
-                method: 'POST'
-                /** Any JSON-serializable object. */
-                data: any
-                onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
-                headers?: Record<string, string>
-                signal?: AbortSignal
-            }
+                  method: 'POST'
+                  /** Any JSON-serializable object. */
+                  data: any
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
     ): Promise<void> {
         const abortController = new AbortController()
         // If an external signal is provided, forward its abort to our controller

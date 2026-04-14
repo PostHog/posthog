@@ -2,6 +2,9 @@ from typing import override
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
@@ -40,6 +43,12 @@ class ErrorTrackingRecommendationRunViewSet(
         self._ensure_bootstrapped()
         return super().list(request, *args, **kwargs)
 
+    @action(methods=["POST"], detail=False)
+    def refresh(self, request: Request, *args, **kwargs) -> Response:
+        """Recompute all recommendations synchronously and return the updated list."""
+        self._recompute_all()
+        return super().list(request, *args, **kwargs)
+
     def _ensure_bootstrapped(self) -> None:
         existing_types = set(
             ErrorTrackingRecommendationRun.objects.filter(team_id=self.team.id).values_list("type", flat=True)
@@ -47,7 +56,10 @@ class ErrorTrackingRecommendationRunViewSet(
         missing = [r for r in ALL_RECOMMENDATIONS if r.type not in existing_types]
         if not missing:
             return
-        for recommendation in missing:
+        self._recompute_all()
+
+    def _recompute_all(self) -> None:
+        for recommendation in ALL_RECOMMENDATIONS:
             meta = recommendation.compute(self.team)
             ErrorTrackingRecommendationRun.objects.update_or_create(
                 team_id=self.team.id,

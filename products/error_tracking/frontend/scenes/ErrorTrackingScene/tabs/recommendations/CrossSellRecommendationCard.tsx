@@ -1,4 +1,5 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import type { CrossSellRecommendationRun } from './types'
 
@@ -12,7 +13,7 @@ export function CrossSellRecommendationCard({
     if (products.length === 0) {
         return (
             <div className="border rounded-lg bg-surface-primary p-4">
-                <h3 className="font-semibold text-sm m-0">Supercharge error tracking</h3>
+                <h3 className="font-semibold text-sm m-0">Your debugging toolkit</h3>
                 <p className="text-xs text-secondary mt-1 mb-0">
                     You're already using the PostHog products that pair best with error tracking.
                 </p>
@@ -20,32 +21,55 @@ export function CrossSellRecommendationCard({
         )
     }
 
+    const enabledCount = products.filter((p) => p.enabled).length
+
     return (
         <div className="border rounded-lg bg-surface-primary p-4">
-            <h3 className="font-semibold text-sm m-0">Supercharge error tracking</h3>
-            <p className="text-xs text-secondary mt-1 mb-3">
-                These PostHog products pair nicely with error tracking. Turn them on to debug faster.
-            </p>
-            <ul className="list-none p-0 m-0 flex flex-col gap-2">
-                {products.map((product) => (
-                    <li
+            <div className="flex items-center justify-between mb-1">
+                <h3 className="font-semibold text-sm m-0">Your debugging toolkit</h3>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted">
+                        {enabledCount} / {products.length} enabled
+                    </span>
+                    <div className="w-20 h-1.5 bg-border rounded-full">
+                        <div
+                            className="h-1.5 bg-success rounded-full transition-all"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width: `${(enabledCount / products.length) * 100}%` }}
+                        />
+                    </div>
+                </div>
+            </div>
+            <p className="text-xs text-secondary mt-1 mb-3">Complete your setup to get the full picture.</p>
+            <div className="flex flex-col gap-0">
+                {products.map((product, i) => (
+                    <div
                         key={product.key}
-                        className="flex items-center justify-between gap-2 border-t border-primary pt-2 first:border-t-0 first:pt-0"
+                        className={`flex items-center gap-3 py-2 border-b last:border-b-0 ${product.enabled ? 'opacity-60' : ''}`}
                     >
-                        <span className="text-sm font-medium">{product.name}</span>
-                        <div className="flex items-center gap-1">
-                            <LemonButton size="xsmall" type="primary" to={product.enable_url}>
+                        {product.enabled ? (
+                            <div className="w-6 h-6 rounded-full bg-success-highlight text-success flex items-center justify-center shrink-0">
+                                <IconCheck className="text-xs" />
+                            </div>
+                        ) : (
+                            <div className="w-6 h-6 rounded-full bg-primary-alt-highlight text-primary-alt flex items-center justify-center text-xs font-bold shrink-0">
+                                {i + 1}
+                            </div>
+                        )}
+                        <div className="flex-1">
+                            <span className="text-sm font-medium">{product.name}</span>
+                            <p className="text-xs text-muted m-0">{product.reason}</p>
+                        </div>
+                        {product.enabled ? (
+                            <span className="text-xs text-success font-medium">Enabled</span>
+                        ) : (
+                            <LemonButton size="xsmall" type="secondary" to={product.enable_url}>
                                 Enable
                             </LemonButton>
-                            <Tooltip title={product.reason}>
-                                <LemonButton size="xsmall" type="tertiary">
-                                    Why?
-                                </LemonButton>
-                            </Tooltip>
-                        </div>
-                    </li>
+                        )}
+                    </div>
                 ))}
-            </ul>
+            </div>
         </div>
     )
 }

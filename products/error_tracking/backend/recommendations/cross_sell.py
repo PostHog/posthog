@@ -1,8 +1,17 @@
 from typing import Any
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
 from .base import BaseRecommendation
+
+
+def _team_has_logs(team_id: int) -> bool:
+    result = sync_execute(
+        "SELECT 1 FROM log_entries WHERE team_id = %(team_id)s LIMIT 1",
+        {"team_id": team_id},
+    )
+    return len(result) > 0
 
 
 class CrossSellRecommendation(BaseRecommendation):
@@ -17,39 +26,33 @@ class CrossSellRecommendation(BaseRecommendation):
 
     type = "cross_sell"
 
-    watched_team_fields = frozenset({"session_recording_opt_in", "logs_settings"})
+    watched_team_fields = frozenset({"session_recording_opt_in"})
 
     @classmethod
     def compute(cls, team: Team) -> dict[str, Any]:
-        products: list[dict[str, Any]] = []
-
-        if not team.session_recording_opt_in:
-            products.append(
-                {
-                    "key": "session_replay",
-                    "name": "Session replay",
-                    "enable_url": "/settings/environment-replay#replay",
-                    "reason": (
-                        "Session replay lets you watch exactly what the user was doing right before "
-                        "an exception was thrown. Pairing it with error tracking gives you the full "
-                        "picture — the stack trace and the user interaction that triggered it."
-                    ),
-                }
-            )
-
-        logs_settings = team.logs_settings or {}
-        if not logs_settings.get("capture_console_logs"):
-            products.append(
-                {
-                    "key": "logs",
-                    "name": "Logs",
-                    "enable_url": "/settings/environment-logs#logs",
-                    "reason": (
-                        "Logs let you correlate application output with exceptions. When an error "
-                        "happens, you can jump straight to the logs around the failure instead of "
-                        "guessing what the app was doing."
-                    ),
-                }
-            )
+        products: list[dict[str, Any]] = [
+            {
+                "key": "session_replay",
+                "name": "Session replay",
+                "enable_url": "/settings/environment-replay#replay",
+                "enabled": bool(team.session_recording_opt_in),
+                "reason": (
+                    "Session replay lets you watch exactly what the user was doing right before "
+                    "an exception was thrown. Pairing it with error tracking gives you the full "
+                    "picture — the stack trace and the user interaction that triggered it."
+                ),
+            },
+            {
+                "key": "logs",
+                "name": "Logs",
+                "enable_url": "/settings/environment-logs#logs",
+                "enabled": _team_has_logs(team.id),
+                "reason": (
+                    "Logs let you correlate application output with exceptions. When an error "
+                    "happens, you can jump straight to the logs around the failure instead of "
+                    "guessing what the app was doing."
+                ),
+            },
+        ]
 
         return {"products": products}

@@ -5,7 +5,7 @@ from posthog.models.team.team import Team
 from posthog.tasks.utils import CeleryQueue
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendationRun
-from products.error_tracking.backend.recommendations import RECOMMENDATIONS_BY_TYPE
+from products.error_tracking.backend.recommendations import ALL_RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
 
 logger = structlog.get_logger(__name__)
 
@@ -34,3 +34,12 @@ def run_error_tracking_recommendation(team_id: int, recommendation_type: str) ->
         type=recommendation_type,
         defaults={"meta": meta},
     )
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+def run_all_error_tracking_recommendations() -> None:
+    """Recompute all recommendations for every team that has at least one recommendation row."""
+    team_ids = ErrorTrackingRecommendationRun.objects.values_list("team_id", flat=True).distinct()
+    for team_id in team_ids:
+        for recommendation in ALL_RECOMMENDATIONS:
+            run_error_tracking_recommendation.delay(team_id, recommendation.type)
