@@ -385,17 +385,17 @@ class TestSSLRequirement:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "is_new_source,ssh_tunnel_enabled,ssl_toggle_enabled,expected_require_ssl",
+        "is_new_source,ssh_tunnel_enabled,require_tls,expected_require_ssl",
         [
-            pytest.param(True, False, None, True, id="new_source_no_tunnel"),
-            pytest.param(True, True, True, True, id="new_source_tunnel_ssl_on"),
-            pytest.param(True, True, False, False, id="new_source_tunnel_ssl_off"),
-            pytest.param(True, False, False, True, id="new_source_no_tunnel_ssl_off_ignored"),
-            pytest.param(False, False, None, False, id="old_source"),
+            pytest.param(True, False, True, True, id="new_source_no_tunnel"),
+            pytest.param(True, True, True, True, id="new_source_tunnel_tls_on"),
+            pytest.param(True, True, False, False, id="new_source_tunnel_tls_off"),
+            pytest.param(True, False, False, True, id="new_source_no_tunnel_tls_off_ignored"),
+            pytest.param(False, False, True, False, id="old_source"),
         ],
     )
     def test_source_ssl_requirement(
-        self, team, postgres_config, is_new_source, ssh_tunnel_enabled, ssl_toggle_enabled, expected_require_ssl
+        self, team, postgres_config, is_new_source, ssh_tunnel_enabled, require_tls, expected_require_ssl
     ):
         from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -426,9 +426,9 @@ class TestSSLRequirement:
         postgres_source = PostgresSource()
         config = postgres_source.parse_config(postgres_config)
         if ssh_tunnel_enabled:
-            config.ssh_tunnel = mock.MagicMock(enabled=True)
-        if ssl_toggle_enabled is not None:
-            config.ssl_enabled = mock.MagicMock(enabled=ssl_toggle_enabled)
+            config.ssh_tunnel = mock.MagicMock(enabled=True, require_tls=mock.MagicMock(enabled=require_tls))
+        elif not require_tls:
+            config.ssh_tunnel = mock.MagicMock(enabled=False, require_tls=mock.MagicMock(enabled=require_tls))
 
         mock_inputs = mock.MagicMock()
         mock_inputs.schema_id = str(schema.id)

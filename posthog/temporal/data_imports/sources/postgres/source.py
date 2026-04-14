@@ -9,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.exceptions_capture import capture_exception
@@ -114,13 +113,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         placeholder="public",
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
-                    SourceFieldSwitchGroupConfig(
-                        name="ssl_enabled",
-                        label="Require TLS through tunnel?",
-                        default=True,
-                        fields=[],
-                        caption="Disable if your database does not support TLS.",
-                    ),
                 ],
             ),
             featured=True,

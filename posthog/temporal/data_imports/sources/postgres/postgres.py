@@ -47,17 +47,15 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
     """Return whether this source must connect over SSL/TLS.
 
     SSL is required for sources created after the cutoff date, unless the
-    user has explicitly opted out via the SSL toggle while using an SSH tunnel.
+    user has explicitly opted out via the ``require_tls`` toggle on an active
+    SSH tunnel.
     """
     if source.created_at < SSL_REQUIRED_AFTER_DATE:
         return False
 
     if source_config is not None:
         ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
-        ssl_enabled = getattr(source_config, "ssl_enabled", None)
-        has_ssh_tunnel = bool(ssh_tunnel and ssh_tunnel.enabled)
-        ssl_toggled_off = bool(ssl_enabled and not ssl_enabled.enabled)
-        if has_ssh_tunnel and ssl_toggled_off:
+        if ssh_tunnel and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
             return False
 
     return True
