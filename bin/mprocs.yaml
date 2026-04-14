@@ -256,6 +256,12 @@ procs:
         capability: mcp_server
         ready_pattern: 'Initial build complete'
 
+    mcp-inspector:
+        shell: 'cd services/mcp && pnpm run inspector'
+        capability: mcp_server
+        autostart: false
+        ready_pattern: 'MCP Inspector'
+
     stripe-app:
         shell: 'bin/start-stripe-app'
         capability: stripe_app

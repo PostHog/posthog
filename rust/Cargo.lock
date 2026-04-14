@@ -1721,6 +1721,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-metrics",
  "common-redis",
  "common-types",
  "envconfig",
@@ -4438,10 +4439,12 @@ dependencies = [
  "aws-sdk-s3",
  "axum 0.7.9",
  "common-alloc",
+ "common-cache",
  "common-continuous-profiling",
  "common-hypercache",
  "common-metrics",
  "common-redis",
+ "common-s3",
  "envconfig",
  "health",
  "http-body-util",
@@ -8781,6 +8784,7 @@ name = "serve-metrics"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "common-metrics",
  "metrics",
  "metrics-exporter-prometheus",
  "tokio",
