@@ -9,7 +9,6 @@ use axum::{
     response::IntoResponse,
     routing::Router,
 };
-use common_metrics::normalize_unmatched_path;
 use metrics::gauge;
 
 // Global atomic counter for active connections
@@ -41,7 +40,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        normalize_unmatched_path(req.uri().path())
+        req.uri().path().to_owned()
     };
 
     let method = req.method().clone();

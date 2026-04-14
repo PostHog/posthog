@@ -30,6 +30,7 @@ export interface TicketViewFilters {
     dateFrom?: string | null
     dateTo?: string | null
     sorting?: Sorting | null
+    search?: string
 }
 
 export interface SavedTicketView {

@@ -229,6 +229,13 @@ procs:
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
+    personhog-leader:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-leader
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         capability: llm_gateway
