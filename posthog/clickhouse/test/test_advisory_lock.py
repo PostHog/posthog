@@ -44,6 +44,7 @@ class TestAdvisoryLock(unittest.TestCase):
             None,  # CREATE TABLE ON CLUSTER (ensure tracking table)
             [],  # Check SELECT -- no active lock
             None,  # INSERT lock row (via _record_step)
+            None,  # SYSTEM SYNC REPLICA (replication barrier)
             [("my-pod", now)],  # Post-replication verify -- only our lock
         ]
 
@@ -51,10 +52,14 @@ class TestAdvisoryLock(unittest.TestCase):
 
         self.assertTrue(acquired)
         self.assertEqual(reason, "")
-        # Four calls: CREATE ON CLUSTER + check SELECT + INSERT + verify SELECT
-        self.assertEqual(client.execute.call_count, 4)
-        mock_sleep.assert_called_once_with(5)
-        verify_sql = client.execute.call_args_list[3].args[0]
+        # Five calls: CREATE ON CLUSTER + check SELECT + INSERT + SYNC REPLICA + verify SELECT
+        self.assertEqual(client.execute.call_count, 5)
+        # SYNC REPLICA succeeded, so no sleep fallback
+        mock_sleep.assert_not_called()
+        sync_sql = client.execute.call_args_list[3].args[0]
+        self.assertIn("SYSTEM SYNC REPLICA", sync_sql)
+        self.assertIn("STRICT", sync_sql)
+        verify_sql = client.execute.call_args_list[4].args[0]
         self.assertIn("ORDER BY applied_at ASC, host ASC", verify_sql)
 
     @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
@@ -66,6 +71,7 @@ class TestAdvisoryLock(unittest.TestCase):
             None,  # CREATE TABLE ON CLUSTER
             [],  # Check SELECT -- no lock from OTHER hosts
             None,  # INSERT lock row
+            None,  # SYSTEM SYNC REPLICA
             [("my-pod", now)],  # Verify -- our own host holds the lock
         ]
 
@@ -98,6 +104,7 @@ class TestAdvisoryLock(unittest.TestCase):
             None,  # CREATE TABLE ON CLUSTER
             [],  # Check SELECT -- no lock (race window)
             None,  # INSERT lock row
+            None,  # SYSTEM SYNC REPLICA
             [("other-pod", now), ("my-pod", now)],  # Verify -- two locks! other-pod won
             None,  # release_apply_lock INSERT (direction=down)
         ]
