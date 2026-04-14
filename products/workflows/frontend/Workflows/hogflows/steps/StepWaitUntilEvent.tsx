@@ -1,7 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { LemonLabel } from '@posthog/lemon-ui'
+import { LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters } from '../filters/HogFlowFilters'
@@ -42,6 +42,8 @@ export function StepWaitUntilEventConfiguration({ node }: { node: Node<WaitUntil
                 typeKey="workflow-wait-until-event"
                 buttonCopy="Add event"
             />
+
+            <LemonDivider className="my-2" />
 
             <div className="flex flex-col gap-1">
                 <LemonLabel>Max time to wait for event</LemonLabel>
