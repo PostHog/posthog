@@ -29,7 +29,7 @@ import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
-import { WaitUntilEventHandler } from './actions/wait_until_event'
+import { WaitUntilConditionHandler } from './actions/wait_until_condition'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { EventSubscriptionsService } from './event-subscriptions.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
@@ -107,10 +107,9 @@ export class HogFlowExecutorService {
         this.actionHandlers = {
             trigger: new TriggerHandler(),
             conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            wait_until_condition: new WaitUntilConditionHandler(eventSubscriptionsService ?? null),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
-            wait_until_event: new WaitUntilEventHandler(eventSubscriptionsService ?? null),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
@@ -791,7 +790,7 @@ export class HogFlowExecutorService {
 
 /**
  * Extract event names from conversion event filter config.
- * Same shape as the trigger/wait_until_event filters: `{ events: [{ id, name }] }`.
+ * Same shape as the trigger/wait_until_condition event filters: `{ events: [{ id, name }] }`.
  */
 function extractConversionEventNames(filters: any): string[] {
     if (!filters || typeof filters !== 'object') {

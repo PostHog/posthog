@@ -197,25 +197,24 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('wait_until_condition'),
         config: z.object({
-            condition: z.object({
-                filters: ActionFiltersSchema.optional().nullable(),
-                name: z.string().optional(), // Custom name for the condition
-            }),
-            max_wait_duration: z.string(),
-        }),
-    }),
-    z.object({
-        ..._commonActionFields,
-        type: z.literal('wait_until_event'),
-        config: z.object({
-            // OR semantics: any subscription matching wakes the workflow.
-            // Bytecode is compiled at save time and nested inside filters.
-            events: z.array(
-                z.object({
+            // Person property polling (optional): re-evaluates on a polling
+            // schedule against the current person state.
+            condition: z
+                .object({
                     filters: ActionFiltersSchema.optional().nullable(),
-                    name: z.string().optional(), // Custom name for the subscription
+                    name: z.string().optional(),
                 })
-            ),
+                .optional(),
+            // Event subscriptions (optional): push-based. The cdp-events
+            // consumer wakes the workflow when any of these events fire.
+            events: z
+                .array(
+                    z.object({
+                        filters: ActionFiltersSchema.optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),

@@ -74,8 +74,8 @@ export class CdpEventsConsumer<
         ]
 
         // After matching events against triggers (which creates new invocations),
-        // also match against waiting wait_until_event subscriptions and wake any
-        // matched workflow jobs in postgres-v2.
+        // also match against waiting wait_until_condition event subscriptions and
+        // wake any matched workflow jobs in postgres-v2.
         const wakeWaitingTask = this.wakeWaitingWorkflows(invocationGlobals).catch((err) => {
             captureException(err)
             logger.error('🔴', 'Error waking waiting workflows', { err })
@@ -96,8 +96,9 @@ export class CdpEventsConsumer<
     }
 
     /**
-     * For each event in the batch, look up any wait_until_event subscriptions
-     * for the same team + event_name + person_id, evaluate their property filters
+     * For each event in the batch, look up any event subscriptions
+     * (from wait_until_condition or conversion goals) for the same
+     * team + event_name + person_id, evaluate their property filters
      * against the event, and wake any matched workflow jobs.
      *
      * Uses a single batched DB query for the lookup instead of one per event.
@@ -536,8 +537,8 @@ export class CdpEventsConsumer<
 
                     // When the subscriptions service is active, we can't skip
                     // events from teams with no active functions/flows because
-                    // those teams may still have parked wait_until_event jobs
-                    // with active subscriptions that need to be woken.
+                    // those teams may still have parked wait_until_condition
+                    // jobs with active event subscriptions that need to be woken.
                     if (!teamHogFunctions.length && !teamHogFlows.length && !this.eventSubscriptionsService) {
                         return
                     }
