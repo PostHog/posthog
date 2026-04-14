@@ -154,7 +154,8 @@ class MultiTurnSession:
                 "retry once" if attempt == 1 else "give up",
             )
             if self.output_fn:
-                self.output_fn(f"Agent returned empty response for {label or 'followup'}, retrying...")
+                action = "retrying..." if attempt == 1 else "giving up"
+                self.output_fn(f"Agent returned empty response for {label or 'followup'}, {action}")
             return None
 
     @staticmethod
