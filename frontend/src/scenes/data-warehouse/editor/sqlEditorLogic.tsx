@@ -396,10 +396,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
             actions.initialize()
 
-            // Listen for cursor position changes to update the active query highlight
+            // Listen for cursor position changes to update the active query highlight.
+            // Debounced because each run can fire a HogQLMetadata request for the current
+            // subquery, which is too expensive to do on every arrow key.
             cache.cursorDisposable?.dispose()
             cache.cursorDisposable = props.editor.onDidChangeCursorPosition(() => {
-                cache.updateActiveQueryDecoration?.()
+                if (cache.activeQueryDecorationDebounceTimeout) {
+                    window.clearTimeout(cache.activeQueryDecorationDebounceTimeout)
+                }
+                cache.activeQueryDecorationDebounceTimeout = window.setTimeout(() => {
+                    cache.activeQueryDecorationDebounceTimeout = null
+                    cache.updateActiveQueryDecoration?.()
+                }, 150)
             })
         }
     }),
@@ -936,8 +944,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 ])
 
-                // Remove flash after a short delay and restore normal decoration
-                setTimeout(() => {
+                // Remove flash after a short delay and restore normal decoration.
+                // Track the timeout so we can clear it on unmount (avoids touching a disposed editor).
+                if (cache.activeQueryFlashTimeout) {
+                    window.clearTimeout(cache.activeQueryFlashTimeout)
+                }
+                cache.activeQueryFlashTimeout = window.setTimeout(() => {
+                    cache.activeQueryFlashTimeout = null
                     cache.updateActiveQueryDecoration?.()
                 }, 600)
 
@@ -1424,10 +1437,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }
     }),
     subscriptions(({ actions, values, cache }) => ({
-        queryInput: async (queryInput: string | null) => {
-            const result = await parseQueryTablesAndColumns(queryInput)
-            actions.setSelectedQueryTablesAndColumns(result)
+        queryInput: (queryInput: string | null) => {
+            // Decorations are cheap and visual — update immediately for responsiveness.
             cache.updateActiveQueryDecoration?.()
+
+            // Skip re-parsing if the text hasn't changed since the last parse.
+            if (cache.lastParsedQueryInput === queryInput && cache.lastParsedQueryResult !== undefined) {
+                actions.setSelectedQueryTablesAndColumns(cache.lastParsedQueryResult)
+                return
+            }
+
+            // Debounce parsing — it walks the HogQL AST and is too heavy to run on every keystroke.
+            if (cache.queryInputParseTimeout) {
+                window.clearTimeout(cache.queryInputParseTimeout)
+            }
+            cache.pendingParsedQueryInput = queryInput
+            cache.queryInputParseTimeout = window.setTimeout(async () => {
+                cache.queryInputParseTimeout = null
+                const scheduledInput = cache.pendingParsedQueryInput
+                const result = await parseQueryTablesAndColumns(scheduledInput)
+                // Drop the result if a newer value was scheduled while we were parsing.
+                if (cache.pendingParsedQueryInput !== scheduledInput) {
+                    return
+                }
+                cache.lastParsedQueryInput = scheduledInput
+                cache.lastParsedQueryResult = result
+                actions.setSelectedQueryTablesAndColumns(result)
+            }, 200)
         },
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
@@ -2018,8 +2054,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
         cache.activeQueryDecorationIds = [] as string[]
+        cache.decorationGeneration = 0
 
         cache.updateActiveQueryDecoration = async (): Promise<void> => {
+            // Bump the generation counter so any still-running invocation bails out before
+            // applying stale decorations. Each run owns its own `generation` token.
+            const generation = ++cache.decorationGeneration
+            const isStale = (): boolean => generation !== cache.decorationGeneration
+
             const editorInstance = props.editor
             if (!editorInstance?.getPosition || !editorInstance?.getModel) {
                 return
@@ -2095,6 +2137,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 if (singleQuery) {
                     const subDeco = await buildSubqueryDecoration(singleQuery, cursorOffset)
+                    if (isStale()) {
+                        return
+                    }
                     if (subDeco) {
                         cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
                             cache.activeQueryDecorationIds ?? [],
@@ -2104,6 +2149,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
+                if (isStale()) {
+                    return
+                }
                 cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
                     cache.activeQueryDecorationIds ?? [],
                     []
@@ -2114,6 +2162,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Multiple queries
             const match = findQueryAtCursor(queries, cursorOffset)
             if (!match) {
+                if (isStale()) {
+                    return
+                }
                 cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
                     cache.activeQueryDecorationIds ?? [],
                     []
@@ -2140,6 +2191,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ]
 
             const subDeco = await buildSubqueryDecoration(match, cursorOffset)
+            if (isStale()) {
+                return
+            }
             if (subDeco) {
                 decorations.push(subDeco)
             }
@@ -2163,6 +2217,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         cache.umountDataNode?.()
+
+        // Drop any pending decoration work so late callbacks don't touch a disposed editor.
+        if (cache.activeQueryDecorationDebounceTimeout) {
+            window.clearTimeout(cache.activeQueryDecorationDebounceTimeout)
+            cache.activeQueryDecorationDebounceTimeout = null
+        }
+        if (cache.activeQueryFlashTimeout) {
+            window.clearTimeout(cache.activeQueryFlashTimeout)
+            cache.activeQueryFlashTimeout = null
+        }
+        if (cache.queryInputParseTimeout) {
+            window.clearTimeout(cache.queryInputParseTimeout)
+            cache.queryInputParseTimeout = null
+        }
+        cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
             try {

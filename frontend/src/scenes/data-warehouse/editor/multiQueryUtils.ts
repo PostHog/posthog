@@ -29,16 +29,26 @@ export function splitQueries(input: string): QueryRange[] {
     while (i < input.length) {
         const ch = input[i]
 
-        // Skip over quoted strings
+        // Skip over quoted strings. Supports both backslash escapes and SQL-style
+        // doubled delimiters ('', "", ``) inside the string.
         if (ch === "'" || ch === '"' || ch === '`') {
+            const quote = ch
             i++
-            while (i < input.length && input[i] !== ch) {
+            while (i < input.length) {
                 if (input[i] === '\\') {
-                    i++ // skip escaped character
+                    i += 2 // skip escaped character
+                    continue
+                }
+                if (input[i] === quote && input[i + 1] === quote) {
+                    i += 2 // doubled delimiter — stays inside the literal
+                    continue
+                }
+                if (input[i] === quote) {
+                    i++ // closing quote
+                    break
                 }
                 i++
             }
-            i++ // skip closing quote
             continue
         }
 
@@ -188,8 +198,15 @@ export async function findInnermostSelectAtOffset(
             return null
         }
 
-        // The innermost is the last match (deepest nesting)
-        const innermost = results[results.length - 1]
+        // Pick the node with the smallest span. JSON key iteration order is not guaranteed
+        // to produce children after siblings, so depth-by-order is unreliable — but for any
+        // nested pair of SELECTs containing the cursor, the inner one always has a smaller
+        // range than any ancestor.
+        const innermost = results.reduce((smallest, candidate) => {
+            const smallestSpan = smallest.end.offset - smallest.start.offset
+            const candidateSpan = candidate.end.offset - candidate.start.offset
+            return candidateSpan < smallestSpan ? candidate : smallest
+        })
         const text = query.slice(innermost.start.offset, innermost.end.offset)
 
         return {
