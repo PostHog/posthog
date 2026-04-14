@@ -493,31 +493,22 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
-    def test_search_by_anonymous_traits_name(self, mock_on_commit):
-        self.ticket.anonymous_traits = {"name": "Alice Wonder"}
+    @parameterized.expand(
+        [
+            ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
+            ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
+            ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
+        ]
+    )
+    def test_search_by_field(self, mock_on_commit, _name, field_overrides, query):
+        for field, value in field_overrides.items():
+            setattr(self.ticket, field, value)
         self.ticket.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=alice")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={query}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
-
-    def test_search_by_anonymous_traits_email(self, mock_on_commit):
-        self.ticket.anonymous_traits = {"email": "bob@example.com"}
-        self.ticket.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=bob@example")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-
-    def test_search_by_email_subject(self, mock_on_commit):
-        self.ticket.channel_source = Channel.EMAIL
-        self.ticket.email_subject = "Billing issue with my subscription"
-        self.ticket.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=billing")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
 
     def test_search_by_comment_content(self, mock_on_commit):
         Comment.objects.create(
