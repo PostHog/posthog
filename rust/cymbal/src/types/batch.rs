@@ -76,11 +76,7 @@ impl<T> Batch<T> {
         Ok(Batch(result))
     }
 
-    pub async fn apply_func<Ctx, O, F, Fu, E>(
-        self,
-        mut func: F,
-        ctx: Ctx,
-    ) -> Result<Batch<O>, E>
+    pub async fn apply_func<Ctx, O, F, Fu, E>(self, mut func: F, ctx: Ctx) -> Result<Batch<O>, E>
     where
         Ctx: Clone + Send,
         F: FnMut(T, Ctx) -> Fu + 'static,

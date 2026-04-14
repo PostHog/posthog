@@ -118,10 +118,15 @@ pub struct Config {
     #[envconfig(default = "15")]
     pub context_line_count: usize,
 
-    // Maximum number of in-flight futures while processing a Batch with apply_func.
-    // This bounds nested fanout across events -> exceptions -> frames.
+    // Maximum number of in-flight futures for a single `Batch::apply_func` call.
+    // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
     #[envconfig(default = "64")]
     pub batch_apply_concurrency: usize,
+
+    // Global maximum number of concurrent symbol resolution operations.
+    // This limiter is shared across frame and exception symbol resolution paths.
+    #[envconfig(default = "64")]
+    pub symbol_resolution_concurrency: usize,
 
     #[envconfig(default = "1000")]
     pub max_events_per_batch: usize,
