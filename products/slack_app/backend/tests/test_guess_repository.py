@@ -956,8 +956,9 @@ class TestRepoRoutingRuleModel:
 class TestGetRecentReposForSlackUser:
     @pytest.fixture(autouse=True)
     def setup(self, db):
-        from posthog.models.organization import OrganizationMembership
         from products.slack_app.backend.models import SlackUserProfileCache
+
+        from posthog.models.organization import OrganizationMembership
 
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -979,8 +980,9 @@ class TestGetRecentReposForSlackUser:
         )
 
     def _create_task(self, repository: str, minutes_ago: int = 0):
-        from django.utils import timezone
         from datetime import timedelta
+
+        from django.utils import timezone
 
         from products.tasks.backend.models import Task
 
