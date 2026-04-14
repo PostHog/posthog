@@ -74,13 +74,13 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
             [] as GroupUsageMetricApi[],
             {
                 loadUsageMetrics: async () => {
-                    const response = await groupsTypesMetricsList(values.currentProjectId, GROUP_TYPE_INDEX)
+                    const response = await groupsTypesMetricsList(String(values.currentProjectId), GROUP_TYPE_INDEX)
                     return response.results
                 },
                 addUsageMetric: async ({ metric }) => {
                     const { id: _id, ...payload } = metric
                     const newMetric = await groupsTypesMetricsCreate(
-                        values.currentProjectId,
+                        String(values.currentProjectId),
                         GROUP_TYPE_INDEX,
                         payload as GroupUsageMetricApi
                     )
@@ -91,7 +91,7 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
                         throw new Error('Cannot update a metric without an id')
                     }
                     const updatedMetric = await groupsTypesMetricsUpdate(
-                        values.currentProjectId,
+                        String(values.currentProjectId),
                         GROUP_TYPE_INDEX,
                         metric.id,
                         metric as GroupUsageMetricApi
@@ -99,7 +99,7 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
                     return [...values.usageMetrics.filter((m) => m.id !== metric.id), updatedMetric]
                 },
                 removeUsageMetric: async ({ id }) => {
-                    await groupsTypesMetricsDestroy(values.currentProjectId, GROUP_TYPE_INDEX, id)
+                    await groupsTypesMetricsDestroy(String(values.currentProjectId), GROUP_TYPE_INDEX, id)
                     return values.usageMetrics.filter((m) => m.id !== id)
                 },
             },
