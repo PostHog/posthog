@@ -434,16 +434,19 @@ export function SupportEditor({
 
     const handlePaste = useCallback(
         (e: ClipboardEvent): void => {
-            if (!e.clipboardData?.files.length) {
+            if (!objectStorageAvailable || !e.clipboardData) {
                 return
             }
-            const imageFile = Array.from(e.clipboardData.files).find((f) => f.type.startsWith('image/'))
-            if (imageFile) {
-                e.preventDefault()
-                setFilesToUpload([imageFile])
+            const imageItem = Array.from(e.clipboardData.items).find((item) => item.type.startsWith('image/'))
+            if (imageItem) {
+                const imageFile = imageItem.getAsFile()
+                if (imageFile) {
+                    e.preventDefault()
+                    setFilesToUpload([imageFile])
+                }
             }
         },
-        [setFilesToUpload]
+        [objectStorageAvailable, setFilesToUpload]
     )
 
     useEffect(() => {
