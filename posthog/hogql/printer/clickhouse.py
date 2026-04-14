@@ -12,7 +12,8 @@ from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, Database
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
-from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
+from posthog.hogql.printer.base import BasePrinter, resolve_field_type
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, TraversingVisitor, clone_expr
@@ -77,7 +78,7 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 }
 
 
-class ClickHousePrinter(HogQLPrinter):
+class ClickHousePrinter(BasePrinter):
     def __init__(
         self,
         context: HogQLContext,

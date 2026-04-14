@@ -9,8 +9,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -168,7 +169,7 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer_class: type[HogQLPrinter]
+        printer_class: type[BasePrinter]
 
         match dialect:
             case "clickhouse":
