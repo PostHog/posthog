@@ -98,20 +98,18 @@ export const latestOffsetTimestampGauge = new Gauge({
 })
 
 const backgroundTaskProducesDuration = new Histogram({
-    name: 'ingestion_background_task_produces_duration_ms',
+    name: 'ingestion_background_task_produces_duration_seconds',
     help: 'Time waiting for scheduled Kafka produces in the background task',
     labelNames: ['groupId'],
-    buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
 const backgroundTaskHogTransformerDuration = new Histogram({
-    name: 'ingestion_background_task_hog_transformer_duration_ms',
+    name: 'ingestion_background_task_hog_transformer_duration_seconds',
     help: 'Time waiting for hog transformer invocation results in the background task',
     labelNames: ['groupId'],
-    buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
-
-export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
