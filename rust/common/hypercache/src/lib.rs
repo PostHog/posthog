@@ -329,27 +329,156 @@ impl HyperCacheReader {
         }
     }
 
+    /// Fetch a value from cache (Redis → S3 cascade) and return it as a
+    /// `serde_json::Value`. The `__missing__` sentinel is mapped to `Value::Null`.
+    ///
+    /// Delegates to [`get_typed_with_source`] with `T = Value`.
     pub async fn get_with_source(
         &self,
         key: &KeyType,
     ) -> Result<(Value, CacheSource), HyperCacheError> {
+        let (data, source) = self.get_typed_with_source::<Value>(key).await?;
+        Ok((data.unwrap_or(Value::Null), source))
+    }
+
+    pub async fn get(&self, key: &KeyType) -> Result<Value, HyperCacheError> {
+        let (data, _source) = self.get_with_source(key).await?;
+        Ok(data)
+    }
+
+    /// Get a value from cache with fallback support.
+    ///
+    /// Tries Redis, then S3, then the provided fallback function.
+    /// Does NOT write the fallback result back to the cache.
+    ///
+    /// Delegates to [`get_typed_with_source_or_fallback`] with `T = Value`.
+    pub async fn get_with_source_or_fallback<F, Fut, E>(
+        &self,
+        key: &KeyType,
+        fallback: F,
+    ) -> Result<(Value, CacheSource), E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Option<Value>, E>>,
+        E: From<HyperCacheError>,
+    {
+        let (data, source) = self
+            .get_typed_with_source_or_fallback::<Value, _, _, E>(key, fallback)
+            .await?;
+        Ok((data.unwrap_or(Value::Null), source))
+    }
+
+    /// Get access to the configuration (useful for testing)
+    pub fn config(&self) -> &HyperCacheConfig {
+        &self.config
+    }
+
+    // ── Generic cache access — Redis → S3 cascade with typed deserialization ──
+    //
+    // These methods deserialize the JSON string directly into `T: DeserializeOwned`,
+    // skipping the intermediate `serde_json::Value` tree. The `Value`-based public
+    // methods above delegate here with `T = Value`.
+
+    /// Like [`get_typed_with_source`](Self::get_typed_with_source), but calls `fallback` on
+    /// cache miss or infrastructure error.
+    ///
+    /// Returns `Ok((None, CacheSource::Redis))` when the `__missing__` sentinel is found.
+    /// The fallback closure returns `Option<T>` directly — no `serde_json::Value` round-trip.
+    pub async fn get_typed_with_source_or_fallback<T, F, Fut, E>(
+        &self,
+        key: &KeyType,
+        fallback: F,
+    ) -> Result<(Option<T>, CacheSource), E>
+    where
+        T: DeserializeOwned,
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Option<T>, E>>,
+        E: From<HyperCacheError>,
+    {
+        match self.get_typed_with_source::<T>(key).await {
+            Ok((data, source)) => Ok((data, source)),
+            Err(HyperCacheError::CacheMiss) => {
+                debug!("Cache miss for key {}, trying fallback", key);
+
+                match fallback().await? {
+                    Some(value) => {
+                        inc(
+                            HYPERCACHE_COUNTER_NAME,
+                            &[
+                                ("result".to_string(), "hit_fallback".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.object_name.clone()),
+                            ],
+                            1,
+                        );
+                        Ok((Some(value), CacheSource::Fallback))
+                    }
+                    None => {
+                        inc(
+                            TOMBSTONE_COUNTER_NAME,
+                            &[
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                (
+                                    "operation".to_string(),
+                                    "hypercache_fallback_miss".to_string(),
+                                ),
+                                ("component".to_string(), self.config.object_name.clone()),
+                            ],
+                            1,
+                        );
+
+                        Err(HyperCacheError::CacheMiss.into())
+                    }
+                }
+            }
+            Err(e) => {
+                // Infrastructure error — try the fallback as a resilience measure.
+                debug!(
+                    "Cache infrastructure error for key {}: {}, trying fallback",
+                    key, e
+                );
+
+                match fallback().await? {
+                    Some(value) => {
+                        inc(
+                            HYPERCACHE_COUNTER_NAME,
+                            &[
+                                ("result".to_string(), "hit_fallback_infra_error".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.object_name.clone()),
+                            ],
+                            1,
+                        );
+                        Ok((Some(value), CacheSource::Fallback))
+                    }
+                    None => Err(e.into()),
+                }
+            }
+        }
+    }
+
+    /// Like [`get_with_source`](Self::get_with_source), but deserializes the JSON string
+    /// directly into `T` instead of building an intermediate `serde_json::Value` tree.
+    ///
+    /// Returns `Ok((None, source))` when the `__missing__` sentinel is found in Redis.
+    /// Returns `Ok((Some(T), source))` for valid data.
+    pub async fn get_typed_with_source<T: DeserializeOwned>(
+        &self,
+        key: &KeyType,
+    ) -> Result<(Option<T>, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
-        // S3 NotFound is the best miss signal on the read path — not truly
-        // authoritative, but sufficient for negative-cache tombstoning.
-        // Infrastructure errors are tracked separately so callers don't
-        // tombstone keys that may exist once the backing store recovers.
         let mut s3_confirmed_miss = false;
         let mut infra_error: Option<HyperCacheError> = None;
 
         // Try Redis first
         match timeout(
             self.config.redis_timeout,
-            self.try_get_from_redis(&redis_cache_key),
+            self.try_get_typed_from_redis::<T>(&redis_cache_key),
         )
         .await
         {
-            Ok(Ok(data)) => {
+            Ok(Ok(TypedCacheResult::Value(data))) => {
                 debug!(
                     cache_key = %redis_cache_key,
                     namespace = %self.config.namespace,
@@ -364,13 +493,24 @@ impl HyperCacheReader {
                     ],
                     1,
                 );
-
-                if let Value::String(s) = &data {
-                    if s == HYPER_CACHE_EMPTY_VALUE {
-                        return Ok((Value::Null, CacheSource::Redis));
-                    }
-                }
-                return Ok((data, CacheSource::Redis));
+                return Ok((Some(data), CacheSource::Redis));
+            }
+            Ok(Ok(TypedCacheResult::Empty)) => {
+                debug!(
+                    cache_key = %redis_cache_key,
+                    namespace = %self.config.namespace,
+                    "HyperCache hit: Redis (sentinel)"
+                );
+                inc(
+                    HYPERCACHE_COUNTER_NAME,
+                    &[
+                        ("result".to_string(), "hit_redis".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
+                    ],
+                    1,
+                );
+                return Ok((None, CacheSource::Redis));
             }
             Ok(Err(HyperCacheError::CacheMiss)) => {
                 debug!(
@@ -406,7 +546,12 @@ impl HyperCacheReader {
 
         // Try S3 fallback
         let s3_cache_key = self.config.get_s3_cache_key(key);
-        match timeout(self.config.s3_timeout, self.try_get_from_s3(&s3_cache_key)).await {
+        match timeout(
+            self.config.s3_timeout,
+            self.try_get_typed_from_s3::<T>(&s3_cache_key),
+        )
+        .await
+        {
             Ok(Ok(data)) => {
                 debug!(
                     cache_key = %s3_cache_key,
@@ -422,7 +567,7 @@ impl HyperCacheReader {
                     ],
                     1,
                 );
-                return Ok((data, CacheSource::S3));
+                return Ok((Some(data), CacheSource::S3));
             }
             Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => {
                 debug!(
@@ -508,356 +653,6 @@ impl HyperCacheReader {
                 "unexpected: no tier set s3_confirmed_miss or infra_error".to_string(),
             ))
         }
-    }
-
-    pub async fn get(&self, key: &KeyType) -> Result<Value, HyperCacheError> {
-        let (data, _source) = self.get_with_source(key).await?;
-        Ok(data)
-    }
-
-    /// Get a value from cache with fallback support
-    ///
-    /// This method tries to get data from cache (Redis first, then S3), and if both
-    /// cache tiers miss, calls the provided fallback function to retrieve the data
-    /// from an alternative source (e.g., database, API, computation, etc.).
-    ///
-    /// Unlike a read-through cache pattern, this method does NOT write the fallback
-    /// result back to the cache. This is intentional to handle catastrophic cache
-    /// miss scenarios without potentially corrupting the cache with data that may
-    /// not match the expected format or freshness requirements.
-    ///
-    /// # Arguments
-    /// * `key` - The key to look up
-    /// * `fallback` - Function to call if both cache tiers miss
-    ///
-    /// # Returns
-    /// * `Ok((Value, CacheSource))` - The value and its source (Redis, S3, or Fallback)
-    /// * `Err(E)` - Error from the fallback function, or HyperCacheError if fallback returns None
-    pub async fn get_with_source_or_fallback<F, Fut, E>(
-        &self,
-        key: &KeyType,
-        fallback: F,
-    ) -> Result<(Value, CacheSource), E>
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<Option<Value>, E>>,
-        E: From<HyperCacheError>,
-    {
-        match self.get_with_source(key).await {
-            Ok((data, source)) => Ok((data, source)),
-            Err(HyperCacheError::CacheMiss) => {
-                debug!("Cache miss for key {}, trying fallback", key);
-
-                match fallback().await? {
-                    Some(value) => {
-                        inc(
-                            HYPERCACHE_COUNTER_NAME,
-                            &[
-                                ("result".to_string(), "hit_fallback".to_string()),
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.object_name.clone()),
-                            ],
-                            1,
-                        );
-                        Ok((value, CacheSource::Fallback))
-                    }
-                    None => {
-                        // Tombstone metric - cache and database both miss is really unusual
-                        inc(
-                            TOMBSTONE_COUNTER_NAME,
-                            &[
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                (
-                                    "operation".to_string(),
-                                    "hypercache_fallback_miss".to_string(),
-                                ),
-                                ("component".to_string(), self.config.object_name.clone()),
-                            ],
-                            1,
-                        );
-
-                        Err(HyperCacheError::CacheMiss.into())
-                    }
-                }
-            }
-            Err(e) => {
-                // Infrastructure error — try the fallback as a resilience measure.
-                debug!(
-                    "Cache infrastructure error for key {}: {}, trying fallback",
-                    key, e
-                );
-
-                match fallback().await? {
-                    Some(value) => {
-                        inc(
-                            HYPERCACHE_COUNTER_NAME,
-                            &[
-                                ("result".to_string(), "hit_fallback_infra_error".to_string()),
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.object_name.clone()),
-                            ],
-                            1,
-                        );
-                        Ok((value, CacheSource::Fallback))
-                    }
-                    None => Err(e.into()),
-                }
-            }
-        }
-    }
-
-    /// Get access to the configuration (useful for testing)
-    pub fn config(&self) -> &HyperCacheConfig {
-        &self.config
-    }
-
-    // ── Typed (generic) cache access — deserializes directly into `T` ──
-    //
-    // These methods skip the intermediate `serde_json::Value` tree entirely,
-    // deserializing the JSON string straight into the target type. Use these
-    // when the caller knows the concrete type at compile time (e.g.,
-    // `HypercacheFlagsWrapper`, `Team`).
-
-    /// Like [`get_typed_with_source`](Self::get_typed_with_source), but calls `fallback` on
-    /// cache miss or infrastructure error.
-    ///
-    /// Returns `Ok((None, CacheSource::Redis))` when the `__missing__` sentinel is found.
-    /// The fallback closure returns `Option<T>` directly — no `serde_json::Value` round-trip.
-    pub async fn get_typed_with_source_or_fallback<T, F, Fut, E>(
-        &self,
-        key: &KeyType,
-        fallback: F,
-    ) -> Result<(Option<T>, CacheSource), E>
-    where
-        T: DeserializeOwned,
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<Option<T>, E>>,
-        E: From<HyperCacheError>,
-    {
-        match self.get_typed_with_source::<T>(key).await {
-            Ok((data, source)) => Ok((data, source)),
-            Err(HyperCacheError::CacheMiss) => {
-                debug!("Cache miss for key {}, trying fallback", key);
-
-                match fallback().await? {
-                    Some(value) => {
-                        inc(
-                            HYPERCACHE_COUNTER_NAME,
-                            &[
-                                ("result".to_string(), "hit_fallback".to_string()),
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.object_name.clone()),
-                            ],
-                            1,
-                        );
-                        Ok((Some(value), CacheSource::Fallback))
-                    }
-                    None => {
-                        inc(
-                            TOMBSTONE_COUNTER_NAME,
-                            &[
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                (
-                                    "operation".to_string(),
-                                    "hypercache_fallback_miss".to_string(),
-                                ),
-                                ("component".to_string(), self.config.object_name.clone()),
-                            ],
-                            1,
-                        );
-
-                        Err(HyperCacheError::CacheMiss.into())
-                    }
-                }
-            }
-            Err(e) => {
-                // Infrastructure error — try the fallback as a resilience measure.
-                debug!(
-                    "Cache infrastructure error for key {}: {}, trying fallback",
-                    key, e
-                );
-
-                match fallback().await? {
-                    Some(value) => {
-                        inc(
-                            HYPERCACHE_COUNTER_NAME,
-                            &[
-                                ("result".to_string(), "hit_fallback".to_string()),
-                                ("namespace".to_string(), self.config.namespace.clone()),
-                                ("value".to_string(), self.config.object_name.clone()),
-                            ],
-                            1,
-                        );
-                        Ok((Some(value), CacheSource::Fallback))
-                    }
-                    None => Err(e.into()),
-                }
-            }
-        }
-    }
-
-    /// Like [`get_with_source`](Self::get_with_source), but deserializes the JSON string
-    /// directly into `T` instead of building an intermediate `serde_json::Value` tree.
-    ///
-    /// Returns `Ok((None, source))` when the `__missing__` sentinel is found in Redis.
-    /// Returns `Ok((Some(T), source))` for valid data.
-    pub async fn get_typed_with_source<T: DeserializeOwned>(
-        &self,
-        key: &KeyType,
-    ) -> Result<(Option<T>, CacheSource), HyperCacheError> {
-        let redis_cache_key = self.config.get_redis_cache_key(key);
-
-        let mut s3_confirmed_miss = false;
-        let mut infra_error: Option<HyperCacheError> = None;
-
-        // Try Redis first
-        match timeout(
-            self.config.redis_timeout,
-            self.try_get_typed_from_redis::<T>(&redis_cache_key),
-        )
-        .await
-        {
-            Ok(Ok(TypedCacheResult::Value(data))) => {
-                debug!(
-                    cache_key = %redis_cache_key,
-                    namespace = %self.config.namespace,
-                    "HyperCache hit: Redis (typed)"
-                );
-                inc(
-                    HYPERCACHE_COUNTER_NAME,
-                    &[
-                        ("result".to_string(), "hit_redis".to_string()),
-                        ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.object_name.clone()),
-                    ],
-                    1,
-                );
-                return Ok((Some(data), CacheSource::Redis));
-            }
-            Ok(Ok(TypedCacheResult::Empty)) => {
-                debug!(
-                    cache_key = %redis_cache_key,
-                    namespace = %self.config.namespace,
-                    "HyperCache hit: Redis (sentinel)"
-                );
-                inc(
-                    HYPERCACHE_COUNTER_NAME,
-                    &[
-                        ("result".to_string(), "hit_redis".to_string()),
-                        ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.object_name.clone()),
-                    ],
-                    1,
-                );
-                return Ok((None, CacheSource::Redis));
-            }
-            Ok(Err(HyperCacheError::CacheMiss)) => {
-                debug!(
-                    cache_key = %redis_cache_key,
-                    "HyperCache Redis miss, trying S3 (typed)"
-                );
-            }
-            Ok(Err(e)) => {
-                debug!(
-                    cache_key = %redis_cache_key,
-                    error = %e,
-                    "HyperCache Redis error, trying S3 (typed)"
-                );
-                infra_error = Some(e);
-            }
-            Err(_) => {
-                debug!(
-                    cache_key = %redis_cache_key,
-                    "HyperCache Redis timeout, trying S3 (typed)"
-                );
-                inc(
-                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
-                    &[
-                        ("reason".to_string(), "timeout".to_string()),
-                        ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.object_name.clone()),
-                    ],
-                    1,
-                );
-                infra_error = Some(HyperCacheError::Timeout("redis timeout".to_string()));
-            }
-        }
-
-        // Try S3 fallback
-        let s3_cache_key = self.config.get_s3_cache_key(key);
-        match timeout(
-            self.config.s3_timeout,
-            self.try_get_typed_from_s3::<T>(&s3_cache_key),
-        )
-        .await
-        {
-            Ok(Ok(data)) => {
-                debug!(
-                    cache_key = %s3_cache_key,
-                    namespace = %self.config.namespace,
-                    "HyperCache hit: S3 (typed)"
-                );
-                inc(
-                    HYPERCACHE_COUNTER_NAME,
-                    &[
-                        ("result".to_string(), "hit_s3".to_string()),
-                        ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.object_name.clone()),
-                    ],
-                    1,
-                );
-                return Ok((Some(data), CacheSource::S3));
-            }
-            Ok(Err(HyperCacheError::S3(S3Error::NotFound(_)))) => {
-                debug!(
-                    cache_key = %s3_cache_key,
-                    "HyperCache S3 confirmed miss (typed)"
-                );
-                s3_confirmed_miss = true;
-            }
-            Ok(Err(e)) => {
-                debug!(
-                    cache_key = %s3_cache_key,
-                    error = %e,
-                    "HyperCache S3 error (typed)"
-                );
-                if infra_error.is_none() {
-                    infra_error = Some(e);
-                }
-            }
-            Err(_) => {
-                debug!(
-                    cache_key = %s3_cache_key,
-                    "HyperCache S3 timeout (typed)"
-                );
-                if infra_error.is_none() {
-                    infra_error = Some(HyperCacheError::Timeout("s3 timeout".to_string()));
-                }
-            }
-        }
-
-        // Both tiers failed
-        if s3_confirmed_miss {
-            return Err(HyperCacheError::CacheMiss);
-        }
-        if let Some(e) = infra_error {
-            return Err(e);
-        }
-
-        // Should not reach here, but handle gracefully
-        inc(
-            TOMBSTONE_COUNTER_NAME,
-            &[
-                ("namespace".to_string(), self.config.namespace.clone()),
-                (
-                    "operation".to_string(),
-                    "hypercache_impossible_miss".to_string(),
-                ),
-                ("component".to_string(), self.config.object_name.clone()),
-            ],
-            1,
-        );
-        Err(HyperCacheError::CacheMiss)
     }
 
     /// Like [`get`](Self::get), but deserializes directly into `T`.
@@ -961,41 +756,6 @@ impl HyperCacheReader {
         }
     }
 
-    // ── Untyped (Value-based) cache access — used by config pass-through ──
-
-    async fn try_get_from_redis(&self, cache_key: &str) -> Result<Value, HyperCacheError> {
-        match self.try_get_json_string_from_redis(cache_key).await? {
-            RawJsonResult::Empty => Ok(Value::String(HYPER_CACHE_EMPTY_VALUE.to_string())),
-            RawJsonResult::Json(json_string) => serde_json::from_str(&json_string).map_err(|e| {
-                debug!(
-                    "Failed to parse JSON from Redis data for key '{}': {}",
-                    cache_key, e
-                );
-                inc(
-                    HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME,
-                    &[
-                        ("reason".to_string(), "json_error".to_string()),
-                        ("namespace".to_string(), self.config.namespace.clone()),
-                        ("value".to_string(), self.config.object_name.clone()),
-                    ],
-                    1,
-                );
-                HyperCacheError::Json(e)
-            }),
-        }
-    }
-
-    pub(crate) async fn try_get_from_s3(&self, cache_key: &str) -> Result<Value, HyperCacheError> {
-        let body_str = self.try_get_json_string_from_s3(cache_key).await?;
-        serde_json::from_str(&body_str).map_err(|e| {
-            debug!(
-                "Failed to parse JSON from S3 data for key '{}': {}",
-                cache_key, e
-            );
-            HyperCacheError::Json(e)
-        })
-    }
-
     // ── Typed internal helpers: deserialize directly from JSON strings ──
 
     async fn try_get_typed_from_redis<T: DeserializeOwned>(
@@ -1007,7 +767,7 @@ impl HyperCacheReader {
             RawJsonResult::Json(json_string) => {
                 let value = serde_json::from_str::<T>(&json_string).map_err(|e| {
                     debug!(
-                        "Failed to parse typed JSON from Redis data for key '{}': {}",
+                        "Failed to parse JSON from Redis data for key '{}': {}",
                         cache_key, e
                     );
                     inc(
@@ -1033,7 +793,7 @@ impl HyperCacheReader {
         let body_str = self.try_get_json_string_from_s3(cache_key).await?;
         serde_json::from_str::<T>(&body_str).map_err(|e| {
             debug!(
-                "Failed to parse typed JSON from S3 data for key '{}': {}",
+                "Failed to parse JSON from S3 data for key '{}': {}",
                 cache_key, e
             );
             HyperCacheError::Json(e)
@@ -1247,116 +1007,6 @@ mod tests {
         assert_eq!(result, Value::Null);
     }
 
-    #[tokio::test]
-    async fn test_try_get_from_redis_success() {
-        let mut mock_redis = MockRedisClient::new();
-        let test_data = json!({"flags": [], "group_type_mapping": {}});
-        let test_data_str = serde_json::to_string(&test_data).unwrap();
-
-        // Simulate Django's pickle format (uncompressed)
-        let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(pickled_bytes));
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
-        );
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: create_dummy_s3_client(),
-            config,
-        };
-
-        let result = reader.try_get_from_redis("test_key").await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), test_data);
-    }
-
-    #[tokio::test]
-    async fn test_try_get_from_redis_compressed_data() {
-        // The real RedisClient auto-decompresses zstd data in get_raw_bytes,
-        // so HyperCache receives already-decompressed pickled bytes.
-        // This test verifies HyperCache handles pickled data correctly
-        // (which is what it receives after Redis client decompression).
-        let mut mock_redis = MockRedisClient::new();
-        let test_data = json!({"flags": [], "group_type_mapping": {}});
-        let test_data_str = serde_json::to_string(&test_data).unwrap();
-
-        // Simulate what the real Redis client returns after auto-decompression:
-        // Pickle(JSON) - the zstd layer is already removed by the Redis client
-        let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
-
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(pickled_bytes));
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
-        );
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: create_dummy_s3_client(),
-            config,
-        };
-
-        let result = reader.try_get_from_redis("test_key").await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), test_data);
-    }
-
-    #[tokio::test]
-    async fn test_try_get_from_redis_pickled_uncompressed_data() {
-        let mut mock_redis = MockRedisClient::new();
-        let test_data = json!({"small": "data"});
-        let test_data_str = serde_json::to_string(&test_data).unwrap();
-
-        // Simulate Django's pipeline for small data: JSON string -> Pickle (no compression)
-        let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
-
-        // Use the raw bytes method to provide the pickled (but uncompressed) bytes
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(pickled_bytes));
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
-        );
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: create_dummy_s3_client(),
-            config,
-        };
-
-        let result = reader.try_get_from_redis("test_key").await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), test_data);
-    }
-
-    #[tokio::test]
-    async fn test_try_get_from_redis_not_found() {
-        let mut mock_redis = MockRedisClient::new();
-        mock_redis = mock_redis.get_ret("test_key", Err(CustomRedisError::NotFound));
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
-        );
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: create_dummy_s3_client(),
-            config,
-        };
-
-        let result = reader.try_get_from_redis("test_key").await;
-        assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
-    }
-
     #[test]
     fn test_hypercache_error_conversion() {
         let cache_miss = HyperCacheError::CacheMiss;
@@ -1477,46 +1127,6 @@ mod tests {
         let result = reader.get_with_source(&team_key).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), HyperCacheError::CacheMiss));
-    }
-
-    #[tokio::test]
-    async fn test_redis_json_parsing_error() {
-        let cache_key = "cache/teams/123/test_namespace/test_value";
-        let invalid_json = "invalid json data";
-
-        let mut mock_redis = MockRedisClient::new();
-        mock_redis = mock_redis.get_ret(cache_key, Ok(invalid_json.to_string()));
-
-        let config = HyperCacheConfig::new(
-            "test".to_string(),
-            "test".to_string(),
-            "us-east-1".to_string(),
-            "test-bucket".to_string(),
-        );
-        let reader = HyperCacheReader {
-            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
-            s3_client: create_dummy_s3_client(),
-            config,
-        };
-
-        let result = reader.try_get_from_redis(cache_key).await;
-        assert!(result.is_err());
-        // The mock returns raw bytes that fail pickle deserialization before
-        // reaching the JSON parse stage.
-        assert!(matches!(result.unwrap_err(), HyperCacheError::Pickle(_)));
-    }
-
-    #[tokio::test]
-    async fn test_invalid_data_handling() {
-        let mut mock_redis = MockRedisClient::new();
-        // Provide invalid data that can't be deserialized as pickle
-        let invalid_bytes = vec![0xFF, 0xFE, 0xFD, 0xFC];
-        mock_redis = mock_redis.get_raw_bytes_ret("test_key", Ok(invalid_bytes));
-
-        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
-
-        let result = reader.try_get_from_redis("test_key").await;
-        assert!(matches!(result, Err(HyperCacheError::Pickle(_))));
     }
 
     #[tokio::test]
