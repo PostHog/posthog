@@ -7950,6 +7950,9 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    Medium: 'medium',
+    Content: 'content',
+    Term: 'term',
 } as const
 
 export interface IntegrationFilterApi {
