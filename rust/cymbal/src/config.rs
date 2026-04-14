@@ -123,6 +123,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
 
+    #[envconfig(default = "60000")]
+    pub process_slow_log_threshold_ms: u64,
+
     #[envconfig(default = "300")]
     pub team_cache_ttl_secs: u64,
 
