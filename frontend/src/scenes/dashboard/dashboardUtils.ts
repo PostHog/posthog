@@ -4,7 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { currentSessionId } from 'lib/internalMetrics'
-import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { dateStringToDayJs, isDate, objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -374,4 +374,46 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+/**
+ * Resolve relative date strings (e.g. "-7d", "dStart") in dashboard filters to absolute
+ * ISO date strings using a single "now" reference point. This ensures all dashboard tiles
+ * in the same refresh batch use identical date boundaries, preventing visual
+ * inconsistencies when tiles resolve relative dates independently at slightly different
+ * times (e.g. across a midnight boundary).
+ *
+ * Only `date_from` and `date_to` are resolved — `date_to` being null/undefined means
+ * "now" and is left for the backend to handle (it rounds to end-of-day for daily+
+ * intervals anyway).
+ */
+export function snapshotDashboardFilterDates(filters: DashboardFilter, timezone: string): DashboardFilter {
+    if (!filters.date_from && !filters.date_to) {
+        return filters
+    }
+
+    // "all" is a special value meaning "all time" — don't resolve it
+    if (filters.date_from === 'all') {
+        return filters
+    }
+
+    const snapshotted = { ...filters }
+
+    if (filters.date_from && !isDate.test(filters.date_from)) {
+        const resolved = dateStringToDayJs(filters.date_from, timezone)
+        if (resolved) {
+            // Format as YYYY-MM-DD so the backend still applies its own truncation logic
+            // (relative_date_parse treats YYYY-MM-DD as absolute but preserves the time component)
+            snapshotted.date_from = resolved.format('YYYY-MM-DD')
+        }
+    }
+
+    if (filters.date_to && !isDate.test(filters.date_to)) {
+        const resolved = dateStringToDayJs(filters.date_to, timezone)
+        if (resolved) {
+            snapshotted.date_to = resolved.format('YYYY-MM-DD')
+        }
+    }
+
+    return snapshotted
 }
