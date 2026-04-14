@@ -220,10 +220,13 @@ class PackageJsonScriptsCheck(ProductCheck):
         # --- absence check: must NOT have contract-check when not safe for isolation ---
         must_not_have_contract_check = not ctx.is_isolated or has_leaks
         if must_not_have_contract_check and "backend:contract-check" in scripts:
-            reason = "has legacy interface leaks (core imports internals directly)" if has_leaks else "is not isolated"
+            if has_leaks:
+                reason = "has legacy interface leaks (core imports internals directly)"
+            else:
+                reason = "non-isolated product must not have 'backend:contract-check' script"
             result.lines.append("✗ must not have 'backend:contract-check'")
             result.issues.append(
-                f"Product {reason} — remove 'backend:contract-check' from package.json. "
+                f"{reason} — remove 'backend:contract-check' from package.json. "
                 "turbo-discover uses this to classify products as isolated, which causes "
                 "the full Django test suite to be skipped when this product changes"
             )
