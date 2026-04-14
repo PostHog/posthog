@@ -177,7 +177,7 @@ class TestTeamsChannelsEndpoints(APIBaseTest):
 
         response = self.client.post(
             "/api/conversations/v1/teams/channels",
-            data=json.dumps({"team_id": "team-1"}),
+            data=json.dumps({"team_id": "00000000-0000-0000-0000-000000000001"}),
             content_type="application/json",
         )
 
