@@ -1,0 +1,5 @@
+Weekly pageview count report
+Generated at (UTC): 2026-04-14T19:45:00.686Z
+Window: last 7 days
+Event: $pageview
+Count: 4
