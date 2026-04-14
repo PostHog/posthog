@@ -259,6 +259,22 @@ export const RunSourceEnumApi = {
 } as const
 
 /**
+ * * `default` - default
+ * `acceptEdits` - acceptEdits
+ * `plan` - plan
+ * `bypassPermissions` - bypassPermissions
+ */
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+
+export const InitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface TaskRunCreateRequestApi {
@@ -293,6 +309,13 @@ export interface TaskRunCreateRequestApi {
     signal_report_id?: string
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
+    /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+
+* `default` - default
+* `acceptEdits` - acceptEdits
+* `plan` - plan
+* `bypassPermissions` - bypassPermissions */
+    initial_permission_mode?: InitialPermissionModeEnumApi
 }
 
 /**
@@ -535,6 +558,8 @@ export const JsonrpcEnumApi = {
  * * `user_message` - user_message
  * `cancel` - cancel
  * `close` - close
+ * `permission_response` - permission_response
+ * `set_config_option` - set_config_option
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -542,6 +567,8 @@ export const MethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
+    PermissionResponse: 'permission_response',
+    SetConfigOption: 'set_config_option',
 } as const
 
 /**
@@ -556,7 +583,9 @@ export interface TaskRunCommandRequestApi {
 
 * `user_message` - user_message
 * `cancel` - cancel
-* `close` - close */
+* `close` - close
+* `permission_response` - permission_response
+* `set_config_option` - set_config_option */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
