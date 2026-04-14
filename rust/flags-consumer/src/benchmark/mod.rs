@@ -145,8 +145,7 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 5: Concurrent reads + writes ===");
-    let (write_r, read_r) =
-        workloads::phase_concurrent_reads_writes(&pool, &data, &args).await?;
+    let (write_r, read_r) = workloads::phase_concurrent_reads_writes(&pool, &data, &args).await?;
     tracing::info!(
         write_ops = write_r.latency.count,
         read_ops = read_r.latency.count,
@@ -158,8 +157,7 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 6: Post-burst steady-state recovery ===");
-    let r =
-        workloads::phase_merges(&pool, &data, &args, "Post-burst merges", None, None).await?;
+    let r = workloads::phase_merges(&pool, &data, &args, "Post-burst merges", None, None).await?;
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 6 complete");
     results.push(r);
 
