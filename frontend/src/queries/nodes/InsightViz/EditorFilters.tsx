@@ -106,9 +106,14 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
     const displayGoalLines =
         (isTrends &&
-            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
-                display || ChartDisplayType.ActionsLineGraph
-            )) ||
+            [
+                ChartDisplayType.ActionsLineGraph,
+                ChartDisplayType.ActionsLineGraphCumulative,
+                ChartDisplayType.ActionsAreaGraph,
+                ChartDisplayType.ActionsBar,
+                ChartDisplayType.ActionsUnstackedBar,
+                ChartDisplayType.ActionsStackedBar,
+            ].includes(display || ChartDisplayType.ActionsLineGraph)) ||
         (isFunnels && isTrendsFunnel) ||
         (isRetention &&
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
