@@ -18,7 +18,7 @@ import {
     RolesRoleMembershipsListParams,
     RolesRoleMembershipsListQueryParams,
 } from '@/generated/platform_features/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ChangeRequestsListSchema = ChangeRequestsListQueryParams
@@ -184,7 +184,13 @@ const activityLogList = (): ToolBase<
                 user: params.user,
             },
         })
-        return await withPostHogUrl(context, result, '/')
+        const filtered = {
+            ...result,
+            results: result.results.map((item: any) =>
+                pickResponseFields(item, ['id', 'user', 'activity', 'scope', 'item_id', 'detail', 'created_at'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -217,7 +223,13 @@ const advancedActivityLogsList = (): ToolBase<
                 was_impersonated: params.was_impersonated,
             },
         })
-        return await withPostHogUrl(context, result, '/')
+        const filtered = {
+            ...result,
+            results: result.results.map((item: any) =>
+                pickResponseFields(item, ['id', 'user', 'activity', 'scope', 'item_id', 'detail', 'created_at'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 

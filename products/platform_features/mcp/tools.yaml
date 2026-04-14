@@ -144,6 +144,15 @@ tools:
             List recent activity log entries for the project. Shows who did what and when —
             feature flag changes, dashboard edits, experiment launches, etc. Supports filtering
             by scope, user, and date range.
+        response:
+            include:
+                - id
+                - user
+                - activity
+                - scope
+                - item_id
+                - detail
+                - created_at
 
     advanced-activity-logs-list:
         operation: advanced_activity_logs_list
@@ -159,6 +168,15 @@ tools:
         description: >
             List activity log entries with advanced filtering, sorting, and field-level diffs.
             Supports filtering by scope, activity type, user, date range, and search text.
+        response:
+            include:
+                - id
+                - user
+                - activity
+                - scope
+                - item_id
+                - detail
+                - created_at
 
     advanced-activity-logs-filters:
         operation: advanced_activity_logs_available_filters_retrieve
