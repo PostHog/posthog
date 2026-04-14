@@ -102,12 +102,15 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
 
 
 def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
-    variant = posthoganalytics.get_feature_flag(
-        "phai-llm-gateway-v2",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
+    variant = cast(
+        "str | bool | None",
+        posthoganalytics.get_feature_flag(
+            "phai-llm-gateway-v2",
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        ),
     )
     if isinstance(variant, str) and variant in _VALID_LLM_GATEWAY_VARIANTS:
         return cast("LlmGatewayVariant", variant)
