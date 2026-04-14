@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
@@ -22,6 +23,10 @@ from products.tasks.backend.services.custom_prompt_runner import (
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 logger = logging.getLogger(__name__)
+
+# Nudge appended to a resent prompt when the agent emits an empty end_turn.
+# Kept short to avoid meaningfully changing the cached prefix.
+_EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching the schema above."
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -71,8 +76,14 @@ class MultiTurnSession:
             output_fn=output_fn,
             _workflow_handle=workflow_handle,
         )
+        started_at = time.monotonic()
         last_message, _, session.log_lines_seen, session.printed_lines = await _poll_for_turn(
             task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
+        )
+        logger.info(
+            "multi_turn: initial turn completed run=%s duration=%.2fs",
+            task_run.id,
+            time.monotonic() - started_at,
         )
         parsed = cls._parse_and_validate(last_message, model, label="initial turn")
         return session, parsed
