@@ -138,6 +138,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List recent activity in the project.
         description: >
             List recent activity log entries for the project. Shows who did what and when —
@@ -153,6 +154,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List activity logs with advanced filtering.
         description: >
             List activity log entries with advanced filtering, sorting, and field-level diffs.
