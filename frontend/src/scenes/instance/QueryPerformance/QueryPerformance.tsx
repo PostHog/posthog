@@ -152,7 +152,7 @@ export function QueryPerformance(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
+        <SceneContent className="overflow-y-auto">
             <SceneTitleSection
                 name="Query performance"
                 description="Internal tooling for monitoring and managing query performance across all projects."
