@@ -93,7 +93,7 @@ class TestMultiTurnSessionRetry:
         workflow_handle.signal = AsyncMock()
         session = MultiTurnSession(
             task=object(),  # type: ignore[arg-type]
-            task_run=FakeTaskRun(),
+            task_run=FakeTaskRun(),  # type: ignore[arg-type]
             _workflow_handle=workflow_handle,
         )
         return session
@@ -192,7 +192,7 @@ class TestMultiTurnSessionRetry:
             return "\n".join(fixture_lines[:visible])
 
         session = self._make_session()
-        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr]
+        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]
         # Session state as if MultiTurnSession.start already consumed the initial turn.
         session.log_lines_seen = 2
         session.printed_lines = 2
