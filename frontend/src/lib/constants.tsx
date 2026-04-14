@@ -394,6 +394,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_DATA_WAREHOUSE_VALUE_PROP: 'onboarding-data-warehouse-value-prop', // owner: @fercgomes #team-growth multivariate=control,table,query
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     POST_ONBOARDING_MODAL_EXPERIMENT: 'post-onboarding-modal-experiment', // owner: @fercgomes #team-growth multivariate=control,test
+    QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
@@ -463,7 +464,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics

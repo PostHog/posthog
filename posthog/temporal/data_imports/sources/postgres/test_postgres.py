@@ -19,6 +19,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _build_count_query,
     _build_query,
     _get_estimated_row_count_for_partitioned_table,
+    _get_partition_settings,
+    _get_partition_settings_for_partitioned_table,
     _get_primary_keys,
     _get_sslmode,
     _get_table,
@@ -476,6 +478,100 @@ class TestGetEstimatedRowCountForPartitionedTable:
                 cast(Any, dj_cursor), "public", "test_est_count_empty", logger
             )
             assert result is None
+
+
+class TestGetPartitionSettings:
+    @pytest.mark.django_db
+    def test_partitioned_table_uses_catalog_fast_path(self):
+        """On a partitioned parent, settings come from pg_inherits/reltuples,
+        not a COUNT(*) + pg_table_size on the parent.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    payload TEXT,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned_q1
+                PARTITION OF test_ps_partitioned
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned_q2
+                PARTITION OF test_ps_partitioned
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_ps_partitioned (created_at, payload)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months',
+                       repeat('x', 256)
+                FROM generate_series(1, 500) g
+            """)
+            dj_cursor.execute("ANALYZE test_ps_partitioned")
+
+            result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_partitioned", logger)
+            assert result is not None
+            assert result.partition_count >= 1
+            assert result.partition_size > 0
+
+    @pytest.mark.django_db
+    def test_partitioned_table_returns_none_when_any_partition_unanalyzed(self):
+        """Mixed analyzed + unanalyzed partitions must not produce a setting —
+        the catalog numbers are stale, so fall through to exact scan.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial_q1
+                PARTITION OF test_ps_partial
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial_q2
+                PARTITION OF test_ps_partial
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_ps_partial (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            dj_cursor.execute("ANALYZE test_ps_partial_q1")
+
+            result = _get_partition_settings_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_ps_partial", logger
+            )
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_non_partitioned_table_still_uses_legacy_query(self):
+        """Regular tables must skip the catalog fast path and go through the
+        original COUNT(*) + pg_table_size query.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_ps_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            dj_cursor.execute("INSERT INTO test_ps_regular (data) SELECT repeat('x', 128) FROM generate_series(1, 200)")
+            dj_cursor.execute("ANALYZE test_ps_regular")
+
+            result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_regular", logger)
+            assert result is not None
+            assert result.partition_size > 0
 
 
 class TestPostgreSQLColumnToArrowField:
