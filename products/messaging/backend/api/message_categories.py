@@ -276,6 +276,9 @@ class MessageCategoryViewSet(
 
         existing = Integration.objects.filter(team_id=self.team_id, kind="customerio-track").first()
 
+        if not enabled and not has_new_creds and not existing:
+            return Response({"track_enabled": False, "has_track_credentials": False}, status=status.HTTP_200_OK)
+
         if enabled and not has_new_creds:
             if (
                 not existing
