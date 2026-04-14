@@ -63,6 +63,7 @@ import { DataColorThemes } from './environment/DataColorThemes'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
+import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { ExperimentRecalculationTime } from './environment/ExperimentRecalculationTime'
 import {
@@ -507,6 +508,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Error tracking',
         group: 'Products',
         settings: [
+            {
+                id: 'banner',
+                title: null,
+                description: undefined,
+                component: <ErrorTrackingConfigurationMovedBanner />,
+            },
             {
                 id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
