@@ -171,21 +171,38 @@ def unique_survey_submissions_filter(node: ast.Call, args: list[ast.Expr], team_
         raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
 
     survey_id = survey_id_arg.value
+    start_timestamp_arg = args[1] if len(args) > 1 else None
+    end_timestamp_arg = args[2] if len(args) > 2 else None
 
     # Build the subquery using parse_expr
     # uuid IN (SELECT argMax(uuid, timestamp) FROM events WHERE event = 'survey sent' AND ... GROUP BY ...)
-    submission_id_expr = "JSONExtractString(properties, '$survey_submission_id')"
+    submission_id_expr = "properties.`$survey_submission_id`"
     grouping_key = f"if(coalesce({submission_id_expr}, '') = '', toString(uuid), {submission_id_expr})"
 
     team_filter = f" AND team_id = {team_id}" if team_id is not None else ""
+    date_filter = ""
+    placeholders: dict[str, ast.Expr] = {"survey_id": ast.Constant(value=survey_id)}
+
+    if start_timestamp_arg is not None:
+        if not isinstance(start_timestamp_arg, ast.Constant):
+            raise QueryError("uniqueSurveySubmissionsFilter second argument must be a constant")
+        date_filter += " AND timestamp >= {start_timestamp}"
+        placeholders["start_timestamp"] = start_timestamp_arg
+
+    if end_timestamp_arg is not None:
+        if not isinstance(end_timestamp_arg, ast.Constant):
+            raise QueryError("uniqueSurveySubmissionsFilter third argument must be a constant")
+        date_filter += " AND timestamp <= {end_timestamp}"
+        placeholders["end_timestamp"] = end_timestamp_arg
 
     hogql = f"""uuid IN (
         SELECT argMax(uuid, timestamp)
         FROM events
         WHERE event = 'survey sent'
-          AND JSONExtractString(properties, '$survey_id') = {{survey_id}}
+          AND properties.`$survey_id` = {{survey_id}}
           {team_filter}
+          {date_filter}
         GROUP BY {grouping_key}
     )"""
 
-    return parse_expr(hogql, placeholders={"survey_id": ast.Constant(value=survey_id)}, start=None)
+    return parse_expr(hogql, placeholders=placeholders, start=None)

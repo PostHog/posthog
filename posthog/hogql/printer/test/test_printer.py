@@ -3038,7 +3038,17 @@ class TestPrinter(BaseTest):
         self.assertIn("SELECT argMax(events.uuid", printed)
         self.assertIn("FROM events WHERE", printed)
         self.assertIn("GROUP BY", printed)
-        self.assertIn("JSONExtractString", printed)
+        self.assertIn("JSONExtractRaw(events.properties", printed)
+
+    def test_unique_survey_submissions_filter_with_timestamps(self):
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123', '2025-01-01', '2025-01-31')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+
+        self.assertIn("events.timestamp", printed)
+        self.assertIn("greaterOrEquals", printed)
+        self.assertIn("lessOrEquals", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
