@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { Compiler } from 'webpack'
@@ -26,6 +27,29 @@ export class ModuleGraphPlugin {
         this.repoRootWithSep = repoRoot.endsWith(path.sep) ? repoRoot : repoRoot + path.sep
     }
 
+    /**
+     * Return the set of repo-relative paths git considers tracked + untracked-
+     * but-not-ignored. Used to drop node_modules and other gitignored files
+     * (dist/, .venv/, build outputs) from the emitted graph — consumers diff
+     * against `git diff --name-only`, which never yields those paths, so
+     * emitting them just bloats the file. Null signals "couldn't ask git,
+     * skip filtering".
+     */
+    private loadGitTrackedPaths(): Set<string> | null {
+        try {
+            const stdout = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+                encoding: 'utf-8',
+                cwd: this.repoRootWithSep,
+                maxBuffer: 128 * 1024 * 1024,
+            })
+            return new Set(stdout.split('\n').filter(Boolean))
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn('[ModuleGraphPlugin] git ls-files failed, skipping gitignore filter:', err)
+            return null
+        }
+    }
+
     apply(compiler: Compiler): void {
         compiler.hooks.done.tapAsync('ModuleGraphPlugin', (stats, callback) => {
             try {
@@ -36,6 +60,7 @@ export class ModuleGraphPlugin {
                 }
                 const compilation = stats.compilation
                 const repoRoot = this.repoRootWithSep
+                const gitTracked = this.loadGitTrackedPaths()
                 const toRelative = (absolute: string): string => {
                     if (absolute.startsWith(repoRoot)) {
                         return absolute.slice(repoRoot.length)
@@ -60,7 +85,11 @@ export class ModuleGraphPlugin {
                     if (!noQuery.startsWith(repoRoot)) {
                         return undefined
                     }
-                    return toRelative(noQuery)
+                    const relative = toRelative(noQuery)
+                    if (gitTracked && !gitTracked.has(relative)) {
+                        return undefined
+                    }
+                    return relative
                 }
                 const seenNames = new Set<string>()
 
