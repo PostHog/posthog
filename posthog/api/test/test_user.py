@@ -20,6 +20,7 @@ from django.utils.text import slugify
 import responses
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from requests.exceptions import SSLError
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
@@ -1586,8 +1587,6 @@ class TestUserSlackWebhook(APIBaseTest):
 
     @responses.activate
     def test_slack_webhook_ssl_error(self):
-        from requests.exceptions import SSLError
-
         webhook_url = "https://hooks.slack.com/services/ssl-test"
         responses.post(webhook_url, body=SSLError("certificate verify failed"))
 
