@@ -666,7 +666,7 @@ describe('dashboardLogic', () => {
                         if (tile.insight) {
                             await expectLogic(logic, () => {
                                 dashboardsModel.actions.updateDashboardInsight(
-                                    { ...tile.insight, last_refresh: staleIso },
+                                    { ...tile.insight, last_refresh: staleIso, query: tile.insight.query ?? null },
                                     undefined,
                                     5
                                 )
@@ -679,14 +679,22 @@ describe('dashboardLogic', () => {
                     const freshIso = now().toISOString()
                     await expectLogic(logic, () => {
                         dashboardsModel.actions.updateDashboardInsight(
-                            { ...insightTiles[0].insight!, last_refresh: staleIso },
+                            {
+                                ...insightTiles[0].insight!,
+                                last_refresh: staleIso,
+                                query: insightTiles[0].insight!.query ?? null,
+                            },
                             undefined,
                             5
                         )
                     }).toFinishAllListeners()
                     await expectLogic(logic, () => {
                         dashboardsModel.actions.updateDashboardInsight(
-                            { ...insightTiles[1].insight!, last_refresh: freshIso },
+                            {
+                                ...insightTiles[1].insight!,
+                                last_refresh: freshIso,
+                                query: insightTiles[1].insight!.query ?? null,
+                            },
                             undefined,
                             5
                         )
