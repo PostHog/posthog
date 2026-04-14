@@ -67,12 +67,15 @@ class CustomerIOWebhookView(APIView):
         if not email:
             return Response(status=200)
 
-        if metric == "cio_subscription_preferences_changed":
-            self._handle_preferences_changed(team_id, email, data)
-        elif metric == "unsubscribed":
-            self._handle_global_unsubscribe(team_id, email)
-        elif metric == "subscribed":
-            self._handle_global_resubscribe(team_id, email)
+        try:
+            if metric == "cio_subscription_preferences_changed":
+                self._handle_preferences_changed(team_id, email, data)
+            elif metric == "unsubscribed":
+                self._handle_global_unsubscribe(team_id, email)
+            elif metric == "subscribed":
+                self._handle_global_resubscribe(team_id, email)
+        except json.JSONDecodeError:
+            return Response({"error": "Malformed JSON in content field"}, status=400)
 
         return Response(status=200)
 

@@ -272,7 +272,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             .exists()
         )
 
-    def test_preferences_changed_invalid_content_json_raises(self):
+    def test_preferences_changed_invalid_content_json_returns_400(self):
         body = {
             "metric": "cio_subscription_preferences_changed",
             "data": {
@@ -281,7 +281,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             },
         }
         response = self._post_webhook(body)
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status_code, 400)
 
     def test_preferences_changed_empty_content(self):
         body = {

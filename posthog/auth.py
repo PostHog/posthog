@@ -938,11 +938,11 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         signature = request.headers.get(self.get_signature_header())
         timestamp = request.headers.get(self.get_timestamp_header())
         if not signature or not timestamp:
-            return None
+            raise AuthenticationFailed("Missing webhook signature headers.")
 
         signing_secret = self.get_signing_secret(request)
         if not signing_secret:
-            return None
+            raise AuthenticationFailed("Webhook integration not found or disabled.")
 
         django_request = getattr(request, "_request", request)
         raw_body = django_request.body.decode()

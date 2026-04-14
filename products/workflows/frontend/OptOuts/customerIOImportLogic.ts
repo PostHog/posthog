@@ -376,9 +376,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             try {
                 await new ApiRequest().messagingCategoriesRemoveWebhookIntegration().delete()
                 actions.setWebhookSigningSecret('')
-                actions.loadSyncConfig()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to remove webhook integration')
+            } finally {
+                actions.loadSyncConfig()
             }
         },
         submitImportFormFailure: () => {},
