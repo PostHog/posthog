@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
-from ee.billing.salesforce_enrichment.duckling_client import DucklingNotConfiguredError
+from ee.billing.salesforce_enrichment.duckgres_client import DuckgresNotConfiguredError
 from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals, fetch_stripe_signals
 
 
@@ -51,13 +51,13 @@ class TestStripeSignalsDataClass(TestCase):
 
 
 class TestFetchStripeSignals(TestCase):
-    @patch.object(settings, "DUCKLING_PG_URL", None, create=True)
+    @patch.object(settings, "DUCKGRES_PG_URL", None, create=True)
     def test_raises_when_not_configured(self):
-        with self.assertRaises(DucklingNotConfiguredError):
+        with self.assertRaises(DuckgresNotConfiguredError):
             fetch_stripe_signals(since=None, limit=100, offset=0)
 
-    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
-    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_full_backfill_passes_none_since(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [_row(org_id="org-1"), _row(org_id="org-2")]
@@ -74,8 +74,8 @@ class TestFetchStripeSignals(TestCase):
         assert executed_params["limit"] == 500
         assert executed_params["offset"] == 0
 
-    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
-    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_incremental_since_passed_through(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = []
@@ -88,8 +88,8 @@ class TestFetchStripeSignals(TestCase):
         assert executed_params["since"] == since
         assert executed_params["offset"] == 250
 
-    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
-    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_returns_empty_list_when_no_rows(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = []
@@ -97,8 +97,8 @@ class TestFetchStripeSignals(TestCase):
 
         assert fetch_stripe_signals(since=None, limit=100, offset=0) == []
 
-    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
-    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
     def test_maps_all_address_fields(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [

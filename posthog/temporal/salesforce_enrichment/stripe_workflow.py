@@ -2,7 +2,7 @@
 
 Pushes Stripe customer data (customer id + billing address) and internal
 ``billing_customer.name`` onto Salesforce Account records. Runs daily with a
-Redis-backed high-water mark so only rows that changed in the duckling DWH since
+Redis-backed high-water mark so only rows that changed in the duckgres DWH since
 the last successful run are touched. The first run (or any run after watermark
 eviction) performs a full backfill.
 """
@@ -156,7 +156,7 @@ async def commit_stripe_watermark_activity(watermark_iso: str) -> None:
 
 @activity.defn
 async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichStripePageResult:
-    """Fetch one page of stripe signals from duckling and push updates to Salesforce.
+    """Fetch one page of stripe signals from duckgres and push updates to Salesforce.
 
     Matching Account rows are looked up by ``Posthog_Org_ID__c`` — the same join
     key the usage enrichment workflow uses. Rows with no matching account are

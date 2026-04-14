@@ -1,11 +1,11 @@
-"""Stripe / billing customer signals read from the duckling Postgres DWH."""
+"""Stripe / billing customer signals read from the duckgres Postgres DWH."""
 
 import datetime as dt
 from dataclasses import dataclass
 
 from posthog.temporal.common.logger import get_logger
 
-from .duckling_client import duckling_cursor
+from .duckgres_client import duckgres_cursor
 
 LOGGER = get_logger(__name__)
 
@@ -83,7 +83,7 @@ def fetch_stripe_signals(
     limit: int,
     offset: int,
 ) -> list[StripeSignals]:
-    """Fetch a page of stripe signals from duckling.
+    """Fetch a page of stripe signals from duckgres.
 
     Args:
         since: Only return rows with last_changed_at strictly greater than this
@@ -93,7 +93,7 @@ def fetch_stripe_signals(
     """
     LOGGER.info("fetching_stripe_signals", since=since.isoformat() if since else None, limit=limit, offset=offset)
 
-    with duckling_cursor() as cur:
+    with duckgres_cursor() as cur:
         cur.execute(_FETCH_QUERY, {"since": since, "limit": limit, "offset": offset})
         rows = cur.fetchall()
 
