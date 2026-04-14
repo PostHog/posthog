@@ -44,7 +44,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     cached_response: CachedLifecycleQueryResponse
 
     def validators(self) -> Sequence[QueryValidationRule[LifecycleQuery]]:
-        return (RequireAtLeastOneSeries, RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget)
+        return (RequireAtLeastOneSeries(), RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget())
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
