@@ -112,11 +112,8 @@ impl FeatureFlagList {
         Ok((wrapper.flags, evaluation_metadata, wrapper.cohorts))
     }
 
-    /// Extracts flags, evaluation metadata, and cohorts from a pre-deserialized
-    /// `HypercacheFlagsWrapper`. Used with the typed deserialization path where
-    /// `HyperCacheReader` deserializes directly into the wrapper type.
-    ///
-    /// `None` means the `__missing__` sentinel was found (team has no flags).
+    /// Validates and extracts flags from a deserialized `HypercacheFlagsWrapper`.
+    /// `None` means the `__missing__` sentinel (team has no flags).
     pub fn from_wrapper(
         wrapper: Option<HypercacheFlagsWrapper>,
         team_id: TeamId,

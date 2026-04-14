@@ -127,7 +127,6 @@ impl FlagService {
                     return Err(FlagError::TokenValidationError);
                 }
 
-                // Fallback: load directly from PostgreSQL — no serialization round-trip
                 let team = Team::from_pg(pg_client, &token_owned).await?;
                 inc(DB_TEAM_READS_COUNTER, &[], 1);
 
@@ -135,7 +134,6 @@ impl FlagService {
             })
             .await?;
 
-        // Sentinel (None) means the token exists in cache but has no team
         let team = data.ok_or(FlagError::TokenValidationError)?;
         let cache_hit = !matches!(source, CacheSource::Fallback);
 
@@ -169,10 +167,7 @@ impl FlagService {
             .get_typed_with_source_or_fallback::<HypercacheFlagsWrapper, _, _, FlagError>(
                 &key,
                 || async move {
-                    // Fallback: load from PostgreSQL directly — no serialization round-trip.
-                    // PG has no dependency metadata, so place all flags in a
-                    // single evaluation stage — they will be evaluated but
-                    // without guaranteed dependency ordering.
+                    // PG has no dependency metadata, so all flags go in a single stage.
                     let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
                     let evaluation_metadata =
                         crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
@@ -186,7 +181,6 @@ impl FlagService {
             )
             .await?;
 
-        // Validate and extract from the wrapper (or handle sentinel)
         let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
 
         Ok(FlagResult {

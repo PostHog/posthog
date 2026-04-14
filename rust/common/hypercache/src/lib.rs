@@ -147,17 +147,13 @@ pub enum HyperCacheError {
     Timeout(String),
 }
 
-/// Result of fetching a raw JSON string from a cache tier.
-/// Used internally to separate pickle/S3 decoding from JSON deserialization.
+/// Raw JSON string before deserialization, or the `__missing__` sentinel.
 enum RawJsonResult {
-    /// Valid JSON string ready for deserialization.
     Json(String),
-    /// The `__missing__` sentinel was found — the key exists but has no data.
     Empty,
 }
 
-/// Result of a typed deserialization from a cache tier.
-/// Distinguishes a successfully deserialized value from the `__missing__` sentinel.
+/// Deserialized cache value, or the `__missing__` sentinel.
 #[derive(Debug)]
 enum TypedCacheResult<T> {
     Value(T),
@@ -329,10 +325,6 @@ impl HyperCacheReader {
         }
     }
 
-    /// Fetch a value from cache (Redis → S3 cascade) and return it as a
-    /// `serde_json::Value`. The `__missing__` sentinel is mapped to `Value::Null`.
-    ///
-    /// Delegates to [`get_typed_with_source`] with `T = Value`.
     pub async fn get_with_source(
         &self,
         key: &KeyType,
@@ -346,12 +338,24 @@ impl HyperCacheReader {
         Ok(data)
     }
 
-    /// Get a value from cache with fallback support.
+    /// Get a value from cache with fallback support
     ///
-    /// Tries Redis, then S3, then the provided fallback function.
-    /// Does NOT write the fallback result back to the cache.
+    /// This method tries to get data from cache (Redis first, then S3), and if both
+    /// cache tiers miss, calls the provided fallback function to retrieve the data
+    /// from an alternative source (e.g., database, API, computation, etc.).
     ///
-    /// Delegates to [`get_typed_with_source_or_fallback`] with `T = Value`.
+    /// Unlike a read-through cache pattern, this method does NOT write the fallback
+    /// result back to the cache. This is intentional to handle catastrophic cache
+    /// miss scenarios without potentially corrupting the cache with data that may
+    /// not match the expected format or freshness requirements.
+    ///
+    /// # Arguments
+    /// * `key` - The key to look up
+    /// * `fallback` - Function to call if both cache tiers miss
+    ///
+    /// # Returns
+    /// * `Ok((Value, CacheSource))` - The value and its source (Redis, S3, or Fallback)
+    /// * `Err(E)` - Error from the fallback function, or HyperCacheError if fallback returns None
     pub async fn get_with_source_or_fallback<F, Fut, E>(
         &self,
         key: &KeyType,
@@ -373,17 +377,10 @@ impl HyperCacheReader {
         &self.config
     }
 
-    // ── Generic cache access — Redis → S3 cascade with typed deserialization ──
-    //
-    // These methods deserialize the JSON string directly into `T: DeserializeOwned`,
-    // skipping the intermediate `serde_json::Value` tree. The `Value`-based public
-    // methods above delegate here with `T = Value`.
+    // ── Core cache access — Redis → S3 cascade with generic deserialization ──
 
-    /// Like [`get_typed_with_source`](Self::get_typed_with_source), but calls `fallback` on
-    /// cache miss or infrastructure error.
-    ///
-    /// Returns `Ok((None, CacheSource::Redis))` when the `__missing__` sentinel is found.
-    /// The fallback closure returns `Option<T>` directly — no `serde_json::Value` round-trip.
+    /// Like [`get_typed_with_source`], but calls `fallback` on cache miss or infrastructure error.
+    /// Returns `Ok((None, _))` for the `__missing__` sentinel (fallback is not called).
     pub async fn get_typed_with_source_or_fallback<T, F, Fut, E>(
         &self,
         key: &KeyType,
@@ -457,11 +454,8 @@ impl HyperCacheReader {
         }
     }
 
-    /// Like [`get_with_source`](Self::get_with_source), but deserializes the JSON string
-    /// directly into `T` instead of building an intermediate `serde_json::Value` tree.
-    ///
-    /// Returns `Ok((None, source))` when the `__missing__` sentinel is found in Redis.
-    /// Returns `Ok((Some(T), source))` for valid data.
+    /// Fetch from cache (Redis → S3), deserializing directly into `T`.
+    /// Returns `Ok((None, source))` for the `__missing__` sentinel.
     pub async fn get_typed_with_source<T: DeserializeOwned>(
         &self,
         key: &KeyType,
@@ -655,8 +649,7 @@ impl HyperCacheReader {
         }
     }
 
-    /// Like [`get`](Self::get), but deserializes directly into `T`.
-    /// Returns `None` for the `__missing__` sentinel.
+    /// Like [`get`], but deserializes directly into `T`. Returns `None` for sentinel.
     pub async fn get_typed<T: DeserializeOwned>(
         &self,
         key: &KeyType,
@@ -665,11 +658,9 @@ impl HyperCacheReader {
         Ok(data)
     }
 
-    // ── Internal helpers: extract raw JSON strings from cache tiers ──
+    // ── Internal helpers ──
 
-    /// Fetch from Redis and return the raw JSON string (after pickle decoding
-    /// and sentinel detection). The caller is responsible for deserializing
-    /// the JSON string into the desired type.
+    /// Pickle-decode the Redis value and detect the `__missing__` sentinel.
     async fn try_get_json_string_from_redis(
         &self,
         cache_key: &str,
@@ -737,8 +728,7 @@ impl HyperCacheReader {
         }
     }
 
-    /// Fetch from S3 and return the raw JSON string.
-    /// S3 does not use the `__missing__` sentinel — a missing key is an S3 NotFound error.
+    /// Fetch the raw JSON string from S3.
     async fn try_get_json_string_from_s3(
         &self,
         cache_key: &str,
@@ -755,8 +745,6 @@ impl HyperCacheReader {
             }
         }
     }
-
-    // ── Typed internal helpers: deserialize directly from JSON strings ──
 
     async fn try_get_typed_from_redis<T: DeserializeOwned>(
         &self,
