@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { resolveStrategy, type QueryResponse } from './query-wrapper/strategies'
+
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
     schema: T
@@ -15,6 +17,22 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     mcpVersion?: number
 }
 
+// Convert flat filterGroup arrays (from assistant schemas) into the nested
+// PropertyGroupFilter structure the query API expects.
+function normalizeFilterGroup(query: Record<string, unknown>): void {
+    if (!Array.isArray(query.filterGroup)) {
+        return
+    }
+    if (query.filterGroup.length > 0) {
+        query.filterGroup = {
+            type: 'AND',
+            values: [{ type: 'AND', values: query.filterGroup }],
+        }
+    } else {
+        delete query.filterGroup
+    }
+}
+
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
     return () => ({
         name: config.name,
@@ -24,36 +42,18 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const projectId = await context.stateManager.getProjectId()
             const params = config.schema.parse(rawParams)
             const query: Record<string, unknown> = { ...params, kind: config.kind }
+            normalizeFilterGroup(query)
 
-            // Convert flat filterGroup arrays (from assistant schemas) into the nested
-            // PropertyGroupFilter structure the query API expects.
-            if (Array.isArray(query.filterGroup)) {
-                if (query.filterGroup.length > 0) {
-                    query.filterGroup = {
-                        type: 'AND',
-                        values: [{ type: 'AND', values: query.filterGroup }],
-                    }
-                } else {
-                    delete query.filterGroup
-                }
-            }
-            const result = await context.api.request<{
-                results: unknown
-                columns?: unknown
-                formatted_results?: string
-            }>({
+            const strategy = resolveStrategy(config.kind)
+            const formattedQuery = strategy.formatRequest(query)
+            const response = await context.api.request<QueryResponse>({
                 method: 'POST',
                 path: `/api/environments/${projectId}/query/`,
-                body: { query },
+                body: { query: formattedQuery },
             })
+
             const baseUrl = context.api.getProjectBaseUrl(projectId)
-            const posthogUrl = config.urlPrefix
-                ? `${baseUrl}${config.urlPrefix}`
-                : `${baseUrl}/insights/new#q=${encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))}`
-            return {
-                results: result.formatted_results ?? result.results,
-                _posthogUrl: posthogUrl,
-            }
+            return strategy.formatResponse(response, baseUrl, config.urlPrefix, query)
         },
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
