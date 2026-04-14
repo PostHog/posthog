@@ -21,6 +21,7 @@
     },
     "devDependencies": {
         "@storybook/addon-docs": "^7.6.4",
+        "@storybook/addon-toolbars": "^7.6.4",
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "^7.6.4",
         "@storybook/test-runner": "^0.16.0",
