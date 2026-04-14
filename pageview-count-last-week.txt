@@ -1,0 +1,4 @@
+pageview_count_last_week: 4
+window_start_utc: 2026-04-07T00:00:00Z
+window_end_utc: 2026-04-14T00:00:00Z
+generated_at_utc: 2026-04-14T14:48:23Z
