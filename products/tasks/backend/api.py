@@ -195,9 +195,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Prefetch runs deferring the large `state` blob, and select_related to avoid N+1 on created_by/team
-        latest_runs_qs = TaskRun.objects.order_by("-created_at").defer("state")
-        qs = qs.select_related("created_by", "team").prefetch_related(Prefetch("runs", queryset=latest_runs_qs))
+        # Defer the large `state` blob from runs, and select_related to avoid N+1 on created_by/team
+        runs_qs = TaskRun.objects.defer("state")
+        qs = qs.select_related("created_by", "team").prefetch_related(Prefetch("runs", queryset=runs_qs))
 
         return qs
 
