@@ -9,7 +9,7 @@ from django.utils import timezone
 
 import structlog
 from celery import current_task
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
