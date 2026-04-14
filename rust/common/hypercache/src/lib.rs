@@ -365,7 +365,7 @@ impl HyperCacheReader {
                 debug!(
                     cache_key = %redis_cache_key,
                     error = %e,
-                    "HyperCache Redis infrastructure error, trying S3"
+                    "HyperCache Redis error, trying S3"
                 );
                 infra_error = Some(e);
             }
