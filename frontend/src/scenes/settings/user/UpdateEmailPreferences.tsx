@@ -17,6 +17,7 @@ enum NotificationBlock {
     DataPipelineErrors = 'data-pipeline-errors',
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
+    WaWeeklyDigest = 'wa-weekly-digest',
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
@@ -28,6 +29,7 @@ type BooleanNotificationSettings = Omit<
     NotificationSettings,
     | 'project_weekly_digest_disabled'
     | 'error_tracking_weekly_digest_project_enabled'
+    | 'web_analytics_weekly_digest_project_enabled'
     | 'organization_member_join_email_disabled'
 >
 
@@ -39,6 +41,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
+    web_analytics_weekly_digest: true,
 }
 
 function ProjectDigestSelector({
@@ -207,6 +210,8 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateWeeklyDigestForAllTeams,
         updateETWeeklyDigestForTeam,
         updateETWeeklyDigestForAllTeams,
+        updateWAWeeklyDigestForTeam,
+        updateWAWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -216,6 +221,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
+    const waDigestEnabled = user?.notification_settings?.web_analytics_weekly_digest !== false
 
     const dataPipelineErrorThresholdValue = (user?.notification_settings?.data_pipeline_error_threshold ?? 0) * 100
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
@@ -358,6 +364,36 @@ export function UpdateEmailPreferences(): JSX.Element {
                             }
                             onToggleTeam={updateETWeeklyDigestForTeam}
                             onToggleAllTeams={updateETWeeklyDigestForAllTeams}
+                        />
+                    </>
+                )}
+            </div>
+        ),
+        [NotificationBlock.WaWeeklyDigest]: (
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="web_analytics_weekly_digest"
+                    label="Web analytics weekly digest"
+                    description="Get a weekly summary of web traffic across your projects every Monday"
+                    dataAttr="web_analytics_weekly_digest_enabled"
+                />
+                {waDigestEnabled && (
+                    <>
+                        {!user?.notification_settings.web_analytics_weekly_digest_project_enabled && (
+                            <LemonBanner type="info">
+                                You haven't selected any projects yet, so on the first digest run we'll automatically
+                                pick the one with the most visitors. If you'd prefer to choose yourself, just select
+                                your projects below and we won't override your choice.
+                            </LemonBanner>
+                        )}
+                        <ProjectDigestSelector
+                            keyPrefix="wa-digest"
+                            dataAttrPrefix="wa_weekly_digest"
+                            isTeamDisabled={(teamId) =>
+                                !user?.notification_settings.web_analytics_weekly_digest_project_enabled?.[teamId]
+                            }
+                            onToggleTeam={updateWAWeeklyDigestForTeam}
+                            onToggleAllTeams={updateWAWeeklyDigestForAllTeams}
                         />
                     </>
                 )}

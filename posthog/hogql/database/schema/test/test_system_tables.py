@@ -313,6 +313,18 @@ def _create_notebook(team: Team, label: str) -> Notebook:
     return Notebook.objects.create(team=team, title=f"notebook_{label}")
 
 
+def _create_session_recording(team: Team, label: str):
+    from posthog.models import SessionRecording
+
+    return SessionRecording.objects.create(team=team, session_id=f"session_{label}")
+
+
+def _create_session_recording_playlist(team: Team, label: str):
+    from posthog.models import SessionRecordingPlaylist
+
+    return SessionRecordingPlaylist.objects.create(team=team, name=f"playlist_{label}", type="collection")
+
+
 def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
@@ -355,6 +367,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
+    ("session_recording_playlists", _create_session_recording_playlist),
+    ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("surveys", _create_survey),
     ("teams", _create_team),

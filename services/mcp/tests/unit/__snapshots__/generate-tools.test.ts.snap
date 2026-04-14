@@ -38,7 +38,7 @@ const thingsList = (): ToolBase<typeof ThingsListSchema, unknown> => ({
         })
         return await withPostHogUrl(context, {
             ...result,
-            results: await Promise.all(result.results.map((item) => withPostHogUrl(context, item, \`/things/\${item.id}\`))),
+            results: await Promise.all((result.results ?? []).map((item) => withPostHogUrl(context, item, \`/things/\${item.id}\`))),
         }, '/things')
     },
 })

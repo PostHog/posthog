@@ -28,13 +28,11 @@ async def embed_and_store_segments_activity(
     inputs: VideoSummarySingleSessionInputs,
     segments: list[VideoSegmentOutput],
 ) -> None:
-    """Generate embeddings for all segments and produce to Kafka for ClickHouse storage
+    """Produce an embedding request per segment to Kafka for ClickHouse storage.
 
-    Each segment description is embedded with metadata including session_id, team_id,
-    distinct_id, and timestamps.
+    The actual embedding computation happens asynchronously in the embedding worker,
+    so this activity just enqueues requests and returns quickly.
     """
-    if not segments:
-        return
     team = await Team.objects.aget(id=inputs.team_id)
     session_metadata = await database_sync_to_async(
         SessionReplayEvents().get_metadata
@@ -45,15 +43,10 @@ async def embed_and_store_segments_activity(
     if not session_metadata:
         logger.error(f"Session metadata not found for session {inputs.session_id}", session_id=inputs.session_id)
         return
-    try:
-        for segment in segments:
-            # Use the description directly as the content to embed
-            content = segment.description
 
-            # Create unique document ID
+    for segment in segments:
+        try:
             document_id = f"{inputs.session_id}:{segment.start_time}:{segment.end_time}"
-
-            # Include structured metadata for querying/filtering
             metadata = {
                 "session_id": inputs.session_id,
                 "team_id": inputs.team_id,
@@ -72,7 +65,7 @@ async def embed_and_store_segments_activity(
                 document_type="video-segment",
                 rendering="video-analysis",
                 document_id=document_id,
-                content=content,
+                content=segment.description,
                 models=[SESSION_SEGMENTS_EMBEDDING_MODEL.value],
                 metadata=metadata,
             )
@@ -84,17 +77,10 @@ async def embed_and_store_segments_activity(
                 signals_type="session-summaries",
             )
 
-        logger.debug(
-            f"Successfully produced {len(segments)} embeddings for session {inputs.session_id}",
-            session_id=inputs.session_id,
-            segment_count=len(segments),
-            signals_type="session-summaries",
-        )
-
-    except Exception as e:
-        logger.exception(
-            f"Failed to embed and store segments for session {inputs.session_id}: {e}",
-            session_id=inputs.session_id,
-            signals_type="session-summaries",
-        )
-        raise
+        except Exception as e:
+            logger.exception(
+                f"Failed to embed segment for session {inputs.session_id}: {e}",
+                session_id=inputs.session_id,
+                signals_type="session-summaries",
+            )
+            raise

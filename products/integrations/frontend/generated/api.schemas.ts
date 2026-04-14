@@ -221,6 +221,8 @@ export interface GitHubBranchesResponseApi {
      * @nullable
      */
     default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
 }
 
 export interface GitHubRepoApi {
@@ -231,6 +233,8 @@ export interface GitHubRepoApi {
 
 export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
 }
 
 export type IntegrationsListParams = {
@@ -257,8 +261,33 @@ export type IntegrationsList2Params = {
 
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repository in owner/repo format
      * @minLength 1
      */
     repo: string
+}
+
+export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
 }

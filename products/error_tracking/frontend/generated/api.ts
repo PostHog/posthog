@@ -778,6 +778,17 @@ export const errorTrackingIssuesBulkCreate = async (
     })
 }
 
+export const getErrorTrackingIssuesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/exists/`
+}
+
+export const errorTrackingIssuesExistsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingIssuesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getErrorTrackingIssuesValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/values/`
 }

@@ -50,7 +50,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMenu, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -682,8 +682,6 @@ export function InsightIcon({
 
 export function NewInsightButton(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useInsightOptionsPage = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'test')
-    const useDropdownOnly = useFeatureFlag('INSIGHT_OPTIONS_PAGE', 'dropdown')
 
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
@@ -737,29 +735,9 @@ export function NewInsightButton(): JSX.Element {
                 scope={Scene.SavedInsights}
                 priority={100}
             >
-                {useDropdownOnly ? (
-                    <LemonMenu items={menuItems} placement="bottom-end">
-                        <LemonButton
-                            type="primary"
-                            data-attr="saved-insights-new-insight-button"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            tooltip="New insight"
-                        >
-                            New
-                        </LemonButton>
-                    </LemonMenu>
-                ) : (
+                <LemonMenu items={menuItems} placement="bottom-end">
                     <LemonButton
                         type="primary"
-                        to={useInsightOptionsPage ? urls.insightOptions() : urls.insightNew()}
-                        sideAction={{
-                            dropdown: {
-                                placement: 'bottom-end',
-                                overlay: <LemonMenuOverlay items={menuItems} />,
-                            },
-                            'data-attr': 'saved-insights-new-insight-dropdown',
-                        }}
                         data-attr="saved-insights-new-insight-button"
                         size="small"
                         icon={<IconPlusSmall />}
@@ -767,7 +745,7 @@ export function NewInsightButton(): JSX.Element {
                     >
                         New
                     </LemonButton>
-                )}
+                </LemonMenu>
             </AppShortcut>
         </AccessControlAction>
     )

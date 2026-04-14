@@ -491,6 +491,9 @@ class TaskRun(models.Model):
                 "run_id": str(self.id),
                 "team_id": self.team_id,
                 "repository": self.task.repository,
+                "origin_product": self.task.origin_product,
+                "title": self.task.title,
+                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
                 "mode": self.mode,
             }
@@ -754,6 +757,11 @@ class SandboxEnvironment(UUIDModel):
     private = models.BooleanField(
         default=True,
         help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
+    )
+
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

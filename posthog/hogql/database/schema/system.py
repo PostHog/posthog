@@ -414,6 +414,59 @@ insight_variables: PostgresTable = PostgresTable(
     },
 )
 
+session_recording_playlists: PostgresTable = PostgresTable(
+    name="session_recording_playlists",
+    postgres_table_name="posthog_sessionrecordingplaylist",
+    access_scope="session_recording_playlist",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "name": StringDatabaseField(name="name"),
+        "derived_name": StringDatabaseField(name="derived_name"),
+        "description": StringDatabaseField(name="description"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "_pinned": BooleanDatabaseField(name="pinned", hidden=True),
+        "pinned": ExpressionField(name="pinned", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_pinned"])])),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "type": StringDatabaseField(name="type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id"),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id"),
+    },
+)
+
+session_recordings: PostgresTable = PostgresTable(
+    name="session_recordings",
+    postgres_table_name="posthog_sessionrecording",
+    access_scope="session_recording",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "session_id": StringDatabaseField(name="session_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "distinct_id": StringDatabaseField(name="distinct_id"),
+        "duration": IntegerDatabaseField(name="duration"),
+        "active_seconds": IntegerDatabaseField(name="active_seconds"),
+        "inactive_seconds": IntegerDatabaseField(name="inactive_seconds"),
+        "start_time": DateTimeDatabaseField(name="start_time"),
+        "end_time": DateTimeDatabaseField(name="end_time"),
+        "click_count": IntegerDatabaseField(name="click_count"),
+        "keypress_count": IntegerDatabaseField(name="keypress_count"),
+        "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count"),
+        "console_log_count": IntegerDatabaseField(name="console_log_count"),
+        "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
+        "console_error_count": IntegerDatabaseField(name="console_error_count"),
+        "start_url": StringDatabaseField(name="start_url"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "retention_period_days": IntegerDatabaseField(name="retention_period_days"),
+        "storage_version": StringDatabaseField(name="storage_version"),
+    },
+)
+
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
@@ -735,6 +788,8 @@ class SystemTables(TableNode):
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "surveys": TableNode(name="surveys", table=surveys),

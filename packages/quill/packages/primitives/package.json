@@ -30,7 +30,7 @@
         "build": "vite build"
     },
     "dependencies": {
-        "@base-ui/react": "^1.0.0",
+        "@base-ui/react": "^1.3.0",
         "@posthog/quill-tokens": "workspace:^",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",

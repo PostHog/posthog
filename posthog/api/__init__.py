@@ -15,7 +15,6 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
-import products.mcp_store.backend.api as mcp_store
 import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
@@ -25,6 +24,7 @@ import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+import products.mcp_store.backend.presentation.views as mcp_store
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -1045,6 +1045,10 @@ projects_router.register(
     conversations.TicketViewSet,
     "environment_conversations_tickets",
     ["team_id"],
+)
+
+environments_router.register(
+    r"conversations/views", conversations.TicketViewViewSet, "environment_conversations_views", ["team_id"]
 )
 
 projects_router.register(

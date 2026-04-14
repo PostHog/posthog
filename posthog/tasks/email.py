@@ -1,7 +1,7 @@
 import uuid
 import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -52,6 +52,7 @@ class NotificationSetting(Enum):
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
     MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
+    WEB_ANALYTICS_WEEKLY_DIGEST = "web_analytics_weekly_digest"
 
 
 NotificationSettingType = Literal[
@@ -62,6 +63,7 @@ NotificationSettingType = Literal[
     "discussions_mentioned",
     "project_api_key_exposed",
     "materialized_view_sync_failed",
+    "web_analytics_weekly_digest",
 ]
 
 
@@ -110,6 +112,12 @@ def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1
     ]
 
 
+_DIGEST_PROJECT_SETTING_KEYS: dict[str, str] = {
+    NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value: "error_tracking_weekly_digest_project_enabled",
+    NotificationSetting.WEB_ANALYTICS_WEEKLY_DIGEST.value: "web_analytics_weekly_digest_project_enabled",
+}
+
+
 def should_send_notification(
     user: User,
     notification_type: NotificationSettingType,
@@ -149,16 +157,17 @@ def should_send_notification(
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
         return settings.get(notification_type, True)
 
-    elif notification_type == NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value:
+    elif notification_type in _DIGEST_PROJECT_SETTING_KEYS:
         if not settings.get(notification_type, True):
             return False
 
         if team_id is not None:
-            et_project_settings: dict[str, Any] | None = settings.get(
-                "error_tracking_weekly_digest_project_enabled", None
+            digest_project_settings: dict[str, Any] | None = cast(
+                dict[str, Any] | None,
+                settings.get(_DIGEST_PROJECT_SETTING_KEYS[notification_type], None),
             )
-            if et_project_settings is not None:
-                return et_project_settings.get(str(team_id), False)
+            if digest_project_settings is not None:
+                return digest_project_settings.get(str(team_id), False)
 
         return True
 
@@ -175,7 +184,7 @@ def should_send_notification(
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
-    return True  # type: ignore
+    return True
 
 
 def should_send_pipeline_error_notification(
@@ -1438,11 +1447,11 @@ def send_error_tracking_weekly_digest() -> None:
 def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     """Send one combined weekly error tracking digest email per user in an org"""
     from posthog.models.organization import Organization
+    from posthog.tasks.email_utils import compute_week_over_week_change
 
     from products.error_tracking.backend.weekly_digest import (
         auto_select_project_for_user,
         build_ingestion_failures_url,
-        compute_week_over_week_change,
         get_crash_free_sessions,
         get_daily_exception_counts,
         get_exception_counts,
@@ -1520,8 +1529,8 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             continue
 
         # Auto-select busiest project for first-time users
-        auto_select_project_for_user(user, org.id, team_digest_data)
-        user.refresh_from_db(fields=["partial_notification_settings"])
+        if auto_select_project_for_user(user, org.id, team_digest_data):
+            user.refresh_from_db(fields=["partial_notification_settings"])
 
         # Build per-user list of enabled teams
         user_team_sections = []
