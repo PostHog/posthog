@@ -112,14 +112,14 @@ class NotFoundErrorGroup(ClientResponseErrorGroup):
 
 
 class HogFunctionErrorThresholdExceeded(Exception):
-    """Raised when too many Hog function executions fail with status=error."""
+    """Raised when too many Hog Function executions fail with status=error."""
 
     def __init__(self, failed_count: int, total_count: int, latest_error: str | None = None):
         self.failed_count = failed_count
         self.total_count = total_count
         self.latest_error = latest_error
 
-        message = f"Hog function error rate above threshold: {failed_count}/{total_count} executions failed."
+        message = f"Hog Function error rate above threshold: {failed_count}/{total_count} executions failed."
         if latest_error:
             message += f" Latest error message: '{latest_error}'"
         super().__init__(message)
@@ -136,6 +136,21 @@ def _make_exception(
 
 
 class WorkflowsConsumer(Consumer):
+    """Consumer that posts each record as a Hog Function invocation to the CDP API.
+
+    One HTTP POST request per record is issued concurrently via `request_task_group`, up
+    to `max_concurrent_requests` in flight at a time.
+
+    A 2xx response with a `{"status": "error", ...}` body is treated as a Hog Function
+    execution error (the CDP call succeeded but the function itself failed).
+
+    If the ratio of such execution errors to total handled records exceeds
+    `hog_function_error_threshold_pct` — once at least
+    `hog_function_error_threshold_min_records` records have been handled —
+    the consumer aborts the run by raising a non-retryable
+    `HogFunctionErrorThresholdExceeded` exception.
+    """
+
     def __init__(
         self,
         url: str,
@@ -146,7 +161,7 @@ class WorkflowsConsumer(Consumer):
         model: str = "events",
         max_concurrent_requests: int = 1_000,
         hog_function_error_threshold_pct: float = 0.5,
-        hog_function_error_threshold_min_requests: int = 100,
+        hog_function_error_threshold_min_records: int = 100,
     ):
         super().__init__(model=model)
 
@@ -160,11 +175,9 @@ class WorkflowsConsumer(Consumer):
         self.session = session
         self.request_task_group = request_task_group
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
-        # Abort once failure ratio crosses `pct`, but only after `min_requests` requests.
         self.hog_function_error_threshold_pct = hog_function_error_threshold_pct
-        self.hog_function_error_threshold_min_requests = hog_function_error_threshold_min_requests
-        self.total_requests_count = 0
-        # Most recent hog function error message, used for error reporting.
+        self.hog_function_error_threshold_min_records = hog_function_error_threshold_min_records
+        self.records_handled_count = 0
         self.latest_hog_function_error: str | None = None
 
     async def consume_chunk(self, data: bytes) -> None:
@@ -206,26 +219,24 @@ class WorkflowsConsumer(Consumer):
                             raise _make_exception(InternalServerError, err)
                 else:
                     response_body = await response.json()
-                    self.total_requests_count += 1
+                    self.records_handled_count += 1
                     if response_body.get("status") == "error":
                         errors = response_body.get("errors", [])
-                        self.logger.warning("Hog function execution failed", errors=errors)
+                        self.logger.warning("Hog Function execution failed", errors=errors)
                         self.records_failed_count += 1
                         if errors:
                             self.latest_hog_function_error = errors[-1]
 
                         if (
-                            self.total_requests_count >= self.hog_function_error_threshold_min_requests
-                            and self.records_failed_count / self.total_requests_count
+                            self.records_handled_count >= self.hog_function_error_threshold_min_records
+                            and self.records_failed_count / self.records_handled_count
                             >= self.hog_function_error_threshold_pct
                         ):
-                            exc = HogFunctionErrorThresholdExceeded(
+                            raise HogFunctionErrorThresholdExceeded(
                                 failed_count=self.records_failed_count,
-                                total_count=self.total_requests_count,
+                                total_count=self.records_handled_count,
                                 latest_error=self.latest_hog_function_error,
                             )
-                            self.external_logger.error(str(exc))
-                            raise exc
 
     async def finalize_file(self):
         """Required by consumer interface."""
@@ -330,16 +341,18 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
             except* NotFound as exc_group:
                 raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
-            except* HogFunctionErrorThresholdExceeded as exc_group:
+            except* HogFunctionErrorThresholdExceeded:
                 # Since we're making multiple requests in parallel, as soon as we hit the error threshold
                 # we expect any new errors to also raise the same exception.
                 # Therefore, rather than raising an ExceptionGroup we just re-raise the exception once,
                 # but using the most recent values.
-                raise HogFunctionErrorThresholdExceeded(
+                exc = HogFunctionErrorThresholdExceeded(
                     failed_count=consumer.records_failed_count,
-                    total_count=consumer.total_requests_count,
+                    total_count=consumer.records_handled_count,
                     latest_error=consumer.latest_hog_function_error,
-                ) from exc_group
+                )
+                external_logger.exception(str(exc))
+                raise exc
 
         return consumer.collect_result()
 
