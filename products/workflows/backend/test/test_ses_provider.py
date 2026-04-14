@@ -229,8 +229,8 @@ class TestSESProvider(TestCase):
             assert len(result["dnsRecords"]) > 0  # Records are now always returned
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
-    def test_verify_email_domain_pending_when_dmarc_missing(self, mock_resolver_cls):
-        """All SES checks pass but DMARC lookup fails → overall status is pending."""
+    def test_verify_email_domain_success_when_dmarc_missing(self, mock_resolver_cls):
+        """All SES checks pass but DMARC lookup fails → overall status is still success (DMARC is recommended, not required)."""
         mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
         provider = SESProvider()
 
@@ -247,7 +247,11 @@ class TestSESProvider(TestCase):
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
-            assert result["status"] == "pending"
+            assert result["status"] == "success"
+            # DMARC record should still be present but with pending status
+            dmarc_records = [r for r in result["dnsRecords"] if r["type"] == "dmarc"]
+            assert len(dmarc_records) == 1
+            assert dmarc_records[0]["status"] == "pending"
 
     @parameterized.expand(
         [

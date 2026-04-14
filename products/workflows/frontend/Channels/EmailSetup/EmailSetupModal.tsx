@@ -182,9 +182,19 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                     {verificationLoading ? (
                                                         <Spinner className="text-lg" />
                                                     ) : record.status === 'pending' ? (
-                                                        <div className="flex gap-1 items-center">
-                                                            <IconWarning className="size-6 text-warning" /> Not present
-                                                        </div>
+                                                        record.type === 'dmarc' ? (
+                                                            <Tooltip title="DMARC is recommended for better deliverability but not required for verification">
+                                                                <div className="flex gap-1 items-center">
+                                                                    <IconWarning className="size-6 text-muted" />{' '}
+                                                                    Recommended
+                                                                </div>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            <div className="flex gap-1 items-center">
+                                                                <IconWarning className="size-6 text-warning" /> Not
+                                                                present
+                                                            </div>
+                                                        )
                                                     ) : record.status === 'success' ? (
                                                         <div className="flex gap-1 items-center">
                                                             <IconCheckCircle className="size-6 text-success" /> Verified

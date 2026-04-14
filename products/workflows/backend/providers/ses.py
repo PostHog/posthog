@@ -202,13 +202,11 @@ class SESProvider:
 
         all_statuses = [verification_status, dkim_status, mail_from_status]
 
-        # Normalize overall status
-        if (
-            verification_status == "Success"
-            and dkim_status == "Success"
-            and mail_from_status == "Success"
-            and dmarc_status == "Success"
-        ):
+        # Normalize overall status — DMARC is recommended but not required for
+        # verification.  A missing DMARC record should not block the connector
+        # from being used; we still surface it in dnsRecords so the UI can show
+        # a recommendation to the user.
+        if verification_status == "Success" and dkim_status == "Success" and mail_from_status == "Success":
             overall = "success"
         elif "Failed" in all_statuses:
             overall = "failed"
