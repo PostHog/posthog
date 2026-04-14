@@ -186,6 +186,11 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
                         render: (_, run) => <TZLabel time={run.created_at} />,
                     },
                     {
+                        title: 'Error',
+                        key: 'latestError',
+                        render: (_, run) => <LatestErrorCell error={run.latest_error} />,
+                    },
+                    {
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, run) {
@@ -297,6 +302,11 @@ export function BatchExportRunsGrouped({
                                         tooltip: 'Date and time when this run started',
                                         render: (_, run) => <TZLabel time={run.created_at} />,
                                     },
+                                    {
+                                        title: 'Error',
+                                        key: 'latestError',
+                                        render: (_, run) => <LatestErrorCell error={run.latest_error} />,
+                                    },
                                 ]}
                             />
                         )
@@ -348,6 +358,11 @@ export function BatchExportRunsGrouped({
                         render: (_, groupedRun) => {
                             return <TZLabel time={groupedRun.last_run_at} />
                         },
+                    },
+                    {
+                        title: 'Error',
+                        key: 'latestError',
+                        render: (_, groupedRun) => <LatestErrorCell error={groupedRun.runs[0]?.latest_error} />,
                     },
                     {
                         key: 'actions',
@@ -491,6 +506,17 @@ const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun
         return 'Failed'
     }
     return status
+}
+
+function LatestErrorCell({ error }: { error?: string | null }): JSX.Element | null {
+    if (!error) {
+        return null
+    }
+    return (
+        <Tooltip title={error} interactive>
+            <span className="text-danger truncate max-w-[20vw] inline-block align-bottom">{error}</span>
+        </Tooltip>
+    )
 }
 
 function RecordsExportedCell({ run }: { run: BatchExportRun }): JSX.Element | string {
