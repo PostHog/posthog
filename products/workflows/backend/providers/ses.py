@@ -226,6 +226,26 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
+        else:
+            # SES reports aggregate DKIM status, but individual CNAMEs may already
+            # be present.  Do per-record DNS lookups so the UI can show which
+            # specific records are still missing.
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5
+            for r in dns_records:
+                if r["type"] != "dkim":
+                    continue
+                try:
+                    answers = resolver.resolve(r["recordHostname"], "CNAME")
+                    expected = r["recordValue"].rstrip(".") + "."
+                    for rdata in answers:
+                        if str(rdata.target) == expected:
+                            r["status"] = "success"
+                            break
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error during DKIM CNAME lookup for %s", r["recordHostname"])
         if mail_from_status == "Success":
             for r in dns_records:
                 if r["type"] == "mail_from":
