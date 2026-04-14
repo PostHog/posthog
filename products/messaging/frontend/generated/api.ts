@@ -174,15 +174,15 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
 /**
  * Remove the Customer.io Track API integration and reset outbound sync state.
  */
-export const getMessagingCategoriesRemoveTrackIntegrationDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_track_integration/`
+export const getMessagingCategoriesRemoveTrackConfigDestroyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/remove_track_config/`
 }
 
-export const messagingCategoriesRemoveTrackIntegrationDestroy = async (
+export const messagingCategoriesRemoveTrackConfigDestroy = async (
     projectId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getMessagingCategoriesRemoveTrackIntegrationDestroyUrl(projectId), {
+    return apiMutator<void>(getMessagingCategoriesRemoveTrackConfigDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
     })

@@ -1880,8 +1880,8 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('save_track_config')
     }
 
-    public messagingCategoriesRemoveTrackIntegration(): ApiRequest {
-        return this.messagingCategories().addPathComponent('remove_track_integration')
+    public messagingCategoriesRemoveTrackConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
     public messagingPreferences(): ApiRequest {

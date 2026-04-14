@@ -323,7 +323,7 @@ class MessageCategoryViewSet(
         )
 
     @action(detail=False, methods=["delete"])
-    def remove_track_integration(self, request, **kwargs):
+    def remove_track_config(self, request, **kwargs):
         """Remove the Customer.io Track API integration and reset outbound sync state."""
         Integration.objects.filter(team_id=self.team_id, kind="customerio-track").delete()
         try:

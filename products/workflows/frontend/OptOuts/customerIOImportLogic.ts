@@ -96,7 +96,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setTrackRegion: (region: string) => ({ region }),
         saveTrackConfig: true,
         toggleTrackSync: (enabled: boolean) => ({ enabled }),
-        removeTrackIntegration: true,
+        removeTrackConfig: true,
         setIsSavingTrack: (isSaving: boolean) => ({ isSaving }),
         setTrackError: (error: string | null) => ({ error }),
     }),
@@ -233,13 +233,13 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 setTrackError: (_, { error }) => error,
                 saveTrackConfig: () => null,
                 toggleTrackSync: () => null,
-                removeTrackIntegration: () => null,
+                removeTrackConfig: () => null,
             },
         ],
-        isRemovingTrackIntegration: [
+        isRemovingTrackConfig: [
             false,
             {
-                removeTrackIntegration: () => true,
+                removeTrackConfig: () => true,
                 loadSyncConfigSuccess: () => false,
                 loadSyncConfigFailure: () => false,
             },
@@ -481,9 +481,9 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 actions.setIsSavingTrack(false)
             }
         },
-        removeTrackIntegration: async () => {
+        removeTrackConfig: async () => {
             try {
-                await new ApiRequest().messagingCategoriesRemoveTrackIntegration().delete()
+                await new ApiRequest().messagingCategoriesRemoveTrackConfig().delete()
                 actions.setTrackSiteId('')
                 actions.setTrackApiKey('')
                 actions.loadSyncConfig()

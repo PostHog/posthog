@@ -435,11 +435,11 @@ function Step4Content(): JSX.Element {
         trackRegion,
         isSavingTrack,
         trackError,
-        isRemovingTrackIntegration,
+        isRemovingTrackConfig,
         trackEnabled,
         hasTrackCredentials,
     } = useValues(customerIOImportLogic)
-    const { setTrackSiteId, setTrackApiKey, setTrackRegion, saveTrackConfig, toggleTrackSync, removeTrackIntegration } =
+    const { setTrackSiteId, setTrackApiKey, setTrackRegion, saveTrackConfig, toggleTrackSync, removeTrackConfig } =
         useActions(customerIOImportLogic)
 
     return (
@@ -470,8 +470,8 @@ function Step4Content(): JSX.Element {
                                     type="tertiary"
                                     status="danger"
                                     tooltip="Remove track integration"
-                                    onClick={removeTrackIntegration}
-                                    loading={isRemovingTrackIntegration}
+                                    onClick={removeTrackConfig}
+                                    loading={isRemovingTrackConfig}
                                     icon={<IconTrash className="text-danger" />}
                                 />
                             }
