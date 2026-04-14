@@ -14,12 +14,14 @@ import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQu
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
+    ActionsNode,
     AnyDataWarehouseNode,
     AnyEntityNode,
     BreakdownFilter,
     CalendarHeatmapFilter,
     DataWarehouseNode,
     EntityNode,
+    EventsNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -281,13 +283,22 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
         funnelPathsFilter: true,
     },
     [NodeKind.StickinessQuery]: {
-        series: (s) => cleanSeries(expandGroupNodes(s), MathAvailability.ActorsOnly, NodeKind.DataWarehouseNode),
+        series: (s) =>
+            cleanSeries(
+                expandGroupNodes(s as (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]),
+                MathAvailability.ActorsOnly,
+                NodeKind.DataWarehouseNode
+            ),
         interval: downgradeMinuteInterval,
         compareFilter: true,
     },
     [NodeKind.LifecycleQuery]: {
         series: (s) =>
-            cleanSeries(expandGroupNodes(s).slice(0, 1), MathAvailability.None, NodeKind.LifecycleDataWarehouseNode),
+            cleanSeries(
+                expandGroupNodes(s as (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]).slice(0, 1),
+                MathAvailability.None,
+                NodeKind.LifecycleDataWarehouseNode
+            ),
         interval: downgradeMinuteInterval,
     },
 }
@@ -623,7 +634,9 @@ const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): 
 
     const result: Partial<QueryPropertyCache> = {}
     if (caps.series && cache.series) {
-        result.series = typeof caps.series === 'function' ? caps.series(cache.series) : cache.series
+        result.series = (
+            typeof caps.series === 'function' ? caps.series(cache.series) : cache.series
+        ) as QueryPropertyCache['series']
     }
     if (caps.interval && cache.interval) {
         result.interval = typeof caps.interval === 'function' ? caps.interval(cache.interval) : cache.interval
@@ -651,14 +664,19 @@ const buildInsightFilter = (
         return {}
     }
 
-    const sharedResultCustomizations = cache.commonFilterTrendsStickiness?.resultCustomizations
+    const trendsStickinessResultCustomizations = cache.commonFilterTrendsStickiness?.resultCustomizations
         ? { resultCustomizations: cache.commonFilterTrendsStickiness.resultCustomizations }
         : {}
 
     if (isTrendsQuery(query)) {
         const vizProps = getCommonVisualizationProperties(query, cache.commonFilter)
         return {
-            trendsFilter: { ...query.trendsFilter, ...cache.trendsFilter, ...vizProps, ...sharedResultCustomizations },
+            trendsFilter: {
+                ...query.trendsFilter,
+                ...cache.trendsFilter,
+                ...vizProps,
+                ...trendsStickinessResultCustomizations,
+            },
         }
     }
     if (isStickinessQuery(query)) {
@@ -668,7 +686,7 @@ const buildInsightFilter = (
                 ...query.stickinessFilter,
                 ...cache.stickinessFilter,
                 ...vizProps,
-                ...sharedResultCustomizations,
+                ...trendsStickinessResultCustomizations,
             },
         }
     }
