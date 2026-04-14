@@ -58,4 +58,4 @@ services:
         profiles: [duckgres]
 
 # Core services NOT listed = always start:
-# - proxy, db, redis7, clickhouse, zookeeper, kafka, objectstorage, feature-flags
+# - proxy, db, redis7, clickhouse, keeper, kafka, objectstorage, feature-flags
