@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     ErrorTrackingIssuesListQueryParams,
+    ErrorTrackingIssuesMergeCreateBody,
+    ErrorTrackingIssuesMergeCreateParams,
     ErrorTrackingIssuesPartialUpdateBody,
     ErrorTrackingIssuesPartialUpdateParams,
     ErrorTrackingIssuesRetrieveParams,
@@ -104,6 +106,31 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
         },
     })
+
+const ErrorTrackingIssuesMergeCreateSchema = ErrorTrackingIssuesMergeCreateParams.omit({ project_id: true }).extend(
+    ErrorTrackingIssuesMergeCreateBody.shape
+)
+
+const errorTrackingIssuesMergeCreate = (): ToolBase<
+    typeof ErrorTrackingIssuesMergeCreateSchema,
+    Schemas.ErrorTrackingIssueMergeResponse
+> => ({
+    name: 'error-tracking-issues-merge-create',
+    schema: ErrorTrackingIssuesMergeCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesMergeCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingIssueMergeResponse>({
+            method: 'POST',
+            path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/merge/`,
+            body,
+        })
+        return result
+    },
+})
 
 // --- Query wrapper schemas from schema.json ---
 
@@ -433,6 +460,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
+    'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
         schema: QueryErrorTrackingIssuesSchema,

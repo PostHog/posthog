@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -169,9 +170,8 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         hogFunctionsFuse: [
             (s) => [s.sortedHogFunctions],
             (hogFunctions): Fuse => {
-                return new FuseClass(hogFunctions || [], {
+                return createFuse(hogFunctions || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],

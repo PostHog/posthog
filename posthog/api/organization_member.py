@@ -90,7 +90,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
-@extend_schema(tags=["core"])
+@extend_schema(tags=["core", "platform_features"])
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,

@@ -9,7 +9,8 @@ use metrics::{counter, histogram};
 use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -421,6 +422,21 @@ impl PersonHogRouter {
         request: DeletePersonsRequest,
     ) -> Result<DeletePersonsResponse, Status> {
         call_backend!(self, "DeletePersons", delete_persons, request)
+    }
+
+    /// Delete up to batch_size persons for a team from Postgres.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above.
+    pub async fn delete_persons_batch_for_team(
+        &self,
+        request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeletePersonsBatchForTeam",
+            delete_persons_batch_for_team,
+            request
+        )
     }
 
     // ============================================================

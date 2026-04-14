@@ -30,6 +30,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.DataWarehouseSource]: () => import('./data-warehouse/settings/DataWarehouseSourceScene'),
     [Scene.DataOps]: () => import('./data-warehouse/DataWarehouseScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
+    [Scene.QueryPerformance]: () => import('./instance/QueryPerformance/QueryPerformance'),
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
@@ -79,6 +80,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
+    [Scene.AccountSocialConnected]: () => import('./authentication/AccountSocialConnected'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.TwoFactorReset]: () => import('./authentication/TwoFactorReset'),
     [Scene.Person]: () => import('./persons/PersonScene'),
@@ -105,6 +107,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
     [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
+    [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

@@ -1,6 +1,5 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,10 +7,11 @@ import { dateStringToDayJs } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
-import { urls } from 'scenes/urls'
 
 import {
     BasicSurveyQuestion,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     LinkSurveyQuestion,
@@ -67,6 +67,9 @@ export function validateSurveyAppearance(
     return {
         backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
         borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        textColor: validateCSSProperty('color', appearance.textColor),
+        inputBackground: validateCSSProperty('background-color', appearance.inputBackground),
+        inputTextColor: validateCSSProperty('color', appearance.inputTextColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
             ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
@@ -94,6 +97,92 @@ export function getSurveyResponseKey(questionIndex: number): string {
 
 export function getSurveyIdBasedResponseKey(questionId: string): string {
     return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
+}
+
+type SurveyExampleContext = Pick<Survey, 'id' | 'name' | 'questions'> | null | undefined
+
+function getExampleSurveyResponseValue(question: SurveyQuestion, index: number): string | string[] | undefined {
+    switch (question.type) {
+        case SurveyQuestionType.Open:
+            return question.question || `Example answer ${index + 1}`
+        case SurveyQuestionType.Rating:
+            return String(question.scale >= 10 ? 9 : Math.min(question.scale, 4))
+        case SurveyQuestionType.SingleChoice:
+            return question.choices[0] || `Option ${index + 1}`
+        case SurveyQuestionType.MultipleChoice:
+            return question.choices.slice(0, Math.min(question.choices.length, 2))
+        case SurveyQuestionType.Link:
+            return undefined
+    }
+}
+
+export function buildSurveyExampleInvocationGlobals({
+    survey,
+    projectId,
+    projectName,
+    projectUrl,
+    source,
+    timestamp = new Date().toISOString(),
+    eventUuid = '00000000-0000-0000-0000-000000000000',
+    distinctId = 'example-distinct-id',
+    personId = 'person-id',
+    personName = 'Jane Doe',
+    personEmail = 'jane@example.com',
+}: {
+    survey: SurveyExampleContext
+    projectId: number
+    projectName: string
+    projectUrl: string
+    source?: CyclotronJobInvocationGlobals['source']
+    timestamp?: string
+    eventUuid?: string
+    distinctId?: string
+    personId?: string
+    personName?: string
+    personEmail?: string
+}): CyclotronJobInvocationGlobals {
+    const responseProperties = Object.fromEntries(
+        (survey?.questions ?? [])
+            .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
+            .map((question, index) => [
+                getSurveyIdBasedResponseKey(question.id!),
+                getExampleSurveyResponseValue(question, index),
+            ])
+            .filter(([, value]) => value !== undefined)
+    )
+
+    return {
+        project: {
+            id: projectId,
+            name: projectName,
+            url: projectUrl,
+        },
+        event: {
+            event: SurveyEventName.SENT,
+            uuid: eventUuid,
+            distinct_id: distinctId,
+            timestamp,
+            elements_chain: '',
+            properties: {
+                [SurveyEventProperties.SURVEY_ID]: survey?.id && survey.id !== NEW_SURVEY.id ? survey.id : 'survey-id',
+                $survey_name: survey?.name || 'Survey',
+                [SurveyEventProperties.SURVEY_COMPLETED]: true,
+                [SurveyEventProperties.SURVEY_SUBMISSION_ID]: 'survey-submission-id',
+                ...responseProperties,
+            },
+            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(timestamp)}`,
+        },
+        person: {
+            id: personId,
+            name: personName,
+            url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+            properties: {
+                email: personEmail,
+            },
+        },
+        groups: {},
+        ...(source ? { source } : {}),
+    }
 }
 
 // Helper function to generate the response field keys with proper typing
@@ -1022,22 +1111,35 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function newSurveyNotificationUrl(surveyId: string, templateId: string = 'template-webhook'): string {
-    const filters = {
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    onlyCompletedResponses: boolean = true
+): CyclotronJobFiltersType {
+    const properties: EventPropertyFilter[] = [
+        {
+            key: SurveyEventProperties.SURVEY_ID,
+            type: PropertyFilterType.Event,
+            value: surveyId,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+
+    if (onlyCompletedResponses) {
+        properties.push({
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: true,
+            operator: PropertyOperator.Exact,
+        })
+    }
+
+    return {
         events: [
             {
                 id: SurveyEventName.SENT,
                 type: 'events',
-                properties: [
-                    {
-                        key: SurveyEventProperties.SURVEY_ID,
-                        type: PropertyFilterType.Event,
-                        value: surveyId,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
+                properties,
             },
         ],
     }
-    return combineUrl(urls.hogFunctionNew(templateId), {}, { configuration: { filters } }).url
 }

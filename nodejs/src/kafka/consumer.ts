@@ -28,6 +28,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -726,8 +727,18 @@ export class KafkaConsumer {
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
-                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-                    const stopBackgroundTaskTimer = result?.backgroundTask
+                    const rawBackgroundTask = result?.backgroundTask
+                    const backgroundTask = rawBackgroundTask
+                        ? instrumentFn(
+                              {
+                                  key: 'consumer_background_task',
+                                  timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                  sendException: false,
+                              },
+                              () => rawBackgroundTask
+                          )
+                        : Promise.resolve()
+                    const stopBackgroundTaskTimer = rawBackgroundTask
                         ? consumedBatchBackgroundDuration.startTimer({
                               topic: this.config.topic,
                               groupId: this.config.groupId,
@@ -778,7 +789,10 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0].promise
+                        await instrumentFn(
+                            { key: 'consumer_backpressure_wait', timeoutMs: 30_000, sendException: false },
+                            () => this.backgroundTask[0].promise
+                        )
                         stopTimer()
                     }
                 }

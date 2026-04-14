@@ -454,6 +454,102 @@ class AssistantPathCleaningFilter(BaseModel):
     )
 
 
+class Key5(StrEnum):
+    DURATION = "duration"
+    ACTIVE_SECONDS = "active_seconds"
+    INACTIVE_SECONDS = "inactive_seconds"
+    CONSOLE_ERROR_COUNT = "console_error_count"
+    CONSOLE_LOG_COUNT = "console_log_count"
+    CONSOLE_WARN_COUNT = "console_warn_count"
+    CLICK_COUNT = "click_count"
+    KEYPRESS_COUNT = "keypress_count"
+    ACTIVITY_SCORE = "activity_score"
+    VISITED_PAGE = "visited_page"
+    SNAPSHOT_SOURCE = "snapshot_source"
+
+
+class AssistantRecordingPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantNumericValuePropertyFilterOperator
+    type: Literal["recording"] = "recording"
+    value: float
+
+
+class AssistantRecordingPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ...,
+        description=("`exact` - exact match of any of the values. `is_not` - does not match any of the values."),
+    )
+    type: Literal["recording"] = "recording"
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If"
+            " you have a number, convert it to a string first. If you have a boolean,"
+            ' convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantRecordingPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantDateTimePropertyFilterOperator
+    type: Literal["recording"] = "recording"
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -1124,6 +1220,7 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
 
 
 class DataWarehouseSyncInterval(StrEnum):
+    FIELD_1MIN = "1min"
     FIELD_5MIN = "5min"
     FIELD_15MIN = "15min"
     FIELD_30MIN = "30min"
@@ -1294,6 +1391,13 @@ class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
+
+
+class Key10(StrEnum):
+    TAG_NAME = "tag_name"
+    TEXT = "text"
+    HREF = "href"
+    SELECTOR = "selector"
 
 
 class ElementType(BaseModel):
@@ -1627,6 +1731,16 @@ class MultipleVariantHandling(StrEnum):
     FIRST_SEEN = "first_seen"
 
 
+class Kind(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+
+
+class StartHandling(StrEnum):
+    FIRST_SEEN = "first_seen"
+    LAST_SEEN = "last_seen"
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1696,9 +1810,9 @@ class ExperimentMetricType(StrEnum):
     RETENTION = "retention"
 
 
-class StartHandling(StrEnum):
-    FIRST_SEEN = "first_seen"
-    LAST_SEEN = "last_seen"
+class PrecomputationMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    DIRECT = "direct"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -1718,6 +1832,18 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+
+
+class ExperimentVariant(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Variant key, e.g. 'control', 'test', 'variant_a'.")
+    name: str | None = Field(default=None, description="Human-readable variant name.")
+    rollout_percentage: float = Field(
+        ...,
+        description=("Percentage of users assigned to this variant (0–100). All variants must sum to 100."),
+    )
 
 
 class ExperimentVariantFunnelsBaseStats(BaseModel):
@@ -3471,6 +3597,7 @@ class ProductKey(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
+    SUBSCRIPTIONS = "subscriptions"
     SURVEYS = "surveys"
     TASKS = "tasks"
     TEAMS = "teams"
@@ -3625,7 +3752,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3966,6 +4093,14 @@ class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
     UNKNOWN = "unknown"
+
+
+class SummaryOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    success: bool | None = None
 
 
 class SessionReplayBlock(BaseModel):
@@ -4732,6 +4867,17 @@ class WebsiteBrowsingHistoryProdInterest(StrEnum):
     ENDPOINTS = "endpoints"
 
 
+class WorkflowVariablePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["workflow_variable"] = "workflow_variable"
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class Scale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
@@ -5415,6 +5561,75 @@ class AssistantPathsFilter(BaseModel):
     )
 
 
+class AssistantRecordingPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case"
+            " insensitive does not contain. `regex` - matches the regex pattern."
+            " `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Literal["recording"] = "recording"
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or"
+            " `not_regex`, the value must be a valid ClickHouse regex pattern to match"
+            " against. Otherwise, the value must be a substring that will be matched"
+            " against the property value. Use the string values `true` or `false` for"
+            " boolean properties."
+        ),
+    )
+
+
+class AssistantRecordingPropertyFilter5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: Key5 = Field(
+        ...,
+        description=(
+            "Recording metric to filter on.\n- `duration` — total recording duration in"
+            " seconds.\n- `active_seconds` — seconds with user activity.\n-"
+            " `inactive_seconds` — seconds without user activity.\n-"
+            " `console_error_count` — number of console errors.\n- `console_log_count`"
+            " — number of console log entries.\n- `console_warn_count` — number of"
+            " console warnings.\n- `click_count` — number of clicks.\n-"
+            " `keypress_count` — number of key presses.\n- `activity_score` — computed"
+            " activity score (0-100).\n- `visited_page` — URL visited during the"
+            ' session.\n- `snapshot_source` — the recording source (e.g. "web",'
+            ' "mobile").'
+        ),
+    )
+    operator: AssistantSetPropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`is_set` - the property has any value. `is_not_set` - the property doesn't"
+            " have a value or wasn't collected."
+        ),
+    )
+    type: Literal["recording"] = "recording"
+
+
 class AssistantRetentionActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5992,7 +6207,7 @@ class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    key: Key
+    key: Key10
     label: str | None = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
@@ -6006,6 +6221,51 @@ class EmbeddingDistance(BaseModel):
     distance: float
     origin: EmbeddingRecord | None = None
     result: EmbeddingRecord
+
+
+class EndpointRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: str | None = Field(
+        default=None,
+        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
+    )
+    debug: bool | None = Field(
+        default=False,
+        description=("Whether to include debug information (such as the executed HogQL) in the response."),
+    )
+    limit: int | None = Field(
+        default=None,
+        description=("Maximum number of results to return. If not provided, returns all results."),
+    )
+    offset: int | None = Field(
+        default=None,
+        description=(
+            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
+        ),
+    )
+    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
+    variables: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
+        ),
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
+    )
 
 
 class EndpointsUsageOverviewItem(BaseModel):
@@ -6133,6 +6393,75 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
+class ExperimentApiEventSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = Field(
+        default=None,
+        description="Event name, e.g. '$pageview'. Required for EventsNode.",
+    )
+    id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
+    kind: Kind
+    properties: list[EventPropertyFilter] | None = Field(
+        default=None,
+        description="Event property filters to narrow which events are counted.",
+    )
+
+
+class ExperimentApiExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str = Field(..., description="Custom exposure event name.")
+    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    properties: list[EventPropertyFilter] = Field(
+        ...,
+        description="Event property filters. Pass an empty array if no filters needed.",
+    )
+
+
+class ExperimentApiExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: ExperimentApiExposureConfig | None = None
+    filterTestAccounts: bool | None = None
+
+
+class ExperimentApiMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    completion_event: ExperimentApiEventSource | None = Field(
+        default=None, description="For retention metrics: completion event."
+    )
+    conversion_window: int | None = Field(default=None, description="Conversion window duration.")
+    denominator: ExperimentApiEventSource | None = Field(
+        default=None, description="For ratio metrics: denominator source."
+    )
+    goal: ExperimentMetricGoal | None = Field(
+        default=None, description="Whether higher or lower values indicate success."
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_type: ExperimentMetricType
+    name: str | None = Field(default=None, description="Human-readable metric name.")
+    numerator: ExperimentApiEventSource | None = Field(default=None, description="For ratio metrics: numerator source.")
+    retention_window_end: int | None = None
+    retention_window_start: int | None = None
+    retention_window_unit: FunnelConversionWindowTimeUnit | None = None
+    series: list[ExperimentApiEventSource] | None = Field(
+        default=None,
+        description="For funnel metrics: array of EventsNode/ActionsNode steps.",
+    )
+    source: ExperimentApiEventSource | None = Field(default=None, description="For mean metrics: event source.")
+    start_event: ExperimentApiEventSource | None = Field(
+        default=None, description="For retention metrics: start event."
+    )
+    start_handling: StartHandling | None = None
+    uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6160,6 +6489,23 @@ class ExperimentMetricBaseProperties(BaseModel):
     sharedMetricId: float | None = None
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentParameters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    feature_flag_variants: list[ExperimentVariant] | None = Field(
+        default=None,
+        description=("Experiment variants. If not specified, defaults to a 50/50 control/test split."),
+    )
+    minimum_detectable_effect: float | None = Field(
+        default=None,
+        description=(
+            "Minimum detectable effect as a percentage. Lower values need more users"
+            " but catch smaller changes. Suggest 20–30% for most experiments."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):
@@ -6724,7 +7070,9 @@ class MultiQuestionFormQuestion(BaseModel):
     )
     allow_custom_answer: bool | None = Field(
         default=None,
-        description=('Whether to show a "Type your answer" option (default: true). Only used for select type.'),
+        description=(
+            'Whether to show a "Type your answer" option (default: true). Used for select and multi_select types.'
+        ),
     )
     fields: list[MultiQuestionFormField] | None = Field(
         default=None,
@@ -6898,7 +7246,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7482,6 +7830,7 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
+    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -8869,6 +9218,85 @@ class AssistantPathsQuery(BaseModel):
     samplingFactor: float | None = Field(
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
+    )
+
+
+class AssistantRecordingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str | None = Field(
+        default=None,
+        description=("Cursor for pagination from a previous response's next_cursor field."),
+    )
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            'Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d".'
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=("End of the date range. Supports relative dates or ISO 8601 format. Default: now."),
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None, description="Exclude internal and test users. Default: false."
+    )
+    kind: Literal["RecordingsQuery"] = "RecordingsQuery"
+    limit: int | None = Field(default=None, description="Maximum number of recordings to return.")
+    order: RecordingOrder | None = Field(
+        default=None,
+        description=(
+            'Sort field. Options: "start_time", "duration", "activity_score",'
+            ' "console_error_count", "click_count". Default: "start_time".'
+        ),
+    )
+    order_direction: RecordingOrderDirection | None = Field(
+        default=None, description='Sort direction: "ASC" or "DESC". Default: "DESC".'
+    )
+    person_uuid: str | None = Field(
+        default=None,
+        description="Filter recordings to a specific person by their UUID.",
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+            | AssistantRecordingPropertyFilter1
+            | AssistantRecordingPropertyFilter2
+            | AssistantRecordingPropertyFilter3
+            | AssistantRecordingPropertyFilter4
+            | AssistantRecordingPropertyFilter5
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Property filters to narrow results. Each filter has a `key`, `value`,"
+            " `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person"
+            " properties (e.g. email, country).\n- `session`: Filter by session"
+            " properties (e.g. $session_duration, $channel_type,"
+            " $entry_current_url).\n- `event`: Filter by properties of events in the"
+            " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
+            " recording metrics (e.g. console_error_count, click_count,"
+            " activity_score)."
+        ),
     )
 
 
@@ -10310,6 +10738,48 @@ class CachedPropertyValuesQueryResponse(BaseModel):
     )
 
 
+class CachedRecordingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    next_cursor: str | None = Field(
+        default=None,
+        description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
+    )
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SessionRecordingType]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
 class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11541,6 +12011,7 @@ class ConversionGoalFilter1(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11590,6 +12061,7 @@ class ConversionGoalFilter1(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11626,6 +12098,7 @@ class ConversionGoalFilter2(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11674,6 +12147,7 @@ class ConversionGoalFilter2(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11712,6 +12186,7 @@ class ConversionGoalFilter3(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -11761,6 +12236,7 @@ class ConversionGoalFilter3(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -11800,6 +12276,7 @@ class DashboardFilter(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -12429,6 +12906,7 @@ class DataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12478,6 +12956,7 @@ class DataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12556,52 +13035,6 @@ class ECODDetectorConfig(BaseModel):
         description=(
             "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
         ),
-    )
-
-
-class EndpointRunRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    client_query_id: str | None = Field(
-        default=None,
-        description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
-    )
-    debug: bool | None = Field(
-        default=False,
-        description=("Whether to include debug information (such as the executed HogQL) in the response."),
-    )
-    filters_override: DashboardFilter | None = None
-    limit: int | None = Field(
-        default=None,
-        description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    offset: int | None = Field(
-        default=None,
-        description=(
-            "Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints."
-        ),
-    )
-    refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
-    variables: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Variables to parameterize the endpoint query. The key is the variable name"
-            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
-            " match a variable `code_name` defined in the query (referenced as"
-            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
-            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
-            " and `date_to` are built-in variables that filter the date range.    "
-            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
-            " materialized insight endpoints:   - Use the breakdown property name as"
-            ' the key to filter by breakdown value.     Example: `{"$browser":'
-            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
-            " insight endpoints.\n\nUnknown variable names will return a 400 error."
-        ),
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Specific endpoint version to execute. If not provided, the latest version is used."),
     )
 
 
@@ -12714,6 +13147,7 @@ class EntityNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -12761,6 +13195,7 @@ class EntityNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -12851,6 +13286,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -12997,6 +13433,7 @@ class EventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13046,6 +13483,7 @@ class EventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13081,6 +13519,7 @@ class EventsQueryActionStep(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13174,6 +13613,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13221,6 +13661,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13256,6 +13697,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | LogPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
     ]
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -13288,6 +13730,7 @@ class FeatureFlagGroupType(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13354,6 +13797,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13404,6 +13848,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13438,6 +13883,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13489,6 +13935,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13524,6 +13971,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13573,6 +14021,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -13707,6 +14156,7 @@ class HogQLFilters(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -13877,6 +14327,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -13925,6 +14376,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -14310,6 +14762,7 @@ class PersonsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -14341,6 +14794,7 @@ class PersonsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -14386,6 +14840,7 @@ class PropertyGroupFilterValue(BaseModel):
         | LogPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
     ]
 
 
@@ -15994,6 +16449,37 @@ class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    has_next: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_cursor: str | None = Field(
+        default=None,
+        description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SessionRecordingType]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class QueryResponseAlternative75(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -16021,7 +16507,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16048,7 +16534,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16074,7 +16560,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16098,35 +16584,6 @@ class QueryResponseAlternative77(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: Any
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-
-
-class QueryResponseAlternative79(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16155,7 +16612,7 @@ class QueryResponseAlternative80(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[EventTaxonomyItem]
+    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16163,6 +16620,35 @@ class QueryResponseAlternative80(BaseModel):
 
 
 class QueryResponseAlternative81(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EventTaxonomyItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+
+
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16188,7 +16674,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16218,7 +16704,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16244,7 +16730,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16270,7 +16756,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16296,7 +16782,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16327,7 +16813,7 @@ class QueryResponseAlternative88(BaseModel):
     types: list | None = None
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16353,7 +16839,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16383,12 +16869,31 @@ class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
     has_next: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_cursor: str | None = Field(
         default=None,
         description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
     )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
     results: list[SessionRecordingType]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
 
 
 class RetentionEntity(BaseModel):
@@ -16421,6 +16926,7 @@ class RetentionEntity(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="filters on the event")
@@ -16804,6 +17310,7 @@ class TileFilters(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -16839,6 +17346,7 @@ class TraceNeighborsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16877,6 +17385,7 @@ class TraceQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -16921,6 +17430,7 @@ class TracesQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -17361,6 +17871,7 @@ class ActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -17409,6 +17920,7 @@ class ActionsNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -18090,7 +18602,7 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     )
     funnel_order_type: StepOrderValue | None = None
     metric_type: Literal["funnel"] = "funnel"
-    series: list[EventsNode | ActionsNode]
+    series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
 
 
 class ExperimentHoldoutType(BaseModel):
@@ -18609,6 +19121,7 @@ class RecordingsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -18651,6 +19164,7 @@ class RecordingsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -18703,6 +19217,7 @@ class RetentionQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18756,6 +19271,7 @@ class StickinessQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -18985,6 +19501,7 @@ class CalendarHeatmapQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19170,6 +19687,10 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
     )
+    useQueryV3: bool | None = Field(
+        default=None,
+        description=("Use V3 query path (denormalized ClickHouse table, no Postgres joins)"),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None
@@ -19210,7 +19731,7 @@ class ExperimentFunnelMetric(BaseModel):
     metric_type: Literal["funnel"] = "funnel"
     name: str | None = None
     response: dict[str, Any] | None = None
-    series: list[EventsNode | ActionsNode]
+    series: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
     sharedMetricId: float | None = None
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -19330,6 +19851,7 @@ class GroupNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -19383,6 +19905,7 @@ class GroupNode(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -19424,6 +19947,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19468,6 +19992,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19512,6 +20037,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19556,6 +20082,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19600,6 +20127,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19644,6 +20172,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19718,6 +20247,7 @@ class LifecycleQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -19869,11 +20399,12 @@ class SessionsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
         default=None,
-        description=("Event property filters - only applies when event or actionId is set"),
+        description=("Event property filters - filters sessions that contain events matching these properties"),
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
@@ -19899,6 +20430,7 @@ class SessionsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -19932,6 +20464,7 @@ class SessionsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -20003,6 +20536,7 @@ class TrendsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -20167,6 +20701,40 @@ class Response24(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
+class EndpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_overrides: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Per-column bucket function overrides for range variable materialization."
+            " Keys are column names, values are bucket keys (hour, day, week, month)."
+        ),
+    )
+    cache_age_seconds: float | None = None
+    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
+    derived_from_insight: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    is_materialized: bool | None = Field(
+        default=None,
+        description="Whether this endpoint's query results are materialized to S3",
+    )
+    name: str | None = None
+    query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
+        None
+    )
+    sync_frequency: DataWarehouseSyncInterval | None = Field(
+        default=None,
+        description="How frequently should the underlying materialized view be updated",
+    )
+    version: int | None = Field(
+        default=None,
+        description=("Target a specific version for updates (optional, defaults to current version)"),
+    )
+
+
 class ExperimentMetricTimeseries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20192,6 +20760,7 @@ class ExperimentQuery(BaseModel):
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
+    precomputation_mode: PrecomputationMode | None = None
     response: ExperimentQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -20254,6 +20823,7 @@ class FunnelsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -20430,13 +21000,14 @@ class QueryResponseAlternative(
         | QueryResponseAlternative80
         | QueryResponseAlternative81
         | QueryResponseAlternative82
-        | QueryResponseAlternative84
+        | QueryResponseAlternative83
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
+        | QueryResponseAlternative91
     ]
 ):
     root: (
@@ -20517,13 +21088,14 @@ class QueryResponseAlternative(
         | QueryResponseAlternative80
         | QueryResponseAlternative81
         | QueryResponseAlternative82
-        | QueryResponseAlternative84
+        | QueryResponseAlternative83
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
+        | QueryResponseAlternative91
     )
 
 
@@ -20624,6 +21196,13 @@ class ExperimentActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exposureConfig: ExperimentEventExposureConfig | ActionsNode | None = Field(
+        default=None,
+        description=(
+            "Exposure configuration for filtering events. Defines when users were first exposed to the experiment."
+        ),
+    )
+    featureFlagKey: str | None = Field(default=None, description="Feature flag key for breakdown filtering.")
     funnelStep: int | None = Field(
         default=None,
         description=(
@@ -20642,6 +21221,9 @@ class ExperimentActorsQuery(BaseModel):
     includeRecordings: bool | None = None
     kind: Literal["ExperimentActorsQuery"] = "ExperimentActorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    multipleVariantHandling: MultipleVariantHandling | None = Field(
+        default=None, description="How to handle users with multiple variant exposures."
+    )
     response: ActorsQueryResponse | None = None
     source: ExperimentQuery
     tags: QueryLogTags | None = None
@@ -20779,6 +21361,7 @@ class PathsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | PropertyGroupFilter
         | None
@@ -21017,49 +21600,6 @@ class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs1 | None = None
 
 
-class EndpointRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket_overrides: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Per-column bucket function overrides for range variable materialization."
-            " Keys are column names, values are bucket keys (hour, day, week, month)."
-        ),
-    )
-    cache_age_seconds: float | None = None
-    deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
-    derived_from_insight: str | None = None
-    description: str | None = None
-    is_active: bool | None = None
-    is_materialized: bool | None = Field(
-        default=None,
-        description="Whether this endpoint's query results are materialized to S3",
-    )
-    name: str | None = None
-    query: (
-        HogQLQuery
-        | TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | PathsQuery
-        | StickinessQuery
-        | LifecycleQuery
-        | WebStatsTableQuery
-        | WebOverviewQuery
-        | None
-    ) = None
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
-    )
-    version: int | None = Field(
-        default=None,
-        description=("Target a specific version for updates (optional, defaults to current version)"),
-    )
-
-
 class FunnelCorrelationActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21087,6 +21627,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = None
@@ -21189,6 +21730,7 @@ class SessionBatchEventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -21226,6 +21768,7 @@ class SessionBatchEventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -21329,6 +21872,7 @@ class EventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(
@@ -21362,6 +21906,7 @@ class EventsQuery(BaseModel):
             | LogPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
+            | WorkflowVariablePropertyFilter
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
@@ -21807,6 +22352,7 @@ class MaxInsightContext(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -21922,6 +22468,7 @@ class QueryRequest(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22030,6 +22577,7 @@ class QuerySchemaRoot(
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22108,6 +22656,7 @@ class QuerySchemaRoot(
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22191,6 +22740,7 @@ class QueryUpgradeRequest(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22274,6 +22824,7 @@ class QueryUpgradeResponse(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery
@@ -22498,6 +23049,7 @@ class VisualizationArtifactContent(BaseModel):
         | LifecycleQuery
         | FunnelCorrelationQuery
         | DatabaseSchemaQuery
+        | RecordingsQuery
         | LogsQuery
         | LogAttributesQuery
         | LogValuesQuery

@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db import OperationalError
 
 import structlog
 import posthoganalytics
@@ -29,16 +28,30 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
     OFFSET_COMMITS_TOTAL,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.config import ConsumerConfig
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker import (
+    TRANSIENT_ERRORS,
+    RetryExhaustedError,
+    classify_error,
+    clear_retry_info,
+    get_retry_info,
+    increment_retry_count,
+    is_retry_exhausted,
+    update_retry_error_type,
+)
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
 
-TRANSIENT_ERRORS = (
-    OperationalError,  # Database connection issues
-    ConnectionError,
-    TimeoutError,
-    OSError,
-)
+
+def _extract_message_key(message: dict) -> Optional[tuple[int, str, str, int]]:
+    """Extract retry tracking key fields from a message.
+
+    Returns (team_id, schema_id, run_uuid, batch_index) or None if fields are missing.
+    """
+    try:
+        return (message["team_id"], message["schema_id"], message["run_uuid"], message["batch_index"])
+    except (KeyError, TypeError):
+        return None
 
 
 class KafkaConsumerService:
@@ -233,80 +246,150 @@ class KafkaConsumerService:
     def _process_batch_with_retry(
         self, messages: list[Any], health_reporter: Optional[Callable[[], None]] = None
     ) -> None:
-        """Process a batch of messages with retry logic for transient errors.
+        """Process a batch of messages with persistent retry tracking.
 
-        Non-transient errors on individual messages are sent to the DLQ so a
-        single poison pill cannot block the partition.  Transient errors
-        (infrastructure) still retry the whole batch and crash if exhausted
-        — that is the right signal for the orchestrator to restart us.
+        Each message's retry count is tracked in Redis so that retries survive
+        OOM process crashes. On each delivery the counter is pre-incremented
+        before processing, so a crash mid-processing still counts as an attempt.
+
+        Transient errors (DB connection, network) get up to 9 attempts.
+        Non-transient or unknown errors (including OOM crashes) get up to 3.
+        When retries are exhausted the message goes to the DLQ and the job is
+        marked as failed.
         """
         assert self._consumer is not None
 
-        dlq_indices: set[int] = set()
+        dlq_count = 0
 
+        for message in messages:
+            team_id = str(message.get("team_id") or "unknown")
+            schema_id = str(message.get("schema_id") or "unknown")
+
+            msg_key = _extract_message_key(message)
+
+            if msg_key is None:
+                # Can't track retries without identifiers — process directly
+                with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
+                    self._process_message(message)
+                MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+                if health_reporter:
+                    health_reporter()
+                continue
+
+            # Check if retries are already exhausted from a previous delivery
+            retry_info = get_retry_info(*msg_key)
+            if is_retry_exhausted(retry_info):
+                error = RetryExhaustedError(retry_info)
+                logger.warning(
+                    "retry_exhausted",
+                    team_id=team_id,
+                    schema_id=schema_id,
+                    retry_count=retry_info.count,
+                    error_type=retry_info.error_type,
+                    last_error=retry_info.last_error,
+                )
+                self._send_to_dlq(message, error)
+                self._mark_job_failed_from_message(message, error)
+                clear_retry_info(*msg_key)
+                MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
+                DLQ_MESSAGES_TOTAL.labels(team_id=team_id, schema_id=schema_id, error_type="RetryExhausted").inc()
+                BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=retry_info.error_type or "unknown").inc()
+                dlq_count += 1
+                continue
+
+            # Pre-increment counter before processing (survives OOM)
+            retry_info = increment_retry_count(*msg_key)
+
+            try:
+                self._process_single_with_inprocess_retry(message, health_reporter)
+
+                # Success — clear retry info
+                clear_retry_info(*msg_key)
+                MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+
+            except Exception as e:
+                # Classify error and persist to Redis
+                error_class = classify_error(e)
+                update_retry_error_type(*msg_key, error_type=error_class, last_error=str(e))
+
+                capture_exception(e)
+                logger.exception(
+                    "message_processing_failed",
+                    error_type=type(e).__name__,
+                    error_class=error_class,
+                    retry_count=retry_info.count,
+                )
+
+                BATCH_RETRY_TOTAL.labels(attempt=str(retry_info.count), error_type=type(e).__name__).inc()
+
+                if is_retry_exhausted(retry_info):
+                    # Exhausted after this attempt — DLQ and mark failed
+                    self._send_to_dlq(message, e)
+                    self._mark_job_failed_from_message(message, e)
+                    clear_retry_info(*msg_key)
+                    MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
+                    DLQ_MESSAGES_TOTAL.labels(team_id=team_id, schema_id=schema_id, error_type=type(e).__name__).inc()
+                    BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=error_class).inc()
+                    dlq_count += 1
+                else:
+                    # Not exhausted — re-raise to prevent offset commit.
+                    # Kafka will redeliver the entire batch; already-processed
+                    # messages are skipped by the idempotency check.
+                    raise
+
+        # All messages handled (success or DLQ) — commit offsets
+        try:
+            self._consumer.commit()
+            OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+        except Exception:
+            OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+            raise
+        processed = len(messages) - dlq_count
+        logger.debug("batch_committed", message_count=processed, dlq_count=dlq_count)
+
+    def _process_single_with_inprocess_retry(
+        self, message: Any, health_reporter: Optional[Callable[[], None]] = None
+    ) -> None:
+        """Process a single message with in-process retries for transient errors.
+
+        This handles fast-recovering transient errors (e.g. brief DB connection
+        blip) without needing a full Kafka redeliver cycle. The persistent retry
+        tracker in Redis is the outer safety net for process crashes.
+        """
+        team_id = str(message.get("team_id") or "unknown")
+        schema_id = str(message.get("schema_id") or "unknown")
         for attempt in range(self._config.max_retries):
             try:
-                for i, message in enumerate(messages):
-                    if i in dlq_indices:
-                        continue
-
-                    team_id = str(message.get("team_id") or "unknown")
-                    schema_id = str(message.get("schema_id") or "unknown")
-
-                    try:
-                        with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
-                            self._process_message(message)
-                        MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
-                        if health_reporter:
-                            health_reporter()
-                    except TRANSIENT_ERRORS:
-                        raise
-                    except Exception as e:
-                        logger.exception(
-                            "message_processing_failed",
-                            error_type=type(e).__name__,
-                        )
-                        capture_exception(e)
-                        try:
-                            self._send_to_dlq(message, e)
-                            dlq_indices.add(i)
-                            MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
-                            DLQ_MESSAGES_TOTAL.labels(
-                                team_id=team_id, schema_id=schema_id, error_type=type(e).__name__
-                            ).inc()
-                        except Exception:
-                            raise e
-
-                try:
-                    self._consumer.commit()
-                    OFFSET_COMMITS_TOTAL.labels(status="success").inc()
-                except Exception:
-                    OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
-                    raise
-                processed = len(messages) - len(dlq_indices)
-                logger.debug("batch_committed", message_count=processed, dlq_count=len(dlq_indices))
+                with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
+                    self._process_message(message)
+                if health_reporter:
+                    health_reporter()
                 return
             except TRANSIENT_ERRORS as e:
                 BATCH_RETRY_TOTAL.labels(attempt=str(attempt + 1), error_type=type(e).__name__).inc()
-
                 if attempt == self._config.max_retries - 1:
-                    BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=type(e).__name__).inc()
-                    logger.exception(
-                        "batch_processing_failed_after_retries",
-                        attempts=self._config.max_retries,
-                        error_type=type(e).__name__,
-                    )
-                    capture_exception(e)
                     raise
                 backoff = self._config.retry_backoff_seconds * (2**attempt)
                 logger.warning(
-                    "transient_error_retrying",
+                    "transient_error_inprocess_retry",
                     attempt=attempt + 1,
                     max_retries=self._config.max_retries,
                     backoff_seconds=backoff,
                     error_type=type(e).__name__,
                 )
                 time.sleep(backoff)
+
+    def _mark_job_failed_from_message(self, message: Any, error: Exception) -> None:
+        """Mark the job as failed when persistent retries are exhausted."""
+        try:
+            from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage
+            from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import _mark_job_failed
+
+            export_signal = ExportSignalMessage.from_dict(message)
+            _mark_job_failed(export_signal, error)
+        except Exception as e:
+            logger.exception("failed_to_mark_job_failed", error_type=type(e).__name__)
+            capture_exception(e)
 
     def _cleanup(self) -> None:
         logger.info("consumer_shutting_down")

@@ -41,13 +41,16 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
         mcp_region: identity.getRegion(),
     }
 
-    // For tags, we need to override MCPcat's default $session_id with our own PostHog session UUID.
+    // For tags, we need to override MCPcat's default $session_id and $ai_session_id with our own
+    // PostHog session UUID. $session_id drives Session Replay; $ai_session_id is what LLM Analytics
+    // groups traces by — without overriding it, MCPcat's exporter falls back to `mcpcat_<ksuid>`.
     // We can't just do this with a single object because the type returned must be `Record<string, string>`,
     // so we need some shenanigans here.
     const sessionUuid = await identity.getSessionUuid()
     const eventTags: Record<string, string> = {}
     if (sessionUuid) {
         eventTags.$session_id = sessionUuid
+        eventTags.$ai_session_id = sessionUuid
     }
 
     // Compute the distinct ID only once and include with every single event

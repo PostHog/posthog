@@ -11,7 +11,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
+import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -19,6 +19,47 @@ import type { userLogicType } from './userLogicType'
 export interface UserDetailsFormType {
     first_name: string
     email: string
+}
+
+type DigestProjectSettingKey =
+    | 'error_tracking_weekly_digest_project_enabled'
+    | 'web_analytics_weekly_digest_project_enabled'
+
+function updateDigestProjectSetting(
+    key: DigestProjectSettingKey,
+    teamId: number,
+    enabled: boolean,
+    values: { user: UserType | null },
+    actions: { updateUser: (user: Partial<UserType>) => void }
+): void {
+    if (!values.user?.notification_settings) {
+        return
+    }
+    actions.updateUser({
+        notification_settings: {
+            ...values.user.notification_settings,
+            [key]: { ...values.user.notification_settings[key], [teamId]: enabled },
+        },
+    })
+}
+
+function updateDigestProjectSettings(
+    key: DigestProjectSettingKey,
+    teamIds: number[],
+    enabled: boolean,
+    values: { user: UserType | null },
+    actions: { updateUser: (user: Partial<UserType>) => void }
+): void {
+    if (!values.user?.notification_settings) {
+        return
+    }
+    const projectSettings: Record<string, boolean> = { ...values.user.notification_settings[key] }
+    teamIds?.forEach((teamId) => {
+        projectSettings[teamId] = enabled
+    })
+    actions.updateUser({
+        notification_settings: { ...values.user.notification_settings, [key]: projectSettings } as NotificationSettings,
+    })
 }
 
 export const userLogic = kea<userLogicType>([
@@ -41,6 +82,8 @@ export const userLogic = kea<userLogicType>([
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
         updateETWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateETWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
+        updateWAWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        updateWAWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
         updateMemberJoinEmailForOrganization: (organizationId: string, enabled: boolean) => ({
             organizationId,
             enabled,
@@ -320,38 +363,28 @@ export const userLogic = kea<userLogicType>([
             })
         },
         updateETWeeklyDigestForTeam: ({ teamId, enabled }) => {
-            if (!values.user?.notification_settings) {
-                return
-            }
-
-            actions.updateUser({
-                notification_settings: {
-                    ...values.user.notification_settings,
-                    error_tracking_weekly_digest_project_enabled: {
-                        ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
-                        [teamId]: enabled,
-                    },
-                },
-            })
+            updateDigestProjectSetting('error_tracking_weekly_digest_project_enabled', teamId, enabled, values, actions)
         },
         updateETWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
-            if (!values.user?.notification_settings) {
-                return
-            }
-
-            const etProjectSettings = {
-                ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
-            }
-            teamIds?.forEach((teamId) => {
-                etProjectSettings[teamId] = enabled
-            })
-
-            actions.updateUser({
-                notification_settings: {
-                    ...values.user.notification_settings,
-                    error_tracking_weekly_digest_project_enabled: etProjectSettings,
-                },
-            })
+            updateDigestProjectSettings(
+                'error_tracking_weekly_digest_project_enabled',
+                teamIds,
+                enabled,
+                values,
+                actions
+            )
+        },
+        updateWAWeeklyDigestForTeam: ({ teamId, enabled }) => {
+            updateDigestProjectSetting('web_analytics_weekly_digest_project_enabled', teamId, enabled, values, actions)
+        },
+        updateWAWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+            updateDigestProjectSettings(
+                'web_analytics_weekly_digest_project_enabled',
+                teamIds,
+                enabled,
+                values,
+                actions
+            )
         },
         updateMemberJoinEmailForOrganization: ({ organizationId, enabled }) => {
             if (!values.user?.notification_settings) {

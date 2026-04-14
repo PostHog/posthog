@@ -14,6 +14,7 @@ import {
 } from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -138,26 +139,30 @@ export class SessionRecordingIngester {
         }
 
         const outputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: [
-                { topic: KAFKA_INGESTION_WARNINGS, producer: kafkaMetadataProducer, producerName: 'default' },
-            ],
-            [DLQ_OUTPUT]: [
-                {
-                    topic: config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
-                    producer: kafkaMessageProducer,
-                    producerName: 'default',
-                },
-            ],
-            [OVERFLOW_OUTPUT]: [
-                {
-                    topic: config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC,
-                    producer: kafkaMessageProducer,
-                    producerName: 'default',
-                },
-            ],
-            [TOPHOG_OUTPUT]: [
-                { topic: KAFKA_CLICKHOUSE_TOPHOG, producer: kafkaMetadataProducer, producerName: 'default' },
-            ],
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                kafkaMetadataProducer,
+                'default'
+            ),
+            [DLQ_OUTPUT]: new SingleIngestionOutput(
+                DLQ_OUTPUT,
+                config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
+                kafkaMessageProducer,
+                'default'
+            ),
+            [OVERFLOW_OUTPUT]: new SingleIngestionOutput(
+                OVERFLOW_OUTPUT,
+                config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC,
+                kafkaMessageProducer,
+                'default'
+            ),
+            [TOPHOG_OUTPUT]: new SingleIngestionOutput(
+                TOPHOG_OUTPUT,
+                KAFKA_CLICKHOUSE_TOPHOG,
+                kafkaMetadataProducer,
+                'default'
+            ),
         })
 
         this.topHog = new TopHog({
