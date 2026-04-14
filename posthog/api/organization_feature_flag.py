@@ -92,7 +92,8 @@ class OrganizationFeatureFlagView(
         cached = cache.get(cache_key)
         if cached is None:
             cached = get_evaluations_7d_by_team(feature_flag_key, flag_team_ids)
-            cache.set(cache_key, cached, timeout=300)
+            if cached[1]:  # only cache when the helper reports success
+                cache.set(cache_key, cached, timeout=300)
         counts_by_team, evals_available = cached
 
         flags_data = [

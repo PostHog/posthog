@@ -1344,3 +1344,18 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
         for entry in body:
             assert entry["evaluations_7d"] == 0
             assert entry["evaluations_7d_available"] is False
+
+    def test_failure_results_are_not_cached(self):
+        with patch(
+            "posthog.api.organization_feature_flag.get_evaluations_7d_by_team",
+            side_effect=[
+                ({self.team.id: 0, self.other_team.id: 0}, False),
+                ({self.team.id: 7, self.other_team.id: 3}, True),
+            ],
+        ) as spy:
+            first = self.client.get(self._url("shared_flag")).json()
+            second = self.client.get(self._url("shared_flag")).json()
+
+        assert spy.call_count == 2
+        assert {entry["evaluations_7d_available"] for entry in first} == {False}
+        assert {entry["evaluations_7d_available"] for entry in second} == {True}
