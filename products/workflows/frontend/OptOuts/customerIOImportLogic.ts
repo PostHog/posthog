@@ -211,9 +211,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             try {
                 await new ApiRequest().messagingCategoriesRemoveCustomerIOAppIntegration().delete()
                 actions.resetImport()
-                actions.loadSyncConfig()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to remove integration')
+            } finally {
+                actions.loadSyncConfig()
             }
         },
         rerunImport: async () => {
@@ -233,10 +234,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setImportProgress: ({ importProgress }) => {
             if (importProgress.status === 'completed') {
                 lemonToast.success('Customer.io API import completed!')
-                // Refresh the categories list without reloading the page
-                if (window.location.pathname.includes('workflows')) {
-                    optOutCategoriesLogic.actions.loadCategories()
-                }
+                optOutCategoriesLogic.findMounted()?.actions.loadCategories()
             } else if (importProgress.status === 'failed') {
                 const errorMessage = importProgress.errors?.join(', ') || 'Import failed'
                 lemonToast.error(errorMessage)
@@ -280,10 +278,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 if (data.status === 'completed') {
                     lemonToast.success('CSV import completed.')
                     actions.loadSyncConfig()
-                    // Refresh categories
-                    if (window.location.pathname.includes('workflows')) {
-                        optOutCategoriesLogic.actions.loadCategories()
-                    }
+                    optOutCategoriesLogic.findMounted()?.actions.loadCategories()
                 } else if (data.status === 'failed') {
                     lemonToast.error(data.details || 'CSV import failed')
                 }
