@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use flags_consumer::storage::{
+use crate::storage::{
     postgres::PostgresStorage,
     types::{DistinctIdAssignmentData, PersonUpdateData},
 };
@@ -11,9 +11,9 @@ use rand::{Rng, SeedableRng};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::config::BenchmarkConfig;
-use crate::data_gen::{generate_properties, select_team_weighted, BenchmarkData};
-use crate::metrics::{self, LatencyStats, PgSnapshot};
+use super::data_gen::{generate_properties, select_team_weighted, BenchmarkData};
+use super::metrics::{self, LatencyStats, PgSnapshot};
+use super::BenchmarkArgs;
 
 /// Result of a single workload phase.
 pub struct PhaseResult {
@@ -33,19 +33,19 @@ pub struct PhaseResult {
 pub async fn phase_property_updates(
     pool: &PgPool,
     data: &BenchmarkData,
-    config: &BenchmarkConfig,
+    args: &BenchmarkArgs,
 ) -> anyhow::Result<PhaseResult> {
     let before = metrics::capture_snapshot(pool).await?;
-    let deadline = Instant::now() + Duration::from_secs(config.duration_secs);
+    let deadline = Instant::now() + Duration::from_secs(args.duration_secs);
     let version_counter = Arc::new(AtomicI64::new(100));
     let error_counter = Arc::new(AtomicU64::new(0));
 
-    let mut handles = Vec::with_capacity(config.concurrency);
+    let mut handles = Vec::with_capacity(args.concurrency);
 
-    for task_id in 0..config.concurrency {
+    for task_id in 0..args.concurrency {
         let storage = PostgresStorage::new(pool.clone());
         let persons = data.persons.clone();
-        let batch_size = config.batch_size;
+        let batch_size = args.batch_size;
         let version_counter = version_counter.clone();
         let error_counter = error_counter.clone();
 
@@ -118,16 +118,16 @@ pub async fn phase_property_updates(
 pub async fn phase_identification_appends(
     pool: &PgPool,
     data: &BenchmarkData,
-    config: &BenchmarkConfig,
+    args: &BenchmarkArgs,
 ) -> anyhow::Result<PhaseResult> {
     let before = metrics::capture_snapshot(pool).await?;
-    let deadline = Instant::now() + Duration::from_secs(config.duration_secs);
+    let deadline = Instant::now() + Duration::from_secs(args.duration_secs);
     let version_counter = Arc::new(AtomicI64::new(1_000_000));
     let error_counter = Arc::new(AtomicU64::new(0));
 
-    let mut handles = Vec::with_capacity(config.concurrency);
+    let mut handles = Vec::with_capacity(args.concurrency);
 
-    for task_id in 0..config.concurrency {
+    for task_id in 0..args.concurrency {
         let storage = PostgresStorage::new(pool.clone());
         let persons = data.persons.clone();
         let version_counter = version_counter.clone();
@@ -195,14 +195,14 @@ pub async fn phase_identification_appends(
 pub async fn phase_merges(
     pool: &PgPool,
     data: &BenchmarkData,
-    config: &BenchmarkConfig,
+    args: &BenchmarkArgs,
     name: &str,
     concurrency_override: Option<usize>,
     duration_override: Option<u64>,
 ) -> anyhow::Result<PhaseResult> {
     let before = metrics::capture_snapshot(pool).await?;
-    let concurrency = concurrency_override.unwrap_or(config.concurrency);
-    let duration = duration_override.unwrap_or(config.duration_secs);
+    let concurrency = concurrency_override.unwrap_or(args.concurrency);
+    let duration = duration_override.unwrap_or(args.duration_secs);
     let deadline = Instant::now() + Duration::from_secs(duration);
     let version_counter = Arc::new(AtomicI64::new(10_000_000));
     let error_counter = Arc::new(AtomicU64::new(0));
@@ -288,19 +288,19 @@ pub async fn phase_merges(
 pub async fn phase_concurrent_reads_writes(
     pool: &PgPool,
     data: &BenchmarkData,
-    config: &BenchmarkConfig,
+    args: &BenchmarkArgs,
 ) -> anyhow::Result<(PhaseResult, PhaseResult)> {
     let before = metrics::capture_snapshot(pool).await?;
-    let deadline = Instant::now() + Duration::from_secs(config.duration_secs);
+    let deadline = Instant::now() + Duration::from_secs(args.duration_secs);
     let version_counter = Arc::new(AtomicI64::new(100_000_000));
     let write_errors = Arc::new(AtomicU64::new(0));
     let read_errors = Arc::new(AtomicU64::new(0));
 
-    let mut write_handles = Vec::with_capacity(config.concurrency);
-    let mut read_handles = Vec::with_capacity(config.concurrency);
+    let mut write_handles = Vec::with_capacity(args.concurrency);
+    let mut read_handles = Vec::with_capacity(args.concurrency);
 
     // Spawn writer tasks (merge workload with weighted team selection).
-    for task_id in 0..config.concurrency {
+    for task_id in 0..args.concurrency {
         let storage = PostgresStorage::new(pool.clone());
         let distinct_ids = data.distinct_ids.clone();
         let team_indices = data.team_person_indices.clone();
@@ -352,7 +352,7 @@ pub async fn phase_concurrent_reads_writes(
     }
 
     // Spawn reader tasks (the production GIN-indexed lookup).
-    for task_id in 0..config.concurrency {
+    for task_id in 0..args.concurrency {
         let pool = pool.clone();
         let distinct_ids = data.distinct_ids.clone();
         let read_errors = read_errors.clone();

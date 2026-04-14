@@ -1,10 +1,10 @@
-use flags_consumer::storage::{postgres::PostgresStorage, types::PersonUpdateData};
+use crate::storage::{postgres::PostgresStorage, types::PersonUpdateData};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::data_gen::{generate_properties, PersonRegistry};
+use super::data_gen::{generate_properties, PersonRegistry};
 
 /// Populate the flags_person_lookup table from a PersonRegistry.
 ///

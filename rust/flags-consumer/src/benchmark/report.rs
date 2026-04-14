@@ -1,6 +1,6 @@
-use crate::config::BenchmarkConfig;
-use crate::metrics::compute_delta;
-use crate::workloads::PhaseResult;
+use super::metrics::compute_delta;
+use super::workloads::PhaseResult;
+use super::BenchmarkArgs;
 
 fn fmt_duration_ms(d: std::time::Duration) -> String {
     let ms = d.as_secs_f64() * 1000.0;
@@ -62,12 +62,12 @@ fn print_phase_row(result: &PhaseResult, show_pg_metrics: bool) {
     }
 }
 
-pub fn print_report(config: &BenchmarkConfig, results: &[PhaseResult]) {
+pub fn print_report(args: &BenchmarkArgs, results: &[PhaseResult]) {
     println!();
     println!("=== GIN Index Benchmark Report ===");
     println!(
         "Scale: {} rows | Teams: {} | Concurrency: {} | Burst: {}x | Duration: {}s/phase",
-        config.scale, config.teams, config.concurrency, config.burst_factor, config.duration_secs
+        args.scale, args.teams, args.concurrency, args.burst_factor, args.duration_secs
     );
     println!();
 

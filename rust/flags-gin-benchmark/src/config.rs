@@ -1,11 +1,15 @@
 use clap::Parser;
 
+/// CLI config for local benchmark runs. Includes `--database-url` for convenience.
+///
+/// On Kubernetes, the benchmark runs via `flags-consumer benchmark` which reads
+/// the database URL from `FLAGS_READ_STORE_DATABASE_URL` environment variable.
 #[derive(Parser)]
 #[command(
     name = "flags-gin-benchmark",
     about = "GIN index write-performance benchmark for the flags_person_lookup table"
 )]
-pub struct BenchmarkConfig {
+pub struct BenchmarkCliConfig {
     /// PostgreSQL connection string for the benchmark database.
     #[arg(long, env = "DATABASE_URL")]
     pub database_url: String,

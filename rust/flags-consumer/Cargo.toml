@@ -21,6 +21,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 anyhow = { workspace = true }
+clap = { version = "4", features = ["derive", "env"] }
+rand = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

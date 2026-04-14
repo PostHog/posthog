@@ -5,7 +5,7 @@ use rand::Rng;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::config::BenchmarkConfig;
+use super::BenchmarkArgs;
 
 /// Lightweight person registry — no properties stored.
 /// Properties are generated on-the-fly during population and workload phases.
@@ -158,7 +158,7 @@ pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
     Value::Object(obj)
 }
 
-/// Generate a full person registry from the benchmark config.
+/// Generate a full person registry from the benchmark args.
 ///
 /// - `scale` persons distributed across `teams` teams following a Zipf distribution
 ///   (weight = 1/rank^1.5), so a few mega-teams dominate and most teams are small.
@@ -166,9 +166,9 @@ pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
 /// - 86% get 1 distinct_id, 14% get 2 (matching measured ~1.14 distinct_ids/person ratio).
 /// - Distinct IDs use UUID format (~36 bytes) to match real-world ID lengths.
 /// - Properties are NOT stored — generated on-the-fly during population.
-pub fn generate_person_registry(config: &BenchmarkConfig, rng: &mut impl Rng) -> PersonRegistry {
-    let scale = config.scale as usize;
-    let teams = config.teams;
+pub fn generate_person_registry(args: &BenchmarkArgs, rng: &mut impl Rng) -> PersonRegistry {
+    let scale = args.scale as usize;
+    let teams = args.teams;
 
     // Zipf-weighted team sizes: weight(rank) = 1 / rank^1.5.
     let weights: Vec<f64> = (1..=teams).map(|i| 1.0 / (i as f64).powf(1.5)).collect();
