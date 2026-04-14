@@ -1,4 +1,5 @@
 import datetime as dt
+from collections.abc import Callable
 from typing import Any, Literal
 
 import s3fs
@@ -252,7 +253,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     )
 
 
-def process_message(message: Any) -> None:
+def process_message(message: Any, progress_callback: Callable[[], None] | None = None) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
 
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
@@ -427,6 +428,7 @@ def process_message(message: Any) -> None:
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
                     primary_keys=primary_keys,
+                    progress_callback=progress_callback,
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)

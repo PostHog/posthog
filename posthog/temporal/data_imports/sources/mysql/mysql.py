@@ -13,12 +13,12 @@ from django.conf import settings
 import pyarrow as pa
 import pymysql
 import pymysql.converters
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -656,7 +656,7 @@ def mysql_source(
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

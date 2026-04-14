@@ -186,11 +186,23 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
-                newMetric.series = sources.filter(
-                    (s): s is ExperimentFunnelMetricStep =>
-                        s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
-                )
+                // Filter sources based on feature flag support
+                if (isExperimentFunnelDWHSupport) {
+                    // Include all supported types including DataWarehouseNode
+                    newMetric.series = sources.filter(
+                        (s): s is ExperimentFunnelMetricStep =>
+                            s &&
+                            (s.kind === NodeKind.EventsNode ||
+                                s.kind === NodeKind.ActionsNode ||
+                                s.kind === NodeKind.ExperimentDataWarehouseNode)
+                    )
+                } else {
+                    // Legacy: only support EventsNode and ActionsNode
+                    newMetric.series = sources.filter(
+                        (s): s is ExperimentFunnelMetricStep =>
+                            s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
+                    )
+                }
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {

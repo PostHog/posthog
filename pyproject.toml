@@ -97,7 +97,7 @@ dependencies = [
     "orjson==3.11.6",
     "pandas~=2.2.2",
     "paramiko==3.4.1",
-    "pillow==12.1.1",
+    "pillow==12.2.0",
     "protobuf~=5.29.6",
     "posthoganalytics==7.10.2",
     "polars==1.37.1",

@@ -6,7 +6,6 @@ import collections.abc
 from datetime import date, datetime
 
 import pyarrow as pa
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -14,6 +13,7 @@ from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -403,7 +403,7 @@ def bigquery_source(
     """
 
     project_id_for_dataset = dataset_project_id or project_id
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
     fully_qualified_table_name = f"{project_id_for_dataset}.{dataset_id}.{table_name}"
 
     with bigquery_client(

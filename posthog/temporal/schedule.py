@@ -53,6 +53,8 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
+
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
@@ -287,6 +289,40 @@ async def create_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_wa_weekly_digest_schedule(client: Client):
+    """Create or update the schedule for the WA weekly digest workflow."""
+    wa_digest_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "wa-weekly-digest",
+            WAWeeklyDigestInput(),
+            id="wa-weekly-digest-schedule",
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 9 AM UTC",
+                    hour=[ScheduleRange(start=9, end=9)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "wa-weekly-digest-schedule"):
+        await a_update_schedule(client, "wa-weekly-digest-schedule", wa_digest_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "wa-weekly-digest-schedule",
+            wa_digest_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_ducklake_compaction_schedule(client: Client):
     """Create or update the schedule for the DuckLake compaction workflow.
 
@@ -445,6 +481,7 @@ schedules = [
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_health_check_schedules,
+    create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
 ]
 

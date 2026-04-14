@@ -473,14 +473,19 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Validate step range (same validation as before)
         if funnel_step == -1:
-            from posthog.schema import EventsNode
+            # -1 would mean "dropped before first metric step" which is invalid
+            # because we only query exposed users who are already past the exposure checkpoint
+            # Build event names string (handle EventsNode, ActionsNode, and ExperimentDataWarehouseNode)
+            from posthog.schema import ActionsNode, EventsNode
 
             event_names: list[str] = []
             for step in self.metric.series[:2]:
                 if isinstance(step, EventsNode):
                     event_names.append(step.event or "All events")
-                else:  # ActionsNode
+                elif isinstance(step, ActionsNode):
                     event_names.append(f"Action {step.id}")
+                else:  # ExperimentDataWarehouseNode
+                    event_names.append(f"DW table {step.table_name}")
 
             metric_events_str = " → ".join(event_names)
             if len(self.metric.series) > 2:
