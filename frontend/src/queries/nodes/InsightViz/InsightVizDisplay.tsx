@@ -40,7 +40,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -174,7 +174,10 @@ export function InsightVizDisplay({
         }
 
         // Insight specific empty states - note order is important here
-        if (display === ChartDisplayType.BoxPlot && isBoxPlotMissingProperty(series)) {
+        if (
+            display === ChartDisplayType.BoxPlot &&
+            isBoxPlotMissingProperty(series as TrendsQuery['series'] | null | undefined)
+        ) {
             return <BoxPlotMissingPropertyState />
         }
 
