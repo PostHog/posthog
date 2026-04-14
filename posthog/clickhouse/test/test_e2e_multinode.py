@@ -23,6 +23,7 @@ Or directly:
 """
 
 import os
+import json
 import uuid
 import subprocess
 
@@ -40,8 +41,30 @@ TEST_RUN_SUFFIX = uuid.uuid4().hex[:8]
 ZK_PATH_PREFIX = f"/clickhouse/tables/{{shard}}/test_{TEST_RUN_SUFFIX}"
 
 
-def _try_connect(host_env, host_default, port_env, port_default):
-    """Attempt CH connection, return client or None."""
+class _DockerExecClient:
+    """Run ClickHouse queries inside the target container when host port forwarding is flaky."""
+
+    def __init__(self, container_name: str, *, port: int | None = None):
+        self.container_name = container_name
+        self.port = port
+
+    def execute(self, query: str):
+        command = ["docker", "exec", self.container_name, "clickhouse-client"]
+        if self.port is not None:
+            command.extend(["--port", str(self.port)])
+        command.extend(["--format", "JSONCompact", "-q", query])
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip() or "clickhouse-client failed"
+            raise RuntimeError(message)
+        if not result.stdout.strip():
+            return []
+        payload = json.loads(result.stdout)
+        return [tuple(row) for row in payload.get("data", [])]
+
+
+def _try_native_connect(host_env, host_default, port_env, port_default):
+    """Attempt direct CH connection, return client or None."""
     from clickhouse_driver import Client
 
     host = os.environ.get(host_env, host_default)
@@ -52,6 +75,26 @@ def _try_connect(host_env, host_default, port_env, port_default):
         return c
     except Exception:
         return None
+
+
+def _try_docker_exec(container_env, container_default, *, port: int | None = None):
+    """Fallback to in-container clickhouse-client when host-mapped ports are unavailable."""
+    container_name = os.environ.get(container_env, container_default)
+    client = _DockerExecClient(container_name, port=port)
+    try:
+        client.execute("SELECT 1")
+        return client
+    except Exception:
+        return None
+
+
+def _try_connect(
+    host_env, host_default, port_env, port_default, container_env, container_default, *, container_port=None
+):
+    client = _try_native_connect(host_env, host_default, port_env, port_default)
+    if client is not None:
+        return client
+    return _try_docker_exec(container_env, container_default, port=container_port)
 
 
 @pytest.fixture(scope="module")
@@ -91,27 +134,51 @@ def multinode_stack_available():
 @pytest.fixture(scope="module")
 def ch_main(multinode_stack_available):
     """Main cluster node (keeper-main, shard 01, data role)."""
-    client = _try_connect("CLICKHOUSE_HOST", "localhost", "CLICKHOUSE_PORT", 9000)
+    client = _try_connect(
+        "CLICKHOUSE_HOST",
+        "localhost",
+        "CLICKHOUSE_PORT",
+        9000,
+        "CLICKHOUSE_DOCKER_CONTAINER",
+        "posthog-multinode-clickhouse-1",
+        container_port=9000,
+    )
     if client is None:
-        pytest.skip("clickhouse node not reachable on localhost:9000")
+        pytest.skip("clickhouse node not reachable on localhost:9000 or via docker exec fallback")
     return client
 
 
 @pytest.fixture(scope="module")
 def ch_coordinator():
     """Coordinator node (keeper-main, shard 02, coordinator role)."""
-    client = _try_connect("CLICKHOUSE_COORD_HOST", "localhost", "CLICKHOUSE_COORD_PORT", 9001)
+    client = _try_connect(
+        "CLICKHOUSE_COORD_HOST",
+        "localhost",
+        "CLICKHOUSE_COORD_PORT",
+        9001,
+        "CLICKHOUSE_COORD_DOCKER_CONTAINER",
+        "posthog-multinode-clickhouse-coordinator-1",
+        container_port=9001,
+    )
     if client is None:
-        pytest.skip("clickhouse-coordinator not reachable on localhost:9001")
+        pytest.skip("clickhouse-coordinator not reachable on localhost:9001 or via docker exec fallback")
     return client
 
 
 @pytest.fixture(scope="module")
 def ch_logs():
     """Logs node (shares `keeper` with main/coordinator, shard 01, logs role)."""
-    client = _try_connect("CLICKHOUSE_LOGS_HOST", "localhost", "CLICKHOUSE_LOGS_PORT", 9002)
+    client = _try_connect(
+        "CLICKHOUSE_LOGS_HOST",
+        "localhost",
+        "CLICKHOUSE_LOGS_PORT",
+        9002,
+        "CLICKHOUSE_LOGS_DOCKER_CONTAINER",
+        "posthog-multinode-clickhouse-logs-1",
+        container_port=9000,
+    )
     if client is None:
-        pytest.skip("clickhouse-logs not reachable on localhost:9002")
+        pytest.skip("clickhouse-logs not reachable on localhost:9002 or via docker exec fallback")
     return client
 
 
