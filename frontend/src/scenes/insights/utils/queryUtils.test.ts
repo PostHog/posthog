@@ -357,6 +357,20 @@ describe('stripUnsupportedQueryFields', () => {
             { breakdownFilter: { breakdown: '$browser' }, compareFilter: { compare: true } },
             [],
         ],
+        [
+            'strips compareFilter but preserves breakdownFilter on FunnelsQuery',
+            {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$signup' },
+                ],
+                breakdownFilter: { breakdown: '$browser' },
+                compareFilter: { compare: true },
+            },
+            { breakdownFilter: { breakdown: '$browser' } },
+            ['compareFilter'],
+        ],
     ])('%s', (_name, input, expectedPresent, expectedAbsent) => {
         const result = stripUnsupportedQueryFields(input as InsightQueryNode)
 
