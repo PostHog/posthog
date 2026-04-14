@@ -13,10 +13,12 @@ from posthog.test.base import (
 )
 
 from posthog.schema import (
+    ActorsQuery,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
+    FunnelsActorsQuery,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -25,6 +27,7 @@ from posthog.schema import (
 )
 
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
@@ -304,6 +307,53 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             results = response.results
             assert results[0]["count"] == 2
             assert results[1]["count"] == 2
+
+    def test_mixed_funnel_persons_modal(self):
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            _create_person(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                uuid="8cadb28f-1825-f158-73fa-3f228865b540",
+            )
+            journeys_for(
+                {
+                    "person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}],
+                    "person2": [{"event": "$pageview", "timestamp": datetime(2025, 11, 2, 0, 0, 0)}],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = FunnelsQuery(
+                kind="FunnelsQuery",
+                dateRange=DateRange(date_from="2025-11-01"),
+                series=[
+                    EventsNode(event="$pageview"),
+                    FunnelsDataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="uuid",
+                        aggregation_target_field="user_id",
+                        timestamp_field="created",
+                    ),
+                ],
+            )
+
+            funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=2)
+            actors_query = ActorsQuery(source=funnel_actors_query, select=["id", "person"])
+            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+            actor_ids = sorted(str(row[0]) for row in response.results)
+            assert actor_ids == [
+                "8cadb28f-1825-f158-73fa-3f228865b540",
+                "bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            ]
 
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_non_uuid_id_column(self):
