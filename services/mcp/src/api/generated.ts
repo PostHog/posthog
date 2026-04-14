@@ -18009,11 +18009,14 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
     * `stripe` - Stripe
+    * `customerio-app` - Customerio App
+    * `customerio-webhook` - Customerio Webhook
+    * `customerio-track` - Customerio Track
      */
-    export type KindBa9Enum = typeof KindBa9Enum[keyof typeof KindBa9Enum];
+    export type KindEc9Enum = typeof KindEc9Enum[keyof typeof KindEc9Enum];
 
 
-    export const KindBa9Enum = {
+    export const KindEc9Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -18043,6 +18046,9 @@ export namespace Schemas {
       Jira: 'jira',
       PinterestAds: 'pinterest-ads',
       Stripe: 'stripe',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
     } as const;
 
     /**
@@ -18050,7 +18056,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: KindBa9Enum;
+      kind: KindEc9Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -24597,7 +24603,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: KindBa9Enum;
+      kind?: KindEc9Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -25521,7 +25527,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: KindBa9Enum;
+      readonly kind: KindEc9Enum;
       readonly display_name: string;
     }
 
