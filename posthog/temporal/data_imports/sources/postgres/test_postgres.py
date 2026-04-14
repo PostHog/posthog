@@ -413,7 +413,7 @@ class TestGetEstimatedRowCountForPartitionedTable:
             assert result is None
 
     @pytest.mark.django_db
-    def test_returns_zero_for_empty_partitioned_table(self):
+    def test_returns_none_for_empty_partitioned_table(self):
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -431,10 +431,11 @@ class TestGetEstimatedRowCountForPartitionedTable:
             """)
             dj_cursor.execute("ANALYZE test_est_count_empty")
 
+            # Both reltuples and n_live_tup are 0 — falls back to exact COUNT(*)
             result = _get_estimated_row_count_for_partitioned_table(
                 cast(Any, dj_cursor), "public", "test_est_count_empty", logger
             )
-            assert result == 0
+            assert result is None
 
 
 class TestPostgreSQLColumnToArrowField:

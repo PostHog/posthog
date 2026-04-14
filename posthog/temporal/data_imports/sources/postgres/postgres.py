@@ -601,13 +601,12 @@ def _get_estimated_row_count_for_partitioned_table(
         )
         return n_live_tup_sum
 
-    # Both 0 — table is genuinely empty
-    if reltuples_sum == 0:
-        logger.debug("_get_estimated_row_count_for_partitioned_table: partitions exist but are empty")
-        return 0
-
-    # No child partitions found (reltuples_sum == -1 from COALESCE)
-    logger.debug("_get_estimated_row_count_for_partitioned_table: no child partitions found, returning None")
+    # Both sources report 0 or are unavailable — fall back to exact COUNT(*)
+    # which is fast on empty/small tables and correct if stats are stale.
+    logger.debug(
+        f"_get_estimated_row_count_for_partitioned_table: no reliable estimate "
+        f"(reltuples={reltuples_sum}, n_live_tup={n_live_tup_sum}), returning None"
+    )
     return None
 
 
