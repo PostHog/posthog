@@ -74,22 +74,29 @@ def _linkify_citations(text: str, project_id: int, citation_map: dict[str, str])
     Uses the structured citation map (from add_citation calls) rather than
     scanning for UUID patterns. Only IDs the agent explicitly cited get linked.
     Handles common LLM formatting wrappers (backticks, angle brackets).
+
+    Two-phase approach avoids double-replacement: first swap every occurrence
+    of each gen_id to a unique placeholder, then replace placeholders with the
+    actual markdown links. This prevents gen_ids inside URLs from being matched.
     """
     if not citation_map:
         return text
 
-    for gen_id, trace_id in citation_map.items():
-        link = _make_trace_link(project_id, gen_id, trace_id)
-        md_link = f"[{gen_id[:8]}...]({link})"
+    # Phase 1: replace all occurrences of each gen_id with a placeholder.
+    placeholders: dict[str, str] = {}
+    for i, gen_id in enumerate(citation_map):
+        placeholder = f"\x00CITE{i}\x00"
+        placeholders[placeholder] = gen_id
 
-        # Strip formatting wrappers the LLM may have added, then replace the
-        # plain ID with a markdown link. Order matters — strip widest wrappers
-        # first so narrower ones don't leave orphan backticks.
         for wrapper in [f"`` `{gen_id}` ``", f"`{gen_id}`", f"<{gen_id}>"]:
-            text = text.replace(wrapper, md_link)
+            text = text.replace(wrapper, placeholder)
+        text = text.replace(gen_id, placeholder)
 
-        # Replace any remaining bare occurrences (agent may have used no wrapper)
-        text = text.replace(gen_id, md_link)
+    # Phase 2: replace placeholders with markdown links.
+    for placeholder, gen_id in placeholders.items():
+        trace_id = citation_map[gen_id]
+        link = _make_trace_link(project_id, gen_id, trace_id)
+        text = text.replace(placeholder, f"[{gen_id[:8]}...]({link})")
 
     return text
 
