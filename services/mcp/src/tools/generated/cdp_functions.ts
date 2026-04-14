@@ -45,7 +45,21 @@ const cdpFunctionsList = (): ToolBase<
     },
 })
 
-const CdpFunctionsCreateSchema = HogFunctionsCreateBody
+const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
+    type: HogFunctionsCreateBody.shape['type'].describe(
+        'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
+    ),
+    template_id: HogFunctionsCreateBody.shape['template_id'].describe(
+        'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
+    ),
+    hog: HogFunctionsCreateBody.shape['hog'].describe(
+        'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
+    ),
+    enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the function is active and processing events.'),
+    execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
+        'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'
+    ),
+})
 
 const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-create',
@@ -116,9 +130,13 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
     },
 })
 
-const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFunctionsPartialUpdateBody.shape
-)
+const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true })
+    .extend(HogFunctionsPartialUpdateBody.shape)
+    .extend({
+        enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
+            'Set to true to activate or false to deactivate the function.'
+        ),
+    })
 
 const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-partial-update',

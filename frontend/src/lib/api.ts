@@ -211,14 +211,14 @@ import {
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
-import {
+import type {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
-import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
-import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import {
+import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -226,12 +226,12 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
-import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
-import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
-import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import {
+import type { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
+import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
+import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import type {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
