@@ -272,6 +272,21 @@ class MisplacedFilesCheck(ProductCheck):
     label = "misplaced backend files"
     for_lenient = False
 
+    # Directories allowed in backend/ for strict products.
+    # Anything else won't be covered by import-linter's wildcard contracts.
+    _KNOWN_DIRS = {
+        "facade",
+        "presentation",
+        "tasks",
+        "tests",
+        "test",
+        "migrations",
+        "management",
+        "models",
+        "logic",
+        "__pycache__",
+    }
+
     def run(self, ctx: CheckContext) -> CheckResult:
         if not ctx.backend_dir.exists():
             return CheckResult(skip=True)
@@ -285,6 +300,16 @@ class MisplacedFilesCheck(ProductCheck):
                     misplaced.append(f"'{filename}' at backend/ root conflicts with correct location '{correct_path}'")
                 else:
                     misplaced.append(f"backend/{filename} should be at backend/{correct_path}")
+
+        # Flag directories not in the canonical structure — these bypass
+        # import-linter's wildcard enforcement (presentation/facade/etc.)
+        for child in sorted(ctx.backend_dir.iterdir()):
+            if child.is_dir() and child.name not in self._KNOWN_DIRS:
+                misplaced.append(
+                    f"backend/{child.name}/ is not a recognized directory — "
+                    "import-linter only enforces canonical paths (presentation, facade, logic, models). "
+                    "Move code into an existing directory or update the product structure"
+                )
 
         if misplaced:
             return CheckResult(
