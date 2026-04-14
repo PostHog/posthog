@@ -457,9 +457,6 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = Database.create_for(team_id=self.team_id)
         return context
 
-    def _is_cdc_enabled(self) -> bool:
-        return is_cdc_enabled_for_team(self.team)
-
     def safely_get_queryset(self, queryset):
         return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
 
@@ -621,7 +618,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
-            "cdc_available": schema.supports_cdc if self._is_cdc_enabled() else None,
+            "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
             "full_refresh_available": True,
             "supports_webhooks": schema.supports_webhooks,
         }
