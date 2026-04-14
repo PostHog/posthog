@@ -208,7 +208,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if "incremental_field_type" in data:
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
-
             if incremental_field_changed:
                 if instance.table is not None:
                     # Get the max_value and set it on incremental_field_last_value

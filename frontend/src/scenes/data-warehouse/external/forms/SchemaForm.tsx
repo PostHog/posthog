@@ -298,7 +298,7 @@ const SyncMethodModal = (): JSX.Element => {
                             primaryKeyColumns
                         )
                     } else if (syncType === 'cdc') {
-                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, cdcTableMode)
+                        updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, null, cdcTableMode)
                     } else {
                         updateSchemaSyncType(currentSyncMethodModalSchema, syncType ?? null, null, null, null)
                     }
