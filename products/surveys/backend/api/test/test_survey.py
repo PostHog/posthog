@@ -5069,6 +5069,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             name="Archive Test Survey",
             type="popover",
             questions=[{"type": "open", "question": "What?"}],
+            start_date=datetime(2024, 5, 1, 9, 0, 0, tzinfo=UTC),
         )
 
         response_uuid = str(uuid.uuid4())
