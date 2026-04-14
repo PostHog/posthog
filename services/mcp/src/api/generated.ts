@@ -14527,6 +14527,8 @@ export namespace Schemas {
       filters: unknown;
       /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
+      /** @nullable */
+      description?: string | null;
       /**
        * Issue linked to this rule
        * @nullable
@@ -14540,6 +14542,10 @@ export namespace Schemas {
       disabled_data?: unknown | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingGroupingRuleListResponse {
+      results: ErrorTrackingGroupingRule[];
     }
 
     export interface ErrorTrackingIssueAssignment {
@@ -21014,15 +21020,6 @@ export namespace Schemas {
       results: ErrorTrackingFingerprint[];
     }
 
-    export interface PaginatedErrorTrackingGroupingRuleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ErrorTrackingGroupingRule[];
-    }
-
     export interface PaginatedErrorTrackingIssueFullList {
       count: number;
       /** @nullable */
@@ -24641,6 +24638,8 @@ export namespace Schemas {
       filters?: unknown;
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
+      /** @nullable */
+      description?: string | null;
       /**
        * Issue linked to this rule
        * @nullable
@@ -34519,17 +34518,6 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingFingerprintsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingGroupingRulesListParams = {
     /**
      * Number of results to return per page.
      */
