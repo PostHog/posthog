@@ -133,6 +133,9 @@ SALESFORCE_USERNAME = get_from_env("SF_USERNAME", "", type_cast=str)
 SALESFORCE_PASSWORD = get_from_env("SF_PASSWORD", "", type_cast=str)
 SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)
 
+# Duckling Postgres
+DUCKLING_PG_URL = get_from_env("DUCKLING_PG_URL", "", type_cast=str)
+
 # Harmonic API credentials
 HARMONIC_API_KEY = get_from_env("HARMONIC_API_KEY", "", type_cast=str)
 HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai", type_cast=str)

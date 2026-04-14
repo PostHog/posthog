@@ -1,0 +1,130 @@
+import datetime as dt
+
+from unittest import TestCase
+from unittest.mock import MagicMock, patch
+
+from django.conf import settings
+
+from ee.billing.salesforce_enrichment.duckling_client import DucklingNotConfiguredError
+from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals, fetch_stripe_signals
+
+
+def _row(
+    org_id: str = "org-1",
+    stripe_id: str | None = "cus_1",
+    synced_at: dt.datetime | None = None,
+) -> dict:
+    return {
+        "posthog_organization_id": org_id,
+        "billing_customer_id": "bc-1",
+        "billing_customer_name": "Acme Inc",
+        "stripe_customer_id": stripe_id,
+        "address_line_1": "1 Main St",
+        "address_line_2": None,
+        "address_city": "San Francisco",
+        "address_state": "CA",
+        "address_postal_code": "94107",
+        "address_country": "US",
+        "last_changed_at": synced_at or dt.datetime(2026, 4, 10, 12, 0, tzinfo=dt.UTC),
+    }
+
+
+class TestStripeSignalsDataClass(TestCase):
+    def test_basic_instantiation(self):
+        now = dt.datetime(2026, 4, 10, tzinfo=dt.UTC)
+        signals = StripeSignals(
+            posthog_organization_id="org-1",
+            billing_customer_id="bc-1",
+            billing_customer_name="Acme",
+            stripe_customer_id="cus_1",
+            address_line_1="1 Main St",
+            address_line_2=None,
+            address_city="SF",
+            address_state="CA",
+            address_postal_code="94107",
+            address_country="US",
+            last_changed_at=now,
+        )
+
+        assert signals.posthog_organization_id == "org-1"
+        assert signals.last_changed_at == now
+
+
+class TestFetchStripeSignals(TestCase):
+    @patch.object(settings, "DUCKLING_PG_URL", None, create=True)
+    def test_raises_when_not_configured(self):
+        with self.assertRaises(DucklingNotConfiguredError):
+            fetch_stripe_signals(since=None, limit=100, offset=0)
+
+    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    def test_full_backfill_passes_none_since(self, mock_cursor_ctx):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [_row(org_id="org-1"), _row(org_id="org-2")]
+        mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
+
+        result = fetch_stripe_signals(since=None, limit=500, offset=0)
+
+        assert len(result) == 2
+        assert result[0].posthog_organization_id == "org-1"
+        assert result[1].posthog_organization_id == "org-2"
+
+        executed_params = mock_cursor.execute.call_args[0][1]
+        assert executed_params["since"] is None
+        assert executed_params["limit"] == 500
+        assert executed_params["offset"] == 0
+
+    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    def test_incremental_since_passed_through(self, mock_cursor_ctx):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
+
+        since = dt.datetime(2026, 4, 12, 10, 0, tzinfo=dt.UTC)
+        fetch_stripe_signals(since=since, limit=100, offset=250)
+
+        executed_params = mock_cursor.execute.call_args[0][1]
+        assert executed_params["since"] == since
+        assert executed_params["offset"] == 250
+
+    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    def test_returns_empty_list_when_no_rows(self, mock_cursor_ctx):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
+
+        assert fetch_stripe_signals(since=None, limit=100, offset=0) == []
+
+    @patch.object(settings, "DUCKLING_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckling_cursor")
+    def test_maps_all_address_fields(self, mock_cursor_ctx):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [
+            {
+                "posthog_organization_id": "org-1",
+                "billing_customer_id": "bc-1",
+                "billing_customer_name": "Acme",
+                "stripe_customer_id": "cus_1",
+                "address_line_1": "1 Main St",
+                "address_line_2": "Suite 200",
+                "address_city": "SF",
+                "address_state": "CA",
+                "address_postal_code": "94107",
+                "address_country": "US",
+                "last_changed_at": dt.datetime(2026, 4, 10, tzinfo=dt.UTC),
+            }
+        ]
+        mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
+
+        result = fetch_stripe_signals(since=None, limit=100, offset=0)
+
+        assert len(result) == 1
+        s = result[0]
+        assert s.address_line_1 == "1 Main St"
+        assert s.address_line_2 == "Suite 200"
+        assert s.address_city == "SF"
+        assert s.address_state == "CA"
+        assert s.address_postal_code == "94107"
+        assert s.address_country == "US"
