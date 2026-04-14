@@ -439,15 +439,17 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         newUrl: () => {
             actions.setProposedUrlValue('url', NEW_URL)
         },
-        addUrl: [
-            sharedListeners.saveUrls,
-            ({ url, launch }) => {
-                if (launch) {
-                    actions.launchAtUrl(url)
-                }
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
-            },
-        ],
+        // Serialize these side effects: both `saveUrls` and `markTaskAsCompleted` PATCH the same team
+        // endpoint, and the `currentTeam` subscription above replaces `authorizedUrls` from the response.
+        // If the onboarding-tasks PATCH races with the app_urls PATCH, its response can snapshot a stale
+        // `app_urls` and wipe the just-added URL from the UI (observed when applying a suggestion).
+        addUrl: async ({ url, launch }) => {
+            await sharedListeners.saveUrls()
+            if (launch) {
+                actions.launchAtUrl(url)
+            }
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
+        },
         removeUrl: sharedListeners.saveUrls,
         updateUrl: sharedListeners.saveUrls,
         launchAtUrl: ({ url }) => {
