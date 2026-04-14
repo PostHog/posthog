@@ -2,10 +2,19 @@ use crate::api::errors::FlagError;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
 use crate::flags::flag_models::FeatureFlag;
+use crate::properties::property_matching::match_property;
+use crate::properties::property_models::OperatorType;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
 use uuid::Uuid;
+
+fn format_operator_explanation(key: &str, op_label: &str, value: &Option<Value>) -> String {
+    match value {
+        Some(v) => format!("Property '{}' {} {}", key, op_label, v),
+        None => format!("Property '{}' {} (empty)", key, op_label),
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FlagsResponseCode {
@@ -437,6 +446,7 @@ pub trait FromFeatureAndMatch {
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
+        property_values: Option<&HashMap<String, Value>>,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -444,13 +454,14 @@ pub trait FromFeatureAndMatch {
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
-        Self::create_with_analysis(flag, flag_match, false)
+        Self::create_with_analysis(flag, flag_match, false, None)
     }
 
     fn create_with_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
+        property_values: Option<&HashMap<String, Value>>,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -469,7 +480,11 @@ impl FromFeatureAndMatch for FlagDetails {
                 payload: flag_match.payload.clone(),
             },
             conditions: if detailed_analysis {
-                Some(Self::build_condition_analysis(flag, flag_match))
+                Some(Self::build_condition_analysis(
+                    flag,
+                    flag_match,
+                    property_values,
+                ))
             } else {
                 None
             },
@@ -526,6 +541,7 @@ impl FlagDetails {
     fn build_condition_analysis(
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
+        property_values: Option<&HashMap<String, Value>>,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -563,120 +579,79 @@ impl FlagDetails {
                     .to_string();
 
                     let explanation = match property.operator {
-                        Some(crate::properties::property_models::OperatorType::IsSet) => {
+                        Some(OperatorType::IsSet) => {
                             format!("Property '{}' is set", property.key)
                         }
-                        Some(crate::properties::property_models::OperatorType::IsNotSet) => {
+                        Some(OperatorType::IsNotSet) => {
                             format!("Property '{}' is not set", property.key)
                         }
-                        Some(crate::properties::property_models::OperatorType::Exact) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' equals {}", property.key, value)
-                            } else {
-                                format!("Property '{}' equals (empty)", property.key)
-                            }
+                        Some(OperatorType::Exact) => {
+                            format_operator_explanation(&property.key, "equals", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::IsNot) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' does not equal {}", property.key, value)
-                            } else {
-                                format!("Property '{}' does not equal (empty)", property.key)
-                            }
+                        Some(OperatorType::IsNot) => format_operator_explanation(
+                            &property.key,
+                            "does not equal",
+                            &property.value,
+                        ),
+                        Some(OperatorType::Icontains) => {
+                            format_operator_explanation(&property.key, "contains", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::Icontains) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' contains {}", property.key, value)
-                            } else {
-                                format!("Property '{}' contains (empty)", property.key)
-                            }
+                        Some(OperatorType::NotIcontains) => format_operator_explanation(
+                            &property.key,
+                            "does not contain",
+                            &property.value,
+                        ),
+                        Some(OperatorType::Gt) => {
+                            format_operator_explanation(&property.key, ">", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::NotIcontains) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' does not contain {}", property.key, value)
-                            } else {
-                                format!("Property '{}' does not contain (empty)", property.key)
-                            }
+                        Some(OperatorType::Lt) => {
+                            format_operator_explanation(&property.key, "<", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::Gt) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' > {}", property.key, value)
-                            } else {
-                                format!("Property '{}' > (empty)", property.key)
-                            }
+                        Some(OperatorType::Gte) => {
+                            format_operator_explanation(&property.key, ">=", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::Lt) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' < {}", property.key, value)
-                            } else {
-                                format!("Property '{}' < (empty)", property.key)
-                            }
+                        Some(OperatorType::Lte) => {
+                            format_operator_explanation(&property.key, "<=", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::Gte) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' >= {}", property.key, value)
-                            } else {
-                                format!("Property '{}' >= (empty)", property.key)
-                            }
+                        Some(OperatorType::In) => {
+                            format_operator_explanation(&property.key, "is in", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::Lte) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' <= {}", property.key, value)
-                            } else {
-                                format!("Property '{}' <= (empty)", property.key)
-                            }
+                        Some(OperatorType::NotIn) => {
+                            format_operator_explanation(&property.key, "is not in", &property.value)
                         }
-                        Some(crate::properties::property_models::OperatorType::In) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' is in {}", property.key, value)
-                            } else {
-                                format!("Property '{}' is in (empty)", property.key)
-                            }
-                        }
-                        Some(crate::properties::property_models::OperatorType::NotIn) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' is not in {}", property.key, value)
-                            } else {
-                                format!("Property '{}' is not in (empty)", property.key)
-                            }
-                        }
-                        Some(crate::properties::property_models::OperatorType::Regex) => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' matches regex {}", property.key, value)
-                            } else {
-                                format!("Property '{}' matches regex (empty)", property.key)
-                            }
-                        }
-                        Some(crate::properties::property_models::OperatorType::NotRegex) => {
-                            if let Some(value) = &property.value {
-                                format!(
-                                    "Property '{}' does not match regex {}",
-                                    property.key, value
-                                )
-                            } else {
-                                format!("Property '{}' does not match regex (empty)", property.key)
-                            }
-                        }
-                        _ => {
-                            if let Some(value) = &property.value {
-                                format!("Property '{}' {} {}", property.key, operator_str, value)
-                            } else {
-                                format!("Property '{}' {} (empty)", property.key, operator_str)
-                            }
-                        }
+                        Some(OperatorType::Regex) => format_operator_explanation(
+                            &property.key,
+                            "matches regex",
+                            &property.value,
+                        ),
+                        Some(OperatorType::NotRegex) => format_operator_explanation(
+                            &property.key,
+                            "does not match regex",
+                            &property.value,
+                        ),
+                        _ => format_operator_explanation(
+                            &property.key,
+                            &operator_str,
+                            &property.value,
+                        ),
                     };
 
-                    // TODO: To properly determine if each individual property matched, we would need
-                    // access to the evaluation context (person/group properties) and call the
-                    // match_property function for each filter. For now, we use the condition-level
-                    // match result, which means if the overall condition matched, all properties
-                    // within it appear as matched (even if some didn't contribute to the match).
+                    let (property_matched, actual_value) = if let Some(props) = property_values {
+                        let actual = props.get(&property.key).cloned();
+                        let matched = match_property(property, props, false).unwrap_or(false);
+                        (matched, actual)
+                    } else {
+                        // No properties available, fall back to condition-level match
+                        (condition_matched, None)
+                    };
+
                     let property_analysis = PropertyAnalysis {
                         key: property.key.clone(),
                         operator: operator_str,
                         value: property.value.clone().unwrap_or(serde_json::Value::Null),
                         r#type: type_str,
-                        actual_value: None, // Would need evaluation context to provide actual property values
-                        matched: condition_matched, // Note: This is condition-level, not property-level
+                        actual_value,
+                        matched: property_matched,
                         explanation,
                     };
                     property_analyses.push(property_analysis);

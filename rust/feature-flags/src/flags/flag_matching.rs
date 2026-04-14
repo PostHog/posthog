@@ -997,7 +997,8 @@ impl FeatureFlagMatcher {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
                 let flag_details = if self.detailed_analysis {
-                    FlagDetails::create_with_analysis(flag, flag_match, true)
+                    let person_props = self.flag_evaluation_state.get_person_properties();
+                    FlagDetails::create_with_analysis(flag, flag_match, true, person_props)
                 } else {
                     FlagDetails::create(flag, flag_match)
                 };

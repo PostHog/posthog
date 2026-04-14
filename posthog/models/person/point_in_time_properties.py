@@ -185,7 +185,7 @@ def build_person_properties_at_time(
     try:
         rows = sync_execute(query, params, settings={"max_execution_time": timeout})
     except Exception as e:
-        raise Exception(f"Failed to query ClickHouse events: {str(e)}")
+        raise Exception(f"Failed to query ClickHouse events: {str(e)}") from e
 
     # Build person properties by applying operations chronologically
     person_properties = {}

@@ -4,9 +4,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
-import api, { ApiError, CountedPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { dayjs, Dayjs } from 'lib/dayjs'
 import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -20,44 +19,6 @@ import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export const FLAGS_PER_PAGE = 100
-
-// Testing tab types
-export interface PropertyAnalysis {
-    key: string
-    operator: string
-    value: any
-    actual_value: any
-    matched: boolean
-    explanation: string
-}
-
-export interface ConditionAnalysis {
-    index: number
-    matched: boolean
-    rollout_excluded?: boolean
-    result: string
-    explanation: string
-    rollout_percentage: number
-    variant?: string
-    properties: PropertyAnalysis[]
-}
-
-export interface TestResult {
-    flag_key: string
-    result: boolean | string
-    reason: string
-    condition_index: number | null
-    payload: any
-    person_properties: Record<string, any>
-    conditions?: ConditionAnalysis[]
-}
-
-export interface TestFormData {
-    distinct_id: string
-    person_id: string
-    timestamp: string
-    groups: string
-}
 
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
     if (!search?.trim()) {
@@ -201,14 +162,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         closeEnrichAnalyticsNotice: true,
         setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
-        // Testing tab actions
-        setTestFormData: (formData: Partial<TestFormData>) => ({ formData }),
-        setTestError: (error: string | null) => ({ error }),
-        setTestResult: (result: TestResult | null) => ({ result }),
-        setShowAllProperties: (showAll: boolean) => ({ showAll }),
-        setDatePickerOpen: (open: boolean) => ({ open }),
-        setDatePickerValue: (value: Dayjs | null) => ({ value }),
-        clearTestForm: true,
     }),
     loaders(({ values }) => ({
         featureFlags: [
@@ -248,45 +201,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         }
                         throw e
                     }
-                },
-            },
-        ],
-        testEvaluation: [
-            null as TestResult | null,
-            {
-                testFlagEvaluation: async ({ flagId, formData }: { flagId: number; formData: TestFormData }) => {
-                    const data: Record<string, any> = {}
-
-                    // Prioritize person_id, fallback to distinct_id
-                    if (formData.person_id?.trim()) {
-                        data.person_id = formData.person_id.trim()
-                    } else if (formData.distinct_id?.trim()) {
-                        data.distinct_id = formData.distinct_id.trim()
-                    }
-
-                    // Parse groups JSON, defaulting to empty object if not provided or empty
-                    if (formData.groups?.trim()) {
-                        try {
-                            data.groups = JSON.parse(formData.groups.trim())
-                        } catch {
-                            throw new Error('Invalid JSON format for groups')
-                        }
-                    } else {
-                        // Send empty object instead of undefined to match expected API format
-                        data.groups = {}
-                    }
-
-                    if (formData.timestamp?.trim()) {
-                        data.timestamp = formData.timestamp.trim()
-
-                        // Validate timestamp format
-                        const parsedTimestamp = dayjs(data.timestamp)
-                        if (!parsedTimestamp.isValid()) {
-                            throw new Error('Invalid timestamp format')
-                        }
-                    }
-
-                    return await api.featureFlags.testEvaluation(flagId, data)
                 },
             },
         ],
@@ -360,82 +274,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return state
                 },
                 updateFeatureFlagFailure: () => ({}),
-            },
-        ],
-        // Testing tab reducers
-        testFormData: [
-            { distinct_id: '', person_id: '', timestamp: '', groups: '' } as TestFormData,
-            {
-                setTestFormData: (state, { formData }) => ({ ...state, ...formData }),
-                clearTestForm: () => ({ distinct_id: '', person_id: '', timestamp: '', groups: '' }),
-            },
-        ],
-        testError: [
-            null as string | null,
-            {
-                setTestError: (_, { error }: { error: string | null }) => error,
-                testFlagEvaluation: () => null,
-                testFlagEvaluationFailure: (_, { error, errorObject }: { error: string; errorObject?: any }) => {
-                    // Extract meaningful error messages from server responses
-                    const apiError = errorObject as ApiError
-                    if (apiError?.detail) {
-                        const errorDetail = apiError.detail
-
-                        // Check for person properties build failures at timestamp
-                        if (errorDetail.includes('Failed to build person properties at specified timestamp')) {
-                            return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-                        }
-
-                        // Check for person-not-found errors
-                        if (errorDetail.includes('person') && errorDetail.includes('not found')) {
-                            return 'Person not found. This person may not have existed at the selected timestamp.'
-                        }
-
-                        // Check for timestamp-related errors
-                        if (errorDetail.includes('timestamp') || errorDetail.includes('time')) {
-                            return 'Invalid timestamp. Please select a valid date and time.'
-                        }
-
-                        return errorDetail
-                    }
-
-                    // Check error message for specific patterns
-                    const errorMessage = apiError?.message || error || ''
-                    if (errorMessage.includes('Failed to build person properties at specified timestamp')) {
-                        return 'Unable to build person properties at the selected timestamp. This person may not have had any recorded activity at that time, or the timestamp may be too far in the past.'
-                    }
-
-                    // Fallback error message
-                    return errorMessage || 'An unexpected error occurred while testing the feature flag'
-                },
-            },
-        ],
-        testResult: [
-            null as TestResult | null,
-            {
-                setTestResult: (_, { result }) => result,
-                testFlagEvaluationSuccess: (_, { testEvaluation }) => testEvaluation,
-            },
-        ],
-        showAllProperties: [
-            false,
-            {
-                setShowAllProperties: (_, { showAll }) => showAll,
-            },
-        ],
-        datePickerOpen: [
-            false,
-            {
-                setDatePickerOpen: (_, { open }) => open,
-            },
-        ],
-        datePickerValue: [
-            null as Dayjs | null,
-            {
-                setDatePickerValue: (_, { value }) => {
-                    // Return the value as-is, or null if it's undefined
-                    return value === undefined ? null : value
-                },
             },
         ],
     }),

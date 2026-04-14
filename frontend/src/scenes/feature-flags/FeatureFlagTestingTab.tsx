@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonBanner, LemonLabel, LemonCalendarSelectInput, LemonTable } from '@posthog/lemon-ui'
 
@@ -10,9 +9,53 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import type { FeatureFlagType, PersonType } from '~/types'
 
-import { featureFlagsLogic, ConditionAnalysis, PropertyAnalysis } from './featureFlagsLogic'
+import type { ConditionAnalysis, TestResult } from './featureFlagTestingLogic'
+import { featureFlagTestingLogic } from './featureFlagTestingLogic'
+
+function formatPropertyKey(key: string): string {
+    return key
+        .split('_')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+}
+
+function formatPropertyValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return 'not set'
+    }
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false'
+    }
+    if (typeof value === 'number') {
+        return value.toString()
+    }
+    if (Array.isArray(value)) {
+        return value.map((v) => formatPropertyValue(v)).join(', ')
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+    return String(value)
+}
+
+function getUsedProperties(result: TestResult | null): Set<string> {
+    const used = new Set<string>()
+    if (result?.conditions) {
+        for (const condition of result.conditions) {
+            for (const prop of condition.properties) {
+                used.add(prop.key)
+            }
+        }
+    }
+    return used
+}
 
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
+
     const {
         testFormData: formData,
         testError: error,
@@ -21,93 +64,30 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         datePickerOpen,
         datePickerValue,
         testEvaluationLoading: isLoading,
-    } = useValues(featureFlagsLogic)
+        selectedPerson,
+    } = useValues(logic)
 
     const {
         setTestFormData,
         setTestError,
-        setTestResult,
         setShowAllProperties,
         setDatePickerOpen,
         setDatePickerValue,
+        setSelectedPerson,
         clearTestForm,
         testFlagEvaluation,
-    } = useActions(featureFlagsLogic)
+    } = useActions(logic)
 
-    const [selectedPerson, setSelectedPerson] = useState<PersonType | null>(null)
-
-    // Clear testing state when feature flag changes
-    useEffect(() => {
-        clearTestForm()
-        setTestError(null)
-        setTestResult(null)
-        setShowAllProperties(false)
-        setSelectedPerson(null)
-    }, [featureFlag.id])
-
-    const formatPropertyKey = (key: string): string => {
-        return key
-            .split('_')
-            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ')
-    }
-
-    const formatPropertyValue = (value: any): string => {
-        if (value === null || value === undefined) {
-            return 'not set'
-        }
-        if (typeof value === 'string') {
-            return value
-        }
-        if (typeof value === 'boolean') {
-            return value ? 'true' : 'false'
-        }
-        if (typeof value === 'number') {
-            return value.toString()
-        }
-        if (Array.isArray(value)) {
-            return value.map((v) => formatPropertyValue(v)).join(', ')
-        }
-        if (typeof value === 'object') {
-            return JSON.stringify(value)
-        }
-        return String(value)
-    }
-
-    const getUsedProperties = (): Set<string> => {
-        const used = new Set<string>()
-        if (result?.conditions) {
-            result.conditions.forEach((condition: ConditionAnalysis) => {
-                condition.properties.forEach((prop: PropertyAnalysis) => {
-                    used.add(prop.key)
-                })
-            })
-        }
-        return used
-    }
-
-    const handleSubmit = async (): Promise<void> => {
-        // Validate that a person is selected
+    const handleSubmit = (): void => {
         if (!selectedPerson || !formData.person_id?.trim()) {
             setTestError('Please select a person')
             return
         }
-
-        try {
-            // Use person_id as the identifier since it's more stable than distinct_id
-            await testFlagEvaluation({ flagId: featureFlag.id!, formData })
-        } catch {
-            // Error handling is done in the kea logic
-        }
+        testFlagEvaluation({ flagId: featureFlag.id!, formData })
     }
 
     const handleClear = (): void => {
         clearTestForm()
-        setDatePickerValue(null)
-        setTestError(null)
-        setTestResult(null)
-        setShowAllProperties(false)
-        setSelectedPerson(null)
     }
 
     return (
@@ -123,11 +103,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
             <div className="flex gap-6">
                 {/* Left Panel - Form */}
                 <div className="flex-1 space-y-4 max-w-md bg-bg-light p-6 rounded-lg border">
-                    <h4 className="font-semibold">Test Parameters</h4>
+                    <h4 className="font-semibold">Test parameters</h4>
 
                     {/* User Selection */}
                     <div className="space-y-3">
-                        <LemonLabel>Select Person</LemonLabel>
+                        <LemonLabel>Select person</LemonLabel>
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.Persons}
                             value={selectedPerson ? selectedPerson.distinct_ids[0] : ''}
@@ -261,7 +241,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                     {error && (
                         <LemonBanner type="error">
                             <div>
-                                <div className="font-medium">Test Evaluation Failed</div>
+                                <div className="font-medium">Test evaluation failed</div>
                                 <div className="text-sm mt-1">{error}</div>
                                 {error.toLowerCase().includes('build person properties') && (
                                     <div className="text-xs mt-2 text-muted">
@@ -298,10 +278,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                         <div className="space-y-6">
                             {/* Evaluation Result */}
                             <div className="space-y-3">
-                                <h5 className="font-semibold">Evaluation Result</h5>
+                                <h5 className="font-semibold">Evaluation result</h5>
 
                                 <div className="space-y-2">
-                                    <LemonLabel>Flag Result</LemonLabel>
+                                    <LemonLabel>Flag result</LemonLabel>
                                     <div
                                         className={`px-3 py-2 rounded text-sm font-mono ${
                                             result.result === true ||
@@ -333,7 +313,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 {/* Left Column - Condition Analysis */}
                                 {result.conditions && result.conditions.length > 0 && (
                                     <div className="space-y-3 xl:col-span-2">
-                                        <LemonLabel>Condition Analysis</LemonLabel>
+                                        <LemonLabel>Condition analysis</LemonLabel>
 
                                         <div className="space-y-3 max-h-96 overflow-auto">
                                             {result.conditions.map((condition: ConditionAnalysis) => (
@@ -380,7 +360,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                     {condition.properties.length > 0 && (
                                                         <div className="space-y-1">
                                                             {condition.properties.map(
-                                                                (property: PropertyAnalysis, idx: number) => (
+                                                                (
+                                                                    property: ConditionAnalysis['properties'][number],
+                                                                    idx: number
+                                                                ) => (
                                                                     <div
                                                                         key={`${property.key}-${idx}`}
                                                                         className="text-xs text-muted pl-2"
@@ -401,7 +384,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 <div className="space-y-3 xl:col-span-3">
                                     <div className="flex items-center justify-between">
                                         <LemonLabel>
-                                            Person Properties {formData.timestamp ? 'at evaluation time' : '(current)'}
+                                            Person properties {formData.timestamp ? 'at evaluation time' : '(current)'}
                                         </LemonLabel>
                                         {Object.keys(result.person_properties).length > 0 && (
                                             <LemonButton
@@ -416,7 +399,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                                     <div className="max-h-96 overflow-auto">
                                         {(() => {
-                                            const usedProps = getUsedProperties()
+                                            const usedProps = getUsedProperties(result)
                                             const propertiesToShow = showAllProperties
                                                 ? Object.keys(result.person_properties)
                                                 : Array.from(usedProps)

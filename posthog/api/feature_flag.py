@@ -3299,9 +3299,10 @@ class FeatureFlagViewSet(
                 )
                 # build_person_properties_at_time returns dict[str, Any] when return_debug_info=False (default)
                 person_properties = properties_result if isinstance(properties_result, dict) else properties_result[0]
-            except Exception:
+            except Exception as e:
+                logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": "Failed to build person properties at specified timestamp"},
+                    {"error": f"Failed to build person properties at specified timestamp: {str(e)}"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
@@ -3374,20 +3375,21 @@ class FeatureFlagViewSet(
                     result = bool(flag_result)
                     reason = "flag_matched" if result else "no_condition_match"
 
-            return Response(
-                {
-                    "flag_key": feature_flag.key,
-                    "result": result,
-                    "reason": reason,
-                    "condition_index": condition_index,
-                    "payload": payload,
-                    "person_properties": person_properties,
-                    "conditions": detailed_conditions,
-                }
-            )
+            response_data = {
+                "flag_key": feature_flag.key,
+                "result": result,
+                "reason": reason,
+                "condition_index": condition_index,
+                "payload": payload,
+                "person_properties": person_properties,
+                "conditions": detailed_conditions,
+            }
+            response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
+            response_serializer.is_valid(raise_exception=True)
+            return Response(response_serializer.data)
 
         except Exception as e:
-            logger.exception(f"Error evaluating flag: {str(e)}")
+            logger.exception("Error evaluating flag: %s", e)
             return Response({"error": "Failed to evaluate flag"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(

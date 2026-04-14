@@ -215,6 +215,10 @@ import {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type {
+    FeatureFlagTestEvaluationRequestApi,
+    FeatureFlagTestEvaluationResponseApi,
+} from 'products/feature_flags/frontend/generated/api.schemas'
 import { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import {
@@ -2278,7 +2282,10 @@ const api = {
         ): Promise<FeatureFlagStatusResponse> {
             return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
-        async testEvaluation(id: FeatureFlagType['id'], data: any): Promise<any> {
+        async testEvaluation(
+            id: FeatureFlagType['id'],
+            data: FeatureFlagTestEvaluationRequestApi
+        ): Promise<FeatureFlagTestEvaluationResponseApi> {
             return await new ApiRequest().featureFlagTestEvaluation(id).create({ data })
         },
     },
