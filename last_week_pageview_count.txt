@@ -1,0 +1,4 @@
+last_updated_utc: 2026-04-14T15:45:00Z
+date_range: 2026-04-07 to 2026-04-14
+event: $pageview
+pageview_count: 4
