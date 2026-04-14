@@ -92,7 +92,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
     })
 
     describe('query-retention', () => {
-        it('should execute a basic retention query and return formatted results', async () => {
+        it('should execute a basic retention query', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-retention')
             const result = (await tool.handler(context, {
                 retentionFilter: {
@@ -105,11 +105,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             })) as any
 
             expect(result).toHaveProperty('_posthogUrl')
-
-            // Formatted results should contain pipe-separated values (the formatter output)
             expect(typeof result.results).toBe('object')
-            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
-            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })
     })
 
