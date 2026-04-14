@@ -8,7 +8,7 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery, Node } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     ChartDisplayType,
@@ -654,6 +654,226 @@ describe('insightNavLogic', () => {
                             showValuesOnSeries: true,
                         }),
                     },
+                })
+            })
+
+            const dataWarehouseTestCases: {
+                label: string
+                source: InsightVizNode['source']
+                targetView: InsightType
+                expectedSource: Record<string, any>
+            }[] = [
+                {
+                    label: 'trends DW to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                distinct_id_field: 'customer_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                            },
+                        ],
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                    },
+                },
+                {
+                    label: 'trends DW to lifecycle',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                distinct_id_field: 'customer_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'funnels DW to trends',
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                            },
+                        ],
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                    },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                distinct_id_field: 'customer_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'funnels DW to lifecycle',
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                id_field: 'id',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                            },
+                        ],
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                    },
+                    targetView: InsightType.LIFECYCLE,
+                    expectedSource: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'lifecycle DW to trends',
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                distinct_id_field: 'customer_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'lifecycle DW to funnels',
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                                created_at_field: 'created_at',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                id: 'warehouse_orders',
+                                name: 'Warehouse orders',
+                                table_name: 'warehouse_orders',
+                                timestamp_field: 'created_at',
+                                aggregation_target_field: 'customer_id',
+                            },
+                        ],
+                        funnelsFilter: { funnelVizType: 'steps' },
+                    },
+                },
+            ]
+
+            it.each(dataWarehouseTestCases)('converts $label', async ({ source, targetView, expectedSource }) => {
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery({
+                        kind: NodeKind.InsightVizNode,
+                        source,
+                    } as any)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(targetView)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: NodeKind.InsightVizNode,
+                    source: expectedSource,
                 })
             })
         })

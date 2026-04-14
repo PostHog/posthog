@@ -74,6 +74,12 @@ pub const SUSPICIOUS_FRAMES_DETECTED: &str = "cymbal_suspicious_frames_detected"
 pub const LEGACY_JS_FRAME_RESOLVED: &str = "cymbal_legacy_js_frame_resolved";
 pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_failed";
 
+// HTTP /process observability metrics
+pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
+pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_duration_seconds";
+pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
+pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
+
 // Spike detection metrics
 pub const SPIKE_DETECTION_TIME: &str = "cymbal_spike_detection_time";
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";

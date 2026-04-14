@@ -9,16 +9,20 @@ import {
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
+    SurveyEventName,
+    SurveyEventProperties,
     SurveyQuestionType,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
 
 import {
+    buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
+    getSurveyNotificationFilters,
     getResolvedSurveyDateRange,
     getSurveyAudienceSummaryValue,
     getSurveyDisplayConditionsSummary,
@@ -149,6 +153,105 @@ describe('survey utils', () => {
             expect(sanitizeColor('#ff0000')).toBe('#ff0000')
             expect(sanitizeColor('rgb(255, 0, 0)')).toBe('rgb(255, 0, 0)')
             expect(sanitizeColor('red')).toBe('red')
+        })
+    })
+
+    describe('getSurveyNotificationFilters', () => {
+        it('builds survey-specific notification filters', () => {
+            expect(getSurveyNotificationFilters('survey-123')).toEqual({
+                events: [
+                    {
+                        id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_COMPLETED,
+                                type: PropertyFilterType.Event,
+                                value: true,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('can include partial responses when requested', () => {
+            expect(getSurveyNotificationFilters('survey-123', false)).toEqual({
+                events: [
+                    {
+                        id: SurveyEventName.SENT,
+                        type: 'events',
+                        properties: [
+                            {
+                                key: SurveyEventProperties.SURVEY_ID,
+                                type: PropertyFilterType.Event,
+                                value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+    })
+
+    describe('buildSurveyExampleInvocationGlobals', () => {
+        it('builds a survey sent example payload with question response properties', () => {
+            const globals = buildSurveyExampleInvocationGlobals({
+                survey: {
+                    id: 'survey-123',
+                    name: 'Onboarding survey',
+                    questions: [
+                        { id: 'q1', type: SurveyQuestionType.Open, question: 'Tell us more' },
+                        {
+                            id: 'q2',
+                            type: SurveyQuestionType.SingleChoice,
+                            question: 'How did you hear about us?',
+                            choices: ['Twitter', 'Word of mouth'],
+                        },
+                        {
+                            id: 'q3',
+                            type: SurveyQuestionType.MultipleChoice,
+                            question: 'What do you use most?',
+                            choices: ['Funnels', 'Session replay', 'Feature flags'],
+                        },
+                        {
+                            id: 'q4',
+                            type: SurveyQuestionType.Rating,
+                            question: 'How satisfied are you?',
+                            scale: 10,
+                            display: 'number',
+                            lowerBoundLabel: 'Low',
+                            upperBoundLabel: 'High',
+                        },
+                    ],
+                } as Survey,
+                projectId: 1,
+                projectName: 'Project',
+                projectUrl: 'https://app.posthog.com/project/1',
+                timestamp: '2026-04-13T12:00:00.000Z',
+                eventUuid: 'event-uuid',
+                distinctId: 'person-distinct-id',
+            })
+
+            expect(globals.event.event).toEqual(SurveyEventName.SENT)
+            expect(globals.event.properties).toEqual({
+                $survey_id: 'survey-123',
+                $survey_name: 'Onboarding survey',
+                $survey_completed: true,
+                $survey_submission_id: 'survey-submission-id',
+                $survey_response_q1: 'Tell us more',
+                $survey_response_q2: 'Twitter',
+                $survey_response_q3: ['Funnels', 'Session replay'],
+                $survey_response_q4: '9',
+            })
         })
     })
 

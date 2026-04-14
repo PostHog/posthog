@@ -145,7 +145,6 @@ export function FeatureFlagReleaseConditions({
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const showBucketingIdentifierUI = useFeatureFlag('FLAG_BUCKETING_IDENTIFIER')
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
@@ -646,48 +645,7 @@ export function FeatureFlagReleaseConditions({
                         that matches.
                     </LemonBanner>
                 )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && !showBucketingIdentifierUI && (
-                <div className="centered flex items-center gap-2">
-                    <LemonLabel info="Changing match criteria may remove existing variants or payloads.">
-                        Match by
-                    </LemonLabel>
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        data-attr="feature-flag-aggregation-filter"
-                        onChange={(value) => {
-                            // MatchByGroupsIntroductionOption
-                            if (value == -2) {
-                                return
-                            }
-
-                            const groupTypeIndex = value !== -1 ? value : null
-                            setAggregationGroupTypeIndex(groupTypeIndex)
-                        }}
-                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
-                        options={[
-                            { value: -1, label: 'Users' },
-                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                value: groupType.group_type_index,
-                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                                disabledReason: hasEarlyAccessFeatures
-                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
-                                    : null,
-                            })),
-                            ...(includeGroupsIntroductionOption()
-                                ? [
-                                      {
-                                          value: -2,
-                                          label: 'MatchByGroupsIntroductionOption',
-                                          labelInMenu: matchByGroupsIntroductionOption,
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
-                </div>
-            )}
-            {!readOnly && showGroupsOptions && !hideMatchOptions && showBucketingIdentifierUI && (
+            {!readOnly && showGroupsOptions && !hideMatchOptions && (
                 <div className="mb-4">
                     <LemonLabel
                         className="mb-2"

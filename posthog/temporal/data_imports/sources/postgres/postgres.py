@@ -7,19 +7,22 @@ import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
-from typing import Any, Literal, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
+
+if TYPE_CHECKING:
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 from django.conf import settings
 
 import psycopg
 import pyarrow as pa
 import structlog
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -39,6 +42,11 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 # Sources created after this date must use SSL/TLS connections
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def source_requires_ssl(source: ExternalDataSource) -> bool:
+    """Return whether this source must connect over SSL/TLS."""
+    return source.created_at >= SSL_REQUIRED_AFTER_DATE
 
 
 class SSLRequiredError(Exception):
@@ -70,6 +78,7 @@ def _connect_to_postgres(
     user: str,
     password: str,
     require_ssl: bool = False,
+    connect_timeout: int = 15,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -81,7 +90,7 @@ def _connect_to_postgres(
             user=user,
             password=password,
             sslmode=sslmode,
-            connect_timeout=15,
+            connect_timeout=connect_timeout,
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
@@ -1277,7 +1286,7 @@ def postgres_source(
 
                 raise
 
-    name = NamingConvention().normalize_identifier(table_name)
+    name = NamingConvention.normalize_identifier(table_name)
 
     return SourceResponse(
         name=name,

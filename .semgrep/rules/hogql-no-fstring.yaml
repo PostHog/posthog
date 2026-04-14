@@ -110,6 +110,10 @@ rules:
           # Inline ternary conditions (safe: boolean conditions creating constant strings)
           - pattern-not-regex: "\\{'[^']*'\\s+if\\s+\\w+\\s+else"
           - pattern-not-regex: "\\{\"[^\"]*\"\\s+if\\s+\\w+\\s+else"
+          # Experiment actors query builder (safe: temporal_filter and recordings_fields are hardcoded strings)
+          - pattern-not-regex: "\\{temporal_filter\\}|\\{recordings_fields\\}"
+          # Ternary with string concatenation (safe: computed from hardcoded strings)
+          - pattern-not-regex: "\\{\\(.*\\)\\s+if\\s+\\w+\\s+else"
       message: 'HogQL f-string - review if user input is interpolated'
       languages: [python]
       severity: INFO
