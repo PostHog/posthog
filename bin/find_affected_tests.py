@@ -76,11 +76,20 @@ FULL_RUN_PATTERNS = (
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior
-    "frontend/src/queries/schema.json",
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",
     "common/plugin_transpiler/src",
 )
+
+# Non-Python files that are drivers for generated Python code. We translate
+# changes to these files into changes to their generated Python counterpart
+# so the import graph can pick up actual test dependents instead of
+# short-circuiting to a full run. Drift is prevented by separate CI checks
+# (e.g., `npm run schema:build:python && git diff --exit-code`), so the
+# generated file is guaranteed to be in sync with the source at test time.
+FILE_ALIASES = {
+    "frontend/src/queries/schema.json": "posthog/schema.py",
+}
 
 # Patterns in the dorny backend filter that don't affect test selection.
 # These exist in dorny's gate to be conservative, but changing them alone
@@ -387,9 +396,13 @@ def parse_dorny_backend_patterns() -> list[str]:
             continue
         if in_backend:
             if stripped.startswith("- "):
-                # Strip "- " prefix and surrounding quotes
-                pattern = stripped[2:].strip().strip("'\"")
-                patterns.append(pattern)
+                # Strip "- " prefix, trailing `# comment`, and surrounding quotes
+                pattern = stripped[2:]
+                if "#" in pattern:
+                    pattern = pattern.split("#", 1)[0]
+                pattern = pattern.strip().strip("'\"")
+                if pattern:
+                    patterns.append(pattern)
             elif stripped and not stripped.startswith("#"):
                 # Hit the next filter group (e.g. "legacy:")
                 break
@@ -397,7 +410,7 @@ def parse_dorny_backend_patterns() -> list[str]:
 
 
 def pattern_is_covered(pattern: str) -> bool:
-    """Check if a dorny pattern is covered by LOCAL_PACKAGES, FULL_RUN_PATTERNS, or GATE_ONLY_PATTERNS."""
+    """Check if a dorny pattern is covered by LOCAL_PACKAGES, FULL_RUN_PATTERNS, FILE_ALIASES, or GATE_ONLY_PATTERNS."""
     # Strip trailing glob characters (*, /, **)
     base = pattern.rstrip("/*")
 
@@ -410,6 +423,10 @@ def pattern_is_covered(pattern: str) -> bool:
     for full_pat in FULL_RUN_PATTERNS:
         if full_pat in base or base in full_pat:
             return True
+
+    # Aliased to a generated Python file covered by the import graph?
+    if base in FILE_ALIASES:
+        return True
 
     # Explicitly marked as gate-only?
     for gate_pat in GATE_ONLY_PATTERNS:
@@ -552,6 +569,14 @@ def main():
     except subprocess.CalledProcessError as e:
         sys.stderr.write(f"Error: `git diff` against {args.base_ref!r} failed: {e.stderr}\n")
         sys.exit(1)
+
+    # Translate drivers of generated Python code (e.g. schema.json → schema.py)
+    # so the rest of the pipeline can look them up via the import graph.
+    aliased = [(src, FILE_ALIASES[src]) for src in changed_files if src in FILE_ALIASES]
+    if aliased:
+        for src, dst in aliased:
+            sys.stderr.write(f"Aliasing {src} → {dst} (generated Python target)\n")
+        changed_files = [FILE_ALIASES.get(f, f) for f in changed_files]
 
     # Filter to Python files only
     py_files = [f for f in changed_files if f.endswith(".py")]
