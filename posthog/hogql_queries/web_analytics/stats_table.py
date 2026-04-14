@@ -171,8 +171,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 "inside_periods": self._periods_expression(),
             }
             if use_prefilter:
-                placeholders["events_prefilter"] = self._events_prefilter_expr()
-                placeholders["events_prefilter_scroll"] = self._events_prefilter_expr()
+                prefilter = self._events_prefilter_expr()
+                placeholders["events_prefilter"] = prefilter
+                placeholders["events_prefilter_scroll"] = prefilter
 
             query = parse_select(
                 PATH_BOUNCE_AND_AVG_TIME_QUERY_PREFILTERED if use_prefilter else PATH_BOUNCE_AND_AVG_TIME_QUERY,
