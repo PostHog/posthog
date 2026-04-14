@@ -53,3 +53,10 @@ class ErrorTrackingRecommendationViewSet(
         recommendation.dismissed_at = timezone.now()
         recommendation.save(update_fields=["dismissed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def restore(self, request: Request, *args, **kwargs) -> Response:
+        recommendation = self.get_object()
+        recommendation.dismissed_at = None
+        recommendation.save(update_fields=["dismissed_at", "updated_at"])
+        return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
