@@ -12,9 +12,14 @@ Q_contra = TypeVar("Q_contra", bound=BaseModel, contravariant=True)
 
 
 class SupportsQueryValidation(Protocol[Q_co]):
-    query: Q_co
-    team: Team
-    user: User | None
+    @property
+    def query(self) -> Q_co: ...
+
+    @property
+    def team(self) -> Team: ...
+
+    @property
+    def user(self) -> User | None: ...
 
 
 @dataclass(frozen=True)
