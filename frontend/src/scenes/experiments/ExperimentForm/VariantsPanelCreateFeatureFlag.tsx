@@ -113,8 +113,7 @@ export const VariantsPanelCreateFeatureFlag = ({
         experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
 
     const aggregationGroupTypeIndex = experiment.parameters?.aggregation_group_type_index ?? null
-    const bucketingIdentifier =
-        (experiment.parameters as { bucketing_identifier?: string | null })?.bucketing_identifier ?? null
+    const bucketingIdentifier = experiment.parameters?.bucketing_identifier ?? null
 
     const updateRolloutPercentage = (value: number): void => {
         onChange({

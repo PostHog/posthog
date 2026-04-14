@@ -599,7 +599,7 @@ class ExperimentService:
             feature_flag_data["ensure_experience_continuity"] = params["ensure_experience_continuity"]
         else:
             feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
-        if params.get("bucketing_identifier") is not None:
+        if "bucketing_identifier" in params:
             feature_flag_data["bucketing_identifier"] = params["bucketing_identifier"]
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
@@ -1327,9 +1327,8 @@ class ExperimentService:
                 )
 
                 flag_update_data: dict[str, Any] = {"filters": feature_flag_filters}
-                bucketing_identifier = update_data["parameters"].get("bucketing_identifier")
-                if bucketing_identifier is not None:
-                    flag_update_data["bucketing_identifier"] = bucketing_identifier
+                if "bucketing_identifier" in update_data["parameters"]:
+                    flag_update_data["bucketing_identifier"] = update_data["parameters"]["bucketing_identifier"]
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,

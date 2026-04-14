@@ -4502,6 +4502,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
+        bucketing_identifier?: string | null
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
     }
