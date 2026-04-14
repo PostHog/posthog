@@ -183,12 +183,19 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     actions({
         reportSingleTraceLoadIfReady: true,
         setSingleTraceLoadReported: true,
+        setHasScrolledToEvent: true,
     }),
     reducers({
         singleTraceLoadReported: [
             false,
             {
                 setSingleTraceLoadReported: () => true,
+            },
+        ],
+        hasScrolledToEvent: [
+            false,
+            {
+                setHasScrolledToEvent: () => true,
             },
         ],
     }),
@@ -421,6 +428,20 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         },
     })),
     subscriptions(({ actions, props, values }) => ({
+        enrichedTree: (enrichedTree: EnrichedTraceTreeNode[]) => {
+            // On initial load with a deep-linked event, scroll to the bottom to show the latest message
+            if (enrichedTree.length > 0 && values.effectiveEventId && !values.hasScrolledToEvent) {
+                actions.setHasScrolledToEvent()
+                // rAF assumes conversation DOM is committed in the same render as the tree.
+                // If conversation content ever loads async, this may scroll slightly short.
+                requestAnimationFrame(() => {
+                    const mainContent = document.getElementById('main-content')
+                    if (mainContent) {
+                        mainContent.scrollTo({ top: mainContent.scrollHeight })
+                    }
+                })
+            }
+        },
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
