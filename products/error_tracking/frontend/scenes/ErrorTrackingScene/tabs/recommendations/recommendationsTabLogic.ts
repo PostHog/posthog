@@ -27,6 +27,11 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     const response = await api.errorTracking.listRecommendations()
                     return response.results
                 },
+                refreshRecommendation: async (id: string) => {
+                    await api.errorTracking.refreshRecommendation(id)
+                    const response = await api.errorTracking.listRecommendations()
+                    return response.results
+                },
             },
         ],
     }),

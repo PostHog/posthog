@@ -3898,6 +3898,14 @@ const api = {
                 .create()
         },
 
+        async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest()
+                .errorTrackingRecommendations()
+                .addPathComponent(id)
+                .withAction('refresh')
+                .create()
+        },
+
         async createRule(
             ruleType: ErrorTrackingRuleType,
             { id: _, ...data }: ErrorTrackingRule
