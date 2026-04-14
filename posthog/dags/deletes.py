@@ -21,9 +21,9 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     NodeRole,
     Query,
+    Workload,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
-from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
