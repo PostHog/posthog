@@ -511,7 +511,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'banner',
                 title: null,
-                description: undefined,
                 component: <ErrorTrackingConfigurationMovedBanner />,
             },
             {
