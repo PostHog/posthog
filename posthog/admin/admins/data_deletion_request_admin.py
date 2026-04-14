@@ -6,7 +6,7 @@ from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -21,59 +21,62 @@ CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 # Custom widget + field for ArrayField editing
 # ---------------------------------------------------------------------------
 
-_PREVIEW_JS = """
+# JS template for the live preview/normalizer. All literal `{`/`}` are doubled because
+# we render via format_html(), which uses str.format() semantics. `{id}` is the only
+# substitution slot and gets the widget element id.
+_WIDGET_TEMPLATE = """{html}<div id="{id}_preview" style="margin-top:6px"></div>
 <script>
-(function() {
-    var ta = document.getElementById('%(id)s');
+(function() {{
+    var ta = document.getElementById('{id}');
     if (!ta) return;
-    var preview = document.getElementById('%(id)s_preview');
+    var preview = document.getElementById('{id}_preview');
 
-    function parse(text) {
+    function parse(text) {{
         text = text.trim();
         if (!text) return [];
-        if (text.startsWith('[')) {
+        if (text.startsWith('[')) {{
             // Try JSON as-is, then with single→double quote swap (Python-style arrays).
             // Safe here because event/property names don't contain single quotes.
             var candidates = [text, text.replace(/'/g, '"')];
-            for (var i = 0; i < candidates.length; i++) {
-                try {
+            for (var i = 0; i < candidates.length; i++) {{
+                try {{
                     var arr = JSON.parse(candidates[i]);
-                    if (Array.isArray(arr)) {
-                        return arr.map(function(s){return String(s).trim()}).filter(Boolean);
-                    }
-                } catch(e) {}
-            }
-        }
-        return text.split('\\n').map(function(s){return s.trim()}).filter(Boolean);
-    }
+                    if (Array.isArray(arr)) {{
+                        return arr.map(function(s){{return String(s).trim()}}).filter(Boolean);
+                    }}
+                }} catch(e) {{}}
+            }}
+        }}
+        return text.split('\\n').map(function(s){{return s.trim()}}).filter(Boolean);
+    }}
 
-    function render() {
+    function render() {{
         var items = parse(ta.value);
-        if (items.length === 0) {
+        if (items.length === 0) {{
             preview.innerHTML = '<em style="color:#999">No items</em>';
             return;
-        }
+        }}
         preview.innerHTML = '<strong>' + items.length + ' item(s):</strong> ' +
-            items.map(function(s){return '<code style="background:#e8e8e8;padding:2px 6px;border-radius:3px;margin:2px">' + s.replace(/</g,'&lt;') + '</code>'}).join(' ');
-    }
+            items.map(function(s){{return '<code style="background:#e8e8e8;padding:2px 6px;border-radius:3px;margin:2px">' + s.replace(/</g,'&lt;') + '</code>'}}).join(' ');
+    }}
 
-    function normalizeIfArray() {
+    function normalizeIfArray() {{
         // If the current text is an array literal, rewrite it to one-per-line.
         // Only called on paste/blur to avoid clobbering live editing.
         var text = ta.value.trim();
         if (!text.startsWith('[')) return;
         var items = parse(text);
-        if (items.length > 0) {
+        if (items.length > 0) {{
             ta.value = items.join('\\n');
             render();
-        }
-    }
+        }}
+    }}
 
     ta.addEventListener('input', render);
     ta.addEventListener('blur', normalizeIfArray);
-    ta.addEventListener('paste', function() { setTimeout(normalizeIfArray, 0); });
+    ta.addEventListener('paste', function() {{ setTimeout(normalizeIfArray, 0); }});
     render();
-})();
+}})();
 </script>
 """
 
@@ -95,9 +98,9 @@ class ArrayTextareaWidget(forms.Textarea):
     def render(self, name, value, attrs=None, renderer=None):
         html = super().render(name, value, attrs, renderer)
         widget_id = attrs.get("id", f"id_{name}") if attrs else f"id_{name}"
-        preview_div = f'<div id="{widget_id}_preview" style="margin-top:6px"></div>'
-        script = _PREVIEW_JS % {"id": widget_id}
-        return mark_safe(html + preview_div + script)
+        # html from super() is already a SafeString; widget_id is Django-generated (e.g. "id_events"),
+        # not user input — format_html still HTML-escapes it for defense in depth.
+        return format_html(_WIDGET_TEMPLATE, html=html, id=widget_id)
 
 
 class ArrayTextareaField(forms.CharField):
