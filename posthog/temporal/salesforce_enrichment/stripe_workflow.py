@@ -25,7 +25,6 @@ from posthog.temporal.common.logger import get_logger
 
 from ee.billing.salesforce_enrichment.constants import (
     POSTHOG_ORG_ID_FIELD,
-    SALESFORCE_UPDATE_BATCH_SIZE,
     STRIPE_ENRICHMENT_FIELD_MAPPINGS,
     STRIPE_ENRICHMENT_PAGE_SIZE,
 )
@@ -39,10 +38,9 @@ from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals, fetch
 
 LOGGER = get_logger(__name__)
 
-# SOQL IN clauses are limited by query length, not cardinality. 200 is comfortably
-# under the 100k-character SOQL limit for UUID-sized org ids and matches the
-# sObject Collections update batch size, keeping the two loops symmetrical.
-_SFDC_LOOKUP_CHUNK_SIZE = 200
+# SOQL IN clauses are limited by query length, not cardinality. ~500 UUID
+# org ids the IN list ~ 20k characters —  under the 100k SOQL limit
+_SFDC_LOOKUP_CHUNK_SIZE = 500
 
 
 def _soql_quote(value: str) -> str:
@@ -84,7 +82,6 @@ def prepare_stripe_update_record(salesforce_account_id: str, signals: StripeSign
 class StripeEnrichmentState:
     """Continue-As-New state carried across workflow executions."""
 
-    page_offset: int = 0
     total_rows_fetched: int = 0
     total_updated: int = 0
     total_skipped_no_account: int = 0
@@ -97,6 +94,8 @@ class StripeEnrichmentState:
     # ISO-8601 max ``last_changed_at`` seen so far this run; committed to Redis
     # only on the final iteration.
     pending_watermark: str | None = None
+    cursor_last_changed_at: str | None = None
+    cursor_org_id: str | None = None
 
 
 @dataclasses.dataclass
@@ -104,7 +103,6 @@ class StripeEnrichmentInputs:
     """Inputs for the Salesforce stripe enrichment workflow."""
 
     page_size: int = STRIPE_ENRICHMENT_PAGE_SIZE
-    sfdc_batch_size: int = SALESFORCE_UPDATE_BATCH_SIZE
     max_rows: int | None = None  # Optional cap for testing / partial runs
     force_full_refresh: bool = False  # Ignore stored watermark for this run
     state: StripeEnrichmentState | None = None
@@ -125,9 +123,9 @@ class StripeEnrichmentResult:
 @dataclasses.dataclass
 class EnrichStripePageInputs:
     since: str | None  # ISO-8601 watermark, or None for full scan
-    offset: int
     page_size: int
-    sfdc_batch_size: int
+    cursor_last_changed_at: str | None = None  # ISO-8601 keyset cursor timestamp
+    cursor_org_id: str | None = None  # Keyset cursor tiebreaker
 
 
 @dataclasses.dataclass
@@ -137,6 +135,8 @@ class EnrichStripePageResult:
     skipped_no_account: int
     errors: list[str]
     max_last_changed_at: str | None  # ISO-8601 of the latest row in this page
+    next_cursor_last_changed_at: str | None  # ISO-8601 cursor for the next page
+    next_cursor_org_id: str | None  # Org-id tiebreaker for the next page
 
 
 @activity.defn
@@ -165,15 +165,21 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
     """
     async with Heartbeater() as heartbeater:
         close_old_connections()
-        logger = LOGGER.bind(offset=inputs.offset, page_size=inputs.page_size)
+        logger = LOGGER.bind(
+            page_size=inputs.page_size,
+            cursor_ts=inputs.cursor_last_changed_at,
+        )
 
         since = dt.datetime.fromisoformat(inputs.since) if inputs.since else None
+        cursor: tuple[dt.datetime, str] | None = None
+        if inputs.cursor_last_changed_at and inputs.cursor_org_id is not None:
+            cursor = (dt.datetime.fromisoformat(inputs.cursor_last_changed_at), inputs.cursor_org_id)
 
         signals_rows = await asyncio.to_thread(
             fetch_stripe_signals,
             since,
             inputs.page_size,
-            inputs.offset,
+            cursor,
         )
 
         if not signals_rows:
@@ -184,11 +190,18 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
                 skipped_no_account=0,
                 errors=[],
                 max_last_changed_at=None,
+                next_cursor_last_changed_at=None,
+                next_cursor_org_id=None,
             )
 
+        # The SQL orders by (last_changed_at, posthog_organization_id) ASC so the
+        # last row is both the max timestamp and the keyset cursor for the next page.
         signals_by_org: dict[str, StripeSignals] = {s.posthog_organization_id: s for s in signals_rows}
         all_org_ids = list(signals_by_org.keys())
-        max_last_changed_at = max(s.last_changed_at for s in signals_rows)
+        last_row = signals_rows[-1]
+        max_last_changed_at = last_row.last_changed_at
+        next_cursor_last_changed_at = last_row.last_changed_at.isoformat()
+        next_cursor_org_id = last_row.posthog_organization_id
 
         sf = get_salesforce_client()
         org_to_account_id: dict[str, str] = {}
@@ -220,7 +233,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
                 if failed:
                     errors.append(f"sfdc_bulk_update_failed_count={failed}")
             except Exception as e:
-                msg = f"Failed to bulk-update Salesforce at offset {inputs.offset}: {e!s}"
+                msg = f"Failed to bulk-update Salesforce at cursor {inputs.cursor_last_changed_at}: {e!s}"
                 logger.exception(msg)
                 errors.append(msg)
 
@@ -240,6 +253,8 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
             skipped_no_account=skipped_no_account,
             errors=errors,
             max_last_changed_at=max_last_changed_at.isoformat(),
+            next_cursor_last_changed_at=next_cursor_last_changed_at,
+            next_cursor_org_id=next_cursor_org_id,
         )
 
 
@@ -280,9 +295,10 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
 
         logger.info(
             "stripe_enrichment_iteration_started",
-            page_offset=state.page_offset,
+            total_rows_fetched=state.total_rows_fetched,
             page_size=page_size,
             since=since,
+            cursor_ts=state.cursor_last_changed_at,
             force_full_refresh=inputs.force_full_refresh,
         )
 
@@ -290,9 +306,9 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
             enrich_stripe_page_activity,
             EnrichStripePageInputs(
                 since=since,
-                offset=state.page_offset,
                 page_size=page_size,
-                sfdc_batch_size=inputs.sfdc_batch_size,
+                cursor_last_changed_at=state.cursor_last_changed_at,
+                cursor_org_id=state.cursor_org_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=30),
             heartbeat_timeout=dt.timedelta(minutes=5),
@@ -326,22 +342,26 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
                 )
             return self._build_result(state)
 
-        state.page_offset += page_result.rows_fetched
+        state.cursor_last_changed_at = page_result.next_cursor_last_changed_at
+        state.cursor_org_id = page_result.next_cursor_org_id
         logger.info(
             "stripe_enrichment_continuing_as_new",
-            page_offset=state.page_offset,
             total_rows_fetched=state.total_rows_fetched,
             total_updated=state.total_updated,
+            next_cursor_ts=state.cursor_last_changed_at,
         )
         workflow.continue_as_new(
             StripeEnrichmentInputs(
                 page_size=inputs.page_size,
-                sfdc_batch_size=inputs.sfdc_batch_size,
                 max_rows=inputs.max_rows,
                 force_full_refresh=inputs.force_full_refresh,
                 state=state,
             )
         )
+        # continue_as_new is typed NoReturn so mypy marks this unreachable, but
+        # tests mock it as a plain MagicMock — keep the explicit return so mocked
+        # runs produce a real result instead of falling through to None.
+        return self._build_result(state)  # type: ignore[unreachable]
 
     @staticmethod
     def _build_result(state: StripeEnrichmentState) -> dict[str, Any]:

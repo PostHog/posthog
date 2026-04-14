@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 
 from ee.billing.salesforce_enrichment.duckgres_client import DuckgresNotConfiguredError
-from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals, fetch_stripe_signals
+from ee.billing.salesforce_enrichment.stripe_signals import _FETCH_QUERY, StripeSignals, fetch_stripe_signals
 
 
 def _row(
@@ -27,6 +27,20 @@ def _row(
         "address_country": "US",
         "last_changed_at": synced_at or dt.datetime(2026, 4, 10, 12, 0, tzinfo=dt.UTC),
     }
+
+
+class TestFetchQueryFilters(TestCase):
+    def test_keeps_only_primary_customer_mappings(self):
+        assert "cts.primary = TRUE" in _FETCH_QUERY
+
+    def test_excludes_soft_deleted_stripe_customers(self):
+        assert "COALESCE(sc.is_deleted, FALSE) = FALSE" in _FETCH_QUERY
+
+    def test_filters_out_rows_without_posthog_organization(self):
+        assert "bc.organization_id IS NOT NULL" in _FETCH_QUERY
+
+    def test_applies_since_watermark(self):
+        assert "last_changed_at > %(since)s" in _FETCH_QUERY
 
 
 class TestStripeSignalsDataClass(TestCase):
@@ -54,16 +68,16 @@ class TestFetchStripeSignals(TestCase):
     @patch.object(settings, "DUCKGRES_PG_URL", None, create=True)
     def test_raises_when_not_configured(self):
         with self.assertRaises(DuckgresNotConfiguredError):
-            fetch_stripe_signals(since=None, limit=100, offset=0)
+            fetch_stripe_signals(since=None, limit=100)
 
     @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
-    def test_full_backfill_passes_none_since(self, mock_cursor_ctx):
+    def test_full_backfill_passes_none_since_and_cursor(self, mock_cursor_ctx):
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [_row(org_id="org-1"), _row(org_id="org-2")]
         mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
 
-        result = fetch_stripe_signals(since=None, limit=500, offset=0)
+        result = fetch_stripe_signals(since=None, limit=500)
 
         assert len(result) == 2
         assert result[0].posthog_organization_id == "org-1"
@@ -71,8 +85,9 @@ class TestFetchStripeSignals(TestCase):
 
         executed_params = mock_cursor.execute.call_args[0][1]
         assert executed_params["since"] is None
+        assert executed_params["cursor_ts"] is None
+        assert executed_params["cursor_org_id"] is None
         assert executed_params["limit"] == 500
-        assert executed_params["offset"] == 0
 
     @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
@@ -82,11 +97,26 @@ class TestFetchStripeSignals(TestCase):
         mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
 
         since = dt.datetime(2026, 4, 12, 10, 0, tzinfo=dt.UTC)
-        fetch_stripe_signals(since=since, limit=100, offset=250)
+        fetch_stripe_signals(since=since, limit=100)
 
         executed_params = mock_cursor.execute.call_args[0][1]
         assert executed_params["since"] == since
-        assert executed_params["offset"] == 250
+        assert executed_params["cursor_ts"] is None
+        assert executed_params["cursor_org_id"] is None
+
+    @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
+    @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
+    def test_keyset_cursor_passed_through(self, mock_cursor_ctx):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
+
+        cursor_ts = dt.datetime(2026, 4, 12, 10, 0, tzinfo=dt.UTC)
+        fetch_stripe_signals(since=None, limit=100, cursor=(cursor_ts, "org-42"))
+
+        executed_params = mock_cursor.execute.call_args[0][1]
+        assert executed_params["cursor_ts"] == cursor_ts
+        assert executed_params["cursor_org_id"] == "org-42"
 
     @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
@@ -95,7 +125,7 @@ class TestFetchStripeSignals(TestCase):
         mock_cursor.fetchall.return_value = []
         mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
 
-        assert fetch_stripe_signals(since=None, limit=100, offset=0) == []
+        assert fetch_stripe_signals(since=None, limit=100) == []
 
     @patch.object(settings, "DUCKGRES_PG_URL", "postgresql://user:pass@host/db", create=True)
     @patch("ee.billing.salesforce_enrichment.stripe_signals.duckgres_cursor")
@@ -118,7 +148,7 @@ class TestFetchStripeSignals(TestCase):
         ]
         mock_cursor_ctx.return_value.__enter__.return_value = mock_cursor
 
-        result = fetch_stripe_signals(since=None, limit=100, offset=0)
+        result = fetch_stripe_signals(since=None, limit=100)
 
         assert len(result) == 1
         s = result[0]

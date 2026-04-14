@@ -10,7 +10,7 @@ from psycopg import sql
 from psycopg.rows import DictRow, dict_row
 
 _CONNECT_TIMEOUT_SECONDS = 15
-_STATEMENT_TIMEOUT_MS = 60_000
+_STATEMENT_TIMEOUT_MS = 10 * 60 * 1000
 
 
 class DuckgresNotConfiguredError(RuntimeError):

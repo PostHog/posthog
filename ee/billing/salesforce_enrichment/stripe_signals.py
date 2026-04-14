@@ -30,9 +30,9 @@ class StripeSignals:
 # The query walks three tables, in order:
 #   1. posthog_customer — link each PostHog organization to its active Stripe customer.
 #   2. enriched         — join in the Stripe customer row and compute a single
-#                         last_changed_at watermark as the max Fivetran sync timestamp
-#                         across both sources, so an incremental run picks up either
-#                         a billing_customer rename or a Stripe address update.
+#                         last_changed_at watermark.
+# Pagination uses a keyset cursor on ``(last_changed_at, posthog_organization_id)``
+# watermark; each subsequent page passes the last row seen.
 
 _FETCH_QUERY = """
 WITH posthog_customer AS (
@@ -71,17 +71,21 @@ enriched AS (
 )
 SELECT *
 FROM enriched
-WHERE %(since)s::timestamptz IS NULL
-   OR last_changed_at > %(since)s::timestamptz
+WHERE (%(since)s::timestamptz IS NULL OR last_changed_at > %(since)s::timestamptz)
+  AND (
+        %(cursor_ts)s::timestamptz IS NULL
+     OR last_changed_at > %(cursor_ts)s::timestamptz
+     OR (last_changed_at = %(cursor_ts)s::timestamptz AND posthog_organization_id > %(cursor_org_id)s)
+  )
 ORDER BY last_changed_at ASC, posthog_organization_id ASC
-LIMIT %(limit)s OFFSET %(offset)s
+LIMIT %(limit)s
 """
 
 
 def fetch_stripe_signals(
     since: dt.datetime | None,
     limit: int,
-    offset: int,
+    cursor: tuple[dt.datetime, str] | None = None,
 ) -> list[StripeSignals]:
     """Fetch a page of stripe signals from duckgres.
 
@@ -89,12 +93,28 @@ def fetch_stripe_signals(
         since: Only return rows with last_changed_at strictly greater than this
             timestamp. ``None`` performs a full backfill.
         limit: Maximum rows to return in this page.
-        offset: Row offset within the ordered result set.
+        cursor: Keyset cursor from the previous page as
+            ``(last_changed_at, posthog_organization_id)``. ``None`` on the
+            first page of a run.
     """
-    LOGGER.info("fetching_stripe_signals", since=since.isoformat() if since else None, limit=limit, offset=offset)
+    cursor_ts, cursor_org_id = cursor if cursor is not None else (None, None)
+    LOGGER.info(
+        "fetching_stripe_signals",
+        since=since.isoformat() if since else None,
+        limit=limit,
+        cursor_ts=cursor_ts.isoformat() if cursor_ts else None,
+    )
 
     with duckgres_cursor() as cur:
-        cur.execute(_FETCH_QUERY, {"since": since, "limit": limit, "offset": offset})
+        cur.execute(
+            _FETCH_QUERY,
+            {
+                "since": since,
+                "cursor_ts": cursor_ts,
+                "cursor_org_id": cursor_org_id,
+                "limit": limit,
+            },
+        )
         rows = cur.fetchall()
 
     return [

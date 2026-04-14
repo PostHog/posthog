@@ -1,10 +1,15 @@
 import json
 import datetime as dt
 
-from unittest import IsolatedAsyncioTestCase, TestCase
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.temporal.salesforce_enrichment.stripe_workflow import (
+    EnrichStripePageInputs,
     EnrichStripePageResult,
     SalesforceStripeEnrichmentWorkflow,
     StripeEnrichmentInputs,
@@ -46,36 +51,32 @@ async def mock_to_thread(fn, *args, **kwargs):
     return fn(*args, **kwargs)
 
 
-class TestSoqlQuote(TestCase):
-    def test_basic(self):
-        assert _soql_quote("abc") == "'abc'"
-
-    def test_escapes_single_quote(self):
-        assert _soql_quote("ab'c") == "'ab\\'c'"
-
-    def test_escapes_backslash(self):
-        assert _soql_quote("a\\b") == "'a\\\\b'"
-
-
-class TestComposeBillingStreet(TestCase):
-    def test_both_lines(self):
-        s = _signals(line1="1 Main St", line2="Suite 200")
-        assert _compose_billing_street(s) == "1 Main St\nSuite 200"
-
-    def test_line_1_only(self):
-        s = _signals(line1="1 Main St", line2=None)
-        assert _compose_billing_street(s) == "1 Main St"
-
-    def test_line_2_only(self):
-        s = _signals(line1=None, line2="Suite 200")
-        assert _compose_billing_street(s) == "Suite 200"
-
-    def test_neither(self):
-        s = _signals(line1=None, line2=None)
-        assert _compose_billing_street(s) is None
+class TestSoqlQuote(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("basic", "abc", "'abc'"),
+            ("escapes_single_quote", "ab'c", "'ab\\'c'"),
+            ("escapes_backslash", "a\\b", "'a\\\\b'"),
+        ]
+    )
+    def test_quote(self, _name, value, expected):
+        assert _soql_quote(value) == expected
 
 
-class TestPrepareStripeUpdateRecord(TestCase):
+class TestComposeBillingStreet(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both_lines", "1 Main St", "Suite 200", "1 Main St\nSuite 200"),
+            ("line_1_only", "1 Main St", None, "1 Main St"),
+            ("line_2_only", None, "Suite 200", "Suite 200"),
+            ("neither", None, None, None),
+        ]
+    )
+    def test_compose(self, _name, line1, line2, expected):
+        assert _compose_billing_street(_signals(line1=line1, line2=line2)) == expected
+
+
+class TestPrepareStripeUpdateRecord(SimpleTestCase):
     def test_full_record(self):
         record = prepare_stripe_update_record("001ABC", _signals(line2="Suite 200"))
 
@@ -107,7 +108,7 @@ class TestPrepareStripeUpdateRecord(TestCase):
         assert record == {"Id": "001ABC"}
 
 
-class TestWorkflowParseInputs(TestCase):
+class TestWorkflowParseInputs(SimpleTestCase):
     def test_defaults(self):
         inputs = SalesforceStripeEnrichmentWorkflow.parse_inputs(["{}"])
 
@@ -125,7 +126,6 @@ class TestWorkflowParseInputs(TestCase):
             {
                 "max_rows": 500,
                 "state": {
-                    "page_offset": 100,
                     "total_rows_fetched": 100,
                     "total_updated": 90,
                     "total_skipped_no_account": 10,
@@ -133,6 +133,8 @@ class TestWorkflowParseInputs(TestCase):
                     "errors": [],
                     "resolved_since": "2026-04-10T12:00:00+00:00",
                     "pending_watermark": "2026-04-11T12:00:00+00:00",
+                    "cursor_last_changed_at": "2026-04-11T00:00:00+00:00",
+                    "cursor_org_id": "org-99",
                 },
             }
         )
@@ -140,11 +142,14 @@ class TestWorkflowParseInputs(TestCase):
 
         assert inputs.max_rows == 500
         assert inputs.state is not None
-        assert inputs.state.page_offset == 100
+        assert inputs.state.total_rows_fetched == 100
         assert inputs.state.resolved_since == "2026-04-10T12:00:00+00:00"
+        assert inputs.state.cursor_last_changed_at == "2026-04-11T00:00:00+00:00"
+        assert inputs.state.cursor_org_id == "org-99"
 
 
-class TestEnrichStripePageActivity(IsolatedAsyncioTestCase):
+class TestEnrichStripePageActivity(SimpleTestCase):
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(2, 0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
@@ -172,12 +177,8 @@ class TestEnrichStripePageActivity(IsolatedAsyncioTestCase):
         }
         mock_sf_client.return_value = mock_sf
 
-        from posthog.temporal.salesforce_enrichment.stripe_workflow import EnrichStripePageInputs
-
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(
-                EnrichStripePageInputs(since=None, offset=0, page_size=5000, sfdc_batch_size=200)
-            )
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
 
         assert result.rows_fetched == 2
         assert result.updated == 2
@@ -189,6 +190,7 @@ class TestEnrichStripePageActivity(IsolatedAsyncioTestCase):
         assert len(sent_records) == 2
         assert sent_records[0]["Name"] == "Acme Inc"
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(1, 0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
@@ -211,12 +213,8 @@ class TestEnrichStripePageActivity(IsolatedAsyncioTestCase):
         mock_sf.query_all.return_value = {"records": [{"Id": "001ABC", "Posthog_Org_ID__c": "org-1"}]}
         mock_sf_client.return_value = mock_sf
 
-        from posthog.temporal.salesforce_enrichment.stripe_workflow import EnrichStripePageInputs
-
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(
-                EnrichStripePageInputs(since=None, offset=0, page_size=5000, sfdc_batch_size=200)
-            )
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
 
         assert result.rows_fetched == 2
         assert result.updated == 1
@@ -225,20 +223,18 @@ class TestEnrichStripePageActivity(IsolatedAsyncioTestCase):
         assert len(sent_records) == 1
         assert sent_records[0]["Id"] == "001ABC"
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals", return_value=[])
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_empty_page_returns_zero(self, _mock_close, _mock_fetch, _mock_heartbeat):
-        from posthog.temporal.salesforce_enrichment.stripe_workflow import EnrichStripePageInputs
-
-        result = await enrich_stripe_page_activity(
-            EnrichStripePageInputs(since=None, offset=0, page_size=5000, sfdc_batch_size=200)
-        )
+        result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
 
         assert result.rows_fetched == 0
         assert result.updated == 0
         assert result.max_last_changed_at is None
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", side_effect=Exception("sfdc down"))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
@@ -252,20 +248,87 @@ class TestEnrichStripePageActivity(IsolatedAsyncioTestCase):
         mock_sf.query_all.return_value = {"records": [{"Id": "001ABC", "Posthog_Org_ID__c": "org-1"}]}
         mock_sf_client.return_value = mock_sf
 
-        from posthog.temporal.salesforce_enrichment.stripe_workflow import EnrichStripePageInputs
-
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(
-                EnrichStripePageInputs(since=None, offset=0, page_size=5000, sfdc_batch_size=200)
-            )
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
 
         assert result.rows_fetched == 1
         assert result.updated == 0
         assert len(result.errors) == 1
         assert "sfdc down" in result.errors[0]
 
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(1, 1))
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_partial_bulk_update_failure_records_error(
+        self,
+        _mock_close,
+        mock_fetch,
+        mock_sf_client,
+        _mock_bulk,
+        _mock_heartbeat,
+    ):
+        mock_fetch.return_value = [
+            _signals(org_id="org-1"),
+            _signals(org_id="org-2"),
+        ]
+        mock_sf = MagicMock()
+        mock_sf.query_all.return_value = {
+            "records": [
+                {"Id": "001ABC", "Posthog_Org_ID__c": "org-1"},
+                {"Id": "001DEF", "Posthog_Org_ID__c": "org-2"},
+            ]
+        }
+        mock_sf_client.return_value = mock_sf
 
-class TestWorkflowRun(IsolatedAsyncioTestCase):
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+
+        # Partial failure: 1 row succeeded, 1 row was rejected by Salesforce.
+        # We still count the success in ``updated`` but surface the failure via errors
+        # so the workflow-level ``error_count`` reflects it.
+        assert result.updated == 1
+        assert result.errors == ["sfdc_bulk_update_failed_count=1"]
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(250, 0))
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_soql_lookup_chunks_large_pages(
+        self,
+        _mock_close,
+        mock_fetch,
+        mock_sf_client,
+        _mock_bulk,
+        _mock_heartbeat,
+    ):
+        # Force two SOQL lookup round trips by dropping the chunk size for this
+        # test so we don't need 500+ fixtures to cross the boundary.
+        mock_fetch.return_value = [_signals(org_id=f"org-{i}") for i in range(250)]
+        mock_sf = MagicMock()
+        mock_sf.query_all.return_value = {
+            "records": [{"Id": f"001{i:04d}", "Posthog_Org_ID__c": f"org-{i}"} for i in range(250)]
+        }
+        mock_sf_client.return_value = mock_sf
+
+        with (
+            patch(f"{WORKFLOW_MODULE}._SFDC_LOOKUP_CHUNK_SIZE", 100),
+            patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread),
+        ):
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+
+        # 250 org ids at chunk size 100 → 3 lookup calls (100 + 100 + 50).
+        assert mock_sf.query_all.call_count == 3
+        assert result.rows_fetched == 250
+        assert result.skipped_no_account == 0
+
+
+class TestWorkflowRun(SimpleTestCase):
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_resolves_watermark_on_first_iteration(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
@@ -277,6 +340,8 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
                     skipped_no_account=10,
                     errors=[],
                     max_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_org_id="org-99",
                 ),
                 None,  # commit_stripe_watermark_activity
             ]
@@ -293,6 +358,7 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
         assert result["committed_watermark"] == "2026-04-12T00:00:00+00:00"
         mock_workflow.continue_as_new.assert_not_called()
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_continues_as_new_when_page_full(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
@@ -304,6 +370,8 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
                     skipped_no_account=0,
                     errors=[],
                     max_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_org_id="org-499",
                 ),
             ]
         )
@@ -315,10 +383,12 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
 
         mock_workflow.continue_as_new.assert_called_once()
         call_args = mock_workflow.continue_as_new.call_args[0][0]
-        assert call_args.state.page_offset == 500
+        assert call_args.state.cursor_last_changed_at == "2026-04-12T00:00:00+00:00"
+        assert call_args.state.cursor_org_id == "org-499"
         assert call_args.state.pending_watermark == "2026-04-12T00:00:00+00:00"
         assert call_args.state.resolved_since is None
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_force_full_refresh_skips_watermark_read(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
@@ -329,6 +399,8 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
                     skipped_no_account=0,
                     errors=[],
                     max_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_org_id="org-9",
                 ),
             ]
         )
@@ -343,6 +415,7 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
         assert mock_workflow.execute_activity.await_count == 1
         assert result["committed_watermark"] == "2026-04-12T00:00:00+00:00"
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_continuation_does_not_refetch_since(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
@@ -353,6 +426,8 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
                     skipped_no_account=0,
                     errors=[],
                     max_last_changed_at="2026-04-13T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-13T00:00:00+00:00",
+                    next_cursor_org_id="org-509",
                 ),
                 None,  # commit_watermark
             ]
@@ -360,21 +435,30 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
         mock_workflow.continue_as_new = MagicMock()
 
         state = StripeEnrichmentState(
-            page_offset=500,
             total_rows_fetched=500,
             total_updated=500,
             resolved_since="2026-04-10T00:00:00+00:00",
             pending_watermark="2026-04-12T00:00:00+00:00",
+            cursor_last_changed_at="2026-04-12T00:00:00+00:00",
+            cursor_org_id="org-499",
         )
         wf = SalesforceStripeEnrichmentWorkflow()
         inputs = StripeEnrichmentInputs(page_size=500, state=state)
         result = await wf.run(inputs)
+
+        # The continuation must pass the stored cursor to the activity, not
+        # restart from the watermark.
+        page_call_args = mock_workflow.execute_activity.await_args_list[0]
+        page_inputs = page_call_args.args[1]
+        assert page_inputs.cursor_last_changed_at == "2026-04-12T00:00:00+00:00"
+        assert page_inputs.cursor_org_id == "org-499"
 
         # Page size 10 < inputs.page_size 500 — this is the final iteration.
         assert result["total_rows_fetched"] == 510
         assert result["committed_watermark"] == "2026-04-13T00:00:00+00:00"
         mock_workflow.continue_as_new.assert_not_called()
 
+    @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_errors_from_page_accumulate_and_cap(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
@@ -386,6 +470,8 @@ class TestWorkflowRun(IsolatedAsyncioTestCase):
                     skipped_no_account=0,
                     errors=[f"err-{i}" for i in range(15)],
                     max_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_org_id="org-9",
                 ),
                 None,  # commit watermark
             ]
