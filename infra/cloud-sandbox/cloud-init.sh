@@ -277,13 +277,26 @@ else
     log "WARNING: No cache manifest provided, Docker starts with no cached images"
 fi
 
-log "Cloning PostHog repo (background)..."
+log "Cloning PostHog repo (background, shallow)..."
 clone_repo() {
+    local target="$REPO_DIR"
     if [ "$USE_NVME" = true ]; then
-        sudo -u ubuntu git clone https://github.com/PostHog/posthog.git /mnt/nvme/posthog
-        ln -s /mnt/nvme/posthog "$REPO_DIR"
-    else
-        sudo -u ubuntu git clone https://github.com/PostHog/posthog.git "$REPO_DIR"
+        target="/mnt/nvme/posthog"
+    fi
+    # Shallow clone: workspace population only fetches --depth=50 from the
+    # host repo via file:// transport, so --depth=50 gives comfortable
+    # headroom. Fetching the sandbox branch + master in the same clone
+    # eliminates the separate `git fetch origin` step later.
+    sudo -u ubuntu git clone --depth=50 --no-tags \
+        --branch master --single-branch \
+        https://github.com/PostHog/posthog.git "$target"
+    # Fetch the sandbox branch if it's not master (shallow, separate ref)
+    if [ "$SANDBOX_BRANCH" != "master" ]; then
+        sudo -u ubuntu git -C "$target" fetch --depth=50 --no-tags \
+            origin "$SANDBOX_BRANCH" 2>/dev/null || true
+    fi
+    if [ "$USE_NVME" = true ]; then
+        ln -s "$target" "$REPO_DIR"
     fi
 }
 clone_repo &
@@ -314,8 +327,45 @@ if [ "${#CHUNK_PIDS[@]}" -gt 0 ]; then
     log "All ${#CHUNK_PIDS[@]} pipelines done in $((SECONDS - pipeline_start))s"
 fi
 
-systemctl start docker
-log "Docker started"
+# Start Docker in the background — it takes ~50s to scan all the restored
+# overlay2 layers. While it initializes, we can wait for the repo clone and
+# check out the branch in parallel.
+systemctl start docker &
+DOCKER_START_PID=$!
+docker_start_ts=$SECONDS
+
+log "Waiting for repo clone..."
+wait $CLONE_PID || { log "ERROR: git clone failed"; exit 1; }
+log "Repo cloned"
+
+log "Pre-populating sandbox config (jetbrains=${SANDBOX_JETBRAINS:-none})..."
+SANDBOX_CONFIG_DIR="/home/ubuntu/.posthog-sandboxes"
+mkdir -p "$SANDBOX_CONFIG_DIR"
+if [ -n "$SANDBOX_JETBRAINS" ]; then
+    # Skip the interactive prompt in _resolve_jetbrains_preference. The actual
+    # IDE download happens in the background task after the sandbox is live
+    # (see "Download JetBrains IDE" block below).
+    printf '{"jetbrains": "%s"}\n' "$SANDBOX_JETBRAINS" > "$SANDBOX_CONFIG_DIR/config.json"
+else
+    echo '{"jetbrains": null}' > "$SANDBOX_CONFIG_DIR/config.json"
+fi
+chown -R ubuntu:ubuntu "$SANDBOX_CONFIG_DIR"
+
+log "Checking out branch $SANDBOX_BRANCH..."
+cd "$REPO_DIR"
+# Branch was already fetched during the shallow clone above.
+if sudo -u ubuntu HOME=/home/ubuntu git checkout "$SANDBOX_BRANCH" 2>/dev/null; then
+    log "Checked out existing branch $SANDBOX_BRANCH"
+elif sudo -u ubuntu HOME=/home/ubuntu git checkout -b "$SANDBOX_BRANCH" "origin/$SANDBOX_BRANCH" 2>/dev/null; then
+    log "Checked out remote branch $SANDBOX_BRANCH"
+else
+    log "Branch $SANDBOX_BRANCH not found on remote, creating from origin/master..."
+    sudo -u ubuntu HOME=/home/ubuntu git checkout -b "$SANDBOX_BRANCH" origin/master
+fi
+
+# Now wait for Docker to finish starting.
+wait $DOCKER_START_PID || { log "ERROR: Docker failed to start"; exit 1; }
+log "Docker started in $((SECONDS - docker_start_ts))s"
 log "Docker info: $(docker info --format '{{.DockerRootDir}}, Images: {{.Images}}, Driver: {{.Driver}}')"
 
 # Stage the sandbox-cargo-target volume and background-populate it.
@@ -371,34 +421,6 @@ if [ -n "$CARGO_TARGET_URL" ]; then
     # logged; on permanent failure the volume gets wiped so rust services
     # rebuild from scratch on first invocation instead of mis-hitting
     # partial cache.
-fi
-
-log "Waiting for repo clone..."
-wait $CLONE_PID || { log "ERROR: git clone failed"; exit 1; }
-log "Repo cloned"
-
-log "Pre-populating sandbox config (jetbrains=${SANDBOX_JETBRAINS:-none})..."
-SANDBOX_CONFIG_DIR="/home/ubuntu/.posthog-sandboxes"
-mkdir -p "$SANDBOX_CONFIG_DIR"
-if [ -n "$SANDBOX_JETBRAINS" ]; then
-    # Skip the interactive prompt in _resolve_jetbrains_preference. The actual
-    # IDE download happens in the background task after the sandbox is live
-    # (see "Download JetBrains IDE" block below).
-    printf '{"jetbrains": "%s"}\n' "$SANDBOX_JETBRAINS" > "$SANDBOX_CONFIG_DIR/config.json"
-else
-    echo '{"jetbrains": null}' > "$SANDBOX_CONFIG_DIR/config.json"
-fi
-chown -R ubuntu:ubuntu "$SANDBOX_CONFIG_DIR"
-
-log "Fetching branch $SANDBOX_BRANCH..."
-cd "$REPO_DIR"
-sudo -u ubuntu HOME=/home/ubuntu git fetch origin --quiet
-if sudo -u ubuntu HOME=/home/ubuntu git fetch origin "$SANDBOX_BRANCH" --quiet 2>/dev/null; then
-    log "Checking out existing branch $SANDBOX_BRANCH..."
-    sudo -u ubuntu HOME=/home/ubuntu git checkout "$SANDBOX_BRANCH"
-else
-    log "Branch $SANDBOX_BRANCH not found on remote, creating from origin/master..."
-    sudo -u ubuntu HOME=/home/ubuntu git checkout -b "$SANDBOX_BRANCH" origin/master
 fi
 
 # Wait for the background Tailscale HTTPS cert task (kicked off right after
