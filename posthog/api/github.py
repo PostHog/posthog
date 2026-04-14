@@ -54,28 +54,28 @@ def get_github_login(user: User) -> str | None:
     When ``_prefetched_github_integrations`` is set on the user, that prefetch is
     used. Otherwise, queries are issued.
     """
-    # Check GitHub integrations created by this user
-    login = (
+    # 1. Check GitHub integrations created by this user
+    integration_login = (
         Integration.objects.filter(kind="github", created_by=user)
-        .values_list("config__connecting_user_github_login", flat=True)
         .exclude(config__connecting_user_github_login=None)
+        .values_list("config__connecting_user_github_login", flat=True)
         .first()
     )
-    if login:
-        return str(login)
-
-    # Fall back to social auth
-    for sa in user.social_auth.all():
-        if sa.provider != "github":
-            continue
-        if isinstance(sa.extra_data, dict):
-            login = sa.extra_data.get("login")
-            if login:
-                return str(login)
+    if integration_login:
+        return str(integration_login)
+    # 2. Check social auth
+    social_auth_login = (
+        user.social_auth.filter(provider="github")
+        .exclude(extra_data__login=None)
+        .values_list("extra_data__login", flat=True)
+        .first()
+    )
+    if social_auth_login:
+        return str(social_auth_login)
     return None
 
 
-def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str]) -> dict[str, str]:
+def get_org_member_github_logins_by_user_uuid(org_id: str, user_uuids: list[str]) -> dict[str, str]:
     """Build a mapping of PostHog user UUID string -> GitHub login for org members on the team.
 
     Resolution matches ``get_github_login``: first GitHub integration by ``id`` with a
@@ -85,52 +85,44 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
     if not user_uuids:
         return {}
 
-    try:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-    except Team.DoesNotExist:
-        return {}
-
-    rows = OrganizationMembership.objects.filter(
+    user_id_to_uuid: dict[int, str] = {}
+    for user_id, user_uuid in OrganizationMembership.objects.filter(
         organization_id=org_id,
         user__uuid__in=user_uuids,
-    ).values_list("user_id", "user__uuid")
-    user_id_to_uuid: dict[int, str] = {uid: str(u) for uid, u in rows}
-    user_ids = list(user_id_to_uuid.keys())
-    if not user_ids:
+    ).values_list("user_id", "user__uuid"):
+        user_id_to_uuid[user_id] = str(user_uuid)
+    if not user_id_to_uuid:
         return {}
 
-    user_id_to_login: dict[int, str] = {}
-
-    for created_by_id, login in (
-        Integration.objects.filter(kind="github", created_by_id__in=user_ids)
+    user_id_to_github_login: dict[int, str] = {}
+    for created_by_id, github_login in (
+        Integration.objects.filter(kind="github", created_by_id__in=user_id_to_uuid.keys())
         .exclude(config__connecting_user_github_login=None)
         .order_by("created_by_id", "id")
         .distinct("created_by_id")
         .values_list("created_by_id", "config__connecting_user_github_login")
     ):
-        if login:
-            user_id_to_login[created_by_id] = str(login)
+        user_id_to_github_login[created_by_id] = github_login
 
-    missing_for_social = [uid for uid in user_ids if uid not in user_id_to_login]
-    if missing_for_social:
-        social_auths = (
+    user_ids_to_check_for_social_auth = [uid for uid in user_id_to_uuid if uid not in user_id_to_github_login]
+    if user_ids_to_check_for_social_auth:
+        for social_auth_user_id, github_login in (
             UserSocialAuth.objects.filter(
                 provider="github",
-                user_id__in=missing_for_social,
+                user_id__in=user_ids_to_check_for_social_auth,
             )
-            .only("extra_data", "user_id")
+            .exclude(extra_data__login=None)
             .order_by("user_id", "id")
             .distinct("user_id")
-        )
-        for sa in social_auths:
-            extra = sa.extra_data
-            if not isinstance(extra, dict):
-                continue
-            login = extra.get("login")
-            if login:
-                user_id_to_login[sa.user_id] = str(login)
+            .values_list("user_id", "extra_data__login")
+        ):
+            user_id_to_github_login[social_auth_user_id] = github_login
 
-    return {user_id_to_uuid[uid]: login for uid, login in user_id_to_login.items()}
+    user_uuid_to_github_login = {
+        user_id_to_uuid[uid]: github_login for uid, github_login in user_id_to_github_login.items()
+    }
+
+    return user_uuid_to_github_login
 
 
 class SignatureVerificationError(Exception):

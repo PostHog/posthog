@@ -369,7 +369,7 @@ class SignalReportViewSet(
             raise serializers.ValidationError({"suggested_reviewers": f"Invalid user UUID: {e}"})
 
         reviewer_github_logins = list(
-            get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
+            get_org_member_github_logins_by_user_uuid(self.team.organization_id, reviewer_user_uuids).values()
         )
         if not reviewer_github_logins:
             return queryset.none()
