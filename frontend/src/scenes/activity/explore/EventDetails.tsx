@@ -18,6 +18,7 @@ import { PropertyDefinitionType } from '~/types'
 
 import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
 import { EvaluationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/EvaluationDisplay'
+import { TagDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/TagDisplay'
 
 interface EventDetailsProps {
     event: ErrorPropertyTabEvent
@@ -87,6 +88,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         return (
                             <div className="mx-3 -mt-2 mb-2">
                                 <EvaluationDisplay eventProperties={properties} />
+                            </div>
+                        )
+                    case 'tag':
+                        return (
+                            <div className="mx-3 -mt-2 mb-2">
+                                <TagDisplay eventProperties={properties} />
                             </div>
                         )
                     case 'error_display':
