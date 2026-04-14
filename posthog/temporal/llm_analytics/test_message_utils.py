@@ -70,3 +70,26 @@ class TestExtractTextFromMessages:
         message = {"role": "user", "content": "Hello"}
         result = extract_text_from_messages(message)
         assert result == "Hello"
+
+    def test_openai_responses_api_format(self):
+        """Test extraction from OpenAI Responses API format — blocks have text but no type key"""
+        messages = [
+            {
+                "content": [
+                    {
+                        "annotations": [],
+                        "logprobs": [],
+                        "text": "Improving customer experiences involves several strategies.",
+                    }
+                ]
+            }
+        ]
+        result = extract_text_from_messages(messages)
+        assert "Improving customer experiences" in result
+
+    def test_unknown_block_shape_falls_back_to_str(self):
+        """Unknown block shapes should be stringified rather than silently dropped"""
+        messages = [{"content": [{"some_unknown_key": "some_value", "another_key": 42}]}]
+        result = extract_text_from_messages(messages)
+        assert "some_value" in result
+        assert result != ""
