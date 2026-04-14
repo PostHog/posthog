@@ -596,3 +596,26 @@ class ErrorTrackingSpikeEvent(UUIDModel):
             models.Index(fields=["issue", "-detected_at"]),
             models.Index(fields=["-detected_at"]),
         ]
+
+
+class ErrorTrackingRecommendation(UUIDTModel):
+    """Materialized recommendation for a team, computed live on API request."""
+
+    class Type(models.TextChoices):
+        CROSS_SELL = "cross_sell", "Cross sell"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
+    type = models.CharField(max_length=64, choices=Type.choices)
+    meta = models.JSONField(default=dict, blank=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingrecommendation"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
