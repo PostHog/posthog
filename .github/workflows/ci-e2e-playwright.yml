@@ -512,9 +512,10 @@ jobs:
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
               run: |
                   vr run upload \
-                    --run-id "${{ steps.vr-create.outputs.run_id }}" \
+                    --run-id "$VR_RUN_ID" \
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
