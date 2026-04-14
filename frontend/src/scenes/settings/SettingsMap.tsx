@@ -770,6 +770,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </span>
                 ),
                 component: <LogsRetentionSettings />,
+                flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {
