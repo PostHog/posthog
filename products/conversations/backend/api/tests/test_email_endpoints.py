@@ -703,7 +703,7 @@ class TestEmailInboundCcParticipants(BaseTest):
         self.team.save()
         self.config = EmailChannel.objects.create(
             team=self.team,
-            inbound_token="cctest123",
+            inbound_token="cc00ee11ff22",
             from_email="support@example.com",
             from_name="Support",
             domain="example.com",
@@ -712,7 +712,7 @@ class TestEmailInboundCcParticipants(BaseTest):
 
     def _base_data(self, msg_id: str) -> dict[str, str]:
         return {
-            "recipient": "team-cctest123@mg.posthog.com",
+            "recipient": "team-cc00ee11ff22@mg.posthog.com",
             "from": "sender@test.com",
             "Message-Id": msg_id,
             "subject": "Help",
@@ -750,7 +750,7 @@ class TestEmailInboundCcParticipants(BaseTest):
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_self_cc_filtered_out(self, _mock_sig: MagicMock):
         data = self._base_data("<cc4@test.com>")
-        data["Cc"] = "dev@company.com, team-cctest123@mg.posthog.com"
+        data["Cc"] = "dev@company.com, team-cc00ee11ff22@mg.posthog.com"
 
         response = self.client.post("/api/conversations/v1/email/inbound", data)
         assert response.status_code == 200
