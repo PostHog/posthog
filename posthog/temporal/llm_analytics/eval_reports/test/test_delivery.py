@@ -53,6 +53,26 @@ class TestLinkifyCitations(SimpleTestCase):
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
         self.assertEqual(text, result)
 
+    def test_no_double_replacement_when_id_appears_multiple_times(self):
+        gen_id = "639a38ba-6cc6-4e0c-b5ff-ad269f6f9cf6"
+        citation_map = {gen_id: "trace-abc"}
+        text = f"- `{gen_id}`: satisfied\n1. {gen_id} — reason"
+        result = _linkify_citations(text, project_id=1, citation_map=citation_map)
+        self.assertNotIn(f"?event=[", result)
+        self.assertNotIn(f"?event=%5B", result)
+        self.assertEqual(result.count("[639a38ba...]"), 2)
+
+    def test_multiple_citations_no_cross_contamination(self):
+        citation_map = {
+            "aaaa1111-1111-1111-1111-111111111111": "trace-a",
+            "bbbb2222-2222-2222-2222-222222222222": "trace-b",
+        }
+        text = "First: `aaaa1111-1111-1111-1111-111111111111`, second: `bbbb2222-2222-2222-2222-222222222222`."
+        result = _linkify_citations(text, project_id=1, citation_map=citation_map)
+        self.assertIn("traces/trace-a?event=aaaa1111", result)
+        self.assertIn("traces/trace-b?event=bbbb2222", result)
+        self.assertNotIn("?event=[", result)
+
     def test_handles_non_uuid_trace_id(self):
         text = "See `gen-123` here."
         citation_map = {"gen-123": "my-custom-trace-id"}
