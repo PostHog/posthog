@@ -1219,6 +1219,51 @@ describe('insightNavLogic', () => {
                     source: expectedSource,
                 })
             })
+
+            it('seeds cache from a DataTable EventsQuery and preserves filters when switching to trends', async () => {
+                const dataTableQuery: Node = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: ['*'],
+                        event: '$pageview',
+                        after: '-180d',
+                        properties: [
+                            {
+                                key: 'email',
+                                value: 'test@example.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                } as Node
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(dataTableQuery)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        dateRange: { date_from: '-180d' },
+                        properties: [
+                            {
+                                key: 'email',
+                                value: 'test@example.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                    },
+                })
+            })
         })
     })
 })
