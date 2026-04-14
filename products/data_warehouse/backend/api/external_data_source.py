@@ -150,7 +150,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             # SSH tunnel has a known nested structure not declared in the field tree.
             # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
-            nonsensitive.update({"host", "port", "username", "auth", "auth_type"})
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
     return nonsensitive, sensitive
