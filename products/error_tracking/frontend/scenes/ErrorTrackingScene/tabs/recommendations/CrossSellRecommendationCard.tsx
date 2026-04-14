@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
@@ -14,8 +14,9 @@ export function CrossSellRecommendationCard({
     recommendation: CrossSellRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
-    const { dismissRecommendation, restoreRecommendation } = useActions(recommendationsTabLogic)
+    const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
     const products = recommendation.meta.products ?? []
+    const canRefresh = !recommendation.next_refresh_at || new Date(recommendation.next_refresh_at) <= new Date()
 
     if (products.length === 0) {
         return (
@@ -45,6 +46,14 @@ export function CrossSellRecommendationCard({
                             style={{ width: `${(enabledCount / products.length) * 100}%` }}
                         />
                     </div>
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        icon={<IconRefresh />}
+                        onClick={() => refreshRecommendation(recommendation.id)}
+                        disabledReason={!canRefresh ? 'Too early to refresh' : undefined}
+                        tooltip="Refresh this recommendation"
+                    />
                     {dismissed ? (
                         <LemonButton
                             size="xsmall"
