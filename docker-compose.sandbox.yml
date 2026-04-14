@@ -233,12 +233,11 @@ services:
             start_period: 10s
         volumes:
             - postgres-data:/var/lib/postgresql/data
-            - type: volume
-              source: workspace
-              target: /docker-entrypoint-initdb.d
-              read_only: true
-              volume:
-                  subpath: docker/postgres-init-scripts
+            # Init scripts come from the repo (same in every sandbox). Bind
+            # from the host so it works both with workspace named volumes
+            # (local) and workspace bind mounts (cloud). SANDBOX_POSTGRES_INIT_MOUNT
+            # is set by bin/sandbox's _host_compose_env().
+            - ${SANDBOX_POSTGRES_INIT_MOUNT}:/docker-entrypoint-initdb.d:ro
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
 
     redis7:

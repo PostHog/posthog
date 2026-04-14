@@ -473,10 +473,11 @@ export SANDBOX_JETBRAINS_MOUNT="$JETBRAINS_HOST_DIR"
 # into a Docker volume. Saves ~60s of workspace population. The host is
 # dedicated to one sandbox on cloud, so sharing is safe.
 export SANDBOX_WORKSPACE_MOUNT="$REPO_DIR"
+export SANDBOX_POSTGRES_INIT_MOUNT="$REPO_DIR/docker/postgres-init-scripts"
 
 log "Creating sandbox via bin/sandbox create..."
 export SANDBOX_HOSTNAME SANDBOX_JS_URL
-sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' SANDBOX_JETBRAINS_MOUNT='$SANDBOX_JETBRAINS_MOUNT' SANDBOX_WORKSPACE_MOUNT='$SANDBOX_WORKSPACE_MOUNT' SANDBOX_SKIP_VOLUME_CHMOD='${SANDBOX_SKIP_VOLUME_CHMOD:-}' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
+sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' SANDBOX_JETBRAINS_MOUNT='$SANDBOX_JETBRAINS_MOUNT' SANDBOX_WORKSPACE_MOUNT='$SANDBOX_WORKSPACE_MOUNT' SANDBOX_POSTGRES_INIT_MOUNT='$SANDBOX_POSTGRES_INIT_MOUNT' SANDBOX_SKIP_VOLUME_CHMOD='${SANDBOX_SKIP_VOLUME_CHMOD:-}' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
 
 # Now expose the running sandbox via Tailscale Serve. A failure here means
 # the sandbox is unreachable — let set -e propagate so BOOT_STATUS=failed.

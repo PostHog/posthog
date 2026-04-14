@@ -593,6 +593,14 @@ def _host_compose_env() -> dict[str, str]:
     ide = config.get("jetbrains")
     claude_json = Path.home() / ".claude.json"
     host_gitconfig = Path.home() / ".gitconfig"
+    # Postgres init scripts are static files from the repo — bind-mount from
+    # the host so we don't depend on whether /workspace is a named volume (local)
+    # or a bind mount (cloud). On cloud, cloud-init may override with a path
+    # inside the cloud host's checkout.
+    postgres_init_mount = os.environ.get(
+        "SANDBOX_POSTGRES_INIT_MOUNT",
+        str(REPO_ROOT / "docker" / "postgres-init-scripts"),
+    )
     env = {
         "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
         "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
@@ -604,6 +612,7 @@ def _host_compose_env() -> dict[str, str]:
         "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
         "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
         "SSH_AUTH_SOCK": _host_ssh_auth_sock(),
+        "SANDBOX_POSTGRES_INIT_MOUNT": postgres_init_mount,
     }
     if ide:
         env["SANDBOX_IDE_VOLUME"] = f"sandbox-{ide}"
