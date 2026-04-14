@@ -1,8 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { IconBolt, IconPerson } from '@posthog/icons'
-import { LemonDivider, LemonLabel } from '@posthog/lemon-ui'
+import { LemonLabel } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
@@ -31,26 +30,20 @@ export function StepWaitUntilConditionConfiguration({ node }: { node: Node<WaitU
     const eventFilters = events?.[0]?.filters ?? {}
 
     return (
-        <div className="flex flex-col gap-3">
+        <>
             <StepSchemaErrors />
 
-            <p className="text-xs text-muted mb-0">
+            <p className="text-xs text-muted">
                 Wait until a person matches a condition or a specific event fires. The workflow continues on the matched
                 path when either happens, or the timeout path if neither does in time.
             </p>
 
-            <div className="flex flex-col gap-2 p-3 rounded border bg-bg-light">
-                <div className="flex items-center gap-1">
-                    <IconPerson className="text-lg text-muted" />
-                    <LemonLabel className="mb-0">Wait for a person property condition</LemonLabel>
-                </div>
-                <p className="text-xs text-muted mb-0">
-                    Re-checks the person's properties on a polling schedule (every 10 minutes).
-                </p>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Wait for person property condition</LemonLabel>
                 <LemonInput
                     value={localConditionName || ''}
                     onChange={handleNameChange}
-                    placeholder="Condition name (optional)"
+                    placeholder="If condition matches"
                     size="small"
                 />
                 <HogFlowPropertyFilters
@@ -65,14 +58,8 @@ export function StepWaitUntilConditionConfiguration({ node }: { node: Node<WaitU
                 />
             </div>
 
-            <div className="flex flex-col gap-2 p-3 rounded border bg-bg-light">
-                <div className="flex items-center gap-1">
-                    <IconBolt className="text-lg text-muted" />
-                    <LemonLabel className="mb-0">Wait for an event</LemonLabel>
-                </div>
-                <p className="text-xs text-muted mb-0">
-                    Wakes the workflow in real time when any of these events fire for the person.
-                </p>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Wait for events</LemonLabel>
                 <HogFlowEventFilters
                     filtersKey={`wait-until-condition-events-${action.id}`}
                     filters={eventFilters}
@@ -86,8 +73,6 @@ export function StepWaitUntilConditionConfiguration({ node }: { node: Node<WaitU
                 />
             </div>
 
-            <LemonDivider className="my-0" />
-
             <div className="flex flex-col gap-1">
                 <LemonLabel>Max time to wait</LemonLabel>
                 <HogFlowDuration
@@ -97,6 +82,6 @@ export function StepWaitUntilConditionConfiguration({ node }: { node: Node<WaitU
                     }}
                 />
             </div>
-        </div>
+        </>
     )
 }
