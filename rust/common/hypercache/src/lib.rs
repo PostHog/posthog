@@ -317,11 +317,10 @@ impl HyperCacheReader {
     ) -> Result<(Value, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
-        // S3 is the authoritative store — only an S3 NotFound confirms the
-        // key genuinely doesn't exist. A Redis miss alone just means we need
-        // to check S3. Infrastructure errors from either tier are tracked
-        // separately so callers (e.g., negative cache) don't tombstone keys
-        // that may exist once the backing store recovers.
+        // S3 NotFound is the best miss signal on the read path — not truly
+        // authoritative, but sufficient for negative-cache tombstoning.
+        // Infrastructure errors are tracked separately so callers don't
+        // tombstone keys that may exist once the backing store recovers.
         let mut s3_confirmed_miss = false;
         let mut infra_error: Option<HyperCacheError> = None;
 
