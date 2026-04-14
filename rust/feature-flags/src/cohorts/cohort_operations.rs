@@ -66,7 +66,7 @@ impl Cohort {
     pub async fn list_by_ids_from_pg(
         client: &PostgresReader,
         team_id: TeamId,
-        ids: &HashSet<CohortId>,
+        ids: &[CohortId],
     ) -> Result<Vec<Cohort>, FlagError> {
         if ids.is_empty() {
             return Ok(vec![]);
@@ -84,15 +84,13 @@ impl Cohort {
                     FlagError::DatabaseUnavailable
                 })?;
 
-        let ids_vec: Vec<CohortId> = ids.iter().copied().collect();
-
         let query = format!(
             "SELECT {COHORT_COLUMNS} FROM posthog_cohort AS c \
              WHERE c.id = ANY($1) AND c.deleted = false AND c.team_id = $2"
         );
 
         let cohorts = sqlx::query_as::<_, Cohort>(&query)
-            .bind(&ids_vec)
+            .bind(ids)
             .bind(team_id)
             .fetch_all(&mut *conn)
             .await

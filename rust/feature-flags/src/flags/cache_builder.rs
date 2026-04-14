@@ -22,8 +22,8 @@ use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyT
 /// Matches Python's `_MAX_COHORT_DEPENDENCY_DEPTH`.
 const MAX_COHORT_DEPENDENCY_DEPTH: usize = 20;
 
-/// Newtype wrapper so we can implement `DependencyProvider` for flags
-/// without an orphan-rule conflict on `FeatureFlag`.
+/// Newtype adapter for `FeatureFlag` that implements `DependencyProvider`,
+/// keeping graph-specific trait impls separate from the domain model.
 #[derive(Debug, Clone)]
 struct FlagNode(FeatureFlag);
 
@@ -45,12 +45,6 @@ impl DependencyProvider for FlagNode {
 }
 
 /// Build the full flags cache payload for a team.
-///
-/// Orchestrates:
-/// 1. Fetch flags from Postgres via `FeatureFlagList::from_pg()`
-/// 2. Compute evaluation metadata (dependency stages, missing deps, transitive deps)
-/// 3. Fetch referenced cohorts with transitive dependency resolution
-/// 4. Assemble and return `HypercacheFlagsWrapper`
 pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
@@ -199,7 +193,8 @@ async fn load_cohorts_with_deps(
         }
         depth += 1;
 
-        let newly_loaded = Cohort::list_by_ids_from_pg(&pg_reader, team_id, &ids_to_load).await?;
+        let ids_vec: Vec<CohortId> = ids_to_load.iter().copied().collect();
+        let newly_loaded = Cohort::list_by_ids_from_pg(&pg_reader, team_id, &ids_vec).await?;
 
         let mut ids_to_load_next: HashSet<CohortId> = HashSet::new();
         for cohort in newly_loaded {
