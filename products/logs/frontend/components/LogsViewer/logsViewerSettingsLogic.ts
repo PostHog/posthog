@@ -13,6 +13,7 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
 
         // Display options
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
+        /** No toolbar UI; kept persisted so list + FAB behavior stays stable for existing users */
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
     }),
 
