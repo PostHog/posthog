@@ -68,9 +68,14 @@ def _format_period_for_display(iso_str: str) -> str:
     return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
+_NIL_UUID = "00000000-0000-0000-0000-000000000000"
+
+
 def _build_citation_map(citations: list) -> dict[str, str]:
     """Build a generation_id → trace_id lookup from structured citations."""
-    return {c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id}
+    return {
+        c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id and c.trace_id != _NIL_UUID
+    }
 
 
 def _make_trace_link(project_id: int, generation_id: str, citation_map: dict[str, str]) -> str:
