@@ -152,7 +152,7 @@ export function QueryPerformance(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="overflow-y-auto">
+        <SceneContent>
             <SceneTitleSection
                 name="Query performance"
                 description="Internal tooling for monitoring and managing query performance across all projects."
@@ -183,28 +183,30 @@ export function QueryPerformance(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <LemonTable
-                columns={slowestQueryColumns}
-                dataSource={slowestQueries}
-                loading={slowestQueriesLoading}
-                emptyState="No experiment queries found in this time range"
-                expandable={{
-                    expandedRowRender: function ExpandedQuery(item) {
-                        return (
-                            <div className="p-2">
-                                {item.exception && (
-                                    <div className="mb-2 p-2 bg-danger-highlight rounded text-xs font-mono">
-                                        {item.exception}
-                                    </div>
-                                )}
-                                <CodeSnippet language={Language.SQL} thing="query" maxLinesWithoutExpansion={10}>
-                                    {item.query}
-                                </CodeSnippet>
-                            </div>
-                        )
-                    },
-                }}
-            />
+            <div className="max-h-[60vh] overflow-y-auto border rounded">
+                <LemonTable
+                    columns={slowestQueryColumns}
+                    dataSource={slowestQueries}
+                    loading={slowestQueriesLoading}
+                    emptyState="No experiment queries found in this time range"
+                    expandable={{
+                        expandedRowRender: function ExpandedQuery(item) {
+                            return (
+                                <div className="p-2">
+                                    {item.exception && (
+                                        <div className="mb-2 p-2 bg-danger-highlight rounded text-xs font-mono">
+                                            {item.exception}
+                                        </div>
+                                    )}
+                                    <CodeSnippet language={Language.SQL} thing="query" maxLinesWithoutExpansion={10}>
+                                        {item.query}
+                                    </CodeSnippet>
+                                </div>
+                            )
+                        },
+                    }}
+                />
+            </div>
 
             <h2 className="mt-8">Experiment precomputation</h2>
             <LemonInput
