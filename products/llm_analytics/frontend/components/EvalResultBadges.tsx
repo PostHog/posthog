@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
@@ -28,20 +28,24 @@ function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
     return Array.from(byEvalId.values())
 }
 
-function getEvalStatusIcon(run: EvaluationRun): { icon: JSX.Element; label: string } {
+function getEvalBadgeProps(run: EvaluationRun): {
+    type: LemonTagProps['type']
+    icon: JSX.Element
+    label: string
+} {
     if (run.status === 'failed') {
-        return { icon: <IconWarning className="text-danger" />, label: 'Error' }
+        return { type: 'danger', icon: <IconWarning />, label: 'Error' }
     }
     if (run.status === 'running') {
-        return { icon: <IconMinus className="text-primary" />, label: 'Running' }
+        return { type: 'primary', icon: <IconMinus />, label: 'Running' }
     }
     if (run.result === null) {
-        return { icon: <IconMinus className="text-muted" />, label: 'N/A' }
+        return { type: 'muted', icon: <IconMinus />, label: 'N/A' }
     }
     if (run.result) {
-        return { icon: <IconCheck className="text-success" />, label: 'True' }
+        return { type: 'success', icon: <IconCheck />, label: 'True' }
     }
-    return { icon: <IconX className="text-danger" />, label: 'False' }
+    return { type: 'danger', icon: <IconX />, label: 'False' }
 }
 
 function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
@@ -82,14 +86,15 @@ export function EvalResultBadges({ generationEventId }: { generationEventId: str
     return (
         <div className="flex flex-row flex-wrap items-center gap-1.5">
             {summaries.map((summary) => {
-                const { icon, label } = getEvalStatusIcon(summary.latestRun)
+                const { type, icon, label } = getEvalBadgeProps(summary.latestRun)
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>
                         <LemonTag
+                            type={type}
                             size="small"
-                            className="bg-surface-primary cursor-pointer"
                             icon={icon}
                             onClick={() => setViewMode(TraceViewMode.Evals)}
+                            className="cursor-pointer"
                         >
                             {summary.latestRun.evaluation_name}: {label}
                         </LemonTag>
