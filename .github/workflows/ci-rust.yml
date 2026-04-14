@@ -140,6 +140,8 @@ jobs:
         runs-on: ${{ matrix.runner }}
         continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 15
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -189,6 +191,8 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -312,6 +316,8 @@ jobs:
         runs-on: blacksmith-4vcpu-ubuntu-2404
         continue-on-error: true
         timeout-minutes: 20
+        permissions:
+            contents: read
         strategy:
             fail-fast: false
             matrix:
@@ -402,6 +408,8 @@ jobs:
         runs-on: ${{ matrix.runner }}
         continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 15
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -470,6 +478,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
+        permissions: {}
         steps:
             - name: Check all Rust jobs
               run: |

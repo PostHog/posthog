@@ -131,7 +131,7 @@ jobs:
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Save webpack build cache
-              # Only depot entry saves cache — avoid cross-runner pollution
+              # Avoid cross-runner pollution
               if: github.ref == 'refs/heads/master' && !matrix.is_shadow
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
@@ -139,7 +139,7 @@ jobs:
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
-              # Shadow skips upload — would conflict with depot's storybook-build artifact name
+              # Shadow skips upload, would conflict with storybook-build artifact name
               if: ${{ !matrix.is_shadow }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
