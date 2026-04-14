@@ -32,15 +32,15 @@ export function Default(): JSX.Element {
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="outline" size="base">
-                Outline
+                Outline (VR test)
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="danger" size="base">
-                Danger
+                Danger (VR test)
             </ButtonPrimitive>
 
             <ButtonPrimitive size="base" disabled>
-                Button base disabled
+                Disabled (VR test)
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="outline" size="base">

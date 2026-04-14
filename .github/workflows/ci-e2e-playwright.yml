@@ -641,7 +641,7 @@ jobs:
     vr-complete:
         name: Complete Visual Review run
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 15
         needs: [playwright]
         if: always() && needs.playwright.outputs.vr_run_id != ''
         steps:
