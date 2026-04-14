@@ -301,33 +301,31 @@ class TestBuildCountQuery:
 
 
 class TestIsPartitionedTable:
+    @pytest.mark.parametrize(
+        "setup_ddl, table_name, expected",
+        [
+            (
+                [
+                    "CREATE TABLE test_is_part (id INTEGER, created_at DATE NOT NULL, PRIMARY KEY (id, created_at)) PARTITION BY RANGE (created_at)",
+                    "CREATE TABLE test_is_part_2026 PARTITION OF test_is_part FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+                ],
+                "test_is_part",
+                True,
+            ),
+            (
+                ["CREATE TABLE test_is_regular (id SERIAL PRIMARY KEY, data TEXT)"],
+                "test_is_regular",
+                False,
+            ),
+            ([], "does_not_exist_xyz", False),
+        ],
+    )
     @pytest.mark.django_db
-    def test_partitioned_table_returns_true(self):
+    def test_is_partitioned_table(self, setup_ddl, table_name, expected):
         with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("""
-                CREATE TABLE test_detect_partitioned (
-                    id INTEGER,
-                    created_at DATE NOT NULL,
-                    PRIMARY KEY (id, created_at)
-                ) PARTITION BY RANGE (created_at)
-            """)
-            dj_cursor.execute("""
-                CREATE TABLE test_detect_partitioned_2026
-                PARTITION OF test_detect_partitioned
-                FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')
-            """)
-            assert _is_partitioned_table(cast(Any, dj_cursor), "public", "test_detect_partitioned") is True
-
-    @pytest.mark.django_db
-    def test_regular_table_returns_false(self):
-        with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("CREATE TABLE test_detect_regular (id SERIAL PRIMARY KEY, data TEXT)")
-            assert _is_partitioned_table(cast(Any, dj_cursor), "public", "test_detect_regular") is False
-
-    @pytest.mark.django_db
-    def test_nonexistent_table_returns_false(self):
-        with django_connection.cursor() as dj_cursor:
-            assert _is_partitioned_table(cast(Any, dj_cursor), "public", "does_not_exist_xyz") is False
+            for stmt in setup_ddl:
+                dj_cursor.execute(stmt)
+            assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
 
 
 class TestGetEstimatedRowCountForPartitionedTable:
