@@ -313,6 +313,21 @@ describe('saveAsActionUtils', () => {
             expect(result.properties).toEqual([negatedProp])
         })
 
+        it('preserves multi-value array properties in remainingProperties', () => {
+            const arrayProp: AnyPropertyFilter = {
+                key: '$el_text',
+                value: ['Submit', 'Cancel'],
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            }
+            const filter = makeFilter({
+                properties: [arrayProp],
+            })
+            const result = filterToActionStep(filter)
+            expect(result.text).toBeUndefined()
+            expect(result.properties).toEqual([arrayProp])
+        })
+
         it('only takes the first of duplicate element keys', () => {
             const secondTextProp: AnyPropertyFilter = {
                 key: '$el_text',
@@ -401,6 +416,40 @@ describe('saveAsActionUtils', () => {
                 }),
                 'Autocapture: "Submit"',
             ],
+            [
+                'array value uses first element',
+                makeFilter({
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: ['Submit', 'Cancel'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                }),
+                'Autocapture: "Submit"',
+            ],
+            [
+                'skips negated props and uses next valid prop for name',
+                makeFilter({
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: 'Submit',
+                            operator: PropertyOperator.NotIContains,
+                            type: PropertyFilterType.Event,
+                        },
+                        {
+                            key: 'selector',
+                            value: '.btn',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Element,
+                        },
+                    ],
+                }),
+                'Autocapture: .btn',
+            ],
             ['empty properties', makeFilter({ properties: [] }), 'Autocapture action'],
             [
                 'properties with empty values',
@@ -434,7 +483,7 @@ describe('saveAsActionUtils', () => {
             })
             const name = generateActionNameFromFilter(filter)
             expect(name.length).toBeLessThan(70)
-            expect(name).toContain('…')
+            expect(name).toContain('...')
         })
     })
 })

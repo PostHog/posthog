@@ -97,7 +97,7 @@ describe('SaveAsActionBanner', () => {
             ],
         ])('renders banner for %s', (_description, filter) => {
             renderBanner(filter)
-            expect(screen.getByText(/Save these filters as a reusable action/)).toBeInTheDocument()
+            expect(screen.getByText(/Save this autocapture filter as a reusable action/)).toBeInTheDocument()
         })
 
         it.each([
@@ -132,7 +132,7 @@ describe('SaveAsActionBanner', () => {
             ],
         ])('does not render banner for %s', (_description, filter) => {
             renderBanner(filter)
-            expect(screen.queryByText(/Save these filters as a reusable action/)).not.toBeInTheDocument()
+            expect(screen.queryByText(/Save this autocapture filter as a reusable action/)).not.toBeInTheDocument()
         })
     })
 
@@ -292,13 +292,13 @@ describe('SaveAsActionBanner', () => {
                 ],
             })
             const { container } = renderBanner(filter)
-            expect(screen.getByText(/Save these filters as a reusable action/)).toBeInTheDocument()
+            expect(screen.getByText(/Save this autocapture filter as a reusable action/)).toBeInTheDocument()
 
             const closeButton = container.querySelector('.LemonBanner [aria-label="close"]') as HTMLElement
             await userEvent.click(closeButton)
 
             await waitFor(() => {
-                expect(screen.queryByText(/Save these filters as a reusable action/)).not.toBeInTheDocument()
+                expect(screen.queryByText(/Save this autocapture filter as a reusable action/)).not.toBeInTheDocument()
             })
         })
     })

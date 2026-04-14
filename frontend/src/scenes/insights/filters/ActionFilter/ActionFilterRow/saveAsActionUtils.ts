@@ -1,3 +1,5 @@
+import { truncate } from 'lib/utils'
+
 import {
     ActionStepStringMatching,
     ActionStepType,
@@ -89,17 +91,29 @@ export function operatorToStringMatching(operator: PropertyOperator | undefined)
     }
 }
 
+function isMultiValue(prop: AnyPropertyFilter): boolean {
+    return 'value' in prop && Array.isArray(prop.value) && prop.value.length > 1
+}
+
+function extractStringValue(prop: AnyPropertyFilter): string {
+    if (!('value' in prop) || prop.value == null) {
+        return ''
+    }
+    const raw = prop.value
+    return Array.isArray(raw) ? String(raw[0] ?? '') : String(raw)
+}
+
 export function filterToActionStep(filter: LocalFilter): ActionStepType {
     const step: ActionStepType = { event: '$autocapture' }
     const remainingProperties: AnyPropertyFilter[] = []
 
     for (const prop of filter.properties ?? []) {
-        const value = 'value' in prop ? String(prop.value ?? '') : ''
+        const value = extractStringValue(prop)
         const operator = 'operator' in prop ? prop.operator : undefined
         const matching = operatorToStringMatching(operator)
         const mapping = getMappingForProp(prop)
 
-        if (mapping && canMapToActionStep(prop) && !step[mapping.stepField]) {
+        if (mapping && canMapToActionStep(prop) && !isMultiValue(prop) && !step[mapping.stepField]) {
             step[mapping.stepField] = value
             if (mapping.matchingField && matching) {
                 step[mapping.matchingField] = matching
@@ -118,13 +132,12 @@ export function filterToActionStep(filter: LocalFilter): ActionStepType {
 
 const MAX_NAME_VALUE_LENGTH = 50
 
-function truncate(value: string, maxLength: number): string {
-    return value.length > maxLength ? value.slice(0, maxLength) + '…' : value
-}
-
 export function generateActionNameFromFilter(filter: LocalFilter): string {
     for (const prop of filter.properties ?? []) {
-        const value = 'value' in prop ? String(prop.value ?? '') : ''
+        if (!canMapToActionStep(prop)) {
+            continue
+        }
+        const value = extractStringValue(prop)
         if (!value) {
             continue
         }
