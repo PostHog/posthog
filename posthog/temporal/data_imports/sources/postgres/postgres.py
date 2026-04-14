@@ -7,11 +7,10 @@ import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataSource
-    from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
 
 from django.conf import settings
 
@@ -44,11 +43,7 @@ SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-class _HasSSHTunnel(Protocol):
-    ssh_tunnel: SSHTunnelConfig | None
-
-
-def source_requires_ssl(source: ExternalDataSource, source_config: _HasSSHTunnel | None = None) -> bool:
+def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
 
     SSL is required for sources created after the cutoff date, unless the
@@ -58,9 +53,9 @@ def source_requires_ssl(source: ExternalDataSource, source_config: _HasSSHTunnel
     if source.created_at < SSL_REQUIRED_AFTER_DATE:
         return False
 
-    if source_config is not None and source_config.ssh_tunnel is not None:
-        tunnel = source_config.ssh_tunnel
-        if tunnel.enabled and not tunnel.require_tls.enabled:
+    if source_config is not None:
+        ssh_tunnel = source_config.ssh_tunnel
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
             return False
 
     return True
