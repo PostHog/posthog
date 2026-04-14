@@ -83,17 +83,19 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 code: dedent`
                                     import { NodeSDK } from '@opentelemetry/sdk-node'
                                     import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogTraceExporter } from '@posthog/ai/otel'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
                                     import { AwsInstrumentation } from '@opentelemetry/instrumentation-aws-sdk'
 
                                     const sdk = new NodeSDK({
                                       resource: resourceFromAttributes({
                                         'service.name': 'my-ai-app',
                                       }),
-                                      traceExporter: new PostHogTraceExporter({
-                                        apiKey: '<ph_project_token>',
-                                        host: '<ph_client_api_host>',
-                                      }),
+                                      spanProcessors: [
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
+                                      ],
                                       instrumentations: [new AwsInstrumentation()],
                                     })
                                     sdk.start()

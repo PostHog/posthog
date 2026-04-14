@@ -97,9 +97,9 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK, tracing } from '@opentelemetry/sdk-node'
+                                    import { NodeSDK } from '@opentelemetry/sdk-node'
                                     import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogTraceExporter } from '@posthog/ai/otel'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
                                     import { LangChainInstrumentation } from '@traceloop/instrumentation-langchain'
 
                                     const sdk = new NodeSDK({
@@ -109,12 +109,10 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                         foo: 'bar', // custom properties are passed through
                                       }),
                                       spanProcessors: [
-                                        new tracing.SimpleSpanProcessor(
-                                          new PostHogTraceExporter({
-                                            apiKey: '<ph_project_token>',
-                                            host: '<ph_client_api_host>',
-                                          })
-                                        ),
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
                                       ],
                                       instrumentations: [new LangChainInstrumentation()],
                                     })

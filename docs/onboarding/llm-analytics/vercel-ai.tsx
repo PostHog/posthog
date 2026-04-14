@@ -30,7 +30,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             content: (
                 <>
                     <Markdown>
-                        Initialize the OpenTelemetry SDK with PostHog's `PostHogTraceExporter`. This sends `gen_ai.*`
+                        Initialize the OpenTelemetry SDK with PostHog's `PostHogSpanProcessor`. This sends `gen_ai.*`
                         spans directly to PostHog's OTLP ingestion endpoint. PostHog converts these into
                         `$ai_generation` events automatically.
                     </Markdown>
@@ -38,21 +38,19 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            import { NodeSDK, tracing } from '@opentelemetry/sdk-node'
+                            import { NodeSDK } from '@opentelemetry/sdk-node'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
-                            import { PostHogTraceExporter } from '@posthog/ai/otel'
+                            import { PostHogSpanProcessor } from '@posthog/ai/otel'
 
                             const sdk = new NodeSDK({
                               resource: resourceFromAttributes({
                                 'service.name': 'my-app',
                               }),
                               spanProcessors: [
-                                new tracing.SimpleSpanProcessor(
-                                  new PostHogTraceExporter({
-                                    apiKey: '<ph_project_token>',
-                                    host: '<ph_client_api_host>',
-                                  })
-                                ),
+                                new PostHogSpanProcessor({
+                                  apiKey: '<ph_project_token>',
+                                  host: '<ph_client_api_host>',
+                                }),
                               ],
                             })
                             sdk.start()
