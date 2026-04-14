@@ -119,6 +119,28 @@ FROM persons`
             expect(result[0].query).toBe('SELECT (SELECT count(*) FROM (SELECT 1; SELECT 2))')
             expect(result[1].query).toBe('SELECT 3')
         })
+
+        it('does not let an unterminated single quote mask later semicolons', () => {
+            const input = "SELECT 'oops\nSELECT 2;\nSELECT 3"
+            const result = splitQueries(input)
+            expect(result).toHaveLength(2)
+            expect(result[1].query).toBe('SELECT 3')
+        })
+
+        it('does not let an unterminated block comment mask later semicolons', () => {
+            const input = 'SELECT 1 /* oops\nSELECT 2;\nSELECT 3'
+            const result = splitQueries(input)
+            expect(result).toHaveLength(2)
+            expect(result[1].query).toBe('SELECT 3')
+        })
+
+        it('handles SQL-style doubled quotes inside a string literal', () => {
+            const input = "SELECT 'it''s;ok'; SELECT 2"
+            const result = splitQueries(input)
+            expect(result).toHaveLength(2)
+            expect(result[0].query).toBe("SELECT 'it''s;ok'")
+            expect(result[1].query).toBe('SELECT 2')
+        })
     })
 
     describe('findQueryAtCursor', () => {

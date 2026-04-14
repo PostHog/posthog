@@ -30,9 +30,13 @@ export function splitQueries(input: string): QueryRange[] {
         const ch = input[i]
 
         // Skip over quoted strings. Supports both backslash escapes and SQL-style
-        // doubled delimiters ('', "", ``) inside the string.
+        // doubled delimiters ('', "", ``) inside the string. If the literal is
+        // unterminated, we rewind past the opening delimiter so a stray quote
+        // doesn't silently mask every subsequent semicolon.
         if (ch === "'" || ch === '"' || ch === '`') {
             const quote = ch
+            const openPos = i
+            let closed = false
             i++
             while (i < input.length) {
                 if (input[i] === '\\') {
@@ -45,9 +49,13 @@ export function splitQueries(input: string): QueryRange[] {
                 }
                 if (input[i] === quote) {
                     i++ // closing quote
+                    closed = true
                     break
                 }
                 i++
+            }
+            if (!closed) {
+                i = openPos + 1 // treat unterminated opener as a regular character
             }
             continue
         }
@@ -61,13 +69,22 @@ export function splitQueries(input: string): QueryRange[] {
             continue
         }
 
-        // Skip block comments
+        // Skip block comments; unterminated /* … rewinds the same way as quotes.
         if (ch === '/' && input[i + 1] === '*') {
+            const openPos = i
+            let closed = false
             i += 2
-            while (i < input.length && !(input[i] === '*' && input[i + 1] === '/')) {
+            while (i < input.length) {
+                if (input[i] === '*' && input[i + 1] === '/') {
+                    i += 2 // skip closing */
+                    closed = true
+                    break
+                }
                 i++
             }
-            i += 2 // skip closing */
+            if (!closed) {
+                i = openPos + 1
+            }
             continue
         }
 

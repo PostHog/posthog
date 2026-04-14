@@ -18,16 +18,12 @@ import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -79,6 +75,7 @@ import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import type { sqlEditorLogicType } from './sqlEditorLogicType'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import {
@@ -143,75 +140,6 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     shouldRematerialize?: boolean
     sync_frequency?: string
     types: string[][]
-}
-
-interface SaveCandidates {
-    queries: string[]
-    initialIndex: number
-    selectionLabel: string | null
-}
-
-/**
- * Pager used inside save-as dialogs. Shows the label, a prev/next cycle pair when there's more
- * than one candidate, and the SQL snippet of the currently-selected query. Calls `onChange`
- * whenever the active index changes so the submit handler has the chosen query ready.
- */
-function SaveTargetCycler({
-    candidates,
-    onChange,
-    children,
-}: {
-    candidates: SaveCandidates
-    onChange: (query: string, index: number) => void
-    children?: (query: string, index: number) => JSX.Element
-}): JSX.Element | null {
-    const [index, setIndex] = useState(candidates.initialIndex)
-
-    useEffect(() => {
-        onChange(candidates.queries[index], index)
-    }, [index, candidates, onChange])
-
-    if (candidates.queries.length === 0) {
-        return null
-    }
-
-    const multi = candidates.queries.length > 1
-    const label = candidates.selectionLabel ?? (multi ? `Query ${index + 1} of ${candidates.queries.length}` : null)
-
-    if (!label && !children) {
-        return null
-    }
-
-    return (
-        <div className="mt-2 mb-3">
-            <div className="flex items-center justify-between mb-1">
-                <div className="text-muted text-xs">{label ? `Saving: ${label}` : ''}</div>
-                {multi && (
-                    <div className="flex items-center gap-1">
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconChevronLeft />}
-                            disabledReason={index === 0 ? 'First query' : undefined}
-                            onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                        />
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconChevronRight />}
-                            disabledReason={index === candidates.queries.length - 1 ? 'Last query' : undefined}
-                            onClick={() => setIndex((i) => Math.min(candidates.queries.length - 1, i + 1))}
-                        />
-                    </div>
-                )}
-            </div>
-            {children ? (
-                children(candidates.queries[index], index)
-            ) : (
-                <CodeSnippet language={Language.SQL} wrap compact maxLinesWithoutExpansion={8}>
-                    {candidates.queries[index]}
-                </CodeSnippet>
-            )}
-        </div>
-    )
 }
 
 function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
@@ -585,56 +513,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions, cache }) => {
-        /**
-         * Resolve which query the user wants to save. Priority:
-         *   1. A non-empty editor selection (user explicitly highlighted text)
-         *   2. The query under the cursor, when the editor contains multiple statements
-         *   3. The full editor text
-         *
-         * Returns the text to save and an optional human-readable label for the save dialog.
-         */
-        const resolveSaveCandidates = (): SaveCandidates => {
+        // Extract cursor offset and selection text from monaco and defer to the pure helper.
+        const resolveSaveCandidates = (): ReturnType<typeof resolveSaveCandidatesPure> => {
             const fullText = values.queryInput ?? ''
             const editorInstance = props.editor
+            let cursorOffset: number | null = null
+            let selectionText: string | null = null
 
             if (editorInstance) {
                 const model = editorInstance.getModel()
                 const selection = editorInstance.getSelection()
                 if (model && selection && !selection.isEmpty()) {
-                    const selectedText = model.getValueInRange(selection).trim()
-                    if (selectedText) {
-                        return { queries: [selectedText], initialIndex: 0, selectionLabel: 'Selection' }
-                    }
+                    selectionText = model.getValueInRange(selection)
                 }
-            }
-
-            const split = splitQueries(fullText)
-            if (split.length <= 1) {
-                return {
-                    queries: [split[0]?.query ?? fullText],
-                    initialIndex: 0,
-                    selectionLabel: null,
-                }
-            }
-
-            let initialIndex = split.length - 1
-            if (editorInstance) {
-                const model = editorInstance.getModel()
                 const position = editorInstance.getPosition()
                 if (model && position) {
-                    const cursorOffset = model.getOffsetAt(position)
-                    const match = findQueryAtCursor(split, cursorOffset)
-                    if (match) {
-                        initialIndex = split.findIndex((q) => q.start === match.start)
-                    }
+                    cursorOffset = model.getOffsetAt(position)
                 }
             }
 
-            return {
-                queries: split.map((q) => q.query),
-                initialIndex,
-                selectionLabel: null,
-            }
+            return resolveSaveCandidatesPure(fullText, cursorOffset, selectionText)
         }
 
         return {
@@ -1130,12 +1028,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 const response = logic.values.response
                 const types = response && 'types' in response ? (response.types ?? []) : []
-                // If the editor holds more than one statement, the saved view only represents a
-                // subset of what the user is working on — keep the current tab as-is and open the
-                // new view in its own tab instead of rebinding the success handler.
-                const isMultiQuery = splitQueries(values.queryInput ?? '').length > 1
-                if (isMultiQuery) {
-                    cache.skipBindTabToNewView = true
+                // "Partial save" means the user is saving something smaller than the full editor
+                // text — either because of multi-query splitting or a specific text selection. In
+                // that case the current tab shouldn't be rebound to the new view, because its
+                // content is NOT the view's content. We tag the view name so the success listener
+                // knows to skip its normal bind-to-tab behavior, then open the view in its own tab.
+                const isPartialSave = queryToSave.query.trim() !== (values.queryInput ?? '').trim()
+                if (isPartialSave) {
+                    if (!cache.viewNamesToSkipTabBinding) {
+                        cache.viewNamesToSkipTabBinding = new Set<string>()
+                    }
+                    cache.viewNamesToSkipTabBinding.add(name)
                 }
                 try {
                     await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
@@ -1158,13 +1061,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.deleteDraft(fromDraft, savedQuery?.name)
                     }
 
-                    if (isMultiQuery && savedQuery) {
+                    if (isPartialSave && savedQuery) {
                         actions.createTab(savedQuery.query?.query ?? queryToSave.query, savedQuery)
                     }
                 } catch {
                     lemonToast.error('Failed to save view')
-                } finally {
-                    cache.skipBindTabToNewView = false
+                    // On failure, drop the skip marker so a retry with the same name binds normally.
+                    cache.viewNamesToSkipTabBinding?.delete(name)
                 }
             },
             saveAsInsight: async () => {
@@ -1375,7 +1278,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             createDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries, payload: view }) => {
-                if (cache.skipBindTabToNewView) {
+                // saveAsViewSubmit tags names it wants to open in a separate tab (partial saves).
+                // Consume the marker here so repeat saves with the same name behave normally again.
+                if (view?.name && cache.viewNamesToSkipTabBinding?.has(view.name)) {
+                    cache.viewNamesToSkipTabBinding.delete(view.name)
                     return
                 }
                 const newView = view && dataWarehouseSavedQueries.find((v) => v.name === view.name)
@@ -1438,6 +1344,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     subscriptions(({ actions, values, cache }) => ({
         queryInput: (queryInput: string | null) => {
+            // Subquery validation results are keyed by subquery text — but the same text
+            // may now refer to a subquery with different surrounding context, so drop
+            // everything whenever the editor content changes.
+            cache.subqueryValidationCache?.clear()
+
             // Decorations are cheap and visual — update immediately for responsiveness.
             cache.updateActiveQueryDecoration?.()
 
@@ -1612,19 +1523,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return !!editingView?.is_materialized
             },
         ],
+        splitQueryRanges: [(s) => [s.queryInput], (queryInput): QueryRange[] => splitQueries(queryInput ?? '')],
+        isMultiQuery: [(s) => [s.splitQueryRanges], (ranges): boolean => ranges.length > 1],
         isSourceQueryLastRun: [
-            (s) => [s.queryInput, s.lastRunQuery],
-            (queryInput, lastRunQuery) => {
+            (s) => [s.queryInput, s.lastRunQuery, s.splitQueryRanges],
+            (queryInput, lastRunQuery, splitRanges) => {
                 if (!lastRunQuery) {
                     return false
                 }
-                if (queryInput === lastRunQuery.source.query) {
+                const lastRun = (lastRunQuery.source.query ?? '').trim()
+                if ((queryInput ?? '').trim() === lastRun) {
                     return true
                 }
                 // Multi-query editor: if the last-run text matches any statement in the script,
                 // consider it "up to date" — the save flow resolves the target query at submit time.
-                const queries = splitQueries(queryInput ?? '')
-                return queries.some((q) => q.query === lastRunQuery.source.query)
+                return splitRanges.some((q) => q.query.trim() === lastRun)
             },
         ],
         updateInsightButtonEnabled: [
@@ -2076,10 +1989,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const queries = splitQueries(fullText)
             const cursorOffset = model.getOffsetAt(position)
 
-            // Helper to validate a subquery standalone
+            // Helper to validate a subquery standalone. Results are cached by subquery text
+            // to avoid re-hitting the metadata endpoint for the same subquery on every cursor
+            // move; the cache is invalidated whenever queryInput changes (see subscription).
             const validateSubquery = async (
                 subqueryText: string
             ): Promise<{ className: string; errorMessage: string | null }> => {
+                if (!cache.subqueryValidationCache) {
+                    cache.subqueryValidationCache = new Map<
+                        string,
+                        { className: string; errorMessage: string | null }
+                    >()
+                }
+                const cached = cache.subqueryValidationCache.get(subqueryText)
+                if (cached) {
+                    return cached
+                }
                 try {
                     const response = await performQuery<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
@@ -2087,14 +2012,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         query: subqueryText,
                     })
                     const errors = response?.errors ?? []
-                    if (errors.length > 0) {
-                        const message = errors.map((e) => e.message).join('\n')
-                        return {
-                            className: 'active-subquery-highlight-invalid',
-                            errorMessage: `This subquery may fail standalone:\n${message}`,
-                        }
-                    }
-                    return { className: 'active-subquery-highlight', errorMessage: null }
+                    const result =
+                        errors.length > 0
+                            ? {
+                                  className: 'active-subquery-highlight-invalid',
+                                  errorMessage: `This subquery may fail standalone:\n${errors.map((e) => e.message).join('\n')}`,
+                              }
+                            : { className: 'active-subquery-highlight', errorMessage: null }
+                    cache.subqueryValidationCache.set(subqueryText, result)
+                    return result
                 } catch {
                     return {
                         className: 'active-subquery-highlight-invalid',

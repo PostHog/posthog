@@ -250,31 +250,35 @@ function RunButton(): JSX.Element {
         return ['var(--warning)', tooltip]
     }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
-    const sideAction = responseLoading
-        ? undefined
-        : {
-              dropdown: {
-                  placement: 'bottom-end' as const,
-                  overlay: (
-                      <>
-                          <LemonButton
-                              fullWidth
-                              onClick={() => runQuery()}
-                              sideIcon={<span className="text-muted text-xs">⌘↵</span>}
-                          >
-                              Run query at cursor
-                          </LemonButton>
-                          <LemonButton
-                              fullWidth
-                              onClick={() => runSubquery()}
-                              sideIcon={<span className="text-muted text-xs">⌘⇧↵</span>}
-                          >
-                              Run innermost subquery at cursor
-                          </LemonButton>
-                      </>
-                  ),
-              },
-          }
+    const sideAction = useMemo(
+        () =>
+            responseLoading
+                ? undefined
+                : {
+                      dropdown: {
+                          placement: 'bottom-end' as const,
+                          overlay: (
+                              <>
+                                  <LemonButton
+                                      fullWidth
+                                      onClick={() => runQuery()}
+                                      sideIcon={<span className="text-muted text-xs">⌘↵</span>}
+                                  >
+                                      Run query at cursor
+                                  </LemonButton>
+                                  <LemonButton
+                                      fullWidth
+                                      onClick={() => runSubquery()}
+                                      sideIcon={<span className="text-muted text-xs">⌘⇧↵</span>}
+                                  >
+                                      Run innermost subquery at cursor
+                                  </LemonButton>
+                              </>
+                          ),
+                      },
+                  },
+        [responseLoading, runQuery, runSubquery]
+    )
 
     return (
         <AppShortcut
