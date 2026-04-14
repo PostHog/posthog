@@ -100,7 +100,7 @@ export function QueryPerformance(): JSX.Element {
             dataIndex: 'timestamp',
             width: 160,
             render: function Timestamp(_, item) {
-                return <span className="font-mono text-xs">{String(item.timestamp)}</span>
+                return <span className="font-mono text-xs">{item.timestamp}</span>
             },
         },
         {

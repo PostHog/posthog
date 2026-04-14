@@ -292,30 +292,33 @@ class DebugCHQueries(viewsets.ViewSet):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view slowest queries.")
 
-        hours = int(request.query_params.get("hours", 1))
+        try:
+            hours = int(request.query_params.get("hours", 1))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
         response = sync_execute(
             """
             SELECT
                 query_id,
-                query,
-                query_start_time,
-                query_duration_ms,
-                exception,
-                toInt8(type) AS status,
-                JSONExtractInt(log_comment, 'team_id') AS team_id,
-                JSONExtractString(log_comment, 'query_type') AS query_type,
-                JSONExtractString(log_comment, 'experiment_name') AS experiment_name,
-                JSONExtractString(log_comment, 'experiment_metric_name') AS experiment_metric_name,
-                JSONExtractString(log_comment, 'experiment_execution_path') AS experiment_execution_path
+                argMax(query, type) AS query,
+                argMax(query_start_time, type) AS query_start_time,
+                argMax(query_duration_ms, type) AS query_duration_ms,
+                argMax(exception, type) AS exception,
+                max(type) AS status,
+                argMax(JSONExtractInt(log_comment, 'team_id'), type) AS team_id,
+                argMax(JSONExtractString(log_comment, 'query_type'), type) AS query_type,
+                argMax(JSONExtractString(log_comment, 'experiment_name'), type) AS experiment_name,
+                argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
+                argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path
             FROM clusterAllReplicas(%(cluster)s, system, query_log)
             WHERE
                 event_time > now() - INTERVAL %(hours)s HOUR
                 AND JSONExtractString(log_comment, 'product') = 'experiments'
-                AND type = 2
                 AND is_initial_query
                 AND query NOT LIKE %(not_query)s
+            GROUP BY query_id
             ORDER BY query_duration_ms DESC
             LIMIT 100
             SETTINGS skip_unavailable_shards=1
