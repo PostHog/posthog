@@ -18956,6 +18956,21 @@ export namespace Schemas {
       readonly last_used_at: string | null;
     }
 
+    export interface LLMSkillFileInput {
+      /**
+       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+       * @maxLength 500
+       */
+      path: string;
+      /** Text content of the file. */
+      content: string;
+      /**
+       * MIME type of the file content.
+       * @maxLength 100
+       */
+      content_type?: string;
+    }
+
     export interface LLMSkill {
       readonly id: string;
       /**
@@ -18984,6 +18999,8 @@ export namespace Schemas {
       allowed_tools?: unknown;
       /** Arbitrary key-value metadata. */
       metadata?: unknown;
+      /** Bundled files to include with the initial version (scripts, references, assets). */
+      files?: LLMSkillFileInput[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -19008,21 +19025,6 @@ export namespace Schemas {
       path: string;
       content: string;
       /** @maxLength 100 */
-      content_type?: string;
-    }
-
-    export interface LLMSkillFileInput {
-      /**
-       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-       * @maxLength 500
-       */
-      path: string;
-      /** Text content of the file. */
-      content: string;
-      /**
-       * MIME type of the file content.
-       * @maxLength 100
-       */
       content_type?: string;
     }
 
@@ -19055,6 +19057,8 @@ export namespace Schemas {
       allowed_tools?: unknown;
       /** Arbitrary key-value metadata. */
       metadata?: unknown;
+      /** Bundled files to include with the initial version (scripts, references, assets). */
+      files?: LLMSkillFileInput[];
       readonly version: number;
       readonly created_by: UserBasic;
       readonly created_at: string;

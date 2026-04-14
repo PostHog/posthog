@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 
 import posthoganalytics
@@ -31,7 +31,6 @@ from .metrics import llma_track_latency
 from .skill_serializers import (
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
-    LLMSkillFileInputSerializer,
     LLMSkillFileSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
@@ -439,32 +438,15 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_create")
     @monitor(feature=None, endpoint="llma_skills_create", method="POST")
     def create(self, request, *args, **kwargs):
-        files_data = request.data.get("files", [])
-        if files_data:
-            files_serializer = LLMSkillFileInputSerializer(data=files_data, many=True)
-            files_serializer.is_valid(raise_exception=True)
-            validated_files = files_serializer.validated_data
-        else:
-            validated_files = []
-
-        with transaction.atomic():
-            try:
-                response = super().create(request, *args, **kwargs)
-            except IntegrityError as err:
-                if any(
-                    constraint_name in str(err)
-                    for constraint_name in ["unique_llm_skill_latest_per_team", "unique_llm_skill_version_per_team"]
-                ):
-                    raise serializers.ValidationError({"name": "A skill with this name already exists."}, code="unique")
-                raise
-
-            skill = LLMSkill.objects.get(pk=response.data["id"])
-            for file_data in validated_files:
-                LLMSkillFile.objects.create(
-                    skill=skill,
-                    path=file_data["path"],
-                    content=file_data["content"],
-                    content_type=file_data.get("content_type", "text/plain"),
-                )
-
-        return response
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            skill = serializer.save()
+        except IntegrityError as err:
+            if any(
+                constraint_name in str(err)
+                for constraint_name in ["unique_llm_skill_latest_per_team", "unique_llm_skill_version_per_team"]
+            ):
+                raise serializers.ValidationError({"name": "A skill with this name already exists."}, code="unique")
+            raise
+        return Response(self._serialize_skill(skill), status=status.HTTP_201_CREATED)

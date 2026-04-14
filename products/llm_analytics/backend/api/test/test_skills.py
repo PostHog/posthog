@@ -137,6 +137,34 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_skill_with_files(self, mock_feature_enabled):
+        response = self.client.post(
+            self._url(),
+            data={
+                "name": "skill-with-files",
+                "description": "Has bundled files from the start.",
+                "body": "# Files",
+                "files": [
+                    {"path": "scripts/run.sh", "content": "#!/bin/bash\necho hi", "content_type": "text/x-shellscript"},
+                    {"path": "references/guide.md", "content": "# Guide"},
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["version"] == 1
+        file_manifest = data.get("files", [])
+        paths = sorted(f["path"] for f in file_manifest)
+        assert paths == ["references/guide.md", "scripts/run.sh"]
+
+        # The bundled file body is fetchable via the file endpoint.
+        file_response = self.client.get(f"{self._url()}name/skill-with-files/files/scripts/run.sh")
+        assert file_response.status_code == status.HTTP_200_OK
+        assert file_response.json()["content"] == "#!/bin/bash\necho hi"
+        assert file_response.json()["content_type"] == "text/x-shellscript"
+
     # --- List ---
 
     def test_list_skills_returns_name_and_description_without_body(self, mock_feature_enabled):

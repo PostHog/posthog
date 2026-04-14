@@ -38,6 +38,11 @@ export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
 
+export const llmSkillsCreateBodyFilesItemPathMax = 500
+
+export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
+export const llmSkillsCreateBodyFilesItemContentTypeMax = 100
+
 export const LlmSkillsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -60,6 +65,23 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Environment requirements (intended product, system packages, network access, etc.).'),
     allowed_tools: zod.unknown().optional().describe('List of pre-approved tools the skill may use.'),
     metadata: zod.unknown().optional().describe('Arbitrary key-value metadata.'),
+    files: zod
+        .array(
+            zod.object({
+                path: zod
+                    .string()
+                    .max(llmSkillsCreateBodyFilesItemPathMax)
+                    .describe("File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'."),
+                content: zod.string().describe('Text content of the file.'),
+                content_type: zod
+                    .string()
+                    .max(llmSkillsCreateBodyFilesItemContentTypeMax)
+                    .default(llmSkillsCreateBodyFilesItemContentTypeDefault)
+                    .describe('MIME type of the file content.'),
+            })
+        )
+        .optional()
+        .describe('Bundled files to include with the initial version (scripts, references, assets).'),
 })
 
 export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')

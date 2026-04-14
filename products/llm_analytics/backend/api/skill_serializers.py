@@ -1,6 +1,8 @@
 import re
 from typing import Any
 
+from django.db import transaction
+
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -177,6 +179,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
+    files = LLMSkillFileInputSerializer(
+        many=True,
+        required=False,
+        write_only=True,
+        help_text="Bundled files to include with the initial version (scripts, references, assets).",
+    )
 
     class Meta:
         model = LLMSkill
@@ -189,6 +197,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "compatibility",
             "allowed_tools",
             "metadata",
+            "files",
             "version",
             "created_by",
             "created_at",
@@ -273,13 +282,28 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any]) -> LLMSkill:
         request = self.context["request"]
         team = self.context["get_team"]()
+        files = validated_data.pop("files", None)
 
-        return LLMSkill.objects.create(
-            team=team,
-            created_by=request.user,
-            is_latest=True,
-            **validated_data,
-        )
+        with transaction.atomic():
+            skill = LLMSkill.objects.create(
+                team=team,
+                created_by=request.user,
+                is_latest=True,
+                **validated_data,
+            )
+            if files:
+                LLMSkillFile.objects.bulk_create(
+                    [
+                        LLMSkillFile(
+                            skill=skill,
+                            path=f["path"],
+                            content=f["content"],
+                            content_type=f.get("content_type", "text/plain"),
+                        )
+                        for f in files
+                    ]
+                )
+        return skill
 
 
 class LLMSkillListSerializer(LLMSkillSerializer):

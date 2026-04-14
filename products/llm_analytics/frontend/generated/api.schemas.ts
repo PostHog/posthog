@@ -1132,6 +1132,21 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
+export interface LLMSkillFileInputApi {
+    /**
+     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+     * @maxLength 500
+     */
+    path: string
+    /** Text content of the file. */
+    content: string
+    /**
+     * MIME type of the file content.
+     * @maxLength 100
+     */
+    content_type?: string
+}
+
 /**
  * List serializer that omits the body field for progressive disclosure (Level 1).
  */
@@ -1161,6 +1176,8 @@ export interface LLMSkillListApi {
     allowed_tools?: unknown
     /** Arbitrary key-value metadata. */
     metadata?: unknown
+    /** Bundled files to include with the initial version (scripts, references, assets). */
+    files?: LLMSkillFileInputApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1209,6 +1226,8 @@ export interface LLMSkillApi {
     allowed_tools?: unknown
     /** Arbitrary key-value metadata. */
     metadata?: unknown
+    /** Bundled files to include with the initial version (scripts, references, assets). */
+    files?: LLMSkillFileInputApi[]
     readonly version: number
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1218,21 +1237,6 @@ export interface LLMSkillApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
-}
-
-export interface LLMSkillFileInputApi {
-    /**
-     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-     * @maxLength 500
-     */
-    path: string
-    /** Text content of the file. */
-    content: string
-    /**
-     * MIME type of the file content.
-     * @maxLength 100
-     */
-    content_type?: string
 }
 
 export interface PatchedLLMSkillPublishApi {
