@@ -20,7 +20,6 @@ from bin.find_affected_tests import (
     build_reverse_map,
     changed_files_from_git,
     estimate_duration,
-    has_no_test_deps_by_path,
     is_test_module,
     load_durations,
     module_to_file,
@@ -103,30 +102,6 @@ class TestPatternIsCovered(unittest.TestCase):
     )
     def test_coverage(self, _name, pattern, expected):
         self.assertEqual(pattern_is_covered(pattern), expected, f"Failed for {pattern}")
-
-
-class TestHasNoTestDepsByPath(unittest.TestCase):
-    @parameterized.expand(
-        [
-            # Django migrations — core and product backends
-            ("posthog_migration", "posthog/migrations/0001_initial.py", True),
-            ("posthog_migration_high_number", "posthog/migrations/0999_add_feature.py", True),
-            ("product_migration", "products/conversations/backend/migrations/0002_ticket.py", True),
-            ("ee_migration", "ee/billing/migrations/0042_add_column.py", True),
-            # ClickHouse migrations
-            ("ch_migration", "posthog/clickhouse/migrations/0229_event_table.py", True),
-            # Negative cases — don't match the migration pattern
-            ("migration_init", "posthog/migrations/__init__.py", False),
-            ("migration_helper", "posthog/migrations/helpers.py", False),
-            ("test_migration", "posthog/test/test_migration_0999.py", False),
-            ("non_migration_path", "posthog/models/team.py", False),
-            ("migration_suffix_in_name", "posthog/migrations_helper.py", False),
-            # Safety-related test files in migration dirs shouldn't match either
-            ("product_migration_test", "products/data_warehouse/backend/migrations/test/test_migration_0013.py", False),
-        ]
-    )
-    def test_path_matching(self, _name, path, expected):
-        self.assertEqual(has_no_test_deps_by_path(path), expected, f"Failed for {path}")
 
 
 class TestAstGetImports(unittest.TestCase):
