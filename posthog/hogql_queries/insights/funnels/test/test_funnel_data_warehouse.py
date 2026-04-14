@@ -261,6 +261,52 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             assert results[0]["count"] == 2
             assert results[1]["count"] == 2
 
+    def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target(self):
+        # Regression: without the toString coercion on mixed legs, this errors with
+        # NO_COMMON_TYPE because events.person_id is UUID and user_id is String.
+        table_name = self.setup_data_warehouse()
+        with freeze_time("2025-11-07"):
+            _create_person(
+                distinct_ids=["person1"],
+                team_id=self.team.pk,
+                uuid="bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539",
+            )
+            _create_person(
+                distinct_ids=["person2"],
+                team_id=self.team.pk,
+                uuid="8cadb28f-1825-f158-73fa-3f228865b540",
+            )
+            journeys_for(
+                {
+                    "person1": [{"event": "$pageview", "timestamp": datetime(2025, 11, 1, 0, 0, 0)}],
+                    "person2": [{"event": "$pageview", "timestamp": datetime(2025, 11, 2, 0, 0, 0)}],
+                },
+                self.team,
+                create_people=False,
+            )
+
+            funnels_query = FunnelsQuery(
+                kind="FunnelsQuery",
+                dateRange=DateRange(date_from="2025-11-01"),
+                series=[
+                    EventsNode(event="$pageview"),
+                    FunnelsDataWarehouseNode(
+                        id=table_name,
+                        table_name=table_name,
+                        id_field="uuid",
+                        aggregation_target_field="user_id",
+                        timestamp_field="created",
+                    ),
+                ],
+            )
+
+            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
+            response = runner.calculate()
+
+            results = response.results
+            assert results[0]["count"] == 2
+            assert results[1]["count"] == 2
+
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_non_uuid_id_column(self):
         table_name = self.setup_data_warehouse()

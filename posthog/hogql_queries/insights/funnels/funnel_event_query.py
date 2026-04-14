@@ -159,6 +159,19 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if len(queries) == 1:
             return queries[0]
 
+        # When mixing events and data warehouse legs, the underlying aggregation_target columns
+        # can have incompatible ClickHouse types (events.person_id is UUID, arbitrary DWH id
+        # columns are often String). UNION ALL fails with NO_COMMON_TYPE unless we coerce both
+        # sides to the same type — toString handles UUID, String, and group-id cases uniformly.
+        for q in queries:
+            for i, expr in enumerate(q.select):
+                if isinstance(expr, ast.Alias) and expr.alias == "aggregation_target":
+                    q.select[i] = ast.Alias(
+                        alias="aggregation_target",
+                        expr=ast.Call(name="toString", args=[expr.expr]),
+                    )
+                    break
+
         # Take the field and alias names from the first query. UNION enforces identical column sets
         # across all selects, which makes this reliable.
         aliased_fields = alias_columns_in_select(queries[0].select, self.EVENT_TABLE_ALIAS)
@@ -246,6 +259,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
 
         date_range = self._date_range()
+        aggregation_target_expr = parse_expr(table_entity.aggregation_target_field)
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -257,6 +271,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_range.date_to()),
             ),
+            # Mirror events-leg hygiene — drop rows with no resolvable aggregation target so they
+            # don't pollute the funnel UDF with nulls the events side would never produce.
+            ast.Call(name="isNotNull", args=[aggregation_target_expr]),
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 

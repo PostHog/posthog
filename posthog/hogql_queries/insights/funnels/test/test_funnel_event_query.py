@@ -142,7 +142,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(user_id)), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
         self.assertEqual(select, expected)
 
@@ -167,7 +167,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments_string_timestamp AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(user_id)), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
         self.assertEqual(select, expected)
 
@@ -231,7 +231,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
         expected_1 = dedent("""
             SELECT e.timestamp AS timestamp,
-                   person_id AS aggregation_target,
+                   toString(person_id) AS aggregation_target,
                    if(and(equals(event, '$pageview'), equals(properties.$browser, 'Opera')), 1, 0) AS step_0,
                    0 AS step_1,
                    0 AS step_2,
@@ -244,26 +244,26 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
         expected_2 = dedent("""
             SELECT e.created_at AS timestamp,
-                   user_id AS aggregation_target,
+                   toString(user_id) AS aggregation_target,
                    0 AS step_0,
                    if(and(1, equals(some_prop, 'some_value')), 1, 0) AS step_1,
                    0 AS step_2,
                    if(and(1, equals(other_prop, 'other_value')), 1, 0) AS step_3
             FROM table_one AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_1, 1), equals(step_3, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(user_id)), or(equals(step_1, 1), equals(step_3, 1)))
         """).strip()
         self.assertEqual(select_2, expected_2)
 
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)  # type: ignore
         expected_3 = dedent("""
             SELECT e.ts AS timestamp,
-                   some_user_id AS aggregation_target,
+                   toString(some_user_id) AS aggregation_target,
                    0 AS step_0,
                    0 AS step_1,
                    if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
                    0 AS step_3
             FROM table_two AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(some_user_id)), equals(step_2, 1))
         """).strip()
         self.assertEqual(select_3, expected_3)
 
