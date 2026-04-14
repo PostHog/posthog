@@ -49,16 +49,15 @@ def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
     Legacy leak blocks have a from = ["products.<name>"] and are preceded by
     a TODO comment in the interfaces section.
     """
+    import re
 
-    # Look for [[interfaces]] blocks that reference this specific module
-    # (not the shared regex pattern) and are near TODO comments.
-    # The TODO comment sits above a group of legacy leak blocks.
     todo_idx = tach_content.find("# TODO: legacy leaks")
     if todo_idx == -1:
         return False
-    # Everything after the TODO marker is legacy leak territory
     leak_section = tach_content[todo_idx:]
-    return module_path in leak_section
+    # Match the exact module path in a from = [...] field to avoid substring
+    # false positives (e.g. products.mcp matching products.mcp_store).
+    return bool(re.search(rf'from\s*=\s*\["{re.escape(module_path)}"\]', leak_section))
 
 
 def get_tach_block(tach_content: str, module_path: str) -> str:
@@ -341,10 +340,18 @@ class TachCheck(ProductCheck):
             )
 
         if ctx.is_isolated and "interfaces" not in tach_block:
-            # Check global [[interfaces]] blocks — the module name may appear
+            import re
+
+            # Check global [[interfaces]] blocks — the product name may appear
             # literally or as part of a regex pattern in a from = [...] field.
             product_short = ctx.name  # e.g. "experiments"
-            has_global_interface = product_short in tach_content and "[[interfaces]]" in tach_content
+            has_global_interface = bool(
+                re.search(
+                    rf"\[\[interfaces\]\].*?from\s*=\s*\[.*?{re.escape(product_short)}",
+                    tach_content,
+                    re.DOTALL,
+                )
+            )
             if not has_global_interface:
                 return CheckResult(
                     lines=["✗ missing interfaces declaration"],
@@ -353,6 +360,10 @@ class TachCheck(ProductCheck):
                         f'add a [[interfaces]] block with from = ["{module_path}"]'
                     ],
                 )
+
+        tach_content_for_leaks = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        if has_legacy_interface_leaks(tach_content_for_leaks, module_path):
+            return CheckResult(lines=["⚠ has legacy interface leaks — core bypasses facade (not tested in isolation)"])
 
         return CheckResult(lines=["✓ ok"])
 
