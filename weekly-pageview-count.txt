@@ -1,0 +1,4 @@
+generated_at_utc=2026-04-14T18:48:13Z
+window=last_7_days
+event=$pageview
+pageviews_last_7d=4
