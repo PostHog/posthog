@@ -390,7 +390,7 @@ class TestWorkflowRun(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
-    async def test_force_full_refresh_skips_watermark_read(self, mock_workflow):
+    async def test_force_full_refresh_skips_read_but_commits(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
                 EnrichStripePageResult(
@@ -402,6 +402,7 @@ class TestWorkflowRun(SimpleTestCase):
                     next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_org_id="org-9",
                 ),
+                None,  # commit_stripe_watermark_activity
             ]
         )
         mock_workflow.continue_as_new = MagicMock()
@@ -410,9 +411,12 @@ class TestWorkflowRun(SimpleTestCase):
         inputs = StripeEnrichmentInputs(page_size=500, force_full_refresh=True)
         result = await wf.run(inputs)
 
-        # Exactly one activity call — the page enrichment. Neither get_watermark
-        # nor commit_watermark should run.
-        assert mock_workflow.execute_activity.await_count == 1
+        # Force-full-refresh skips the *read* of the prior watermark, but
+        # still commits at the end so the next incremental run resumes from
+        # where the full refresh finished instead of replaying history.
+        assert mock_workflow.execute_activity.await_count == 2
+        commit_call = mock_workflow.execute_activity.await_args_list[1]
+        assert commit_call.args[1] == "2026-04-12T00:00:00+00:00"
         assert result["committed_watermark"] == "2026-04-12T00:00:00+00:00"
 
     @pytest.mark.asyncio
@@ -484,3 +488,82 @@ class TestWorkflowRun(SimpleTestCase):
 
         assert result["error_count"] == 15
         assert len(result["errors"]) == 10
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_page_failure_holds_back_committed_watermark(self, mock_workflow):
+        """C1 regression: once a page reports any error, the run must not
+        advance the Redis watermark — next run has to rescan the failed rows."""
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                "2026-04-01T00:00:00+00:00",  # prior watermark
+                EnrichStripePageResult(
+                    rows_fetched=3,
+                    updated=2,
+                    skipped_no_account=0,
+                    errors=["sfdc_bulk_update_failed_count=1"],
+                    max_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
+                    next_cursor_org_id="org-2",
+                ),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceStripeEnrichmentWorkflow()
+        inputs = StripeEnrichmentInputs(page_size=500)
+        result = await wf.run(inputs)
+
+        # commit_stripe_watermark_activity must NOT run — only the watermark
+        # read is counted against the 2 expected awaits.
+        assert mock_workflow.execute_activity.await_count == 2
+        assert result["committed_watermark"] is None
+        assert result["error_count"] == 1
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_failure_after_successful_page_freezes_watermark(self, mock_workflow):
+        """C1 regression: a later successful page cannot jump the watermark
+        past an earlier failing page. The state-carried ``run_has_failures``
+        flag simulates the continue-as-new chain in a single iteration."""
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                # Final successful page after a prior failure was latched on an
+                # earlier continue-as-new iteration.
+                EnrichStripePageResult(
+                    rows_fetched=2,
+                    updated=2,
+                    skipped_no_account=0,
+                    errors=[],
+                    max_last_changed_at="2026-04-20T00:00:00+00:00",
+                    next_cursor_last_changed_at="2026-04-20T00:00:00+00:00",
+                    next_cursor_org_id="org-z",
+                ),
+                None,  # commit_watermark
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        state = StripeEnrichmentState(
+            total_rows_fetched=1000,
+            total_updated=998,
+            error_count=2,
+            errors=["earlier page failure"],
+            resolved_since="2026-04-01T00:00:00+00:00",
+            pending_watermark="2026-04-10T00:00:00+00:00",  # last fully-successful page's max
+            run_has_failures=True,
+            cursor_last_changed_at="2026-04-15T00:00:00+00:00",
+            cursor_org_id="org-prev",
+        )
+        wf = SalesforceStripeEnrichmentWorkflow()
+        inputs = StripeEnrichmentInputs(page_size=500, state=state)
+        result = await wf.run(inputs)
+
+        # Two awaits: the page activity, then commit_stripe_watermark_activity.
+        assert mock_workflow.execute_activity.await_count == 2
+        # Watermark was committed, but at the earlier successful page's max,
+        # NOT this page's max — otherwise next run would skip the failed rows
+        # whose last_changed_at sits between the two.
+        commit_call = mock_workflow.execute_activity.await_args_list[1]
+        assert commit_call.args[1] == "2026-04-10T00:00:00+00:00"
+        assert result["committed_watermark"] == "2026-04-10T00:00:00+00:00"

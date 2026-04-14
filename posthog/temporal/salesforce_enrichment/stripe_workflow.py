@@ -91,9 +91,19 @@ class StripeEnrichmentState:
     # continue-as-new iterations so every page of the same logical run scans from
     # the same ``since``.
     resolved_since: str | None = None
-    # ISO-8601 max ``last_changed_at`` seen so far this run; committed to Redis
-    # only on the final iteration.
+    # ISO-8601 max ``last_changed_at`` seen across fully successful pages so far.
+    # Frozen the moment any page reports a failure so the watermark can never
+    # advance past rows that still need to be retried on the next run.
     pending_watermark: str | None = None
+    # Latched on the first page that reports any errors. Once True, subsequent
+    # pages in this run stop advancing ``pending_watermark`` even if they
+    # themselves succeed — otherwise a later page's max would jump the watermark
+    # past the earlier failed rows and silently drop them from the retry window.
+    run_has_failures: bool = False
+    # Set only after ``commit_stripe_watermark_activity`` actually runs, so the
+    # final result doesn't claim a watermark was committed when the commit step
+    # was skipped (force-full-refresh, all-failures, or no pending watermark).
+    committed_watermark: str | None = None
     cursor_last_changed_at: str | None = None
     cursor_org_id: str | None = None
 
@@ -203,7 +213,9 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
         next_cursor_last_changed_at = last_row.last_changed_at.isoformat()
         next_cursor_org_id = last_row.posthog_organization_id
 
-        sf = get_salesforce_client()
+        # get_salesforce_client() performs a blocking OAuth token exchange, so
+        # hand it off to a worker thread rather than stalling the event loop.
+        sf = await asyncio.to_thread(get_salesforce_client)
         org_to_account_id: dict[str, str] = {}
 
         for lookup_chunk in batched(all_org_ids, _SFDC_LOOKUP_CHUNK_SIZE):
@@ -323,8 +335,13 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
         if len(state.errors) < 10:
             state.errors.extend(page_result.errors[: 10 - len(state.errors)])
 
-        if page_result.max_last_changed_at and (
-            state.pending_watermark is None or page_result.max_last_changed_at > state.pending_watermark
+        if page_result.errors:
+            state.run_has_failures = True
+
+        if (
+            not state.run_has_failures
+            and page_result.max_last_changed_at
+            and (state.pending_watermark is None or page_result.max_last_changed_at > state.pending_watermark)
         ):
             state.pending_watermark = page_result.max_last_changed_at
 
@@ -333,13 +350,17 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
         done = is_last_page or reached_max
 
         if done:
-            if state.pending_watermark and not inputs.force_full_refresh:
+            # A full refresh still commits at the end so the next incremental
+            # run resumes where this one finished instead of replaying the
+            # entire history from a stale or missing watermark.
+            if state.pending_watermark:
                 await workflow.execute_activity(
                     commit_stripe_watermark_activity,
                     state.pending_watermark,
                     start_to_close_timeout=dt.timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                state.committed_watermark = state.pending_watermark
             return self._build_result(state)
 
         state.cursor_last_changed_at = page_result.next_cursor_last_changed_at
@@ -372,6 +393,6 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
                 total_skipped_no_account=state.total_skipped_no_account,
                 error_count=state.error_count,
                 errors=state.errors[:10],
-                committed_watermark=state.pending_watermark,
+                committed_watermark=state.committed_watermark,
             )
         )
