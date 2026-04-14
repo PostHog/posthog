@@ -15,7 +15,6 @@ from posthog.temporal.salesforce_enrichment.stripe_workflow import (
     StripeEnrichmentInputs,
     StripeEnrichmentState,
     _compose_billing_street,
-    _soql_quote,
     enrich_stripe_page_activity,
     prepare_stripe_update_record,
 )
@@ -49,18 +48,6 @@ def _signals(
 
 async def mock_to_thread(fn, *args, **kwargs):
     return fn(*args, **kwargs)
-
-
-class TestSoqlQuote(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("basic", "abc", "'abc'"),
-            ("escapes_single_quote", "ab'c", "'ab\\'c'"),
-            ("escapes_backslash", "a\\b", "'a\\\\b'"),
-        ]
-    )
-    def test_quote(self, _name, value, expected):
-        assert _soql_quote(value) == expected
 
 
 class TestComposeBillingStreet(SimpleTestCase):

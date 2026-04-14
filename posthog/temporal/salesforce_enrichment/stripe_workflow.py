@@ -16,6 +16,7 @@ from typing import Any
 
 from django.db import close_old_connections
 
+from simple_salesforce.format import format_soql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -41,15 +42,6 @@ LOGGER = get_logger(__name__)
 # SOQL IN clauses are limited by query length, not cardinality. ~500 UUID
 # org ids the IN list ~ 20k characters —  under the 100k SOQL limit
 _SFDC_LOOKUP_CHUNK_SIZE = 500
-
-
-def _soql_quote(value: str) -> str:
-    """Escape a string for safe inclusion in a SOQL literal.
-
-    Posthog org ids are UUIDs so in practice this is defense-in-depth: any value
-    ending up in the ``IN`` clause must not be able to break out of its quotes.
-    """
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 def _compose_billing_street(signals: StripeSignals) -> str | None:
@@ -88,21 +80,10 @@ class StripeEnrichmentState:
     error_count: int = 0
     errors: list[str] = dataclasses.field(default_factory=list)
     # ISO-8601 watermark resolved on the first iteration and held constant across
-    # continue-as-new iterations so every page of the same logical run scans from
-    # the same ``since``.
     resolved_since: str | None = None
     # ISO-8601 max ``last_changed_at`` seen across fully successful pages so far.
-    # Frozen the moment any page reports a failure so the watermark can never
-    # advance past rows that still need to be retried on the next run.
     pending_watermark: str | None = None
-    # Latched on the first page that reports any errors. Once True, subsequent
-    # pages in this run stop advancing ``pending_watermark`` even if they
-    # themselves succeed — otherwise a later page's max would jump the watermark
-    # past the earlier failed rows and silently drop them from the retry window.
     run_has_failures: bool = False
-    # Set only after ``commit_stripe_watermark_activity`` actually runs, so the
-    # final result doesn't claim a watermark was committed when the commit step
-    # was skipped (force-full-refresh, all-failures, or no pending watermark).
     committed_watermark: str | None = None
     cursor_last_changed_at: str | None = None
     cursor_org_id: str | None = None
@@ -170,8 +151,7 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
 
     Matching Account rows are looked up by ``Posthog_Org_ID__c`` — the same join
     key the usage enrichment workflow uses. Rows with no matching account are
-    counted and skipped rather than creating new accounts here: account creation
-    belongs to the separate harmonic workflow.
+    counted and skipped
     """
     async with Heartbeater() as heartbeater:
         close_old_connections()
@@ -213,15 +193,15 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
         next_cursor_last_changed_at = last_row.last_changed_at.isoformat()
         next_cursor_org_id = last_row.posthog_organization_id
 
-        # get_salesforce_client() performs a blocking OAuth token exchange, so
-        # hand it off to a worker thread rather than stalling the event loop.
         sf = await asyncio.to_thread(get_salesforce_client)
         org_to_account_id: dict[str, str] = {}
 
         for lookup_chunk in batched(all_org_ids, _SFDC_LOOKUP_CHUNK_SIZE):
-            in_clause = ",".join(_soql_quote(org_id) for org_id in lookup_chunk)
-            # POSTHOG_ORG_ID_FIELD is a trusted constant and org ids are SOQL-escaped above.
-            query = f"SELECT Id, {POSTHOG_ORG_ID_FIELD} FROM Account WHERE {POSTHOG_ORG_ID_FIELD} IN ({in_clause})"
+            # POSTHOG_ORG_ID_FIELD is a trusted constant; simple_salesforce quotes the IN values.
+            query = format_soql(
+                f"SELECT Id, {POSTHOG_ORG_ID_FIELD} FROM Account WHERE {POSTHOG_ORG_ID_FIELD} IN {{}}",
+                list(lookup_chunk),
+            )
             result = await asyncio.to_thread(sf.query_all, query)
             for row in result.get("records", []):
                 posthog_org_id = row.get(POSTHOG_ORG_ID_FIELD)
