@@ -469,6 +469,18 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertIn("already being deleted", response.json()["detail"])
         mock_delete_task.delay.assert_not_called()
 
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_delete_organization_fires_initiated_event(self, mock_capture, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        event_names = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertIn("organization deletion initiated", event_names)
+
 
 def create_organization(name: str) -> Organization:
     """
