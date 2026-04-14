@@ -16,18 +16,6 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import Eval
 
 logger = structlog.get_logger(__name__)
 
-# Match any UUID in content — strips surrounding punctuation (backticks, angle brackets, etc.)
-# so we don't depend on how the LLM formats generation references.
-# The double-backtick branch handles `` `uuid` `` which CommonMark treats as a code span;
-# without it, _linkify_uuids would produce `[uuid...](url)` still inside the code span.
-UUID_LINK_PATTERN = re.compile(
-    r"`{2}\s*`?"
-    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
-    r"`?\s*`{2}"
-    r"|"
-    r"[`<]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]*"
-)
-
 # Matches a leading markdown heading line at the very start of a section's content.
 # The renderer (email/Slack/UI) already emits its own section title, so if the agent
 # also started the section with its own `## Executive summary` heading we strip it
@@ -68,36 +56,42 @@ def _format_period_for_display(iso_str: str) -> str:
     return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
-_NIL_UUID = "00000000-0000-0000-0000-000000000000"
-
-
 def _build_citation_map(citations: list) -> dict[str, str]:
     """Build a generation_id → trace_id lookup from structured citations."""
-    return {
-        c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id and c.trace_id != _NIL_UUID
-    }
+    return {c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id}
 
 
-def _make_trace_link(project_id: int, generation_id: str, citation_map: dict[str, str]) -> str:
-    """Build the correct trace URL, using citation map for generation_id → trace_id resolution."""
+def _make_trace_link(project_id: int, generation_id: str, trace_id: str) -> str:
+    """Build the trace URL for a cited generation."""
     from posthog.utils import absolute_uri
 
-    trace_id = citation_map.get(generation_id, generation_id)
-    if trace_id != generation_id:
-        return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}?event={generation_id}")
-    return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{generation_id}")
+    return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}?event={generation_id}")
 
 
-def _linkify_uuids(text: str, project_id: int, citation_map: dict[str, str] | None = None) -> str:
-    """Replace backtick-wrapped UUIDs with clickable links (markdown format)."""
-    cmap = citation_map or {}
+def _linkify_citations(text: str, project_id: int, citation_map: dict[str, str]) -> str:
+    """Replace cited generation IDs with clickable markdown links.
 
-    def replace_with_md_link(match: re.Match) -> str:
-        gen_id = match.group(1) or match.group(2)
-        link = _make_trace_link(project_id, gen_id, cmap)
-        return f"[{gen_id[:8]}...]({link})"
+    Uses the structured citation map (from add_citation calls) rather than
+    scanning for UUID patterns. Only IDs the agent explicitly cited get linked.
+    Handles common LLM formatting wrappers (backticks, angle brackets).
+    """
+    if not citation_map:
+        return text
 
-    return UUID_LINK_PATTERN.sub(replace_with_md_link, text)
+    for gen_id, trace_id in citation_map.items():
+        link = _make_trace_link(project_id, gen_id, trace_id)
+        md_link = f"[{gen_id[:8]}...]({link})"
+
+        # Strip formatting wrappers the LLM may have added, then replace the
+        # plain ID with a markdown link. Order matters — strip widest wrappers
+        # first so narrower ones don't leave orphan backticks.
+        for wrapper in [f"`` `{gen_id}` ``", f"`{gen_id}`", f"<{gen_id}>"]:
+            text = text.replace(wrapper, md_link)
+
+        # Replace any remaining bare occurrences (agent may have used no wrapper)
+        text = text.replace(gen_id, md_link)
+
+    return text
 
 
 def _strip_redundant_leading_heading(content: str, section_title: str) -> str:
@@ -191,21 +185,19 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
     return blocks
 
 
-def _render_section_html(title: str, content: str, project_id: int, citation_map: dict[str, str] | None = None) -> str:
+def _render_section_html(title: str, content: str, project_id: int, citation_map: dict[str, str]) -> str:
     """Render a titled markdown section as HTML with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
-    content_with_links = _linkify_uuids(content, project_id, citation_map)
+    content_with_links = _linkify_citations(content, project_id, citation_map)
     html_content = _md.render(content_with_links)
     html_content = _inline_email_styles(html_content)
     return f"<h2>{title}</h2>\n{html_content}\n"
 
 
-def _render_section_mrkdwn(
-    title: str, content: str, project_id: int, citation_map: dict[str, str] | None = None
-) -> str:
+def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: dict[str, str]) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
-    content = _linkify_uuids(content, project_id, citation_map)
+    content = _linkify_citations(content, project_id, citation_map)
     mrkdwn_content = _slack_converter.convert(content)
     return f"*{title}*\n{mrkdwn_content}"
 

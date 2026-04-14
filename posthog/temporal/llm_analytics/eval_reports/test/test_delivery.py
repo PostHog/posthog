@@ -3,10 +3,9 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from posthog.temporal.llm_analytics.eval_reports.delivery import (
-    UUID_LINK_PATTERN,
     _format_period_for_display,
     _inline_email_styles,
-    _linkify_uuids,
+    _linkify_citations,
     _render_metrics_block_html,
     _render_metrics_block_mrkdwn,
     _render_section_html,
@@ -22,89 +21,104 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
 )
 
 
-class TestUuidLinkPattern(SimpleTestCase):
-    def test_matches_backtick_uuids(self):
-        text = "See `12345678-1234-1234-1234-123456789abc` for details."
-        matches = UUID_LINK_PATTERN.findall(text)
-        self.assertEqual(len(matches), 1)
-        self.assertEqual(matches[0], "12345678-1234-1234-1234-123456789abc")
-
-    def test_no_match_without_backticks(self):
-        text = "ID 12345678-1234-1234-1234-123456789abc is referenced."
-        matches = UUID_LINK_PATTERN.findall(text)
-        self.assertEqual(len(matches), 0)
-
-
-class TestLinkifyUuids(SimpleTestCase):
-    def test_converts_uuid_to_markdown_link(self):
+class TestLinkifyCitations(SimpleTestCase):
+    def test_links_cited_generation_id_in_backticks(self):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
-        result = _linkify_uuids(text, project_id=42)
+        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        result = _linkify_citations(text, project_id=42, citation_map=citation_map)
         self.assertIn("[12345678...]", result)
-        self.assertIn("/project/42/llm-analytics/traces/12345678-1234-1234-1234-123456789abc", result)
+        self.assertIn("/project/42/llm-analytics/traces/trace-abc?event=12345678-1234-1234-1234-123456789abc", result)
 
-    def test_leaves_non_uuid_backticks_alone(self):
-        text = "Use `some_function()` here."
-        result = _linkify_uuids(text, project_id=1)
+    def test_links_cited_generation_id_in_double_backticks(self):
+        text = "See `` `12345678-1234-1234-1234-123456789abc` `` here."
+        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        result = _linkify_citations(text, project_id=1, citation_map=citation_map)
+        self.assertIn("[12345678...]", result)
+        self.assertNotIn("``", result)
+
+    def test_links_cited_generation_id_bare(self):
+        text = "See 12345678-1234-1234-1234-123456789abc here."
+        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        result = _linkify_citations(text, project_id=1, citation_map=citation_map)
+        self.assertIn("[12345678...]", result)
+
+    def test_leaves_uncited_ids_alone(self):
+        text = "See `12345678-1234-1234-1234-123456789abc` here."
+        result = _linkify_citations(text, project_id=1, citation_map={})
         self.assertEqual(text, result)
+
+    def test_leaves_non_id_backticks_alone(self):
+        text = "Use `some_function()` here."
+        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
+        result = _linkify_citations(text, project_id=1, citation_map=citation_map)
+        self.assertEqual(text, result)
+
+    def test_handles_non_uuid_trace_id(self):
+        text = "See `gen-123` here."
+        citation_map = {"gen-123": "my-custom-trace-id"}
+        result = _linkify_citations(text, project_id=1, citation_map=citation_map)
+        self.assertIn("/traces/my-custom-trace-id?event=gen-123", result)
 
 
 class TestRenderSectionHtml(SimpleTestCase):
     """v2: renderer takes a title directly, no more SECTION_TITLES lookup."""
 
     def test_renders_title_as_h2(self):
-        html = _render_section_html("Summary", "Some content", project_id=1)
+        html = _render_section_html("Summary", "Some content", project_id=1, citation_map={})
         self.assertIn("<h2>Summary</h2>", html)
 
     def test_renders_agent_chosen_title(self):
-        html = _render_section_html("Volume drop at 14:00", "body", project_id=1)
+        html = _render_section_html("Volume drop at 14:00", "body", project_id=1, citation_map={})
         self.assertIn("<h2>Volume drop at 14:00</h2>", html)
 
     def test_renders_bold_markdown(self):
-        html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1)
+        html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
         self.assertIn("<strong>Pass rate</strong>", html)
 
-    def test_converts_uuid_to_link(self):
+    def test_converts_cited_id_to_link(self):
+        citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
         html = _render_section_html(
             "Failures",
             "Failed: `12345678-1234-1234-1234-123456789abc`",
             project_id=42,
+            citation_map=citation_map,
         )
-        self.assertIn("/project/42/llm-analytics/traces/12345678-1234-1234-1234-123456789abc", html)
+        self.assertIn("/project/42/llm-analytics/traces/trace-abc", html)
         self.assertIn("12345678...", html)
 
     def test_renders_lists(self):
-        html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1)
+        html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
         self.assertIn("<li>item 1</li>", html)
         self.assertIn("<li>item 2</li>", html)
         self.assertIn("<ul>", html)
 
     def test_renders_tables(self):
         md = "| Metric | Value |\n|--------|-------|\n| Pass rate | 80% |"
-        html = _render_section_html("Stats", md, project_id=1)
+        html = _render_section_html("Stats", md, project_id=1, citation_map={})
         self.assertIn("<table", html)
         self.assertIn("<th", html)
         self.assertIn("Pass rate", html)
 
     def test_renders_italic(self):
-        html = _render_section_html("Stats", "*emphasis*", project_id=1)
+        html = _render_section_html("Stats", "*emphasis*", project_id=1, citation_map={})
         self.assertIn("<em>emphasis</em>", html)
 
 
 class TestRenderSectionMrkdwn(SimpleTestCase):
     def test_renders_title_bold(self):
-        result = _render_section_mrkdwn("Summary", "Some content")
+        result = _render_section_mrkdwn("Summary", "Some content", project_id=1, citation_map={})
         self.assertIn("*Summary*", result)
 
     def test_renders_agent_chosen_title(self):
-        result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body")
+        result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body", project_id=1, citation_map={})
         self.assertIn("*Cost spike in gpt-5.2*", result)
 
     def test_converts_bold(self):
-        result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%")
+        result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
         self.assertIn("*Pass rate*", result)
 
     def test_converts_lists(self):
-        result = _render_section_mrkdwn("Stats", "- item 1\n- item 2")
+        result = _render_section_mrkdwn("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
         self.assertIn("item 1", result)
         self.assertIn("item 2", result)
 
@@ -149,14 +163,14 @@ class TestStripRedundantLeadingHeading(SimpleTestCase):
 
     def test_render_section_html_does_not_duplicate_heading(self):
         content = "## Summary\n\nPass rate is 94%."
-        html = _render_section_html("Summary", content, project_id=1)
+        html = _render_section_html("Summary", content, project_id=1, citation_map={})
         self.assertEqual(html.count("Summary"), 1)
         self.assertIn("<h2>Summary</h2>", html)
         self.assertIn("Pass rate is 94%", html)
 
     def test_render_section_mrkdwn_does_not_duplicate_heading(self):
         content = "## Summary\n\nPass rate is 94%."
-        result = _render_section_mrkdwn("Summary", content)
+        result = _render_section_mrkdwn("Summary", content, project_id=1, citation_map={})
         self.assertEqual(result.count("Summary"), 1)
         self.assertTrue(result.startswith("*Summary*"))
 
