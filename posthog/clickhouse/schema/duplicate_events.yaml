@@ -46,7 +46,7 @@ tables:
             - name: duplicate_message
               type: String
             - name: distinct_fields
-              type: "Array(Tuple(field_name String, original_value String, new_value String))"
+              type: 'Array(Tuple(field_name String, original_value String, new_value String))'
             - name: inserted_at
               type: "DateTime64(3, 'UTC')"
             # Kafka virtual columns

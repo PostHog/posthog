@@ -151,31 +151,31 @@ tables:
             - name: $group_0
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$group_0''), ''^"|"$'', '''')'
             - name: $group_1
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$group_1''), ''^"|"$'', '''')'
             - name: $group_2
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$group_2''), ''^"|"$'', '''')'
             - name: $group_3
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$group_3''), ''^"|"$'', '''')'
             - name: $group_4
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$group_4''), ''^"|"$'', '''')'
             - name: $window_id
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$window_id''), ''^"|"$'', '''')'
             - name: $session_id
               type: String
               default_kind: MATERIALIZED
-              default_expression: "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+              default_expression: 'replaceRegexpAll(JSONExtractRaw(properties, ''$session_id''), ''^"|"$'', '''')'
             - name: $session_id_uuid
               type: Nullable(UInt128)
               default_kind: MATERIALIZED
@@ -232,7 +232,7 @@ tables:
             - name: inserted_at
               type: Nullable(DateTime64(6, 'UTC'))
               default_kind: DEFAULT
-              default_expression: "NOW64()"
+              default_expression: 'NOW64()'
             - name: consumer_breadcrumbs
               type: Array(String)
             # Soft delete

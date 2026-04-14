@@ -63,7 +63,7 @@ tables:
         engine: MaterializedView
         source: kafka_person_distinct_id_overrides
         target: writable_person_distinct_id_overrides
-        select: "SELECT team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition FROM {{ database }}.kafka_person_distinct_id_overrides WHERE version > 0"
+        select: 'SELECT team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition FROM {{ database }}.kafka_person_distinct_id_overrides WHERE version > 0'
         on_nodes: INGESTION_EVENTS
         columns: []
 
@@ -76,7 +76,7 @@ tables:
         primary_key: team_id, distinct_id
         source:
             type: CLICKHOUSE
-            query: "SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM posthog.person_distinct_id_overrides GROUP BY team_id, distinct_id"
+            query: 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM posthog.person_distinct_id_overrides GROUP BY team_id, distinct_id'
         layout:
             type: COMPLEX_KEY_HASHED
         lifetime:

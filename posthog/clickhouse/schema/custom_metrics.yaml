@@ -20,6 +20,6 @@ tables:
               default_expression: 'now()'
               default_kind: DEFAULT
             - name: labels
-              type: "Map(String, String)"
+              type: 'Map(String, String)'
             - name: increment
               type: Float64

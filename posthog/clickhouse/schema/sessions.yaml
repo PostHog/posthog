@@ -21,13 +21,13 @@ tables:
             - name: team_id
               type: Int64
             - name: distinct_id
-              type: "SimpleAggregateFunction(any, String)"
+              type: 'SimpleAggregateFunction(any, String)'
             - name: min_timestamp
               type: "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
             - name: max_timestamp
               type: "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
             - name: urls
-              type: "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray, Array(String))'
             - name: entry_url
               type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
             - name: exit_url
@@ -77,11 +77,11 @@ tables:
             - name: initial_sccid
               type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
             - name: event_count_map
-              type: "SimpleAggregateFunction(sumMap, Map(String, Int64))"
+              type: 'SimpleAggregateFunction(sumMap, Map(String, Int64))'
             - name: pageview_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: autocapture_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
 
     writable_sessions:
         engine: Distributed
@@ -101,7 +101,7 @@ tables:
         engine: MaterializedView
         source: sharded_events
         target: writable_sessions
-        select: "SELECT ... FROM {{ database }}.sharded_events"
+        select: 'SELECT ... FROM {{ database }}.sharded_events'
         on_nodes: DATA
         columns: []
 
@@ -126,7 +126,7 @@ tables:
         engine: MaterializedView
         source: sharded_events
         target: new_writable_sessions
-        select: "SELECT ... FROM {{ database }}.sharded_events"
+        select: 'SELECT ... FROM {{ database }}.sharded_events'
         on_nodes: DATA
         columns: []
 

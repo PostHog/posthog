@@ -99,6 +99,6 @@ tables:
         engine: MaterializedView
         source: kafka_heatmaps
         target: writable_heatmaps
-        select: "SELECT session_id, team_id, distinct_id, timestamp, x, y, scale_factor, viewport_width, viewport_height, pointer_target_fixed, current_url, type, _timestamp, _offset, _partition FROM {{ database }}.kafka_heatmaps"
+        select: 'SELECT session_id, team_id, distinct_id, timestamp, x, y, scale_factor, viewport_width, viewport_height, pointer_target_fixed, current_url, type, _timestamp, _offset, _partition FROM {{ database }}.kafka_heatmaps'
         on_nodes: INGESTION_MEDIUM
         columns: []

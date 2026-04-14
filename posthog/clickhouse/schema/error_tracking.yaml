@@ -63,6 +63,6 @@ tables:
         engine: MaterializedView
         source: kafka_error_tracking_issue_fingerprint_overrides
         target: writable_error_tracking_issue_fingerprint_overrides
-        select: "SELECT team_id, fingerprint, issue_id, is_deleted, version, _timestamp, _offset, _partition FROM {{ database }}.kafka_error_tracking_issue_fingerprint_overrides WHERE version > 0"
+        select: 'SELECT team_id, fingerprint, issue_id, is_deleted, version, _timestamp, _offset, _partition FROM {{ database }}.kafka_error_tracking_issue_fingerprint_overrides WHERE version > 0'
         on_nodes: INGESTION_EVENTS
         columns: []

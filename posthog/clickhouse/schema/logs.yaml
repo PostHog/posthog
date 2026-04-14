@@ -51,7 +51,7 @@ tables:
             - name: service_name
               type: LowCardinality(String)
             - name: resource_attributes
-              type: "Map(LowCardinality(String), String)"
+              type: 'Map(LowCardinality(String), String)'
             - name: resource_fingerprint
               type: UInt64
               default_kind: MATERIALIZED
@@ -61,7 +61,7 @@ tables:
             - name: event_name
               type: String
             - name: attributes_map_str
-              type: "Map(LowCardinality(String), String)"
+              type: 'Map(LowCardinality(String), String)'
             - name: _partition
               type: UInt32
             - name: _topic
@@ -119,7 +119,7 @@ tables:
             - name: attribute_value
               type: String
             - name: attribute_count
-              type: "SimpleAggregateFunction(sum, UInt64)"
+              type: 'SimpleAggregateFunction(sum, UInt64)'
             - name: attribute_type
               type: LowCardinality(String)
 
@@ -168,15 +168,15 @@ tables:
             - name: _topic
               type: String
             - name: max_offset
-              type: "SimpleAggregateFunction(max, UInt64)"
+              type: 'SimpleAggregateFunction(max, UInt64)'
             - name: max_observed_timestamp
-              type: "SimpleAggregateFunction(max, DateTime64(9))"
+              type: 'SimpleAggregateFunction(max, DateTime64(9))'
             - name: max_timestamp
-              type: "SimpleAggregateFunction(max, DateTime64(9))"
+              type: 'SimpleAggregateFunction(max, DateTime64(9))'
             - name: max_created_at
-              type: "SimpleAggregateFunction(max, DateTime64(9))"
+              type: 'SimpleAggregateFunction(max, DateTime64(9))'
             - name: max_lag
-              type: "SimpleAggregateFunction(max, UInt64)"
+              type: 'SimpleAggregateFunction(max, UInt64)'
 
     logs_kafka_metrics_distributed:
         engine: Distributed

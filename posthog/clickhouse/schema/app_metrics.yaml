@@ -29,11 +29,11 @@ tables:
             - name: job_id
               type: String
             - name: successes
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: successes_on_retry
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: failures
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: error_uuid
               type: UUID
             - name: error_type
@@ -98,6 +98,6 @@ tables:
         engine: MaterializedView
         source: kafka_app_metrics
         target: writable_app_metrics
-        select: "SELECT team_id, timestamp, plugin_config_id, category, job_id, successes, successes_on_retry, failures, error_uuid, error_type, error_details, _timestamp, _offset, _partition FROM {{ database }}.kafka_app_metrics"
+        select: 'SELECT team_id, timestamp, plugin_config_id, category, job_id, successes, successes_on_retry, failures, error_uuid, error_type, error_details, _timestamp, _offset, _partition FROM {{ database }}.kafka_app_metrics'
         on_nodes: INGESTION_EVENTS
         columns: []

@@ -26,12 +26,12 @@ tables:
               type: "DateTime64(6, 'UTC')"
             - name: expires_at
               type: "DateTime64(6, 'UTC')"
-              default_expression: "now() + INTERVAL 7 DAY"
+              default_expression: 'now() + INTERVAL 7 DAY'
               default_kind: DEFAULT
             - name: breakdown_value
               type: Array(String)
             - name: uniq_exact_state
-              type: "AggregateFunction(uniqExact, UUID)"
+              type: 'AggregateFunction(uniqExact, UUID)'
 
     preaggregation_results:
         engine: Distributed

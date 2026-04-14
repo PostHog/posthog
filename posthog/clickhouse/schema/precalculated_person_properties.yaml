@@ -72,6 +72,6 @@ tables:
         engine: MaterializedView
         source: kafka_precalculated_person_properties
         target: writable_precalculated_person_properties
-        select: "SELECT team_id, distinct_id, person_id, condition, matches, source, _timestamp, _offset FROM {{ database }}.kafka_precalculated_person_properties"
+        select: 'SELECT team_id, distinct_id, person_id, condition, matches, source, _timestamp, _offset FROM {{ database }}.kafka_precalculated_person_properties'
         on_nodes: INGESTION_EVENTS
         columns: []

@@ -185,6 +185,6 @@ tables:
         engine: MaterializedView
         source: kafka_ai_events_json
         target: writable_ai_events
-        select: "SELECT ... FROM {{ database }}.kafka_ai_events_json"
+        select: 'SELECT ... FROM {{ database }}.kafka_ai_events_json'
         on_nodes: INGESTION_EVENTS
         columns: []

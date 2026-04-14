@@ -243,6 +243,6 @@ tables:
         engine: MaterializedView
         source: kafka_performance_events
         target: writeable_performance_events
-        select: "SELECT * FROM {{ database }}.kafka_performance_events"
+        select: 'SELECT * FROM {{ database }}.kafka_performance_events'
         on_nodes: INGESTION_EVENTS
         columns: []
