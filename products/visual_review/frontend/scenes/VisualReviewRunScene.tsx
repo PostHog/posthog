@@ -110,10 +110,10 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
-    // Count by result type
-    const changedCount = snapshots.filter((s: SnapshotApi) => s.result === 'changed').length
-    const newCount = snapshots.filter((s: SnapshotApi) => s.result === 'new').length
-    const removedCount = snapshots.filter((s: SnapshotApi) => s.result === 'removed').length
+    // Use server-side counts from the run object (snapshots list is paginated)
+    const changedCount = run.summary.changed
+    const newCount = run.summary.new
+    const removedCount = run.summary.removed
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = changedSnapshots.length > 0 ? changedSnapshots : snapshots
