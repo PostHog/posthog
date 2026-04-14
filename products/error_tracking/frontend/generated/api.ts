@@ -35,6 +35,7 @@ import type {
     ErrorTrackingStackFrameApi,
     ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
+    ErrorTrackingSuppressionRuleCreateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
     ErrorTrackingSymbolSetsList2Params,
@@ -1126,14 +1127,14 @@ export const getErrorTrackingSuppressionRulesCreateUrl = (projectId: string) => 
 
 export const errorTrackingSuppressionRulesCreate = async (
     projectId: string,
-    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
+    errorTrackingSuppressionRuleCreateRequestApi: ErrorTrackingSuppressionRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingSuppressionRuleApi> => {
     return apiMutator<ErrorTrackingSuppressionRuleApi>(getErrorTrackingSuppressionRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSuppressionRuleApi),
+        body: JSON.stringify(errorTrackingSuppressionRuleCreateRequestApi),
     })
 }
 

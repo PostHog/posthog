@@ -429,7 +429,8 @@ class TestSuppressionRuleAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "Invalid filters"
+        assert response.json()["attr"] == "filters"
+        assert response.json()["detail"] == "Invalid filters"
 
     def test_update_changes_bytecode(self) -> None:
         create_response = self.client.post(
@@ -557,7 +558,8 @@ class TestSuppressionRuleAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "sampling_rate" in response.json()["error"]
+        assert response.json()["attr"] == "sampling_rate"
+        assert "less than or equal to 1.0" in response.json()["detail"]
 
     def test_update_sampling_rate(self) -> None:
         create_response = self.client.post(
