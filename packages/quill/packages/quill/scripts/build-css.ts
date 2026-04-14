@@ -91,6 +91,13 @@ const quillTailwindDefaults = `
 `
 
 const themeWithDefaults = theme.replace(/}\s*$/, `${quillTailwindDefaults}}\n`)
+if (themeWithDefaults === theme) {
+    throw new Error(
+        'build-css: failed to inject Tailwind defaults into tailwind-lib.css — ' +
+            'expected the file to end with a closing brace. Check the output of ' +
+            '`@posthog/quill-tokens build` and update the regex if the format changed.'
+    )
+}
 
 writeFileSync(
     resolve(distDir, 'tokens.css'),
