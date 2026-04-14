@@ -22,6 +22,7 @@ def _get_surveys_response_counts(
     submission_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
 
     tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+    # nosemgrep: clickhouse-fstring-param-audit - survey property expressions come from internal helper output
     data = sync_execute(
         f"""
         SELECT

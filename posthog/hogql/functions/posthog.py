@@ -68,7 +68,11 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[
             ((StringType(),), StringType()),
             ((StringType(), StringType()), StringType()),
+            ((StringType(), DateTimeType()), StringType()),
             ((StringType(), StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), DateTimeType()), StringType()),
+            ((StringType(), DateTimeType(), StringType()), StringType()),
+            ((StringType(), DateTimeType(), DateTimeType()), StringType()),
         ],
     ),
     # traffic type classification functions (experimental)

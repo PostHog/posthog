@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
@@ -184,16 +186,18 @@ def unique_survey_submissions_filter(node: ast.Call, args: list[ast.Expr], team_
     placeholders: dict[str, ast.Expr] = {"survey_id": ast.Constant(value=survey_id)}
 
     if start_timestamp_arg is not None:
-        if not isinstance(start_timestamp_arg, ast.Constant):
+        normalized_start_timestamp_arg = _normalize_timestamp_constant(start_timestamp_arg)
+        if normalized_start_timestamp_arg is None:
             raise QueryError("uniqueSurveySubmissionsFilter second argument must be a constant")
         date_filter += " AND timestamp >= {start_timestamp}"
-        placeholders["start_timestamp"] = start_timestamp_arg
+        placeholders["start_timestamp"] = normalized_start_timestamp_arg
 
     if end_timestamp_arg is not None:
-        if not isinstance(end_timestamp_arg, ast.Constant):
+        normalized_end_timestamp_arg = _normalize_timestamp_constant(end_timestamp_arg)
+        if normalized_end_timestamp_arg is None:
             raise QueryError("uniqueSurveySubmissionsFilter third argument must be a constant")
         date_filter += " AND timestamp <= {end_timestamp}"
-        placeholders["end_timestamp"] = end_timestamp_arg
+        placeholders["end_timestamp"] = normalized_end_timestamp_arg
 
     hogql = f"""uuid IN (
         SELECT argMax(uuid, timestamp)
@@ -206,3 +210,13 @@ def unique_survey_submissions_filter(node: ast.Call, args: list[ast.Expr], team_
     )"""
 
     return parse_expr(hogql, placeholders=placeholders, start=None)
+
+
+def _normalize_timestamp_constant(timestamp_arg: ast.Expr) -> ast.Constant | None:
+    if not isinstance(timestamp_arg, ast.Constant):
+        return None
+
+    if isinstance(timestamp_arg.value, datetime):
+        return ast.Constant(value=timestamp_arg.value.strftime("%Y-%m-%d %H:%M:%S"))
+
+    return timestamp_arg

@@ -37,6 +37,12 @@ def get_survey_property_string_expr(property_name: SurveyEventProperties, table_
     return expression
 
 
+def get_survey_property_bool_expr(property_name: SurveyEventProperties, table_alias: str | None = None) -> str:
+    expression = get_survey_property_string_expr(property_name, table_alias)
+    normalized_expression = f"toString(nullIf(nullIf({expression}, ''), 'null'))"
+    return f"toBool(transform({normalized_expression}, ['true', 'false'], [1, 0], NULL))"
+
+
 def get_survey_response_clickhouse_query(
     question_index: int, question_id: str | None = None, is_multiple_choice: bool = False
 ) -> str:
