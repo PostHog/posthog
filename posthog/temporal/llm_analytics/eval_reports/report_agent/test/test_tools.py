@@ -21,6 +21,11 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import (
 _VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
 _VALID_TRACE_ID = "abcdefab-cdef-abcd-efab-cdefabcdefab"
 
+# LangChain @tool returns StructuredTool which has .func, but mypy types it as BaseTool
+_set_title_fn = set_title.func  # type: ignore[attr-defined]
+_add_section_fn = add_section.func  # type: ignore[attr-defined]
+_add_citation_fn = add_citation.func  # type: ignore[attr-defined]
+
 
 def _state_with_empty_report() -> dict:
     """Build a minimal state dict with an empty EvalReportContent (matches runtime)."""
@@ -59,31 +64,31 @@ class TestUuidRegex(SimpleTestCase):
 class TestSetTitle(SimpleTestCase):
     def test_sets_title_on_state(self):
         state = _state_with_empty_report()
-        result = set_title.func(state=state, title="Pass rate steady at 94%")
+        result = _set_title_fn(state=state, title="Pass rate steady at 94%")
         self.assertEqual(state["report"].title, "Pass rate steady at 94%")
         self.assertIn("Pass rate steady at 94%", result)
 
     def test_strips_whitespace(self):
         state = _state_with_empty_report()
-        set_title.func(state=state, title="  padded title  ")
+        _set_title_fn(state=state, title="  padded title  ")
         self.assertEqual(state["report"].title, "padded title")
 
     def test_rejects_empty_title(self):
         state = _state_with_empty_report()
-        result = set_title.func(state=state, title="")
+        result = _set_title_fn(state=state, title="")
         self.assertIn("Error", result)
         self.assertEqual(state["report"].title, "")
 
     def test_rejects_whitespace_only_title(self):
         state = _state_with_empty_report()
-        result = set_title.func(state=state, title="   ")
+        result = _set_title_fn(state=state, title="   ")
         self.assertIn("Error", result)
         self.assertEqual(state["report"].title, "")
 
     def test_clips_very_long_title(self):
         state = _state_with_empty_report()
         long_title = "x" * 500
-        set_title.func(state=state, title=long_title)
+        _set_title_fn(state=state, title=long_title)
         self.assertLessEqual(len(state["report"].title), 200)
         self.assertTrue(state["report"].title.endswith("..."))
 
@@ -91,7 +96,7 @@ class TestSetTitle(SimpleTestCase):
 class TestAddSection(SimpleTestCase):
     def test_appends_section(self):
         state = _state_with_empty_report()
-        result = add_section.func(state=state, title="Summary", content="Pass rate is 94%.")
+        result = _add_section_fn(state=state, title="Summary", content="Pass rate is 94%.")
         self.assertEqual(len(state["report"].sections), 1)
         self.assertEqual(state["report"].sections[0].title, "Summary")
         self.assertEqual(state["report"].sections[0].content, "Pass rate is 94%.")
@@ -99,20 +104,20 @@ class TestAddSection(SimpleTestCase):
 
     def test_rejects_empty_title(self):
         state = _state_with_empty_report()
-        result = add_section.func(state=state, title="", content="body")
+        result = _add_section_fn(state=state, title="", content="body")
         self.assertIn("Error", result)
         self.assertEqual(state["report"].sections, [])
 
     def test_rejects_empty_content(self):
         state = _state_with_empty_report()
-        result = add_section.func(state=state, title="Summary", content="")
+        result = _add_section_fn(state=state, title="Summary", content="")
         self.assertIn("Error", result)
         self.assertEqual(state["report"].sections, [])
 
     def test_allows_up_to_max_sections(self):
         state = _state_with_empty_report()
         for i in range(MAX_REPORT_SECTIONS):
-            result = add_section.func(state=state, title=f"Section {i}", content=f"Body {i}")
+            result = _add_section_fn(state=state, title=f"Section {i}", content=f"Body {i}")
             self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), MAX_REPORT_SECTIONS)
 
@@ -120,18 +125,18 @@ class TestAddSection(SimpleTestCase):
         state = _state_with_empty_report()
         # Fill to the max
         for i in range(MAX_REPORT_SECTIONS):
-            add_section.func(state=state, title=f"Section {i}", content="body")
+            _add_section_fn(state=state, title=f"Section {i}", content="body")
         # Next one should be rejected
-        result = add_section.func(state=state, title="One too many", content="body")
+        result = _add_section_fn(state=state, title="One too many", content="body")
         self.assertIn("Error", result)
         self.assertIn("maximum", result)
         self.assertEqual(len(state["report"].sections), MAX_REPORT_SECTIONS)
 
     def test_preserves_section_order(self):
         state = _state_with_empty_report()
-        add_section.func(state=state, title="First", content="a")
-        add_section.func(state=state, title="Second", content="b")
-        add_section.func(state=state, title="Third", content="c")
+        _add_section_fn(state=state, title="First", content="a")
+        _add_section_fn(state=state, title="Second", content="b")
+        _add_section_fn(state=state, title="Third", content="c")
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
@@ -139,7 +144,7 @@ class TestAddSection(SimpleTestCase):
 class TestAddCitation(SimpleTestCase):
     def test_appends_citation(self):
         state = _state_with_empty_report()
-        result = add_citation.func(
+        result = _add_citation_fn(
             state=state,
             generation_id=_VALID_GEN_ID,
             trace_id=_VALID_TRACE_ID,
@@ -155,7 +160,7 @@ class TestAddCitation(SimpleTestCase):
 
     def test_rejects_non_uuid_generation_id(self):
         state = _state_with_empty_report()
-        result = add_citation.func(
+        result = _add_citation_fn(
             state=state,
             generation_id="not-a-uuid",
             trace_id=_VALID_TRACE_ID,
@@ -166,7 +171,7 @@ class TestAddCitation(SimpleTestCase):
 
     def test_rejects_non_uuid_trace_id(self):
         state = _state_with_empty_report()
-        result = add_citation.func(
+        result = _add_citation_fn(
             state=state,
             generation_id=_VALID_GEN_ID,
             trace_id="also-not-a-uuid",
@@ -177,14 +182,14 @@ class TestAddCitation(SimpleTestCase):
 
     def test_rejects_empty_ids(self):
         state = _state_with_empty_report()
-        result = add_citation.func(state=state, generation_id="", trace_id="", reason="r")
+        result = _add_citation_fn(state=state, generation_id="", trace_id="", reason="r")
         self.assertIn("Error", result)
         self.assertEqual(state["report"].citations, [])
 
     def test_clips_very_long_reason(self):
         state = _state_with_empty_report()
         long_reason = "x" * 500
-        add_citation.func(
+        _add_citation_fn(
             state=state,
             generation_id=_VALID_GEN_ID,
             trace_id=_VALID_TRACE_ID,
@@ -194,8 +199,8 @@ class TestAddCitation(SimpleTestCase):
 
     def test_multiple_citations_preserve_order(self):
         state = _state_with_empty_report()
-        add_citation.func(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="first")
-        add_citation.func(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="second")
+        _add_citation_fn(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="first")
+        _add_citation_fn(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="second")
         self.assertEqual(len(state["report"].citations), 2)
         self.assertEqual(state["report"].citations[0].reason, "first")
         self.assertEqual(state["report"].citations[1].reason, "second")
@@ -206,14 +211,14 @@ class TestToolsCoordinate(SimpleTestCase):
 
     def test_full_agent_sequence(self):
         state = _state_with_empty_report()
-        set_title.func(state=state, title="Pass rate steady, one bucket dip")
-        add_section.func(state=state, title="Summary", content="Overall healthy.")
-        add_section.func(
+        _set_title_fn(state=state, title="Pass rate steady, one bucket dip")
+        _add_section_fn(state=state, title="Summary", content="Overall healthy.")
+        _add_section_fn(
             state=state,
             title="14:00 bucket",
             content="Dropped to 50% pass rate in the 14:00 bucket.",
         )
-        add_citation.func(
+        _add_citation_fn(
             state=state,
             generation_id=_VALID_GEN_ID,
             trace_id=_VALID_TRACE_ID,
