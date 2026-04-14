@@ -5889,7 +5889,7 @@ export interface ExperimentFunnelMetricApi {
     name?: string | null
     /** @nullable */
     response?: ExperimentFunnelMetricApiResponse
-    series: (EventsNodeApi | ActionsNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi)[]
     /** @nullable */
     sharedMetricId?: number | null
     /** @nullable */
