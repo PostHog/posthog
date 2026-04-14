@@ -349,8 +349,9 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
         try:
             bytecode = compile_hog(source, "destination")
-        except (ValueError, SyntaxError) as e:
-            return Response({"error": f"Compilation error: {e}"}, status=400)
+        except (ValueError, SyntaxError):
+            logger.exception("Compilation error in Hog source")
+            return Response({"error": "Compilation error"}, status=400)
         except Exception:
             logger.exception("Unexpected error compiling Hog source")
             return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
