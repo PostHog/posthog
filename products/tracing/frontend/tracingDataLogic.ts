@@ -45,7 +45,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         runQuery: true,
         fetchNextPage: true,
         clearSpans: true,
-        clearTraceSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
@@ -155,7 +154,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                clearTraceSpans: () => [],
                 loadTraceSpans: async (traceId: string): Promise<Span[]> => {
                     const response = await api.tracing.getTrace(traceId, {
                         date_from: values.utcDateRange.date_from ?? '-24h',

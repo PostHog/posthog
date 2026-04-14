@@ -34,7 +34,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         ],
         actions: [
             tracingDataLogic,
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'clearTraceSpans'],
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans'],
             tracingFiltersLogic,
             ['setDateRange', 'setServiceNames', 'setFilterGroup', 'setOrderBy', 'setFilters'],
         ],
@@ -83,9 +83,6 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             if (prefetchedSpans.length >= PREFETCH_SPANS) {
                 actions.loadTraceSpans(traceId)
             }
-        },
-        closeTraceModal: () => {
-            actions.clearTraceSpans()
         },
         setDateRange: () => {
             actions.syncUrlAndRunQuery()
