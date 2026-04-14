@@ -235,10 +235,13 @@ SupportedActorSource = InsightActorsQuery | FunnelsActorsQuery | StickinessActor
 SUPPORTED_ACTOR_SOURCES = (InsightActorsQuery, FunnelsActorsQuery, StickinessActorsQuery)
 
 
-## Actors
+## Actors (Person opened from an insight, e.g. trends, funnel converted modal)
 def _generate_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
     actor_source = query.source
-    assert isinstance(actor_source, SUPPORTED_ACTOR_SOURCES)
+
+    if not isinstance(actor_source, SUPPORTED_ACTOR_SOURCES):
+        return _generate_standalone_actors_metadata(query, team)
+
     inner_source = _narrow_to_selected_series(actor_source, actor_source.source)
     query_kind = inner_source.kind
     insight_guidance = _NAMING_GUIDANCE.get(query_kind, "")
@@ -345,6 +348,28 @@ def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
         return mapping.name_plural or mapping.name_singular or mapping.group_type
     except GroupTypeMapping.DoesNotExist:
         return f"group type {group_type_index}"
+
+
+# Standalone actors (e.g. Persons opened as new insights)
+def _generate_standalone_actors_metadata(query: ActorsQuery, team: Team) -> InsightMetadata:
+    query_summary = _summarize_standalone_actors_query(query)
+    type_guidance = _NAMING_GUIDANCE.get("ActorsQuery", "")
+
+    return _request_metadata_from_llm(query_summary, type_guidance, team)
+
+
+def _summarize_standalone_actors_query(query: ActorsQuery) -> str:
+    """Extract a human-readable summary from a standalone ActorsQuery (no insight source)."""
+    lines: list[str] = ["Type: ActorsQuery (person list)"]
+
+    if query.search:
+        lines.append(f"Search: {query.search}")
+
+    if query.properties:
+        prop_summaries = [_summarize_property_filter(prop) for prop in query.properties]
+        lines.append(f"Property filters: {', '.join(prop_summaries)}")
+
+    return "\n".join(lines)
 
 
 ## Events
