@@ -289,14 +289,18 @@ export class HogFlowExecutorService {
         }
 
         // Event-based conversion: if the workflow has conversion events configured
-        // and the job was parked with conversion subscriptions, check whether the
-        // consumer consumed them (meaning a conversion event arrived).
+        // and the job was parked with conversion subscriptions, check whether any
+        // of them were marked as matched by the consumer. The consumer sets
+        // `matched_event` on matched subscriptions (rather than deleting them)
+        // so the handler can expose the event name and properties as variables.
         if (!conversionMatch && hogFlow.conversion?.events?.length && this.eventSubscriptionsService) {
             const conversionSubs = await this.eventSubscriptionsService.getForJob(invocation.id, 'conversion')
-            // If the workflow was parked (waitingForEvent or any delay) and conversion
-            // subscriptions are gone, the consumer matched a conversion event.
-            if (invocation.state?.currentAction?.waitingForEvent && conversionSubs.length === 0) {
+            const matchedConversionSub = conversionSubs.find((s) => s.matchedEvent != null)
+            if (matchedConversionSub) {
                 conversionMatch = true
+                // Clean up all conversion subscriptions for this job now that we
+                // know a conversion fired and the workflow is exiting.
+                await this.eventSubscriptionsService.deleteForJob(invocation.id, 'conversion')
             }
         }
 
