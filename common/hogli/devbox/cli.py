@@ -31,11 +31,13 @@ from .coder import (
     ensure_runtime_ready,
     ensure_tailscale_connected,
     extract_workspace_label,
+    get_coder_user_info,
     get_default_git_identity,
     get_sharing_status,
     get_workspace,
     get_workspace_name,
     get_workspace_status,
+    list_coder_users,
     list_shared_workspaces,
     list_user_workspaces,
     logs_replace,
@@ -471,6 +473,32 @@ def devbox_list() -> None:
             click.echo(f"  {ws_name:<30} {click.style(status, fg=_workspace_status_color(status)):<20} (from {owner})")
 
 
+@cli.command(name="devbox:users", help="List Coder users (for devbox sharing)")
+def devbox_users() -> None:
+    """List all active Coder users so you know who to share with."""
+    ensure_runtime_ready()
+
+    current_user = get_coder_user_info()
+    current_username = current_user.get("username", "")
+
+    users = list_coder_users()
+    if not users:
+        _fail("Could not fetch users. Check your Coder authentication.")
+
+    users.sort(key=lambda u: u.get("username", ""))
+
+    click.echo(f"  {'USERNAME':<16} {'NAME':<30} {'EMAIL'}")
+    for user in users:
+        username = user.get("username", "")
+        name = user.get("name", "")
+        email = user.get("email", "")
+        is_you = username == current_username
+        name_col = f"{'(you)' if is_you else name:<30}"
+        if is_you:
+            name_col = click.style(name_col, fg="green")
+        click.echo(f"  {username:<16} {name_col} {email}")
+
+
 @cli.command(name="devbox:share", help="Share your devbox with other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
@@ -497,7 +525,7 @@ def devbox_share(
         return
 
     if not users:
-        raise click.UsageError("Specify at least one --user.")
+        raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
     user_list = list(users)
 

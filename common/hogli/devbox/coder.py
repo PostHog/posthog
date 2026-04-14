@@ -788,3 +788,17 @@ def list_shared_workspaces() -> list[dict[str, Any]]:
         return []
 
     return workspaces if isinstance(workspaces, list) else []
+
+
+def list_coder_users() -> list[dict[str, Any]]:
+    """Return all active users on the Coder deployment."""
+    result = _run(["coder", "users", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    try:
+        users = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    return [u for u in users if isinstance(u, dict) and u.get("status") == "active"]
