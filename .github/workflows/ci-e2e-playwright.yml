@@ -388,6 +388,9 @@ jobs:
                   COMPOSE_PROFILES: capture,ingestion
               run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
+            - name: Clean snapshot directory
+              run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash

@@ -301,6 +301,11 @@ jobs:
                       exit 1
                   fi
 
+            # Wipe committed PNGs so each shard only has freshly captured screenshots.
+            # Prevents stale hashes from winning the race in VR's get_or_create.
+            - name: Clean snapshot directory
+              run: find frontend/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
             # Capture-only: VR is the gate for visual changes, jest just captures screenshots
             - name: Run @storybook/test-runner
               id: test-runner
