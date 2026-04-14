@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
@@ -361,14 +361,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 ? [
                                       {
                                           key: 'feedback',
-                                          label: (
-                                              <div className="flex flex-row">
-                                                  <div>User feedback</div>
-                                                  <LemonTag className="ml-2 float-right uppercase" type="primary">
-                                                      New
-                                                  </LemonTag>
-                                              </div>
-                                          ),
+                                          label: 'User feedback',
                                           content: <ExperimentFeedbackTab experiment={experiment} />,
                                       },
                                   ]
