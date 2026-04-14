@@ -362,6 +362,11 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_TOPHOG_PRODUCER: ProducerName
     INGESTION_OUTPUT_TOPHOG_SECONDARY_TOPIC: string
     INGESTION_OUTPUT_TOPHOG_SECONDARY_PRODUCER: ProducerName
+
+    /** Comma-separated team IDs whose output should be routed to a different producer. */
+    INGESTION_TEAM_ROUTING_TEAM_IDS: string
+    /** Producer name to use for team-routed messages. Must match a registered producer. */
+    INGESTION_TEAM_ROUTING_PRODUCER: ProducerName
 }
 
 export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
@@ -418,5 +423,8 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
         INGESTION_OUTPUT_TOPHOG_SECONDARY_TOPIC: '',
         INGESTION_OUTPUT_TOPHOG_SECONDARY_PRODUCER: DEFAULT_PRODUCER,
+
+        INGESTION_TEAM_ROUTING_TEAM_IDS: '',
+        INGESTION_TEAM_ROUTING_PRODUCER: DEFAULT_PRODUCER,
     }
 }

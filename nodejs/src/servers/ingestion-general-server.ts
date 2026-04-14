@@ -39,6 +39,7 @@ import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
+import { applyTeamRouting, parseTeamIds } from '../ingestion/outputs/team-routing'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
@@ -219,7 +220,14 @@ export class IngestionGeneralServer implements NodeServer {
             this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(
                 this.config
             )
-            const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+            const teamRoutingTeamIds = parseTeamIds(this.config.INGESTION_TEAM_ROUTING_TEAM_IDS)
+            const ingestionOutputs = applyTeamRouting(
+                createOutputsRegistry().build(this.ingestionProducerRegistry, this.config),
+                this.ingestionProducerRegistry,
+                teamRoutingTeamIds,
+                this.config.INGESTION_TEAM_ROUTING_PRODUCER,
+                this.config as unknown as Record<string, string>
+            )
             const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
             const hogTransformerDeps: HogTransformerServiceDeps = {

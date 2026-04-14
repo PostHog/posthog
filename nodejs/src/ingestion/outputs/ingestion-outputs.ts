@@ -50,6 +50,20 @@ export class IngestionOutputs<O extends string> {
      * @param timeoutMs - Timeout for each topic metadata check.
      * @returns Output names whose topics failed the check.
      */
+    /**
+     * Return a new `IngestionOutputs` where each output has been passed through `fn`.
+     *
+     * Useful for wrapping outputs with team-based routing or other decorators
+     * without changing the builder or the callers.
+     */
+    wrapOutputs(fn: (name: string, output: IngestionOutput) => IngestionOutput): IngestionOutputs<O> {
+        const wrapped: Record<string, IngestionOutput> = {}
+        for (const name in this.outputs) {
+            wrapped[name] = fn(name, this.outputs[name])
+        }
+        return new IngestionOutputs<O>(wrapped as Record<O, IngestionOutput>)
+    }
+
     async checkTopics(timeoutMs = 10000): Promise<string[]> {
         const failures: string[] = []
         for (const outputName in this.outputs) {

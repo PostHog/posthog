@@ -47,6 +47,7 @@ export class EventFiltersBatchAppMetrics {
                 })
             ),
             key: Buffer.from(`${teamId}`),
+            teamId,
         }))
 
         this.counts.clear()

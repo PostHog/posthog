@@ -34,7 +34,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
     config: EmitEventStepConfig<O>
 ): ProcessingStep<T, void> {
     return function emitEventStep(input) {
-        const { eventsToEmit, headers, message } = input
+        const { eventsToEmit, teamId, headers, message } = input
         const { outputs, groupId } = config
 
         // Record ingestion lag metric if we have the required data
@@ -57,6 +57,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
                     headers: { productTrack: productTrackHeader(event) },
+                    teamId,
                 })
                 .then((result) => {
                     eventProcessedAndIngestedCounter.inc()
