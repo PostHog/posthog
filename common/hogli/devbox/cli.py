@@ -70,7 +70,7 @@ WORKSPACE_STATUS_COLORS = {
 PENDING_WORKSPACE_STATES = {"starting", "stopping", "deleting"}
 
 
-def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, Any]]]:
+def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, Any]] | None]:
     """Resolve a workspace target into a full workspace name.
 
     Supports:
@@ -83,7 +83,7 @@ def resolve_workspace_name(workspace: str | None) -> tuple[str, list[dict[str, A
     when available, so callers can skip a second ``_list_workspaces`` call.
     """
     if workspace is not None:
-        return parse_workspace_target(workspace), []
+        return parse_workspace_target(workspace), None
 
     workspaces = list_user_workspaces()
 

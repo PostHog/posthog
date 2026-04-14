@@ -406,15 +406,23 @@ class TestResolveWorkspaceName:
     """Test the CLI workspace resolution logic."""
 
     def test_explicit_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            coder,
-            "get_workspace_name",
-            lambda label=None: f"devbox-test-user-{label}" if label else "devbox-test-user",
-        )
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         name, workspaces = devbox_cli.resolve_workspace_name("api")
         assert name == "devbox-test-user-api"
-        assert workspaces == []
+        assert workspaces is None
+
+    def test_explicit_label_allows_get_workspace_to_fetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When a label is provided, get_workspace must still query the API."""
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(
+            coder,
+            "_list_workspaces",
+            lambda: [{"name": "devbox-test-user-api", "latest_build": {"status": "running"}}],
+        )
+        name, workspaces = devbox_cli.resolve_workspace_name("api")
+        ws = coder.get_workspace(name, workspaces)
+        assert ws is not None
+        assert ws["name"] == "devbox-test-user-api"
 
     def test_no_workspaces_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "get_workspace_name", lambda label=None: "devbox-test-user")
@@ -973,16 +981,14 @@ class TestWorkspaceTargetParsing:
         assert coder.parse_workspace_target("api") == "devbox-test-user-api"
 
     def test_resolve_workspace_name_with_at_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
         name, workspaces = devbox_cli.resolve_workspace_name("@alice")
         assert name == "devbox-alice"
-        assert workspaces == []
+        assert workspaces is None
 
     def test_resolve_workspace_name_with_at_user_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
         name, workspaces = devbox_cli.resolve_workspace_name("@alice/ml-lab")
         assert name == "devbox-alice-ml-lab"
-        assert workspaces == []
+        assert workspaces is None
 
 
 class TestDevboxShare:
