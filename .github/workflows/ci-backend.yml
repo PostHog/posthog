@@ -118,7 +118,7 @@ jobs:
                         - .test_durations # Used for pytest-split sharding
                         # Generated from frontend/src/queries/schema.json
                         # ci-python drift check keeps them in sync
-                        - posthog/schema.py 
+                        - posthog/schema.py
                         # Operator parity check
                         - rust/feature-flags/src/properties/property_models.rs
                         # Make sure we run if someone is explicitly changing the workflow

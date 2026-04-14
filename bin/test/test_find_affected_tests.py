@@ -413,22 +413,21 @@ class TestChangedFilesFromGit(unittest.TestCase):
         args = mock_run.call_args.args[0]
         self.assertEqual(args, ["git", "diff", "--name-only", "origin/master...HEAD"])
 
+    @parameterized.expand(
+        [
+            (
+                "normal_lines",
+                "posthog/api/user.py\nposthog/models/team.py\n",
+                ["posthog/api/user.py", "posthog/models/team.py"],
+            ),
+            ("drops_blank_lines", "a.py\n\n  \nb.py\n", ["a.py", "b.py"]),
+            ("empty_diff", "", []),
+        ]
+    )
     @patch("bin.find_affected_tests.subprocess.run")
-    def test_parses_stdout_lines(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="posthog/api/user.py\nposthog/models/team.py\n")
-        result = changed_files_from_git("origin/master")
-        self.assertEqual(result, ["posthog/api/user.py", "posthog/models/team.py"])
-
-    @patch("bin.find_affected_tests.subprocess.run")
-    def test_drops_blank_lines(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="a.py\n\n  \nb.py\n")
-        result = changed_files_from_git("origin/master")
-        self.assertEqual(result, ["a.py", "b.py"])
-
-    @patch("bin.find_affected_tests.subprocess.run")
-    def test_empty_diff_returns_empty_list(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="")
-        self.assertEqual(changed_files_from_git("origin/master"), [])
+    def test_parses_stdout(self, _name, stdout, expected, mock_run):
+        mock_run.return_value = MagicMock(stdout=stdout)
+        self.assertEqual(changed_files_from_git("origin/master"), expected)
 
     @patch("bin.find_affected_tests.subprocess.run")
     def test_propagates_git_failure(self, mock_run):
