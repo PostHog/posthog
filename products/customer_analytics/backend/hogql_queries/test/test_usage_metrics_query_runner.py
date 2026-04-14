@@ -469,6 +469,34 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["value"], 0.0)
 
     @freeze_time("2025-10-09T12:11:00")
+    def test_sum_math_with_null_math_property_returns_zero(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Revenue",
+            format=GroupUsageMetric.Format.CURRENCY,
+            interval=7,
+            display=GroupUsageMetric.Display.NUMBER,
+            filters={"events": [{"id": "purchase", "type": "events", "order": 0}]},
+            math=GroupUsageMetric.Math.SUM,
+            math_property=None,
+        )
+        _create_event(
+            event="purchase",
+            team=self.team,
+            person_id=str(self.person.uuid),
+            distinct_id=self.person_distinct_id,
+            properties={"amount": 100},
+        )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 0)
+
+    @freeze_time("2025-10-09T12:11:00")
     def test_sum_math_previous_period_comparison(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,

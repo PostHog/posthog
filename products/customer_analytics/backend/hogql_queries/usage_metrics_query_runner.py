@@ -95,7 +95,10 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             date_to = datetime.now(tz=ZoneInfo("UTC"))
             date_from = date_to - timedelta(days=metric.interval)
             prev_date_from = date_to - 2 * timedelta(days=metric.interval)
-            value_expr, previous_expr = self._build_aggregation_exprs(metric, date_from, date_to, prev_date_from)
+            agg_exprs = self._build_aggregation_exprs(metric, date_from, date_to, prev_date_from)
+            if agg_exprs is None:
+                return None
+            value_expr, previous_expr = agg_exprs
 
         return parse_select(
             """
@@ -133,7 +136,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         date_from: datetime,
         date_to: datetime,
         prev_date_from: datetime,
-    ) -> tuple[ast.Expr, ast.Expr]:
+    ) -> tuple[ast.Expr, ast.Expr] | None:
         current_condition = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -164,6 +167,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         )
 
         if metric.math == GroupUsageMetric.Math.SUM:
+            if not metric.math_property:
+                return None
             prop_as_float = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric.math_property])])
             return (
                 ast.Call(
