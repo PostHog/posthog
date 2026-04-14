@@ -596,3 +596,43 @@ class ErrorTrackingSpikeEvent(UUIDModel):
             models.Index(fields=["issue", "-detected_at"]),
             models.Index(fields=["-detected_at"]),
         ]
+
+
+class ErrorTrackingRecommendationRun(UUIDTModel):
+    """Materialized recommendation for a team, computed live on API request."""
+
+    class Type(models.TextChoices):
+        CROSS_SELL = "cross_sell", "Cross sell"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
+    type = models.CharField(max_length=64, choices=Type.choices)
+    meta = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingrecommendationrun"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+
+class ErrorTrackingRecommendationSettings(UUIDTModel):
+    """Per-team settings controlling which recommendations are shown."""
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="error_tracking_recommendation_settings",
+    )
+    ignored_recommendation_types = ArrayField(
+        models.CharField(max_length=64),
+        default=list,
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "posthog_errortrackingrecommendationsettings"
