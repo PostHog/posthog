@@ -203,50 +203,62 @@ fi
 
 log "Installing base dependencies..."
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml
+apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml aria2
 
-# Streaming download+extract pipelines. Curl streams raw bytes from S3
-# straight into `unzstd | tar`, so extraction writes to disk from the
-# first byte. No intermediate file, no "download then extract" serial
-# phase.
+# Download with aria2 (8 connections per chunk — single-conn curl is
+# bandwidth-throttled by S3 to ~35 MB/s on this instance, vs aria2's
+# ~260 MiB/s). Start the extract for each chunk the moment its download
+# finishes, in parallel with the remaining downloads, Docker install,
+# and git clone below. policy-rc.d prevents dockerd from auto-starting
+# during package install so it doesn't race our tar extracts writing
+# into /var/lib/docker.
 #
-# Rationale:
-# - Extract is the bottleneck, not network. The previous run measured
-#   ~85 MB/s aggregate tar throughput on /var/lib/docker (millions of
-#   small overlay2 files — metadata-bound on ext4, not bandwidth-bound
-#   on NVMe). Network was ~260 MiB/s per chunk via aria2 — way faster
-#   than extract. So downloading to a file first just parked those
-#   bytes on disk waiting.
-# - base.tar.zst is ~80% of the payload and it downloads last. With
-#   download-then-extract, base extract didn't even START until all
-#   5 chunks were fully downloaded (~60s in). Now it starts at t=0.
-# - The pipe auto-regulates: when unzstd+tar can't keep up, curl blocks
-#   on write, TCP backpressure slows S3. We pull bytes at exactly extract
-#   speed, no disk churn.
-# - Single-connection curl is slower than 8-connection aria2 on paper
-#   (~1 Gbit/s vs ~2 Gbit/s per chunk), but since extract caps us well
-#   below either, it doesn't matter. 5 chunks × curl in parallel still
-#   saturates the extract pipeline.
-#
-# Runs concurrently with Docker install (guarded by policy-rc.d) and
-# git clone below, so the total critical-path cost collapses to
-# max(extract_time, docker_install_time) instead of
-# download_time + extract_time.
-mkdir -p /var/lib/docker
+# True streaming extract (extract-while-downloading base) would be ideal
+# but aria2 writes pieces out-of-order with multi-connection, and
+# single-connection streaming with curl is too slow to feed tar.
+# The pragmatic win: overlay2-* chunks (total ~1.7 GB) finish downloading
+# quickly and their extract overlaps with base's download window. base's
+# extract still starts only after its ~30s download, but it runs
+# concurrently with docker install rather than serially after it.
+if [ "$USE_NVME" = true ]; then
+    ARCHIVE_DL_DIR="/mnt/nvme/docker-cache"
+else
+    ARCHIVE_DL_DIR="/tmp/docker-cache"
+fi
+mkdir -p /var/lib/docker "$ARCHIVE_DL_DIR"
 CHUNK_PIDS=()
-stream_start=$SECONDS
+CARGO_TARGET_NAME=""
+CARGO_TARGET_URL=""
+pipeline_start=$SECONDS
 if [ -f /tmp/cache-manifest.json ]; then
-    log "Starting streaming download+extract pipelines..."
+    log "Starting download+extract pipelines (aria2 multi-conn + per-chunk extract)..."
     while IFS=$'\t' read -r name url; do
+        # cargo-target.tar.zst is the rust build cache. Skip it in the
+        # critical-path loop — we populate it in background after docker
+        # starts, since rust services don't build until well after posthog
+        # main is up.
+        if [ "$name" = "cargo-target.tar.zst" ]; then
+            CARGO_TARGET_NAME="$name"
+            CARGO_TARGET_URL="$url"
+            continue
+        fi
         (
-            set -o pipefail
             for attempt in 1 2 3; do
-                echo "==> [${SECONDS}s] Streaming $name (attempt $attempt)..."
-                if curl -fsSL --retry 0 "$url" \
-                     | tar -C /var/lib/docker -I unzstd -xf -; then
-                    echo "==> [${SECONDS}s] Stream-extracted $name"
-                    exit 0
+                if aria2c -x 8 -s 8 --max-connection-per-server=8 \
+                        --file-allocation=none --auto-file-renaming=false \
+                        --console-log-level=error \
+                        -d "$ARCHIVE_DL_DIR" -o "$name" "$url"; then
+                    echo "==> [${SECONDS}s] Downloaded $name, extracting..."
+                    if tar -C /var/lib/docker -I 'unzstd' -xf "$ARCHIVE_DL_DIR/$name"; then
+                        rm -f "$ARCHIVE_DL_DIR/$name"
+                        echo "==> [${SECONDS}s] Extracted $name"
+                        exit 0
+                    fi
                 fi
+                # Drop partial archive so next aria2 attempt starts clean;
+                # --auto-file-renaming=false would otherwise refuse the
+                # existing destination or resume a broken download.
+                rm -f "$ARCHIVE_DL_DIR/$name"
                 [ "$attempt" = 3 ] && {
                     echo "==> [${SECONDS}s] FAILED $name after 3 attempts" >&2
                     exit 1
@@ -260,7 +272,7 @@ import json
 for e in json.load(open('/tmp/cache-manifest.json')):
     print(e['name'] + '\t' + e['url'])
 ")
-    log "Started ${#CHUNK_PIDS[@]} streaming pipelines"
+    log "Started ${#CHUNK_PIDS[@]} pipelines (+cargo-target deferred)"
 else
     log "WARNING: No cache manifest provided, Docker starts with no cached images"
 fi
@@ -277,10 +289,9 @@ clone_repo() {
 clone_repo &
 CLONE_PID=$!
 
-# Install Docker in parallel with the streaming pipelines. policy-rc.d
-# blocks the package postinst from auto-starting dockerd, which would
-# otherwise race with our in-flight tar extracts writing into
-# /var/lib/docker.
+# Install Docker in parallel with the chunk pipelines. policy-rc.d blocks
+# the package postinst from auto-starting dockerd, which would otherwise
+# race with our in-flight tar extracts writing into /var/lib/docker.
 log "Installing Docker (in parallel with chunk extract)..."
 cat > /usr/sbin/policy-rc.d <<'POLICY'
 #!/bin/sh
@@ -289,19 +300,78 @@ POLICY
 chmod +x /usr/sbin/policy-rc.d
 install_docker_overlay2
 rm -f /usr/sbin/policy-rc.d
+# WARNING: do not add any `apt-get install` between this line and
+# `systemctl start docker` below — the new package's postinst would
+# auto-start dockerd against a /var/lib/docker possibly still being
+# written by chunk extracts, racing tar.
 log "Docker installed"
 
-# Now wait for any remaining streaming pipelines.
+# Now wait for any remaining chunk pipelines.
 for pid in "${CHUNK_PIDS[@]}"; do
-    wait "$pid" || { log "ERROR: streaming pipeline failed"; exit 1; }
+    wait "$pid" || { log "ERROR: chunk pipeline failed"; exit 1; }
 done
 if [ "${#CHUNK_PIDS[@]}" -gt 0 ]; then
-    log "All ${#CHUNK_PIDS[@]} streaming pipelines done in $((SECONDS - stream_start))s"
+    log "All ${#CHUNK_PIDS[@]} pipelines done in $((SECONDS - pipeline_start))s"
 fi
 
 systemctl start docker
 log "Docker started"
 log "Docker info: $(docker info --format '{{.DockerRootDir}}, Images: {{.Images}}, Driver: {{.Driver}}')"
+
+# Stage the sandbox-cargo-target volume and background-populate it.
+# docker-compose.sandbox.yml declares it external, so it must exist before
+# `bin/sandbox create` runs compose. We create the (empty) volume now and
+# extract the rust cache into its _data/ directory in the background. No
+# compose or bind-mount changes needed — the volume is a normal named
+# volume on cloud just like on local, it just happens to be populated
+# out-of-band.
+#
+# Timing: rust services only invoke cargo at first request (long after
+# posthog main is up), so cloud-init doesn't need to wait for this.
+if [ -n "$CARGO_TARGET_URL" ]; then
+    docker volume create sandbox-cargo-target >/dev/null
+    CARGO_TARGET_DATA=$(docker volume inspect sandbox-cargo-target --format '{{.Mountpoint}}')
+    # Pre-chmod the volume's host directory and tell `bin/sandbox create`
+    # to skip its own alpine-chmod pass on this volume. Otherwise
+    # `_ensure_cache_volumes()` would spin up an alpine container to
+    # `chmod 777 /data` on the live volume concurrently with our tar
+    # extract writing into it — a real race, since alpine holds the mount
+    # for the duration of `docker run --rm`.
+    chmod 777 "$CARGO_TARGET_DATA"
+    export SANDBOX_SKIP_VOLUME_CHMOD="sandbox-cargo-target"
+    log "Background-extracting cargo-target to $CARGO_TARGET_DATA (resolved: $(realpath "$CARGO_TARGET_DATA"))..."
+    (
+        cargo_start=$SECONDS
+        for attempt in 1 2 3; do
+            if aria2c -x 8 -s 8 --max-connection-per-server=8 \
+                    --file-allocation=none --auto-file-renaming=false \
+                    --console-log-level=error \
+                    -d "$ARCHIVE_DL_DIR" -o "$CARGO_TARGET_NAME" "$CARGO_TARGET_URL"; then
+                if tar -C "$CARGO_TARGET_DATA" -I 'unzstd' -xf "$ARCHIVE_DL_DIR/$CARGO_TARGET_NAME"; then
+                    rm -f "$ARCHIVE_DL_DIR/$CARGO_TARGET_NAME"
+                    echo "==> [${SECONDS}s] cargo-target extracted in $((SECONDS - cargo_start))s"
+                    exit 0
+                fi
+            fi
+            rm -f "$ARCHIVE_DL_DIR/$CARGO_TARGET_NAME"
+            [ "$attempt" = 3 ] && {
+                # Wipe the volume so cargo rebuilds from a clean slate.
+                # A half-populated cargo-target poisons incremental builds:
+                # .fingerprint/ mtimes can cause cargo to skip recompiling
+                # a crate whose .rmeta never made it to disk, producing
+                # confusing "file not found" errors at link time.
+                echo "==> [${SECONDS}s] WARNING: cargo-target extract failed; wiping volume so cargo rebuilds clean" >&2
+                find "$CARGO_TARGET_DATA" -mindepth 1 -delete 2>/dev/null || true
+                exit 1
+            }
+            sleep 5
+        done
+    ) &
+    # Intentionally don't capture PID — fire-and-forget. Failure is
+    # logged; on permanent failure the volume gets wiped so rust services
+    # rebuild from scratch on first invocation instead of mis-hitting
+    # partial cache.
+fi
 
 log "Waiting for repo clone..."
 wait $CLONE_PID || { log "ERROR: git clone failed"; exit 1; }
@@ -379,7 +449,7 @@ export SANDBOX_JETBRAINS_MOUNT="$JETBRAINS_HOST_DIR"
 
 log "Creating sandbox via bin/sandbox create..."
 export SANDBOX_HOSTNAME SANDBOX_JS_URL
-sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' SANDBOX_JETBRAINS_MOUNT='$SANDBOX_JETBRAINS_MOUNT' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
+sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' SANDBOX_JETBRAINS_MOUNT='$SANDBOX_JETBRAINS_MOUNT' SANDBOX_SKIP_VOLUME_CHMOD='${SANDBOX_SKIP_VOLUME_CHMOD:-}' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
 
 # Now expose the running sandbox via Tailscale Serve. A failure here means
 # the sandbox is unreachable — let set -e propagate so BOOT_STATUS=failed.

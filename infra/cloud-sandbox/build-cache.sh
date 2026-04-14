@@ -112,10 +112,28 @@ else
 fi
 mkdir -p "$ARCHIVE_DIR"
 
-# Base archive: everything except top-level overlay2.
+# Base archive: everything except top-level overlay2 AND except the
+# sandbox-cargo-target volume. cargo-target (rust build cache) ships as a
+# separate chunk so cloud-init can extract it AFTER the sandbox container
+# starts — rust services only build on first invocation (well after
+# posthog main is up), so pulling cargo-target off the critical boot
+# path saves its extract time wholesale.
 # Can't use --exclude=overlay2 because it also strips image/overlay2/.
-(cd /var/lib/docker && ls -1 | grep -v '^overlay2$' | tar cf - -T -) | zstd -T0 -3 > "$ARCHIVE_DIR/base.tar.zst" &
+(cd /var/lib/docker && ls -1 | grep -v '^overlay2$' | tar cf - -T - \
+    --exclude='volumes/sandbox-cargo-target') \
+    | zstd -T0 -3 > "$ARCHIVE_DIR/base.tar.zst" &
 BASE_PID=$!
+
+# Cargo-target contents as its own archive. Archived relative to _data/
+# so the consumer can extract straight into
+# /var/lib/docker/volumes/sandbox-cargo-target/_data/ without path
+# wrappers.
+CARGO_TARGET_DATA=/var/lib/docker/volumes/sandbox-cargo-target/_data
+if [ -d "$CARGO_TARGET_DATA" ] && [ -n "$(ls -A "$CARGO_TARGET_DATA" 2>/dev/null)" ]; then
+    log "Packaging cargo-target ($(du -sh "$CARGO_TARGET_DATA" | cut -f1))..."
+    (cd "$CARGO_TARGET_DATA" && tar cf - .) \
+        | zstd -T0 -3 > "$ARCHIVE_DIR/cargo-target.tar.zst" &
+fi
 
 # Split overlay2 into chunks for parallel extraction on the consumer side.
 # Round-robin assignment by sorted entry name distributes layers roughly evenly.

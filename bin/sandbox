@@ -922,10 +922,19 @@ def _is_cache_ready() -> bool:
 
 
 def _ensure_cache_volumes() -> None:
-    """Create shared Docker volumes and set permissions."""
+    """Create shared Docker volumes and set permissions.
+
+    SANDBOX_SKIP_VOLUME_CHMOD (comma-separated volume names) opts specific
+    volumes out of the alpine chmod pass. Cloud-init uses this to avoid
+    racing the chmod against its own background extract of
+    sandbox-cargo-target (the host directory is pre-chmodded there instead).
+    """
+    skip = set(filter(None, os.environ.get("SANDBOX_SKIP_VOLUME_CHMOD", "").split(",")))
     for vol in SHARED_VOLUMES:
         run(["docker", "volume", "create", vol], capture=True, check=False)
     for vol in WORLD_WRITABLE_VOLUMES:
+        if vol in skip:
+            continue
         docker_volume_run(vol, "chmod 777 /data")
 
 
