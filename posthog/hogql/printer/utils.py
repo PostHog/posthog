@@ -169,22 +169,35 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer_class: type[BasePrinter]
+        printer: BasePrinter
+        printer_stack = cast(list[ast.AST], stack or [])
 
         match dialect:
             case "clickhouse":
-                printer_class = ClickHousePrinter
+                printer = ClickHousePrinter(
+                    context=context,
+                    dialect=dialect,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "postgres":
-                printer_class = PostgresPrinter
+                printer = PostgresPrinter(
+                    context=context,
+                    dialect=dialect,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case "hogql":
-                printer_class = HogQLPrinter
+                printer = HogQLPrinter(
+                    context=context,
+                    dialect=dialect,
+                    stack=printer_stack,
+                    settings=settings,
+                    pretty=pretty,
+                )
             case _:
                 raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
 
-        return printer_class(
-            context=context,
-            dialect=dialect,
-            stack=cast(list[ast.AST], stack or []),
-            settings=settings,
-            pretty=pretty,
-        ).visit(node)
+        return printer.visit(node)
