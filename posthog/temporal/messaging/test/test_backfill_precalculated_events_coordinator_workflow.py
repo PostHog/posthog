@@ -61,15 +61,24 @@ class TestCheckDayAlreadyBackfilledActivity:
         assert result.already_backfilled is False
 
     @pytest.mark.asyncio
-    async def test_all_conditions_present_returns_backfilled(self):
+    @pytest.mark.parametrize(
+        "condition_hashes,query_return,expected_backfilled",
+        [
+            (["hash1", "hash2"], b"2\n", True),
+            (["hash1", "hash2"], b"1\n", False),
+            (["hash1"], b"0\n", False),
+        ],
+        ids=["all_present", "partial", "none_found"],
+    )
+    async def test_backfill_status_based_on_condition_count(self, condition_hashes, query_return, expected_backfilled):
         inputs = EventDateCheckInputs(
             team_id=1,
-            condition_hashes=["hash1", "hash2"],
+            condition_hashes=condition_hashes,
             date="2024-01-15",
         )
 
         mock_client = AsyncMock()
-        mock_client.read_query = AsyncMock(return_value=b"2\n")  # 2 conditions found
+        mock_client.read_query = AsyncMock(return_value=query_return)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
@@ -80,48 +89,4 @@ class TestCheckDayAlreadyBackfilledActivity:
             result = await check_day_already_backfilled_activity(inputs)
 
         assert result.date == "2024-01-15"
-        assert result.already_backfilled is True
-
-    @pytest.mark.asyncio
-    async def test_partial_conditions_returns_not_backfilled(self):
-        inputs = EventDateCheckInputs(
-            team_id=1,
-            condition_hashes=["hash1", "hash2"],
-            date="2024-01-15",
-        )
-
-        mock_client = AsyncMock()
-        mock_client.read_query = AsyncMock(return_value=b"1\n")  # Only 1 of 2 conditions found
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch(
-            "posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow.get_client",
-            return_value=mock_client,
-        ):
-            result = await check_day_already_backfilled_activity(inputs)
-
-        assert result.date == "2024-01-15"
-        assert result.already_backfilled is False
-
-    @pytest.mark.asyncio
-    async def test_no_conditions_found_returns_not_backfilled(self):
-        inputs = EventDateCheckInputs(
-            team_id=1,
-            condition_hashes=["hash1"],
-            date="2024-01-15",
-        )
-
-        mock_client = AsyncMock()
-        mock_client.read_query = AsyncMock(return_value=b"0\n")
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch(
-            "posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow.get_client",
-            return_value=mock_client,
-        ):
-            result = await check_day_already_backfilled_activity(inputs)
-
-        assert result.date == "2024-01-15"
-        assert result.already_backfilled is False
+        assert result.already_backfilled is expected_backfilled
