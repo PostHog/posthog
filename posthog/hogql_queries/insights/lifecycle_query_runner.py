@@ -37,22 +37,16 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
     cached_response: CachedLifecycleQueryResponse
 
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        self._validate_query()
-        self._validate_data_warehouse_settings()
-
-    def _validate_query(self) -> None:
+    def validate_query(self) -> bool:
         if not self.query.series:
             raise ValidationError("Lifecycle insights require at least one series.")
 
-    def _validate_data_warehouse_settings(self) -> None:
         if not self.is_data_warehouse_series:
             if self.query.customAggregationTarget:
                 raise ValidationError(
                     "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series."
                 )
-            return
+            return True
 
         unsupported_settings: list[str] = []
         if self.query.properties not in (None, []):
@@ -68,6 +62,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             raise ValidationError(
                 f"{settings.capitalize()} {verb} not supported for lifecycle insights with a data warehouse series."
             )
+
+        return True
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:

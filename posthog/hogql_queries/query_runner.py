@@ -1325,6 +1325,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                     raise
 
+            self.validate_query()
+
             trigger: str | None = get_query_tag_value("trigger")
 
             self.query_id = query_id or self.query_id
@@ -1764,6 +1766,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    def validate_query(self) -> bool:
+        """Validate the query before execution, allowing subclasses to reject unsupported input."""
+        return True
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # If a custom cache age was provided (e.g., from Endpoint), use our override logic
         target_age = None
@@ -1902,6 +1908,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
 
     def calculate(self) -> AR:
+        self.validate_query()
         response = self._calculate()
         if not self.modifiers.timings:
             response.timings = None
