@@ -87,11 +87,11 @@ tables:
             - name: mat_metadata_backend
               type: Nullable(String)
             - name: persons_uniq_state
-              type: "AggregateFunction(uniq, UUID)"
+              type: 'AggregateFunction(uniq, UUID)'
             - name: sessions_uniq_state
-              type: "AggregateFunction(uniq, String)"
+              type: 'AggregateFunction(uniq, String)'
             - name: pageviews_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: mat_metadata_loggedIn
               type: Nullable(Bool)
 
@@ -174,17 +174,17 @@ tables:
             - name: mat_metadata_backend
               type: Nullable(String)
             - name: persons_uniq_state
-              type: "AggregateFunction(uniq, UUID)"
+              type: 'AggregateFunction(uniq, UUID)'
             - name: sessions_uniq_state
-              type: "AggregateFunction(uniq, String)"
+              type: 'AggregateFunction(uniq, String)'
             - name: pageviews_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: bounces_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: total_session_duration_state
-              type: "AggregateFunction(sum, Int64)"
+              type: 'AggregateFunction(sum, Int64)'
             - name: total_session_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: mat_metadata_loggedIn
               type: Nullable(Bool)
 
@@ -215,7 +215,7 @@ tables:
         primary_key: team_id
         source:
             type: CLICKHOUSE
-            query: "SELECT team_id FROM `posthog`.`web_pre_aggregated_teams` FINAL WHERE version > 0"
+            query: 'SELECT team_id FROM `posthog`.`web_pre_aggregated_teams` FINAL WHERE version > 0'
             user: __from_settings__
             password: __from_settings__
         layout:
@@ -311,11 +311,11 @@ tables:
             - name: mat_metadata_backend
               type: Nullable(String)
             - name: persons_uniq_state
-              type: "AggregateFunction(uniq, UUID)"
+              type: 'AggregateFunction(uniq, UUID)'
             - name: sessions_uniq_state
-              type: "AggregateFunction(uniq, String)"
+              type: 'AggregateFunction(uniq, String)'
             - name: pageviews_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: mat_metadata_loggedIn
               type: Nullable(Bool)
 
@@ -429,16 +429,16 @@ tables:
             - name: mat_metadata_backend
               type: Nullable(String)
             - name: persons_uniq_state
-              type: "AggregateFunction(uniq, UUID)"
+              type: 'AggregateFunction(uniq, UUID)'
             - name: sessions_uniq_state
-              type: "AggregateFunction(uniq, String)"
+              type: 'AggregateFunction(uniq, String)'
             - name: pageviews_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: bounces_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: total_session_duration_state
-              type: "AggregateFunction(sum, Int64)"
+              type: 'AggregateFunction(sum, Int64)'
             - name: total_session_count_state
-              type: "AggregateFunction(sum, UInt64)"
+              type: 'AggregateFunction(sum, UInt64)'
             - name: mat_metadata_loggedIn
               type: Nullable(Bool)

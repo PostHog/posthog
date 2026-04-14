@@ -29,7 +29,7 @@ tables:
             - name: distinct_id
               type: "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
             - name: distinct_ids
-              type: "AggregateFunction(groupUniqArray, String)"
+              type: 'AggregateFunction(groupUniqArray, String)'
             - name: min_timestamp
               type: "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
             - name: max_timestamp
@@ -37,7 +37,7 @@ tables:
             - name: max_inserted_at
               type: "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
             - name: urls
-              type: "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))'
             - name: entry_url
               type: "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
             - name: end_url
@@ -97,27 +97,27 @@ tables:
             - name: entry_channel_type_properties
               type: "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
             - name: pageview_uniq
-              type: "AggregateFunction(uniqExact, Nullable(UUID))"
+              type: 'AggregateFunction(uniqExact, Nullable(UUID))'
             - name: autocapture_uniq
-              type: "AggregateFunction(uniqExact, Nullable(UUID))"
+              type: 'AggregateFunction(uniqExact, Nullable(UUID))'
             - name: screen_uniq
-              type: "AggregateFunction(uniqExact, Nullable(UUID))"
+              type: 'AggregateFunction(uniqExact, Nullable(UUID))'
             - name: page_screen_uniq_up_to
-              type: "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
+              type: 'AggregateFunction(uniqUpTo(1), Nullable(UUID))'
             - name: has_autocapture
-              type: "SimpleAggregateFunction(max, Bool)"
+              type: 'SimpleAggregateFunction(max, Bool)'
             - name: flag_values
-              type: "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+              type: 'AggregateFunction(groupUniqArrayMap, Map(String, String))'
             - name: flag_keys
-              type: "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray, Array(String))'
             - name: event_names
-              type: "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))'
             - name: hosts
-              type: "SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray(100), Array(String))'
             - name: emails
-              type: "SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray(10), Array(String))'
             - name: has_replay_events
-              type: "SimpleAggregateFunction(max, Bool)"
+              type: 'SimpleAggregateFunction(max, Bool)'
 
     writable_raw_sessions_v3:
         engine: Distributed
@@ -137,7 +137,7 @@ tables:
         engine: MaterializedView
         source: sharded_events
         target: writable_raw_sessions_v3
-        select: "SELECT ... FROM {{ database }}.sharded_events"
+        select: 'SELECT ... FROM {{ database }}.sharded_events'
         on_nodes: DATA
         columns: []
 
@@ -145,6 +145,6 @@ tables:
         engine: MaterializedView
         source: sharded_session_replay_events
         target: writable_raw_sessions_v3
-        select: "SELECT ... FROM {{ database }}.sharded_session_replay_events"
+        select: 'SELECT ... FROM {{ database }}.sharded_session_replay_events'
         on_nodes: DATA
         columns: []

@@ -27,7 +27,7 @@ tables:
               default_expression: "'sum'"
               default_kind: DEFAULT
             - name: key
-              type: "Map(LowCardinality(String), String)"
+              type: 'Map(LowCardinality(String), String)'
             - name: value
               type: Float64
             - name: count
@@ -39,7 +39,7 @@ tables:
             - name: lane
               type: LowCardinality(String)
             - name: labels
-              type: "Map(LowCardinality(String), String)"
+              type: 'Map(LowCardinality(String), String)'
 
     writable_tophog:
         engine: Distributed
@@ -72,7 +72,7 @@ tables:
             - name: type
               type: LowCardinality(String)
             - name: key
-              type: "Map(LowCardinality(String), String)"
+              type: 'Map(LowCardinality(String), String)'
             - name: value
               type: Float64
             - name: count
@@ -82,12 +82,12 @@ tables:
             - name: lane
               type: LowCardinality(String)
             - name: labels
-              type: "Map(LowCardinality(String), String)"
+              type: 'Map(LowCardinality(String), String)'
 
     tophog_mv:
         engine: MaterializedView
         source: kafka_tophog
         target: writable_tophog
-        select: "SELECT timestamp, metric, type, key, value, count, pipeline, lane, labels FROM {{ database }}.kafka_tophog"
+        select: 'SELECT timestamp, metric, type, key, value, count, pipeline, lane, labels FROM {{ database }}.kafka_tophog'
         on_nodes: INGESTION_EVENTS
         columns: []

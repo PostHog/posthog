@@ -79,6 +79,6 @@ tables:
         engine: MaterializedView
         source: kafka_plugin_log_entries
         target: writable_plugin_log_entries
-        select: "SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id, _timestamp, _offset FROM {{ database }}.kafka_plugin_log_entries"
+        select: 'SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id, _timestamp, _offset FROM {{ database }}.kafka_plugin_log_entries'
         on_nodes: ALL
         columns: []

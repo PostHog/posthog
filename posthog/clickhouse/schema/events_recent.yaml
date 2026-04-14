@@ -262,6 +262,6 @@ tables:
         engine: MaterializedView
         source: sharded_events
         target: writable_events_recent
-        select: "SELECT ... FROM {{ database }}.sharded_events"
+        select: 'SELECT ... FROM {{ database }}.sharded_events'
         on_nodes: DATA
         columns: []

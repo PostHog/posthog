@@ -119,7 +119,7 @@ tables:
         source: kafka_log_entries
         target: log_entries
         on_nodes: DATA
-        select: "SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries"
+        select: 'SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries'
         columns: []
 
     kafka_log_entries_v3:
@@ -151,6 +151,6 @@ tables:
         engine: MaterializedView
         source: kafka_log_entries_v3
         target: writable_log_entries
-        select: "SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries_v3 WHERE toDate(timestamp) <= today()"
+        select: 'SELECT team_id, log_source, log_source_id, instance_id, timestamp, level, message, _timestamp, _offset FROM {{ database }}.kafka_log_entries_v3 WHERE toDate(timestamp) <= today()'
         on_nodes: INGESTION_EVENTS
         columns: []

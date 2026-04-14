@@ -74,7 +74,7 @@ tables:
         engine: MaterializedView
         source: kafka_person
         target: writable_person
-        select: "SELECT id, created_at, team_id, properties, is_identified, is_deleted, version, last_seen_at, _timestamp, _offset FROM {{ database }}.kafka_person"
+        select: 'SELECT id, created_at, team_id, properties, is_identified, is_deleted, version, last_seen_at, _timestamp, _offset FROM {{ database }}.kafka_person'
         on_nodes: INGESTION_EVENTS
         columns: []
 
