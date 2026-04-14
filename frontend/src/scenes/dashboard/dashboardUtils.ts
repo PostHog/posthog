@@ -366,30 +366,15 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
-    const combined = filters.reduce((acc, filter) => {
+    return filters.reduce((combined, filter) => {
         Object.keys(filter).forEach((key) => {
             const value = (filter as Record<string, any>)[key]
             if (value !== undefined) {
-                ;(acc as Record<string, any>)[key] = value
+                ;(combined as Record<string, any>)[key] = value
             }
         })
-        return acc
+        return combined
     }, {} as DashboardFilter)
-
-    // Strip nulls and default-false explicitDate so the serialized output matches
-    // the persisted shape — otherwise the same logical filter produces different
-    // filters_override JSON depending on code path, and can miss the cache entry.
-    const cleaned: Record<string, any> = {}
-    for (const [key, value] of Object.entries(combined)) {
-        if (value === null || value === undefined) {
-            continue
-        }
-        if (key === 'explicitDate' && value === false) {
-            continue
-        }
-        cleaned[key] = value
-    }
-    return cleaned as DashboardFilter
 }
 
 // Relative date filters (e.g. "-7d") resolve against "now", so a tile cached yesterday

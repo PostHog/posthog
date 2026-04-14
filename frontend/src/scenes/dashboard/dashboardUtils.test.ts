@@ -1,5 +1,4 @@
 import {
-    combineDashboardFilters,
     isTileDateRangeStale,
     parseURLFilters,
     parseURLVariables,
@@ -58,37 +57,6 @@ describe('parseURLFilters', () => {
         }
         expect(parseURLFilters(searchParams)).toEqual({})
         consoleSpy.mockRestore()
-    })
-})
-
-describe('combineDashboardFilters', () => {
-    it('strips null values from the combined result', () => {
-        const result = combineDashboardFilters({ date_from: '-7d' }, { date_to: null })
-        expect(result).toEqual({ date_from: '-7d' })
-        expect('date_to' in result).toBe(false)
-    })
-
-    it('strips explicitDate: false (default value)', () => {
-        const result = combineDashboardFilters({ date_from: '-7d', explicitDate: false })
-        expect(result).toEqual({ date_from: '-7d' })
-        expect('explicitDate' in result).toBe(false)
-    })
-
-    it('preserves explicitDate: true', () => {
-        const result = combineDashboardFilters({ date_from: '-7d', explicitDate: true })
-        expect(result).toEqual({ date_from: '-7d', explicitDate: true })
-    })
-
-    it('produces identical output regardless of null/undefined in input', () => {
-        const a = combineDashboardFilters({ date_from: '-7d' })
-        const b = combineDashboardFilters({ date_from: '-7d', date_to: null, explicitDate: false })
-        expect(a).toEqual(b)
-        expect(JSON.stringify(a)).toBe(JSON.stringify(b))
-    })
-
-    it('later filters override earlier ones', () => {
-        const result = combineDashboardFilters({ date_from: '-7d' }, { date_from: 'dStart' })
-        expect(result).toEqual({ date_from: 'dStart' })
     })
 })
 
