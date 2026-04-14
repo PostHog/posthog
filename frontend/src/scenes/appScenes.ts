@@ -136,4 +136,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
+    [Scene.OrganizationPendingDeletion]: () => import('./organization/PendingDeletion'),
 }

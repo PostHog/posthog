@@ -114,6 +114,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -124,6 +125,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
             ],
         )

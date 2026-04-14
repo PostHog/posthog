@@ -17,9 +17,21 @@ export const Default: Story = {
     },
 } satisfies Story
 
+export const Vertical: Story = {
+    render: () => {
+        return <Slider defaultValue={[75]} max={100} step={1} className="mx-auto w-full max-w-xs" orientation="vertical" />
+    },
+} satisfies Story
+
 export const Range: Story = {
     render: () => {
         return <Slider defaultValue={[75, 25]} max={100} step={1} className="mx-auto w-full max-w-md" />
+    },
+} satisfies Story
+
+export const RangeVertical: Story = {
+    render: () => {
+        return <Slider defaultValue={[75, 25]} max={100} step={1} className="mx-auto w-full max-w-md" orientation="vertical" />
     },
 } satisfies Story
 
