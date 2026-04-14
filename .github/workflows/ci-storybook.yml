@@ -831,7 +831,7 @@ jobs:
                   git diff --name-only "$BASE_SHA"...HEAD >&2
 
                   RESULT=$(git diff --name-only "$BASE_SHA"...HEAD \
-                      | node bin/find-affected-stories.mjs \
+                      | bin/find-affected-stories \
                           --graph /tmp/storybook-graph/module-graph.json \
                           --changed-files-stdin)
                   echo "$RESULT" > /tmp/selection-result.json

@@ -9,7 +9,7 @@
  *
  * Usage:
  *   git diff --name-only "$BASE_SHA"...HEAD \
- *     | node bin/find-affected-stories.mjs \
+ *     | bin/find-affected-stories \
  *         --graph common/storybook/dist/module-graph.json \
  *         --changed-files-stdin
  *
@@ -73,7 +73,7 @@ function parseArgs(argv) {
         else if (a === '--changed-files') args.changedFiles = argv[++i].split(/\s+/).filter(Boolean)
         else if (a === '--help' || a === '-h') {
             process.stderr.write(
-                'Usage: find-affected-stories.mjs --graph <path> [--changed-files-stdin | --changed-files "a b c"]\n'
+                'Usage: find-affected-stories --graph <path> [--changed-files-stdin | --changed-files "a b c"]\n'
             )
             process.exit(0)
         } else {
