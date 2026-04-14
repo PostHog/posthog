@@ -24,7 +24,6 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     AnyDataWarehouseNode,
@@ -33,7 +32,7 @@ import {
     CompareFilter,
     DatabaseSchemaField,
     DateRange,
-    FunnelExclusionSteps,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     GroupNode,
@@ -45,6 +44,7 @@ import {
     NodeKind,
     ProductAnalyticsInsightQueryNode,
     RetentionQuery,
+    StickinessQuery,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -75,7 +75,6 @@ import {
     isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
-    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -92,14 +91,7 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    FilterType,
-    InsightLogicProps,
-    LabelGroupType,
-    SlowQueryPossibilities,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -508,46 +500,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
-        /*
-         * Funnels
-         */
-        isFunnelWithEnoughSteps: [
-            (s) => [s.series],
-            (series) => {
-                return (series?.length || 0) > 1
-            },
-        ],
-        isFunnelWithIncompleteDataWarehouseStep: [
-            (s) => [s.series],
-            (series) => {
-                return (series || []).some(
-                    (step) =>
-                        isFunnelsDataWarehouseNode(step) &&
-                        (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
-                )
-            },
-        ],
-
-        // Exclusion filters
-        exclusionDefaultStepRange: [
-            (s) => [s.querySource],
-            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
-                funnelFromStep: 0,
-                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
-            }),
-        ],
-        exclusionFilters: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
-                    funnel_from_step: funnelFromStep,
-                    funnel_to_step: funnelToStep,
-                    order: index,
-                    ...seriesNodeToFilter(rest),
-                })),
-            }),
-        ],
-
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
             (s) => [s.querySource, actionsModel.selectors.actions],
@@ -781,7 +733,7 @@ const handleQuerySourceUpdateSideEffects = (
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
 
-    const maybeChangedSeries = (update as TrendsQuery).series || null
+    const maybeChangedSeries = (update as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
     const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
     const insightFilter = filterForQuery(currentState as ProductAnalyticsInsightQueryNode) as Partial<InsightFilter>
@@ -827,8 +779,8 @@ const handleQuerySourceUpdateSideEffects = (
             (insightFilter as FunnelsFilter)?.funnelToStep != null)
     ) {
         // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode => node.kind !== NodeKind.GroupNode
+        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
         )
         ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
             ...(insightFilter as FunnelsFilter),

@@ -616,7 +616,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "delete-recordings-with-session-ids",
             ]
             type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in workflow_types)
-            query = f"PostHogTeamId = {team_id} AND ({type_clauses}) ORDER BY StartTime DESC"
+            query = f"PostHogTeamId = {team_id} AND ({type_clauses})"
 
             async def fetch_workflows():
                 workflows = []

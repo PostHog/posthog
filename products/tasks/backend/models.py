@@ -6,6 +6,11 @@ import string
 import secrets
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
 
@@ -33,6 +38,12 @@ from products.tasks.backend.stream.redis_stream import publish_task_run_stream_e
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+
+
+def resolve_schema(schema: type[BaseModel] | dict) -> dict:
+    if isinstance(schema, dict):
+        return schema
+    return schema.model_json_schema()
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -244,6 +255,7 @@ class Task(DeletedMetaFields, models.Model):
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -270,6 +282,7 @@ class Task(DeletedMetaFields, models.Model):
             github_integration=github_integration,
             repository=repository,
             internal=internal,
+            json_schema=resolve_schema(output_schema) if output_schema else None,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -491,6 +504,9 @@ class TaskRun(models.Model):
                 "run_id": str(self.id),
                 "team_id": self.team_id,
                 "repository": self.task.repository,
+                "origin_product": self.task.origin_product,
+                "title": self.task.title,
+                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
                 "mode": self.mode,
             }
@@ -520,6 +536,20 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
+
+    def track_structured_result(self):
+        """Track a structured result event with properties from the run output."""
+        if not self.output:
+            return
+
+        try:
+            self.capture_event("task_run_structured_result", {"result": self.output})
+        except Exception as e:
+            logger.warning(
+                "task_run.track_structured_result_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def mark_failed(self, error: str):
         """Mark the progress as failed with an error message."""
@@ -857,3 +887,21 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+@receiver(post_save, sender=TaskRun)
+def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs):
+    try:
+        if (
+            not created
+            and instance.status == TaskRun.Status.COMPLETED
+            and instance.output
+            and instance.task.json_schema
+        ):
+            instance.track_structured_result()
+    except Exception as e:
+        logger.warning(
+            "task_run.track_task_run_completion_failed",
+            task_run_id=str(instance.id),
+            error=str(e),
+        )
