@@ -197,14 +197,13 @@ class MessageCategoryViewSet(
         signing_secret = request.data.get("webhook_signing_secret")
         enabled = bool(request.data.get("webhook_enabled", False))
 
-        # Enabling requires a secret (new or already stored)
+        existing = Integration.objects.filter(team_id=self.team_id, kind="customerio-webhook").first()
+
+        if not enabled and not signing_secret and not existing:
+            return Response({"webhook_enabled": False, "has_signing_secret": False}, status=status.HTTP_200_OK)
+
         if enabled and not signing_secret:
-            existing_secret = (
-                Integration.objects.filter(team_id=self.team_id, kind="customerio-webhook")
-                .values_list("sensitive_config", flat=True)
-                .first()
-            )
-            if not existing_secret or not existing_secret.get("webhook_signing_secret"):
+            if not existing or not existing.sensitive_config.get("webhook_signing_secret"):
                 return Response(
                     {"error": "Webhook signing secret is required to enable sync."},
                     status=status.HTTP_400_BAD_REQUEST,
