@@ -49,6 +49,7 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
+    private monitoringKafkaProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -112,6 +113,7 @@ export class PluginServer implements NodeServer {
                   teamManager,
                   integrationManager: cdpServices!.integrationManager,
                   kafkaProducer: this.kafkaProducer!,
+                  monitoringKafkaProducer: this.monitoringKafkaProducer!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
@@ -267,7 +269,9 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer, this.monitoringKafkaProducer].filter(
+                Boolean
+            ) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
@@ -286,6 +290,10 @@ export class PluginServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
+        this.monitoringKafkaProducer = await KafkaProducerWrapper.create(
+            this.config.KAFKA_CLIENT_RACK,
+            'WARPSTREAM_PRODUCER'
+        )
         logger.info('👍', 'Kafka ready')
 
         logger.info('🤔', 'Connecting to ingestion Redis...')
