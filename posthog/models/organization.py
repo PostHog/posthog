@@ -217,6 +217,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
     is_pending_deletion = models.BooleanField(
         default=False,
+        null=True,
+        blank=True,
         help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
     )
 
