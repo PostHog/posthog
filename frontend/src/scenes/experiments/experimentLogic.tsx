@@ -614,7 +614,7 @@ export const experimentLogic = kea<experimentLogicType>([
             teamLogic,
             ['addProductIntent'],
             featureFlagsLogic,
-            ['updateFlag'],
+            ['updateFlagFromPartial'],
             modalsLogic,
             [
                 'openPrimaryMetricModal',
@@ -1702,7 +1702,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (payload?.update_feature_flag_params && experiment.feature_flag) {
-                actions.updateFlag(experiment.feature_flag as FeatureFlagType)
+                actions.updateFlagFromPartial(experiment.feature_flag)
             }
             if (isLaunched(experiment)) {
                 // For launched experiments, refresh results if any of these fields are updated
