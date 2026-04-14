@@ -55,20 +55,48 @@ jobs:
               with:
                   filters: |
                       dagster:
+                        # Dagster DAG definitions and tests
                         - 'posthog/dags/**'
-                        # Dagster depends on Python, so ensure we run on any possible changes to it
-                        - 'posthog/**/*'
-                        - 'ee/**/*'
-                        - 'products/*'
-                        - 'products/*/!(frontend)/**'
-                        # Make sure we run if someone is explicitly change the workflow
+                        - 'products/**/dags/**'
+                        # Core posthog modules imported by DAGs
+                        - 'posthog/clickhouse/**'
+                        - 'posthog/models/**'
+                        - 'posthog/hogql/**'
+                        - 'posthog/hogql_queries/**'
+                        - 'posthog/settings/**'
+                        - 'posthog/ducklake/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/schema/**'
+                        - 'posthog/test/**'
+                        # Single-file posthog modules imported by DAGs
+                        - 'posthog/cloud_utils.py'
+                        - 'posthog/conftest.py'
+                        - 'posthog/errors.py'
+                        - 'posthog/event_usage.py'
+                        - 'posthog/exceptions_capture.py'
+                        - 'posthog/git.py'
+                        - 'posthog/metrics.py'
+                        - 'posthog/person_db_router.py'
+                        - 'posthog/redis.py'
+                        - 'posthog/utils.py'
+                        # ee modules imported by DAGs
+                        - 'ee/billing/dags/**'
+                        - 'ee/clickhouse/materialized_columns/**'
+                        - 'ee/hogai/eval/**'
+                        # products backend modules imported by DAGs (non-dags paths)
+                        - 'products/event_definitions/backend/**'
+                        - 'products/llm_analytics/backend/**'
+                        # Dependency and config changes
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'requirements*.txt'
+                        # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
-                        - frontend/public/email/*
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
