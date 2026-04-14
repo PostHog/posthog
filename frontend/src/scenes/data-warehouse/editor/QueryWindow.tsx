@@ -227,7 +227,7 @@ function ExpandDatabaseTreeButton({
 }
 
 function RunButton(): JSX.Element {
-    const { runQuery } = useActions(sqlEditorLogic)
+    const { runQuery, runSubquery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
@@ -250,6 +250,32 @@ function RunButton(): JSX.Element {
         return ['var(--warning)', tooltip]
     }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
+    const sideAction = responseLoading
+        ? undefined
+        : {
+              dropdown: {
+                  placement: 'bottom-end' as const,
+                  overlay: (
+                      <>
+                          <LemonButton
+                              fullWidth
+                              onClick={() => runQuery()}
+                              sideIcon={<span className="text-muted text-xs">⌘↵</span>}
+                          >
+                              Run query at cursor
+                          </LemonButton>
+                          <LemonButton
+                              fullWidth
+                              onClick={() => runSubquery()}
+                              sideIcon={<span className="text-muted text-xs">⌘⇧↵</span>}
+                          >
+                              Run innermost subquery at cursor
+                          </LemonButton>
+                      </>
+                  ),
+              },
+          }
+
     return (
         <AppShortcut
             name="SQLEditorRun"
@@ -271,6 +297,7 @@ function RunButton(): JSX.Element {
                 type="primary"
                 size="small"
                 tooltip={tooltipContent}
+                sideAction={sideAction}
             >
                 {responseLoading ? 'Cancel' : 'Run'}
             </LemonButton>
