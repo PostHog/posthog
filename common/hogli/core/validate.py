@@ -13,8 +13,7 @@ def get_bin_scripts() -> set[str]:
         return set()
 
     # Exclude these from the manifest check (entry points, config files, etc)
-    # lint-feature-flag-sorting.mjs is registered via cmd: not bin_script:
-    excluded = {"hogli", "mprocs.yaml", "mprocs-test.yaml", "sandbox-entrypoint.py", "lint-feature-flag-sorting.mjs"}
+    excluded = {"hogli", "mprocs.yaml", "mprocs-test.yaml", "sandbox-entrypoint.py"}
 
     scripts = set()
     for f in bin_dir.iterdir():

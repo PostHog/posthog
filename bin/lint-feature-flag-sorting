@@ -6,7 +6,7 @@
  * Within each section, flags must be sorted alphabetically by key name.
  *
  * Usage:
- *   node bin/lint-feature-flag-sorting.mjs [--fix]
+ *   node bin/lint-feature-flag-sorting [--fix]
  */
 
 import { readFileSync, writeFileSync } from 'fs'
