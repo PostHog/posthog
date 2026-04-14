@@ -175,9 +175,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     session = _get_paddle_session()
 
     for endpoint in endpoints_to_check:
-        response = paddle_request(
-            session, "GET", f"{PADDLE_BASE_URL}/{endpoint}", headers=headers
-        )
+        response = paddle_request(session, "GET", f"{PADDLE_BASE_URL}/{endpoint}", headers=headers)
         if response.status_code == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")
         response.raise_for_status()
