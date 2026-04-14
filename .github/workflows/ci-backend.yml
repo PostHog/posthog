@@ -843,7 +843,7 @@ jobs:
                   python manage.py makemigrations --check --dry-run
 
             - name: Validate ClickHouse schema changes
-              if: steps.changes.outputs.backend == 'true'
+              if: needs.changes.outputs.backend == 'true'
               timeout-minutes: 5
               run: |
                   CHANGED=$(git diff --name-only origin/master..HEAD -- posthog/clickhouse/schema/ | head -1)
