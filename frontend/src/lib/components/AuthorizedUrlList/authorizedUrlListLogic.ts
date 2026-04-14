@@ -440,8 +440,12 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             actions.setProposedUrlValue('url', NEW_URL)
         },
         addUrl: async ({ url, launch }) => {
-            // Await saveUrls before markTaskAsCompleted to avoid a race on the team PATCH response.
-            await sharedListeners.saveUrls()
+            // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.
+            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
+                await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
+            } else {
+                await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
+            }
             if (launch) {
                 actions.launchAtUrl(url)
             }
