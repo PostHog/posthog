@@ -135,6 +135,7 @@ describe('PersonHog ↔ Postgres parity', () => {
             anonymize_ips: false,
             completed_snippet_onboarding: true,
             ingested_event: true,
+            ingested_live_event: false,
             session_recording_opt_in: true,
             plugins_opt_in: false,
             opt_out_capture: false,

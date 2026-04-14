@@ -53,29 +53,63 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
-            // Invalidate the cache for this team
             this.lazyLoader.markForRefresh(String(team.id))
+            await this.captureTeamEventForAllMembers(team, 'first team event ingested', properties)
+        }
 
-            const organizationMembers = await this.postgres.query(
+        if (!team.ingested_live_event && TeamManager.isLiveHost(properties.$host)) {
+            await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
+                `UPDATE posthog_team SET ingested_live_event = $1 WHERE id = $2`,
+                [true, team.id],
+                'setTeamIngestedLiveEvent'
             )
 
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                captureTeamEvent(
-                    team,
-                    'first team event ingested',
-                    {
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    distinct_id
-                )
-            }
+            this.lazyLoader.markForRefresh(String(team.id))
+            await this.captureTeamEventForAllMembers(team, 'first production team event ingested', properties)
+        }
+    }
+
+    static isLiveHost(host: string | undefined): boolean {
+        if (!host) {
+            return false
+        }
+        // Strip port to compare hostname only (e.g. "localhost:3000" -> "localhost")
+        const hostname = host.toLowerCase().split(':')[0]
+        if (!hostname) {
+            return false
+        }
+        return (
+            hostname !== 'localhost' &&
+            hostname !== '127.0.0.1' &&
+            hostname !== '0.0.0.0' &&
+            hostname !== '[::1]' &&
+            !/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) &&
+            !/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) &&
+            !/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+        )
+    }
+
+    private async captureTeamEventForAllMembers(team: Team, event: string, properties: Properties): Promise<void> {
+        const organizationMembers = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+            [team.organization_id],
+            'posthog_organizationmembership'
+        )
+
+        const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+        for (const { distinct_id } of distinctIds) {
+            captureTeamEvent(
+                team,
+                event,
+                {
+                    sdk: properties.$lib,
+                    realm: properties.realm,
+                    host: properties.$host,
+                },
+                distinct_id
+            )
         }
     }
 
@@ -115,6 +149,7 @@ export class TeamManager {
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
                 t.ingested_event,
+                t.ingested_live_event,
                 t.person_display_name_properties,
                 t.cookieless_server_hash_mode,
                 t.timezone,

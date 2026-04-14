@@ -52,6 +52,7 @@ const DEFAULT_TEAM: Team = {
     session_recording_opt_in: false,
     heatmaps_opt_in: null,
     ingested_event: true,
+    ingested_live_event: false,
     person_display_name_properties: [],
     person_processing_opt_out: null,
     test_account_filters: [],

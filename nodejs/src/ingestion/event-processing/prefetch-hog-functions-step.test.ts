@@ -19,6 +19,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     person_processing_opt_out: null,
     heatmaps_opt_in: null,
     ingested_event: true,
+    ingested_live_event: false,
     person_display_name_properties: null,
     test_account_filters: null,
     cookieless_server_hash_mode: null,

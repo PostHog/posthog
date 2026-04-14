@@ -58,6 +58,7 @@ describe('TeamManager()', () => {
                   "heatmaps_opt_in": null,
                   "id": 2,
                   "ingested_event": true,
+                  "ingested_live_event": false,
                   "logs_settings": null,
                   "name": "TEST PROJECT",
                   "organization_id": "<REPLACED-UUID-1>",
@@ -227,6 +228,44 @@ describe('TeamManager()', () => {
             ])
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(true)
+        })
+    })
+
+    describe('isLiveHost()', () => {
+        it.each([
+            // Local/private hosts should return false
+            { host: undefined, expected: false, desc: 'undefined' },
+            { host: '', expected: false, desc: 'empty string' },
+            { host: 'localhost', expected: false, desc: 'localhost' },
+            { host: 'localhost:3000', expected: false, desc: 'localhost with port' },
+            { host: 'LOCALHOST:8080', expected: false, desc: 'LOCALHOST uppercase' },
+            { host: '127.0.0.1', expected: false, desc: '127.0.0.1' },
+            { host: '127.0.0.1:8080', expected: false, desc: '127.0.0.1 with port' },
+            { host: '0.0.0.0', expected: false, desc: '0.0.0.0' },
+            { host: '0.0.0.0:3000', expected: false, desc: '0.0.0.0 with port' },
+            { host: '[::1]', expected: false, desc: 'IPv6 loopback' },
+            { host: '[::1]:9000', expected: false, desc: 'IPv6 loopback with port' },
+            { host: '10.0.0.1', expected: false, desc: '10.x private range' },
+            { host: '10.255.255.255', expected: false, desc: '10.x private range end' },
+            { host: '192.168.1.1', expected: false, desc: '192.168.x private range' },
+            { host: '192.168.0.100:8080', expected: false, desc: '192.168.x with port' },
+            { host: '172.16.0.1', expected: false, desc: '172.16.x Docker/private range start' },
+            { host: '172.17.0.2', expected: false, desc: '172.17.x Docker default bridge' },
+            { host: '172.20.5.10', expected: false, desc: '172.20.x private range mid' },
+            { host: '172.31.255.255', expected: false, desc: '172.31.x private range end' },
+            // Production hosts should return true
+            { host: 'example.com', expected: true, desc: 'production domain' },
+            { host: 'app.posthog.com', expected: true, desc: 'posthog domain' },
+            { host: 'my-app.vercel.app', expected: true, desc: 'vercel domain' },
+            { host: '203.0.113.50', expected: true, desc: 'public IP' },
+            { host: '172.15.0.1', expected: true, desc: '172.15.x is NOT private (below 172.16)' },
+            { host: '172.32.0.1', expected: true, desc: '172.32.x is NOT private (above 172.31)' },
+            // Edge cases: domains starting with local-sounding prefixes are live
+            { host: 'localhost.example.com', expected: true, desc: 'localhost.example.com is a real domain' },
+            { host: '10.example.com', expected: true, desc: '10.example.com is a real domain, not RFC 1918' },
+            { host: 'example.com:8080', expected: true, desc: 'production domain with port' },
+        ])('returns $expected for $desc ($host)', ({ host, expected }) => {
+            expect(TeamManager.isLiveHost(host)).toBe(expected)
         })
     })
 })
