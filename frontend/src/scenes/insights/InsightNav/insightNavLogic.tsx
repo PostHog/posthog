@@ -14,13 +14,18 @@ import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQu
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     CalendarHeatmapFilter,
+    DataWarehouseNode,
+    EntityNode,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     GroupNode,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleDataWarehouseNode,
     LifecycleFilter,
     LifecycleQuery,
     NodeKind,
@@ -96,9 +101,9 @@ export interface QueryPropertyCache
 }
 
 const cleanSeriesEntityMath = (
-    entity: AnyEntityNode | GroupNode,
+    entity: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     mathAvailability: MathAvailability
-): AnyEntityNode | GroupNode => {
+): AnyEntityNode<AnyDataWarehouseNode> | GroupNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // Recursively clean nested nodes in GroupNode
@@ -123,9 +128,9 @@ const cleanSeriesEntityMath = (
 }
 
 const cleanSeriesMath = (
-    series: (AnyEntityNode | GroupNode)[],
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[],
     mathAvailability: MathAvailability
-): (AnyEntityNode | GroupNode)[] => {
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
@@ -134,10 +139,17 @@ type DataWarehouseNodeKind =
     | NodeKind.FunnelsDataWarehouseNode
     | NodeKind.LifecycleDataWarehouseNode
 
+type DataWarehouseNodeSharedFields = Partial<{
+    id_field: DataWarehouseNode['id_field']
+    distinct_id_field: DataWarehouseNode['distinct_id_field']
+    aggregation_target_field: FunnelsDataWarehouseNode['aggregation_target_field']
+    created_at_field: LifecycleDataWarehouseNode['created_at_field']
+}>
+
 const cleanDataWarehouseNode = (
-    entity: AnyEntityNode | GroupNode,
+    entity: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     dataWarehouseNodeKind: DataWarehouseNodeKind
-): AnyEntityNode | GroupNode => {
+): AnyEntityNode<AnyDataWarehouseNode> | GroupNode => {
     if ('nodes' in entity && Array.isArray(entity.nodes)) {
         return {
             ...entity,
@@ -156,7 +168,7 @@ const cleanDataWarehouseNode = (
         aggregation_target_field,
         created_at_field,
         ...baseEntity
-    } = entity
+    } = entity as EntityNode & DataWarehouseNodeSharedFields
 
     if (dataWarehouseNodeKind === NodeKind.DataWarehouseNode) {
         return {
@@ -178,7 +190,7 @@ const cleanDataWarehouseNode = (
             ...(id_field ? { id_field } : {}),
             aggregation_target_field:
                 aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
-        } as AnyEntityNode | GroupNode
+        } as FunnelsDataWarehouseNode | GroupNode
     }
 
     return {
@@ -187,21 +199,21 @@ const cleanDataWarehouseNode = (
         aggregation_target_field:
             aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
         created_at_field: created_at_field ?? entity.timestamp_field,
-    } as AnyEntityNode | GroupNode
+    } as LifecycleDataWarehouseNode | GroupNode
 }
 
 const cleanDataWarehouseNodes = (
-    series: (AnyEntityNode | GroupNode)[],
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[],
     dataWarehouseNodeKind: DataWarehouseNodeKind
-): (AnyEntityNode | GroupNode)[] => {
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] => {
     return series.map((entity) => cleanDataWarehouseNode(entity, dataWarehouseNodeKind))
 }
 
 const cleanSeries = (
-    series: (AnyEntityNode | GroupNode)[],
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[],
     mathAvailability: MathAvailability,
     dataWarehouseNodeKind: DataWarehouseNodeKind
-): (AnyEntityNode | GroupNode)[] => {
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] => {
     return cleanSeriesMath(cleanDataWarehouseNodes(series, dataWarehouseNodeKind), mathAvailability)
 }
 

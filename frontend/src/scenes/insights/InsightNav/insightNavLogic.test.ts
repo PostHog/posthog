@@ -8,7 +8,7 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery, Node } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     ChartDisplayType,
@@ -661,7 +661,7 @@ describe('insightNavLogic', () => {
                 label: string
                 source: InsightVizNode['source']
                 targetView: InsightType
-                expectedSource: Partial<InsightVizNode['source']>
+                expectedSource: Record<string, any>
             }[] = [
                 {
                     label: 'trends DW to funnels',
@@ -693,7 +693,7 @@ describe('insightNavLogic', () => {
                                 aggregation_target_field: 'customer_id',
                             },
                         ],
-                        funnelsFilter: { funnelVizType: 'steps' },
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
                     },
                 },
                 {
@@ -864,7 +864,7 @@ describe('insightNavLogic', () => {
                     builtInsightDataLogic.actions.setQuery({
                         kind: NodeKind.InsightVizNode,
                         source,
-                    })
+                    } as any)
                 })
 
                 await expectLogic(builtInsightDataLogic, () => {
