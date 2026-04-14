@@ -8,7 +8,7 @@
  */
 import { program } from 'commander'
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
@@ -37,6 +37,9 @@ program
     .option('--cookie <value>', 'Session cookie for authentication')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const exitCode = await runSubmit(options)
             process.exit(exitCode)
@@ -81,6 +84,9 @@ run.command('create')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
     .action(async (options: RunCreateOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const runId = await runCreate(options)
             // Output just the run ID so CI can capture it
@@ -101,6 +107,9 @@ run.command('upload')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .action(async (options: RunUploadOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             await runUpload(options)
         } catch (error) {
@@ -119,6 +128,9 @@ run.command('complete')
     .option('--cookie <value>', 'Session cookie')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: RunCompleteOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const exitCode = await runComplete(options)
             process.exit(exitCode)
@@ -191,6 +203,15 @@ interface RunCompleteOptions {
 // Log to stderr so stdout stays clean for machine-readable output (e.g. run IDs)
 function log(message: string): void {
     process.stderr.write(message + '\n')
+}
+
+function baselineExists(baselinePath: string): boolean {
+    const p = resolve(baselinePath)
+    if (!existsSync(p)) {
+        log(`Baseline file not found: ${p} — skipping (branch may not have snapshots.yml yet)`)
+        return false
+    }
+    return true
 }
 
 function extractContentHash(signedHash: string): string {
