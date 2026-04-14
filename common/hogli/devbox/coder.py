@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import json
+import shlex
 import shutil
 import tempfile
 import itertools
@@ -329,7 +330,7 @@ def _install_coder_cli() -> None:
 
     prefix = _MANAGED_CODER_DIR.parent
     prefix.mkdir(parents=True, exist_ok=True)
-    cmd = f"curl -fsSL {coder_url}/install.sh | sh -s -- --prefix {prefix}"
+    cmd = f"curl -fsSL {coder_url}/install.sh | sh -s -- --prefix {shlex.quote(str(prefix))}"
     result = subprocess.run(["sh", "-c", cmd], text=True)
     if result.returncode != 0:
         _fail(f"Coder CLI installation failed.\nTry manually: {cmd}")
@@ -749,7 +750,11 @@ def parse_workspace_target(target: str) -> str:
         rest = target[1:]
         if "/" in rest:
             user, label = rest.split("/", 1)
+            if not user or not label:
+                raise click.UsageError("Expected @user/label but got an empty user or label.")
             return resolve_shared_workspace_name(user, label)
+        if not rest:
+            raise click.UsageError("Expected @user but got bare '@'.")
         return resolve_shared_workspace_name(rest)
     return get_workspace_name(target)
 
