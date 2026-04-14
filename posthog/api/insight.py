@@ -32,7 +32,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import QueryStatus
+from posthog.schema import ProductKey, QueryStatus
 
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.errors import ExposedHogQLError
@@ -1066,6 +1066,20 @@ class MCPInsightSerializer(InsightSerializer):
             raise serializers.ValidationError(f"This query can't be saved: {details}")
 
 
+# Insights can be looked up by either the numeric primary key or the 8-character `short_id`
+# (the alphanumeric code visible in URLs like `/insights/AaVQ8Ijw`). The resolution happens in
+# `InsightViewSet.safely_get_object`: a purely-numeric string is treated as the PK, otherwise it
+# falls back to `short_id`. Advertise both forms in the OpenAPI schema so generated clients
+# (frontend, MCP tools) do not constrain callers to integers.
+INSIGHT_ID_PATH_PARAMETER = OpenApiParameter(
+    name="id",
+    location=OpenApiParameter.PATH,
+    type={"oneOf": [{"type": "integer"}, {"type": "string"}]},
+    description="Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.",
+)
+
+
+@extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1091,6 +1105,9 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
         ]
     ),
+    update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
+    partial_update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
+    destroy=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
 )
 class InsightViewSet(
     QueryCoalescingMixin,
@@ -1448,6 +1465,7 @@ class InsightViewSet(
 
     @extend_schema(
         parameters=[
+            INSIGHT_ID_PATH_PARAMETER,
             OpenApiParameter(
                 name="refresh",
                 enum=list(ExecutionMode),
