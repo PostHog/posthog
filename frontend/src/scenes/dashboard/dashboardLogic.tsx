@@ -104,7 +104,6 @@ import {
     parseURLVariables,
     isTileDateRangeStale,
     runWithLimit,
-    snapshotDashboardFilterDates,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -2004,8 +2003,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Cache values before the long-running await — the logic may unmount
-            const { currentTeamId, urlFilters, urlVariables, timezone } = values
-            const effectiveRefreshFilters = snapshotDashboardFilterDates(values.effectiveRefreshFilters, timezone)
+            const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables } = values
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -2103,6 +2101,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // only cancels on newer invocations, not on unmount).
                 const {
                     currentTeamId,
+                    effectiveRefreshFilters,
                     urlFilters,
                     urlVariables,
                     dashboardLoadData,
@@ -2110,14 +2109,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lastDashboardRefresh,
                     isAnalyzing,
                     refreshAnalysisCacheKey,
-                    timezone,
                 } = values
-
-                // Snapshot relative dates (e.g. "-7d") to absolute dates once for the
-                // entire refresh batch so every tile resolves the same date boundaries.
-                // Without this, tiles computed concurrently or across a day boundary
-                // could end up with different absolute date ranges.
-                const effectiveRefreshFilters = snapshotDashboardFilterDates(values.effectiveRefreshFilters, timezone)
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight

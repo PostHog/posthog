@@ -366,57 +366,32 @@ export const encodeURLFilters = (filters: DashboardFilter): Record<string, strin
 }
 
 export function combineDashboardFilters(...filters: DashboardFilter[]): DashboardFilter {
-    return filters.reduce((combined, filter) => {
+    const combined = filters.reduce((acc, filter) => {
         Object.keys(filter).forEach((key) => {
             const value = (filter as Record<string, any>)[key]
             if (value !== undefined) {
-                ;(combined as Record<string, any>)[key] = value
+                ;(acc as Record<string, any>)[key] = value
             }
         })
-        return combined
+        return acc
     }, {} as DashboardFilter)
-}
 
-/**
- * Resolve relative date strings (e.g. "-7d", "dStart") in dashboard filters to absolute
- * ISO date strings using a single "now" reference point. This ensures all dashboard tiles
- * in the same refresh batch use identical date boundaries, preventing visual
- * inconsistencies when tiles resolve relative dates independently at slightly different
- * times (e.g. across a midnight boundary).
- *
- * Only `date_from` and `date_to` are resolved — `date_to` being null/undefined means
- * "now" and is left for the backend to handle (it rounds to end-of-day for daily+
- * intervals anyway).
- */
-export function snapshotDashboardFilterDates(filters: DashboardFilter, timezone: string): DashboardFilter {
-    if (!filters.date_from && !filters.date_to) {
-        return filters
-    }
-
-    // "all" is a special value meaning "all time" — don't resolve it
-    if (filters.date_from === 'all') {
-        return filters
-    }
-
-    const snapshotted = { ...filters }
-
-    if (filters.date_from && !isDate.test(filters.date_from)) {
-        const resolved = dateStringToDayJs(filters.date_from, timezone)
-        if (resolved) {
-            // Format as YYYY-MM-DD so the backend still applies its own truncation logic
-            // (relative_date_parse treats YYYY-MM-DD as absolute but preserves the time component)
-            snapshotted.date_from = resolved.format('YYYY-MM-DD')
+    // Strip null values and default-false explicitDate so the serialized
+    // output is stable across code paths. Without this, switching date filters
+    // can produce {date_from: "-7d", date_to: null, explicitDate: false}
+    // instead of just {date_from: "-7d"}, leading to different JSON payloads
+    // sent to the backend and potentially different cache key lookups.
+    const cleaned: Record<string, any> = {}
+    for (const [key, value] of Object.entries(combined)) {
+        if (value === null || value === undefined) {
+            continue
         }
-    }
-
-    if (filters.date_to && !isDate.test(filters.date_to)) {
-        const resolved = dateStringToDayJs(filters.date_to, timezone)
-        if (resolved) {
-            snapshotted.date_to = resolved.format('YYYY-MM-DD')
+        if (key === 'explicitDate' && value === false) {
+            continue
         }
+        cleaned[key] = value
     }
-
-    return snapshotted
+    return cleaned as DashboardFilter
 }
 
 /**
