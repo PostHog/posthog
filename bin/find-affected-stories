@@ -2,16 +2,20 @@
 /**
  * Compute the set of stories affected by a set of changed files using the
  * module-graph.json emitted by the Storybook build (see the ModuleGraphPlugin
- * in `common/storybook/.storybook/main.ts`).
+ * in `common/storybook/.storybook/plugins/module-graph-plugin.ts`).
  *
  * Called from `.github/workflows/ci-storybook.yml`'s shadow-story-selection
  * job. Shadow-only today — does not change what visual-regression runs.
  *
  * Usage:
- *   git diff --name-only "$BASE_SHA"...HEAD \
- *     | bin/find-affected-stories \
- *         --graph common/storybook/dist/module-graph.json \
- *         --changed-files-stdin
+ *   bin/find-affected-stories \
+ *       --graph common/storybook/dist/module-graph.json \
+ *       --base-ref origin/master
+ *
+ * The script computes `git diff --name-only BASE_REF...HEAD` itself. The
+ * `...` resolves against the merge-base, so files that came in via a merge
+ * of BASE_REF into the branch aren't counted — avoids false full-runs when
+ * `pull_request.base.sha` is stale relative to the master the branch merged.
  *
  * Output (JSON to stdout):
  *   { mode: "selective", affected_stories: [...], affected_story_count,
@@ -21,6 +25,7 @@
  *   { mode: "full", reason: "<why>", total_story_count }
  */
 
+import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 
 // -----------------------------------------------------------------------------
@@ -65,16 +70,13 @@ const STORY_RE = /\.stories\.(tsx?|mdx|jsx?)$/
 // -----------------------------------------------------------------------------
 
 function parseArgs(argv) {
-    const args = { graph: null, stdin: false, changedFiles: [] }
+    const args = { graph: null, baseRef: null }
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i]
         if (a === '--graph') args.graph = argv[++i]
-        else if (a === '--changed-files-stdin') args.stdin = true
-        else if (a === '--changed-files') args.changedFiles = argv[++i].split(/\s+/).filter(Boolean)
+        else if (a === '--base-ref') args.baseRef = argv[++i]
         else if (a === '--help' || a === '-h') {
-            process.stderr.write(
-                'Usage: find-affected-stories --graph <path> [--changed-files-stdin | --changed-files "a b c"]\n'
-            )
+            process.stderr.write('Usage: find-affected-stories --graph <path> --base-ref <git-ref>\n')
             process.exit(0)
         } else {
             process.stderr.write(`Unknown argument: ${a}\n`)
@@ -84,9 +86,17 @@ function parseArgs(argv) {
     return args
 }
 
-function readStdin() {
-    const lines = fs.readFileSync(0, 'utf-8').split('\n')
-    return lines.map((l) => l.trim()).filter(Boolean)
+function changedFilesFromGit(baseRef) {
+    // `...` resolves against the merge-base so files pulled in via a merge of
+    // baseRef into the branch aren't counted (avoids inflated diffs when
+    // pull_request.base.sha is stale).
+    const stdout = execFileSync('git', ['diff', '--name-only', `${baseRef}...HEAD`], {
+        encoding: 'utf-8',
+    })
+    return stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
 }
 
 // -----------------------------------------------------------------------------
@@ -201,9 +211,19 @@ function main() {
         process.stderr.write('Error: --graph is required\n')
         process.exit(2)
     }
+    if (!args.baseRef) {
+        process.stderr.write('Error: --base-ref is required\n')
+        process.exit(2)
+    }
 
-    const changed = args.stdin ? readStdin() : args.changedFiles
-    process.stderr.write(`Changed files: ${changed.length}\n`)
+    let changed
+    try {
+        changed = changedFilesFromGit(args.baseRef)
+    } catch (err) {
+        process.stderr.write(`Error: \`git diff\` against ${args.baseRef} failed: ${err.message}\n`)
+        process.exit(2)
+    }
+    process.stderr.write(`Derived ${changed.length} changed file(s) from \`git diff ${args.baseRef}...HEAD\`\n`)
 
     // Load graph first so we can emit total_story_count even in full-run mode.
     // If the graph is unreadable/missing, fall back to a full-run recommendation

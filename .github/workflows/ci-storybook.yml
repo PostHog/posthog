@@ -824,16 +824,19 @@ jobs:
             - name: Compute affected stories
               id: selection
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  git fetch --no-tags --depth=50 origin "$BASE_SHA"
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha —
+                  # base.sha is captured at webhook time and goes stale if the branch later
+                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
+                  # every merged-in master change.
+                  git fetch --no-tags --depth=50 origin "$BASE_REF"
                   echo "### Changed files" >&2
-                  git diff --name-only "$BASE_SHA"...HEAD >&2
+                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(git diff --name-only "$BASE_SHA"...HEAD \
-                      | bin/find-affected-stories \
-                          --graph /tmp/storybook-graph/module-graph.json \
-                          --changed-files-stdin)
+                  RESULT=$(bin/find-affected-stories \
+                      --graph /tmp/storybook-graph/module-graph.json \
+                      --base-ref "origin/$BASE_REF")
                   echo "$RESULT" > /tmp/selection-result.json
                   # Stash compact form in step output (single line) for the summary step.
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
