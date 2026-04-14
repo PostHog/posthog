@@ -9,12 +9,7 @@ import getExperimentResults from './experiments/getResults'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
-import createInsight from './insights/create'
-import deleteInsight from './insights/delete'
-import getInsight from './insights/get'
-import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
-import updateInsight from './insights/update'
 // LLM Analytics
 import evaluationCreate from './llmAnalytics/evaluations/create'
 import evaluationDelete from './llmAnalytics/evaluations/delete'
@@ -70,11 +65,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-results-get': getExperimentResults,
 
     // Insights
-    'insights-get-all': getAllInsights,
-    'insight-get': getInsight,
-    'insight-create-from-query': createInsight,
-    'insight-update': updateInsight,
-    'insight-delete': deleteInsight,
     'insight-query': queryInsight,
 
     // Queries

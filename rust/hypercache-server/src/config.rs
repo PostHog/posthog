@@ -61,6 +61,16 @@ pub struct Config {
     #[envconfig(from = "MAX_CONCURRENCY", default = "1000")]
     pub max_concurrency: usize,
 
+    // --- Negative cache (in-memory miss markers to avoid repeated Redis+S3 lookups) ---
+    #[envconfig(from = "NEGATIVE_CACHE_ENABLED", default = "false")]
+    pub negative_cache_enabled: FlexBool,
+
+    #[envconfig(from = "NEGATIVE_CACHE_MAX_ENTRIES", default = "100000")]
+    pub negative_cache_max_entries: u64,
+
+    #[envconfig(from = "NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    pub negative_cache_ttl_seconds: u64,
+
     // --- OpenTelemetry ---
     #[envconfig(from = "OTEL_URL")]
     pub otel_url: Option<String>,

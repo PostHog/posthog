@@ -451,6 +451,7 @@ def send_email_reply(
         body=txt_body,
         from_email=from_email,
         to=[ticket.email_from],
+        cc=ticket.cc_participants or [],
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")

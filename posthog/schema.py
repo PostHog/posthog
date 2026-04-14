@@ -134,6 +134,47 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantDataVisualizationAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str = Field(
+        ...,
+        description="Name of a column returned by the SQL query to map onto this axis.",
+    )
+
+
+class AssistantDataVisualizationDisplayType(StrEnum):
+    ACTIONS_TABLE = "ActionsTable"
+    BOLD_NUMBER = "BoldNumber"
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+    ACTIONS_STACKED_BAR = "ActionsStackedBar"
+    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
+    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+
+
+class AssistantDataVisualizationGoalLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str = Field(..., description="Label rendered next to the goal line.")
+    value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
+
+
+class AssistantDataVisualizationTableSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[AssistantDataVisualizationAxis] | None = Field(
+        default=None,
+        description=("Columns to display and their order. Omit to show every column returned by the query."),
+    )
+    pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
+    showTotalRow: bool | None = Field(default=None, description="Show a total row at the bottom of the table.")
+    transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
+
+
 class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -367,6 +408,20 @@ class AssistantHogQLQuery(BaseModel):
         ...,
         description=(
             "SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions."
+        ),
+    )
+
+
+class AssistantInsightVizNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
+    source: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Product analtycs query objects like TrendsQuery, FunnelsQuery,"
+            " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
         ),
     )
 
@@ -4996,6 +5051,63 @@ class AssistantCohortPropertyFilter(BaseModel):
     value: int = Field(..., description="The cohort ID to filter by.")
 
 
+class AssistantDataVisualizationChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
+        default=None, description="Horizontal goal lines drawn across the chart."
+    )
+    seriesBreakdownColumn: str | None = Field(
+        default=None,
+        description=(
+            "Column that splits a single Y series into multiple colored series — e.g."
+            " breaking down a line chart by `country`. Set to `null` or omit to"
+            " disable."
+        ),
+    )
+    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
+    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    stackBars100: bool | None = Field(
+        default=None,
+        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
+    )
+    xAxis: AssistantDataVisualizationAxis | None = Field(
+        default=None,
+        description=("Column used as the X axis. Typically a time bucket or categorical column."),
+    )
+    yAxis: list[AssistantDataVisualizationAxis] | None = Field(
+        default=None, description="One or more numeric columns plotted as Y series."
+    )
+
+
+class AssistantDataVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: AssistantDataVisualizationChartSettings | None = Field(
+        default=None,
+        description=("Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."),
+    )
+    display: AssistantDataVisualizationDisplayType | None = Field(
+        default=None,
+        description=(
+            "Visualization type. Defaults to `ActionsTable` when"
+            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
+            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+        ),
+    )
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
+    tableSettings: AssistantDataVisualizationTableSettings | None = Field(
+        default=None,
+        description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),
+    )
+
+
 class AssistantDateTimePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6824,6 +6936,10 @@ class DayItem(BaseModel):
     )
     label: str
     value: str | AwareDatetime | int
+
+
+class InsightQuery(RootModel[AssistantInsightVizNode | AssistantDataVisualizationNode]):
+    root: AssistantInsightVizNode | AssistantDataVisualizationNode
 
 
 class InsightThreshold(BaseModel):

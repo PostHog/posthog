@@ -11,8 +11,11 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantStickinessQuery,
     AssistantTrendsQuery,
+    DataTableNode,
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
+    InsightVizNode,
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
@@ -57,6 +60,12 @@ def format_query_results_for_llm(
     """
     if utc_now is None:
         utc_now = datetime.now(UTC)
+
+    # Saved insights store their query wrapped in a presentation envelope (`InsightVizNode` for
+    # product-analytics insights, `DataVisualizationNode` / `DataTableNode` for SQL-backed ones).
+    # The dispatcher below matches on the underlying query type, so unwrap the `source` first.
+    if isinstance(query, InsightVizNode | DataVisualizationNode | DataTableNode):
+        query = query.source
 
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
         boxplot_data = response.get("boxplot_data")
