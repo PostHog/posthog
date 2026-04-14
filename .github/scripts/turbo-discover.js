@@ -35,14 +35,18 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
 //
-// .test_durations contains real test timings including Django migration
-// overhead (~6.5 min baked into the first test per shard). pytest-split
-// distributes carriers one-per-shard for even balance.
+// .test_durations has migration-inflated first-test durations corrected
+// by optimize_test_durations.py (using JUnit to identify carriers and
+// subtract the migration tax). Durations reflect actual test work.
 //
-// DJANGO_OVERHEAD_SECONDS covers only the non-pytest per-shard cost:
+// DJANGO_OVERHEAD_SECONDS covers the fixed per-shard cost outside test work:
 //   job setup (checkout, deps, docker)  ~1.9 min
 //   pytest collection/splitting         ~1.1 min
-const DJANGO_OVERHEAD_SECONDS = 3.0 * 60
+//   Django migration (per-shard DB setup) ~6.5 min
+// Note: if per-shard migration is eliminated (pre-migrated DB template),
+// reduce this to ~3.0 min — the durations file will also drop accordingly
+// since migration tax won't inflate first-test timings.
+const DJANGO_OVERHEAD_SECONDS = 9.5 * 60
 const DJANGO_TARGET_WALL_SECONDS = 20 * 60
 const DJANGO_SAFETY_FACTOR = 1.3
 const DJANGO_MIN_SHARDS = 3

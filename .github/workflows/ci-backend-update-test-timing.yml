@@ -162,11 +162,13 @@ jobs:
               env:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
-                  # Process each segment separately, then merge
+                  # Process each segment separately with migration tax correction, then merge.
+                  # Core/Temporal use JUnit for precise carrier detection.
+                  # Products lack JUnit artifacts, so use statistical detection (--shard-count).
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --segment Core
+                      --segment Core --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --segment Temporal
+                      --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products
 
