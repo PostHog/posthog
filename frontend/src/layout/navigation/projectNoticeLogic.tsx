@@ -201,7 +201,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 } else if (hasEventIngestionRestriction) {
                     return 'event_ingestion_restriction'
                 } else if (
-                    // Only show the reverse proxy nudge during the first 7 days of each month.
+                    // Only show the reverse proxy nudge on Cloud — self-hosted users
+                    // control their own infrastructure and don't need managed proxies.
+                    preflight?.cloud &&
+                    // Only show during the first 7 days of each month.
                     // Showing it all the time causes people to ignore it — surfacing it periodically
                     // keeps it noticeable and drives more adoption.
                     new Date().getDate() <= 7 &&
