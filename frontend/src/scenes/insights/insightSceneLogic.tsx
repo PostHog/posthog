@@ -387,6 +387,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: values.tabId,
                     }
 
                     const logic = insightLogic.build(insightProps)
