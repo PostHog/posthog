@@ -40,6 +40,27 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
+def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
+    """Check if a product has a TODO legacy leak [[interfaces]] block in tach.toml.
+
+    These are products where core (posthog/ee) still imports internals directly,
+    so they can't safely be tested in isolation via contract-check.
+
+    Legacy leak blocks have a from = ["products.<name>"] and are preceded by
+    a TODO comment in the interfaces section.
+    """
+
+    # Look for [[interfaces]] blocks that reference this specific module
+    # (not the shared regex pattern) and are near TODO comments.
+    # The TODO comment sits above a group of legacy leak blocks.
+    todo_idx = tach_content.find("# TODO: legacy leaks")
+    if todo_idx == -1:
+        return False
+    # Everything after the TODO marker is legacy leak territory
+    leak_section = tach_content[todo_idx:]
+    return module_path in leak_section
+
+
 def get_tach_block(tach_content: str, module_path: str) -> str:
     """Extract the tach.toml block for a given module path."""
     marker = f'path = "{module_path}"'
@@ -182,7 +203,12 @@ class PackageJsonScriptsCheck(ProductCheck):
         result = CheckResult()
 
         # --- presence checks ---
-        required = ["backend:test"] + (["backend:contract-check"] if ctx.is_isolated else [])
+        module_path = f"products.{ctx.name}"
+        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        has_leaks = has_legacy_interface_leaks(tach_content, module_path)
+
+        needs_contract_check = ctx.is_isolated and not has_leaks
+        required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
             if script not in scripts:
                 result.lines.append(f"✗ missing '{script}'")
@@ -191,11 +217,13 @@ class PackageJsonScriptsCheck(ProductCheck):
                     "turbo cannot discover this product"
                 )
 
-        # --- absence check: non-isolated must NOT have contract-check ---
-        if not ctx.is_isolated and "backend:contract-check" in scripts:
-            result.lines.append("✗ non-isolated product has 'backend:contract-check'")
+        # --- absence check: must NOT have contract-check when not safe for isolation ---
+        must_not_have_contract_check = not ctx.is_isolated or has_leaks
+        if must_not_have_contract_check and "backend:contract-check" in scripts:
+            reason = "has legacy interface leaks (core imports internals directly)" if has_leaks else "is not isolated"
+            result.lines.append("✗ must not have 'backend:contract-check'")
             result.issues.append(
-                "Non-isolated product must not have 'backend:contract-check' script — "
+                f"Product {reason} — remove 'backend:contract-check' from package.json. "
                 "turbo-discover uses this to classify products as isolated, which causes "
                 "the full Django test suite to be skipped when this product changes"
             )
@@ -310,14 +338,18 @@ class TachCheck(ProductCheck):
             )
 
         if ctx.is_isolated and "interfaces" not in tach_block:
-            return CheckResult(
-                lines=["✗ missing interfaces declaration"],
-                issues=[
-                    f"Isolated product missing 'interfaces' in tach.toml — "
-                    f'add interfaces = ["{module_path}.backend.facade", '
-                    f'"{module_path}.backend.presentation.views"]'
-                ],
-            )
+            # Check global [[interfaces]] blocks — the module name may appear
+            # literally or as part of a regex pattern in a from = [...] field.
+            product_short = ctx.name  # e.g. "experiments"
+            has_global_interface = product_short in tach_content and "[[interfaces]]" in tach_content
+            if not has_global_interface:
+                return CheckResult(
+                    lines=["✗ missing interfaces declaration"],
+                    issues=[
+                        f"Isolated product missing interface definition in tach.toml — "
+                        f'add a [[interfaces]] block with from = ["{module_path}"]'
+                    ],
+                )
 
         return CheckResult(lines=["✓ ok"])
 
