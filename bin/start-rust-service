@@ -190,6 +190,18 @@ case "$RS_SVC" in
     export METRICS_PORT=9101
     ;;
 
+  personhog-leader)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50053
+    export CACHE_MEMORY_CAPACITY=100000
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    export KAFKA_PERSON_STATE_TOPIC=personhog_updates
+    export METRICS_PORT=9102
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1

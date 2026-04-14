@@ -55,12 +55,13 @@ jobs:
               with:
                   filters: |
                       dagster:
+                        # --- DAG code itself ---
                         - 'posthog/dags/**'
+                        - 'products/*/dags/**'
                         # Dagster depends on Python, so ensure we run on any possible changes to it
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'
                         - 'common/**/*.py'
-                        - 'products/*/dags/**'
                         - 'products/*/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml

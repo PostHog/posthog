@@ -17,6 +17,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
+import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -59,6 +60,7 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     Survey,
+    SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
 
@@ -828,68 +830,85 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
-            (configuration, currentProject, groupTypes, contextId): CyclotronJobInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
+            (configuration, currentProject, groupTypes, contextId, survey): CyclotronJobInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
-                const event = {
-                    uuid: eventId,
-                    distinct_id: uuid(),
-                    timestamp: dayjs().toISOString(),
-                    elements_chain: '',
-                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    ...(contextId === 'error-tracking'
-                        ? {
-                              event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
-                              properties: {
-                                  name: 'Test issue',
-                                  description: 'This is the issue description',
+                const source = {
+                    name: configuration?.name ?? 'Unnamed',
+                    url: currentUrl,
+                }
+                const globals: CyclotronJobInvocationGlobals =
+                    configuration?.filters?.events?.[0]?.id === SurveyEventName.SENT
+                        ? buildSurveyExampleInvocationGlobals({
+                              survey,
+                              projectId: currentProject?.id || 0,
+                              projectName: currentProject?.name || '',
+                              projectUrl: `${window.location.origin}/project/${currentProject?.id}`,
+                              source,
+                              eventUuid: eventId,
+                              distinctId: uuid(),
+                              timestamp: dayjs().toISOString(),
+                              personId,
+                              personName: 'Example person',
+                              personEmail: 'example@posthog.com',
+                          })
+                        : {
+                              event: {
+                                  uuid: eventId,
+                                  distinct_id: uuid(),
+                                  timestamp: dayjs().toISOString(),
+                                  elements_chain: '',
+                                  url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                                  ...(contextId === 'error-tracking'
+                                      ? {
+                                            event:
+                                                configuration?.filters?.events?.[0].id ||
+                                                '$error_tracking_issue_created',
+                                            properties: {
+                                                name: 'Test issue',
+                                                description: 'This is the issue description',
+                                            },
+                                        }
+                                      : contextId === 'activity-log'
+                                        ? {
+                                              event: '$activity_log_entry_created',
+                                              properties: {
+                                                  activity: 'created',
+                                                  scope: 'Insight',
+                                                  item_id: 'abcdef',
+                                              },
+                                          }
+                                        : {
+                                              event: '$pageview',
+                                              properties: {
+                                                  $current_url: currentUrl,
+                                                  $browser: 'Chrome',
+                                                  $ip: '89.160.20.129',
+                                                  this_is_an_example_event: true,
+                                              },
+                                          }),
                               },
+                              person:
+                                  contextId !== 'error-tracking'
+                                      ? {
+                                            id: personId,
+                                            properties: {
+                                                email: 'example@posthog.com',
+                                            },
+                                            name: 'Example person',
+                                            url: `${window.location.origin}/person/${personId}`,
+                                        }
+                                      : undefined,
+                              groups: {},
+                              project: {
+                                  id: currentProject?.id || 0,
+                                  name: currentProject?.name || '',
+                                  url: `${window.location.origin}/project/${currentProject?.id}`,
+                              },
+                              source,
                           }
-                        : contextId === 'activity-log'
-                          ? {
-                                event: '$activity_log_entry_created',
-                                properties: {
-                                    activity: 'created',
-                                    scope: 'Insight',
-                                    item_id: 'abcdef',
-                                },
-                            }
-                          : {
-                                event: '$pageview',
-                                properties: {
-                                    $current_url: currentUrl,
-                                    $browser: 'Chrome',
-                                    $ip: '89.160.20.129',
-                                    this_is_an_example_event: true,
-                                },
-                            }),
-                }
-                const globals: CyclotronJobInvocationGlobals = {
-                    event,
-                    person:
-                        contextId !== 'error-tracking'
-                            ? {
-                                  id: personId,
-                                  properties: {
-                                      email: 'example@posthog.com',
-                                  },
-                                  name: 'Example person',
-                                  url: `${window.location.origin}/person/${personId}`,
-                              }
-                            : undefined,
-                    groups: {},
-                    project: {
-                        id: currentProject?.id || 0,
-                        name: currentProject?.name || '',
-                        url: `${window.location.origin}/project/${currentProject?.id}`,
-                    },
-                    source: {
-                        name: configuration?.name ?? 'Unnamed',
-                        url: currentUrl,
-                    },
-                }
 
                 if (contextId !== 'error-tracking') {
                     groupTypes.forEach((groupType) => {

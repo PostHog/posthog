@@ -1,6 +1,7 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext } from './types'
+import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 export function findNearestIndex(
     mouseX: number,
@@ -44,7 +45,8 @@ export function buildTooltipContext<Meta = unknown>(
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
-    resolveValue: ResolveValueFn
+    resolveValue: ResolveValueFn,
+    yAxes?: Record<string, YAxisScale>
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -66,7 +68,8 @@ export function buildTooltipContext<Meta = unknown>(
         if (!s.hideFromTooltip) {
             seriesData.push({ series: s, value, color: s.color })
         }
-        const yVal = yScale(value)
+        const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const yVal = seriesYScale(value)
         if (isFinite(yVal)) {
             yPixels.push(yVal)
         }

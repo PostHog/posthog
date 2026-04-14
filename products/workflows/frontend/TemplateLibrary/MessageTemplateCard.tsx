@@ -2,7 +2,7 @@ import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCo
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import { MessageTemplate } from './messageTemplatesLogic'
+import { MessageTemplate } from './types'
 
 export function MessageTemplateCard({
     template,
