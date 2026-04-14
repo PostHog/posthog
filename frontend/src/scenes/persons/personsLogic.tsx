@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -51,7 +52,7 @@ export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
 
 // Persist query state to sessionStorage so it survives kea logic destruction,
 // hot module replacement, and navigation between person pages.
-const QUERY_CACHE_PREFIX = `person-query-cache:${window.__POSTHOG_CONFIG__?.token ?? 'default'}:`
+const QUERY_CACHE_PREFIX = `person-query-cache:${getAppContext()?.current_team?.id ?? 'default'}:`
 
 function getCachedQuery(cacheKey: string): DataTableNode | null {
     try {
