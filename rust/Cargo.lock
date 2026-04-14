@@ -2162,6 +2162,7 @@ dependencies = [
  "common-s3",
  "common-types",
  "mockall",
+ "serde",
  "serde-pickle",
  "serde_json",
  "sha2",

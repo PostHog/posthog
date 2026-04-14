@@ -112,6 +112,46 @@ impl FeatureFlagList {
         Ok((wrapper.flags, evaluation_metadata, wrapper.cohorts))
     }
 
+    /// Extracts flags, evaluation metadata, and cohorts from a pre-deserialized
+    /// `HypercacheFlagsWrapper`. Used with the typed deserialization path where
+    /// `HyperCacheReader` deserializes directly into the wrapper type.
+    ///
+    /// `None` means the `__missing__` sentinel was found (team has no flags).
+    pub fn from_wrapper(
+        wrapper: Option<HypercacheFlagsWrapper>,
+        team_id: TeamId,
+    ) -> Result<HypercacheParseResult, FlagError> {
+        let wrapper = match wrapper {
+            None => {
+                tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
+                return Ok((vec![], EvaluationMetadata::default(), None));
+            }
+            Some(w) => w,
+        };
+
+        tracing::debug!(
+            "Parsed {} flags and {} cohorts for team {}",
+            wrapper.flags.len(),
+            wrapper.cohorts.as_ref().map_or(0, |c| c.len()),
+            team_id,
+        );
+
+        let evaluation_metadata = wrapper.evaluation_metadata;
+        if evaluation_metadata.dependency_stages.is_empty() && !wrapper.flags.is_empty() {
+            tracing::error!(
+                "evaluation_metadata.dependency_stages is empty but {} flags present for team {}",
+                wrapper.flags.len(),
+                team_id
+            );
+            return Err(FlagError::DataParsingErrorWithContext(format!(
+                "evaluation_metadata.dependency_stages is empty but {} flags present for team {team_id}",
+                wrapper.flags.len()
+            )));
+        }
+
+        Ok((wrapper.flags, evaluation_metadata, wrapper.cohorts))
+    }
+
     /// Returns feature flags from postgres given a team_id
     pub async fn from_pg(
         client: PostgresReader,
