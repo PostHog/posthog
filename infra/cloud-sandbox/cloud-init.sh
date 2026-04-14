@@ -284,16 +284,16 @@ clone_repo() {
         target="/mnt/nvme/posthog"
     fi
     # Shallow clone: workspace population only fetches --depth=50 from the
-    # host repo via file:// transport, so --depth=50 gives comfortable
-    # headroom. Fetching the sandbox branch + master in the same clone
-    # eliminates the separate `git fetch origin` step later.
+    # host repo via file:// transport. Clone master first, then fetch the
+    # sandbox branch with an explicit refspec so the remote tracking ref
+    # gets created (plain `git fetch origin <branch>` only writes FETCH_HEAD).
     sudo -u ubuntu git clone --depth=50 --no-tags \
-        --branch master --single-branch \
         https://github.com/PostHog/posthog.git "$target"
-    # Fetch the sandbox branch if it's not master (shallow, separate ref)
+    # Fetch the sandbox branch if it's not master
     if [ "$SANDBOX_BRANCH" != "master" ]; then
         sudo -u ubuntu git -C "$target" fetch --depth=50 --no-tags \
-            origin "$SANDBOX_BRANCH" 2>/dev/null || true
+            origin "+refs/heads/$SANDBOX_BRANCH:refs/remotes/origin/$SANDBOX_BRANCH" \
+            2>/dev/null || true
     fi
     if [ "$USE_NVME" = true ]; then
         ln -s "$target" "$REPO_DIR"
