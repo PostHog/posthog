@@ -1,13 +1,16 @@
 from typing import Optional
+from uuid import UUID
 
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 
@@ -16,6 +19,71 @@ from products.error_tracking.backend.models import ErrorTrackingGroupingRule, Er
 from .utils import RuleReorderingMixin, generate_byte_code
 
 logger = structlog.get_logger(__name__)
+
+
+@extend_schema_field(PropertyGroupFilterValue)  # type: ignore[arg-type]
+class ErrorTrackingGroupingRuleFiltersField(serializers.JSONField):
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        try:
+            PropertyGroupFilterValue(**value)
+        except PydanticValidationError as err:
+            raise serializers.ValidationError(str(err)) from err
+        return value
+
+
+@extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string", "format": "uuid"}]})
+class ErrorTrackingGroupingRuleAssigneeIdField(serializers.Field):
+    def to_internal_value(self, data):
+        if isinstance(data, bool):
+            raise serializers.ValidationError("Expected an integer user ID or UUID role ID.")
+        if isinstance(data, int):
+            return data
+        if isinstance(data, str):
+            try:
+                return UUID(data)
+            except ValueError:
+                if data.isdigit():
+                    return int(data)
+        raise serializers.ValidationError("Expected an integer user ID or UUID role ID.")
+
+    def to_representation(self, value):
+        return value
+
+
+class ErrorTrackingGroupingRuleAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["user", "role"],
+        help_text="Assignee type. Use `user` for a user ID or `role` for a role UUID.",
+    )
+    id = ErrorTrackingGroupingRuleAssigneeIdField(
+        help_text="User ID when `type` is `user`, or role UUID when `type` is `role`."
+    )
+
+    def validate(self, attrs):
+        assignee_id = attrs["id"]
+        if attrs["type"] == "user" and not isinstance(assignee_id, int):
+            raise serializers.ValidationError({"id": "User assignee IDs must be integers."})
+        if attrs["type"] == "role" and not isinstance(assignee_id, UUID):
+            raise serializers.ValidationError({"id": "Role assignee IDs must be UUIDs."})
+        return attrs
+
+
+class ErrorTrackingGroupingRuleCreateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingGroupingRuleFiltersField(
+        help_text="Property-group filters that define which exceptions should be grouped into the same issue."
+    )
+    assignee = ErrorTrackingGroupingRuleAssigneeRequestSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional user or role to assign to issues created by this grouping rule.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional human-readable description of what this grouping rule is for.",
+    )
 
 
 class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
@@ -144,13 +212,14 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
 
         return response
 
-    def create(self, request, *args, **kwargs) -> Response:
-        json_filters = request.data.get("filters")
-        assignee = request.data.get("assignee", None)
-        description = request.data.get("description", None)
-
-        if not json_filters:
-            return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
+    @validated_request(
+        request_serializer=ErrorTrackingGroupingRuleCreateRequestSerializer,
+        responses={201: OpenApiResponse(response=ErrorTrackingGroupingRuleSerializer)},
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        json_filters = request.validated_data["filters"]
+        assignee = request.validated_data.get("assignee")
+        description = request.validated_data.get("description")
 
         parsed_filters = PropertyGroupFilterValue(**json_filters)
         bytecode = generate_byte_code(self.team, parsed_filters)

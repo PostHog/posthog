@@ -14416,10 +14416,10 @@ export namespace Schemas {
      * * `user` - user
     * `role` - role
      */
-    export type ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum = typeof ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum[keyof typeof ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum];
+    export type Type079Enum = typeof Type079Enum[keyof typeof Type079Enum];
 
 
-    export const ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum = {
+    export const Type079Enum = {
       User: 'user',
       Role: 'role',
     } as const;
@@ -14429,7 +14429,7 @@ export namespace Schemas {
 
     * `user` - user
     * `role` - role */
-      type: ErrorTrackingAssignmentRuleAssigneeRequestTypeEnum;
+      type: Type079Enum;
       /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
       id: number | string;
     }
@@ -14547,6 +14547,28 @@ export namespace Schemas {
       disabled_data?: unknown | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingGroupingRuleAssigneeRequest {
+      /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
+
+    * `user` - user
+    * `role` - role */
+      type: Type079Enum;
+      /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
+      id: number | string;
+    }
+
+    export interface ErrorTrackingGroupingRuleCreateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. */
+      filters: PropertyGroupFilterValue;
+      /** Optional user or role to assign to issues created by this grouping rule. */
+      assignee?: ErrorTrackingGroupingRuleAssigneeRequest | null;
+      /**
+       * Optional human-readable description of what this grouping rule is for.
+       * @nullable
+       */
+      description?: string | null;
     }
 
     export interface ErrorTrackingGroupingRuleListResponse {

@@ -18,6 +18,7 @@ import type {
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
     ErrorTrackingGroupingRuleApi,
+    ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
     ErrorTrackingIssueFullApi,
     ErrorTrackingIssueMergeRequestApi,
@@ -444,14 +445,14 @@ export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
 
 export const errorTrackingGroupingRulesCreate = async (
     projectId: string,
-    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
+    errorTrackingGroupingRuleCreateRequestApi: ErrorTrackingGroupingRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingGroupingRuleApi> => {
     return apiMutator<ErrorTrackingGroupingRuleApi>(getErrorTrackingGroupingRulesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingGroupingRuleApi),
+        body: JSON.stringify(errorTrackingGroupingRuleCreateRequestApi),
     })
 }
 
