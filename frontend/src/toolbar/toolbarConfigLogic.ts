@@ -24,6 +24,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     actions({
         authenticate: true,
+        /** Proceed with the OAuth redirect after the user confirms the target domain. */
+        confirmAuthenticate: true,
         logout: true,
         tokenExpired: true,
         clearUserIntent: true,
@@ -38,6 +40,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => ({ status }),
         openUiHostConfigModal: true,
         closeUiHostConfigModal: true,
+        openAuthConfirmModal: true,
+        closeAuthConfirmModal: true,
     }),
 
     reducers(({ props }) => ({
@@ -77,6 +81,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             { setAuthStatus: (_, { status }) => status },
         ],
         uiHostConfigModalVisible: [false, { openUiHostConfigModal: () => true, closeUiHostConfigModal: () => false }],
+        authConfirmModalVisible: [
+            false,
+            { openAuthConfirmModal: () => true, closeAuthConfirmModal: () => false, confirmAuthenticate: () => false },
+        ],
     })),
 
     selectors({
@@ -141,7 +149,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        authenticate: async () => {
+        authenticate: () => {
             toolbarLogger.info('auth', 'Authentication initiated')
 
             // If the uiHost check found a problem, open the config modal instead of proceeding.
@@ -156,6 +164,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return
             }
 
+            // Show the user which domain they'll be redirected to before proceeding.
+            // This prevents phishing via crafted #__posthog= hash params with a
+            // malicious uiHost — the user sees the target domain and can cancel.
+            actions.openAuthConfirmModal()
+        },
+        confirmAuthenticate: async () => {
+            toolbarLogger.info('auth', 'Authentication confirmed by user')
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             actions.persistConfig()
 
@@ -224,7 +239,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
 
             // Persist OAuth tokens separately so they survive posthog-js overwriting LOCALSTORAGE_KEY
-            // when re-launching from a URL hash
+            // when re-launching from a URL hash.
+            // Bind tokens to the uiHost they were issued for — prevents an attacker from
+            // injecting a malicious uiHost via crafted hash params and silently exfiltrating
+            // stored tokens to their domain.
             if (values.accessToken) {
                 localStorage.setItem(
                     OAUTH_LOCALSTORAGE_KEY,
@@ -232,6 +250,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                         accessToken: values.accessToken,
                         refreshToken: values.refreshToken,
                         clientId: values.clientId,
+                        uiHost: values.uiHost,
                     })
                 )
             } else {
@@ -255,15 +274,11 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         maybeMigrateTemporaryToken(!!authParams, props, values, actions)
         initInstrumentation(props, values)
 
-        // Verify uiHost reachability, then exchange the OAuth code if present.
-        // When uiHost was explicitly passed from the PostHog app it's always correct — skip check.
-        // Otherwise always check: token_endpoint and redirect_uri are derived from uiHost,
-        // so a wrong uiHost means the exchange will silently fail.
-        if (!props.uiHost) {
-            verifyUiHostReachability(props, values, actions, authParams)
-        } else if (authParams) {
-            startCodeExchange(values.uiHost, authParams, actions)
-        }
+        // Always verify uiHost reachability, then exchange the OAuth code if present.
+        // Even when uiHost was explicitly passed from the PostHog app via hash params,
+        // we still check — hash params are untrusted input and an attacker could inject
+        // a malicious uiHost. The check catches misconfigured or unreachable hosts.
+        verifyUiHostReachability(props, values, actions, authParams)
     }),
 
     beforeUnmount(({ cache }) => {
@@ -289,7 +304,7 @@ type CheckActions = TokenActions & {
 /** Restore OAuth tokens from a separate localStorage key that survives posthog-js overwrites. */
 function restoreOAuthTokens(
     pendingCodeExchange: boolean,
-    values: { accessToken: string | null },
+    values: { accessToken: string | null; uiHost: string },
     actions: TokenActions
 ): void {
     if (values.accessToken || pendingCodeExchange) {
@@ -298,8 +313,19 @@ function restoreOAuthTokens(
     try {
         const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
         if (stored) {
-            const { accessToken, refreshToken, clientId } = JSON.parse(stored)
+            const { accessToken, refreshToken, clientId, uiHost: storedUiHost } = JSON.parse(stored)
             if (accessToken && refreshToken && clientId) {
+                // If the stored tokens were bound to a different uiHost, discard them.
+                // This prevents an attacker from injecting a malicious uiHost via crafted
+                // hash params and having the toolbar send stored tokens to their domain.
+                // Tokens stored before this check (without uiHost) are still accepted.
+                if (storedUiHost && storedUiHost !== values.uiHost) {
+                    toolbarLogger.warn('auth', 'Stored OAuth tokens are for a different uiHost, discarding', {
+                        stored: storedUiHost,
+                        current: values.uiHost,
+                    })
+                    return
+                }
                 actions.setOAuthTokens(accessToken, refreshToken, clientId)
             }
         }

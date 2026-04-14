@@ -222,6 +222,64 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         })
 
+        it('restores OAuth tokens when stored uiHost matches current uiHost', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'http://localhost',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'stored-access',
+                isAuthenticated: true,
+            })
+        })
+
+        it('discards stored OAuth tokens when uiHost does not match', () => {
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'stored-access',
+                    refreshToken: 'stored-refresh',
+                    clientId: 'stored-client',
+                    uiHost: 'https://us.posthog.com',
+                })
+            )
+            // apiURL resolves to http://localhost — different from stored uiHost
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: null,
+                isAuthenticated: false,
+            })
+        })
+
+        it('restores tokens without stored uiHost for backwards compatibility', () => {
+            // Tokens stored before the uiHost binding was added
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'legacy-access',
+                    refreshToken: 'legacy-refresh',
+                    clientId: 'legacy-client',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: 'legacy-access',
+                isAuthenticated: true,
+            })
+        })
+
         it('does not overwrite when accessToken already exists in props', () => {
             localStorage.setItem(
                 OAUTH_LOCALSTORAGE_KEY,
@@ -413,7 +471,7 @@ describe('toolbar toolbarConfigLogic', () => {
             warnSpy.mockRestore()
         })
 
-        it('setOAuthTokens persists to separate OAuth localStorage key', () => {
+        it('setOAuthTokens persists to separate OAuth localStorage key with uiHost', () => {
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()
 
@@ -424,6 +482,7 @@ describe('toolbar toolbarConfigLogic', () => {
                 accessToken: 'new-access',
                 refreshToken: 'new-refresh',
                 clientId: 'new-client',
+                uiHost: 'http://localhost',
             })
         })
 

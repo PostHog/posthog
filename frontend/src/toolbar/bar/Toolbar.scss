@@ -259,6 +259,33 @@
         background: #f5f5f5;
         border-radius: 0.2rem;
     }
+
+    &__button {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        border-radius: 0.375rem;
+
+        &--primary {
+            color: #fff;
+            background: #1d4aff;
+
+            &:hover {
+                background: #1330bf;
+            }
+        }
+
+        &--secondary {
+            color: #1d1f27;
+            background: #e5e7eb;
+
+            &:hover {
+                background: #d1d5db;
+            }
+        }
+    }
 }
 
 [theme='dark'] .UiHostConfigModal {
@@ -273,5 +300,14 @@
 
     code {
         background: #1d1f27;
+    }
+
+    &__button--secondary {
+        color: #e0e0e8;
+        background: #3c3f47;
+
+        &:hover {
+            background: #4c4f57;
+        }
     }
 }
