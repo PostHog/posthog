@@ -30,7 +30,6 @@ members = [
   "common/hypercache",
   "feature-flags",
   "flags-consumer",
-  "flags-gin-benchmark",
   "hypercache-server",
   "cyclotron-core",
   "cyclotron-node",
