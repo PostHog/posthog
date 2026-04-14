@@ -111,6 +111,7 @@ describe('vercel-ai middleware', () => {
 
             expect(event.properties![key]).toBe(value)
             expect(event.properties!['org_id']).toBeUndefined()
+            expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
         })
 
         it('uses posthog_distinct_id as the event distinct_id', () => {
@@ -132,6 +133,17 @@ describe('vercel-ai middleware', () => {
 
             expect(event.properties!['posthog_distinct_id']).toBeUndefined()
             expect(event.distinct_id).toBe('user-123')
+        })
+
+        it('ignores empty $ai_session_id metadata', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$ai_session_id': '',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_session_id']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
         })
     })
 

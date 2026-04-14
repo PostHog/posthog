@@ -154,14 +154,14 @@ function process(event: PluginEvent, next: () => void): void {
 
     const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
     if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
-        if (!props['posthog_distinct_id']) {
+        if (props['posthog_distinct_id'] === undefined) {
             props['posthog_distinct_id'] = posthogDistinctId
         }
         event.distinct_id = posthogDistinctId
     }
 
     const aiSessionId = props['ai.telemetry.metadata.$ai_session_id']
-    if (props['$ai_session_id'] === undefined && aiSessionId !== undefined) {
+    if (props['$ai_session_id'] === undefined && typeof aiSessionId === 'string' && aiSessionId) {
         props['$ai_session_id'] = aiSessionId
     }
 
