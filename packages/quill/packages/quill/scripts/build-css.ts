@@ -165,4 +165,4 @@ writeFileSync(
 // consumers that only want colour values without the @theme registration.
 copyFileSync(colorsSource, resolve(distDir, 'color-system.css'))
 
-console.log('wrote dist/tokens.css, dist/base.css, dist/tailwind.css, dist/color-system.css')
+console.info('wrote dist/tokens.css, dist/base.css, dist/tailwind.css, dist/color-system.css')
