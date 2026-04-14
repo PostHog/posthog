@@ -25131,6 +25131,7 @@ export namespace Schemas {
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event?: boolean;
+      readonly ingested_live_event?: boolean;
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -26430,6 +26431,7 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly ingested_event?: boolean;
+      readonly ingested_live_event?: boolean;
       readonly default_modifiers?: PatchedTeamDefaultModifiers;
       readonly person_on_events_querying_enabled?: boolean;
       /**
@@ -27043,6 +27045,7 @@ export namespace Schemas {
       anonymize_ips?: boolean;
       completed_snippet_onboarding?: boolean;
       readonly ingested_event: boolean;
+      readonly ingested_live_event: boolean;
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
@@ -31232,6 +31235,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       readonly ingested_event: boolean;
+      readonly ingested_live_event: boolean;
       readonly default_modifiers: TeamDefaultModifiers;
       readonly person_on_events_querying_enabled: boolean;
       /**

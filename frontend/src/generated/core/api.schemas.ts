@@ -481,6 +481,7 @@ export interface ProjectBackwardCompatApi {
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event: boolean
+    readonly ingested_live_event: boolean
     test_account_filters?: unknown
     /** @nullable */
     test_account_filters_default_checked?: boolean | null
@@ -628,6 +629,7 @@ export interface PatchedProjectBackwardCompatApi {
     anonymize_ips?: boolean
     completed_snippet_onboarding?: boolean
     readonly ingested_event?: boolean
+    readonly ingested_live_event?: boolean
     test_account_filters?: unknown
     /** @nullable */
     test_account_filters_default_checked?: boolean | null
