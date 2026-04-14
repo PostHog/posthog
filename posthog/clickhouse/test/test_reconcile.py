@@ -2432,3 +2432,29 @@ class TestComputeDiffsSharedPhysicalHost(unittest.TestCase):
         self.assertIsNone(err)
         drops = [d for d in diffs if d.action == "drop"]
         self.assertEqual([d.table for d in drops], ["truly_orphan"])
+
+
+class TestRealSchemaDirLintsClean(unittest.TestCase):
+    """Guard against regressions in the 46 production YAMLs.
+
+    Every ecosystem under ``posthog/clickhouse/schema/`` must parse and
+    validate. Synthetic-only tests (the rest of this file) can't catch a
+    typo, missing field, or role mismatch in a real YAML file.
+    """
+
+    def test_all_production_yamls_parse_and_validate(self) -> None:
+        from posthog.clickhouse.migration_tools.desired_state import parse_desired_state_dir
+        from posthog.clickhouse.migration_tools.validator import validate_desired_states
+
+        schema_dir = Path(__file__).resolve().parent.parent / "schema"
+        self.assertTrue(schema_dir.is_dir(), f"schema dir missing: {schema_dir}")
+
+        states = parse_desired_state_dir(schema_dir)
+        self.assertGreater(len(states), 0, "expected at least one YAML ecosystem")
+
+        errors = validate_desired_states(states)
+        self.assertEqual(
+            errors,
+            [],
+            "production YAMLs must lint clean. Errors:\n" + "\n".join(f"  - {e}" for e in errors),
+        )
