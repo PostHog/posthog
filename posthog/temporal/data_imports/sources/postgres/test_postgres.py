@@ -383,6 +383,36 @@ class TestGetEstimatedRowCountForPartitionedTable:
             assert result is None
 
     @pytest.mark.django_db
+    def test_returns_none_without_analyze(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_no_analyze (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_no_analyze_p1
+                PARTITION OF test_est_count_no_analyze
+                FOR VALUES FROM ('2026-01-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_est_count_no_analyze (created_at)
+                SELECT '2026-03-01'::date FROM generate_series(1, 300)
+            """)
+            # Without ANALYZE, reltuples is -1 (PG14+). The stats collector
+            # n_live_tup fallback also can't see rows inside a test transaction.
+            # In production, committed inserts would be visible via n_live_tup.
+            # Here the function returns None, causing a fallback to exact COUNT(*).
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_no_analyze", logger
+            )
+            assert result is None
+
+    @pytest.mark.django_db
     def test_returns_zero_for_empty_partitioned_table(self):
         logger = structlog.get_logger()
 

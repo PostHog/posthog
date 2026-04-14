@@ -554,16 +554,24 @@ def _is_partitioned_table(cursor: psycopg.Cursor, schema: str, table_name: str) 
 def _get_estimated_row_count_for_partitioned_table(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> int | None:
-    """Get approximate row count for a partitioned table by summing pg_class.reltuples across child partitions.
+    """Get approximate row count for a partitioned table by summing stats across child partitions.
 
-    Returns None if the estimate is unavailable (e.g. ANALYZE never ran), so the
+    Tries two sources in order:
+    1. pg_class.reltuples — accurate after ANALYZE, but 0 if ANALYZE never ran.
+    2. pg_stat_user_tables.n_live_tup — maintained incrementally by the stats
+       collector (tracks inserts/deletes in near-real-time), works even without ANALYZE.
+
+    Returns None if neither source has data (no child partitions found), so the
     caller can fall back to an exact COUNT(*).
     """
     cursor.execute(
         """
-        SELECT COALESCE(SUM(c.reltuples), -1)::bigint
+        SELECT
+            COALESCE(SUM(c.reltuples), -1)::bigint,
+            COALESCE(SUM(s.n_live_tup), 0)::bigint
         FROM pg_inherits i
         JOIN pg_class c ON c.oid = i.inhrelid
+        LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
         WHERE i.inhparent = (
             SELECT c2.oid
             FROM pg_class c2
@@ -575,13 +583,32 @@ def _get_estimated_row_count_for_partitioned_table(
     )
     row = cursor.fetchone()
 
-    if row is None or row[0] is None or row[0] < 0:
-        logger.debug("_get_estimated_row_count_for_partitioned_table: no estimate available, returning None")
+    if row is None:
+        logger.debug("_get_estimated_row_count_for_partitioned_table: no result, returning None")
         return None
 
-    estimate = int(row[0])
-    logger.debug(f"_get_estimated_row_count_for_partitioned_table: estimated {estimate} rows")
-    return estimate
+    reltuples_sum, n_live_tup_sum = int(row[0]), int(row[1])
+
+    # reltuples is most accurate (set by ANALYZE)
+    if reltuples_sum > 0:
+        logger.debug(f"_get_estimated_row_count_for_partitioned_table: reltuples estimate = {reltuples_sum}")
+        return reltuples_sum
+
+    # ANALYZE never ran — fall back to stats collector count
+    if n_live_tup_sum > 0:
+        logger.debug(
+            f"_get_estimated_row_count_for_partitioned_table: reltuples unavailable, n_live_tup estimate = {n_live_tup_sum}"
+        )
+        return n_live_tup_sum
+
+    # Both 0 — table is genuinely empty
+    if reltuples_sum == 0:
+        logger.debug("_get_estimated_row_count_for_partitioned_table: partitions exist but are empty")
+        return 0
+
+    # No child partitions found (reltuples_sum == -1 from COALESCE)
+    logger.debug("_get_estimated_row_count_for_partitioned_table: no child partitions found, returning None")
+    return None
 
 
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
