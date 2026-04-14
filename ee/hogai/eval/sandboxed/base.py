@@ -5,6 +5,7 @@ import uuid
 import logging
 from collections.abc import Sequence
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ from posthoganalytics import Posthog
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
 from .config import AgentArtifacts, SandboxedEvalCase
+from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import run_eval_case
 from .trace_capture import (
     ParsedLog,
@@ -125,6 +127,13 @@ async def SandboxedEval(
     # Per-case metadata for emitting $ai_trace root events after scoring.
     case_trace_meta: dict[str, dict[str, Any]] = {}
 
+    # Local disk sink for raw agent logs — lets an agent iterating on the
+    # harness read back what happened without round-tripping through Braintrust.
+    run_log_dir = build_case_dir(experiment_name, experiment_id)
+    log_dirs: set[Path] = getattr(pytestconfig, "_sandboxed_eval_log_dirs", set())
+    log_dirs.add(run_log_dir)
+    pytestconfig._sandboxed_eval_log_dirs = log_dirs  # type: ignore[attr-defined]
+
     # Wrap scorers with tracing if PostHog client is available
     scorer_traces: dict[tuple[str, str], str] = {}
     if posthog_client:
@@ -199,6 +208,21 @@ async def SandboxedEval(
                     except Exception:
                         logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
+            try:
+                paths = write_case_logs(
+                    case_dir=run_log_dir,
+                    case_name=eval_case.name,
+                    raw_log=result.raw_log or "",
+                    artifacts=result.artifacts.model_dump(),
+                    prompt=eval_case.prompt,
+                    duration=result.artifacts.duration_seconds,
+                    last_message=last_message,
+                    token_usage=case_trace_meta.get(eval_case.name, {}).get("token_usage"),
+                )
+                print(f"[eval-logs] {eval_case.name}: {paths.case_dir}")  # noqa: T201
+            except Exception:
+                logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
+
             return result.artifacts.model_dump() | {
                 "last_message": last_message,
                 "messages": messages,
@@ -227,6 +251,17 @@ async def SandboxedEval(
         is_public=is_public,
         no_send_logs=no_send_logs,
     )
+
+    # Append final scores to local summary files for every case we wrote.
+    if result.results:
+        for eval_result in result.results:
+            case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
+            if not case_name:
+                continue
+            try:
+                append_case_scores(run_log_dir, case_name, dict(eval_result.scores or {}))
+            except Exception:
+                logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
     # Emit evaluation events and trace roots to PostHog (after scoring)
     if posthog_client and result.results:

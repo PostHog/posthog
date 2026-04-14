@@ -30,6 +30,19 @@ async def eval_bugfix(sandbox_context, pytestconfig, posthog_client):
                 tests_should_pass=True,
             ),
         ),
+        SandboxedEvalCase(
+            name="mcp_pageview_count_last_week",
+            prompt=(
+                "Using the PostHog MCP tools available to you, query how many $pageview events "
+                "were captured in the last 7 days for the current project. Run a HogQL query "
+                "via the PostHog MCP server and report the total count as a single integer in "
+                "your final reply."
+            ),
+            expected=SandboxedExpected(
+                files_modified=None,
+                tests_should_pass=True,
+            ),
+        ),
     ]
 
     await SandboxedPublicEval(

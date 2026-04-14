@@ -440,3 +440,22 @@ def posthog_client() -> Generator:
     yield client
     if client:
         client.shutdown()
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):  # noqa: ARG001
+    """Surface the local eval log directories at the end of a test session.
+
+    Mirrors the Braintrust URL reporter pattern in ``ee/hogai/eval/conftest.py`` —
+    gives an agent iterating on failing eval cases a single, obvious place to
+    look for raw agent output without digging through per-test stdout capture.
+    """
+    log_dirs = getattr(config, "_sandboxed_eval_log_dirs", None)
+    if not log_dirs:
+        return
+
+    writer = terminalreporter
+    writer.write_sep("=", "sandboxed eval logs")
+    writer.write_line("Raw agent logs written to:")
+    for path in sorted(log_dirs):
+        writer.write_line(f"  {path}")
+    writer.write_line("Files per case: <case>.jsonl (raw), <case>.artifacts.json, <case>.summary.txt")
