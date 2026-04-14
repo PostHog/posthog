@@ -194,7 +194,7 @@ async def _poll_for_turn(
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
         if empty_end_turn:
-            logger.exception(
+            logger.warning(
                 "custom_prompt - poll_for_turn: empty end_turn detected (no agent_message), run=%s total_lines=%d",
                 task_run.id,
                 total_lines,
