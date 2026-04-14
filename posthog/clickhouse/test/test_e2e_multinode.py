@@ -23,10 +23,21 @@ Or directly:
 """
 
 import os
+import uuid
+import subprocess
 
 import pytest
 
 pytestmark = pytest.mark.multinode
+
+# Per-run suffix for ReplicatedMergeTree ZK paths. The `test_db` fixture
+# drops tables between runs, but if a run is interrupted (SIGINT, OOM,
+# docker restart) stale znodes under `/clickhouse/tables/<shard>/...`
+# outlive the DB and cause the next `CREATE TABLE` to fail with
+# "replica path already exists". Embedding a per-run UUID keeps ZK paths
+# unique even when cleanup didn't run.
+TEST_RUN_SUFFIX = uuid.uuid4().hex[:8]
+ZK_PATH_PREFIX = f"/clickhouse/tables/{{shard}}/test_{TEST_RUN_SUFFIX}"
 
 
 def _try_connect(host_env, host_default, port_env, port_default):
@@ -44,27 +55,45 @@ def _try_connect(host_env, host_default, port_env, port_default):
 
 
 @pytest.fixture(scope="module")
-def ch_main():
-    """Main cluster node (keeper-main, shard 01, data role).
+def multinode_stack_available():
+    """Skip the module only when the dev-coordinator stack isn't running.
 
-    Also skips the module when the multi-node dev stack isn't present.
-    Detects this by counting shards in the posthog_migrations cluster —
-    single-node CI has only one shard, multi-node dev has two.
+    Previously we gated on `posthog_migrations` shard count, but that is
+    the exact condition these tests exist to verify — if the cluster
+    config regressed to a single shard, skipping the suite would hide
+    the regression. Detect "stack absent" by asking compose whether the
+    clickhouse container exists instead.
     """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-p",
+                "posthog-multinode",
+                "-f",
+                "docker-compose.dev-coordinator.yml",
+                "ps",
+                "-q",
+                "clickhouse",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pytest.skip("docker compose unavailable; cannot detect multinode stack")
+    if result.returncode != 0 or not result.stdout.strip():
+        pytest.skip("Multi-node dev stack not running. Start with `bin/ch-stack-up`.")
+    return True
+
+
+@pytest.fixture(scope="module")
+def ch_main(multinode_stack_available):
+    """Main cluster node (keeper-main, shard 01, data role)."""
     client = _try_connect("CLICKHOUSE_HOST", "localhost", "CLICKHOUSE_PORT", 9000)
     if client is None:
         pytest.skip("clickhouse node not reachable on localhost:9000")
-    try:
-        shards = client.execute("SELECT uniq(shard_num) FROM system.clusters WHERE cluster = 'posthog_migrations'")[0][
-            0
-        ]
-    except Exception:
-        shards = 0
-    if shards < 2:
-        pytest.skip(
-            f"multi-node dev stack not detected (posthog_migrations has {shards} shard(s)); "
-            "run `docker compose -f docker-compose.dev.yml -f docker-compose.dev-coordinator.yml up -d` first"
-        )
     return client
 
 
@@ -168,19 +197,16 @@ class TestKeeperConnectivity:
         tbl = f"{test_db}.isolation_probe"
         ch_main.execute(
             f"CREATE TABLE {tbl} (id UInt64) "
-            f"ENGINE = ReplicatedMergeTree('/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"ENGINE = ReplicatedMergeTree('{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
             # Both nodes query the same keeper, so both see the znode.
-            main_zk = ch_main.execute(
-                f"SELECT count() FROM system.zookeeper WHERE path = '/clickhouse/tables/01/{tbl}'"
-            )
+            zk_path_resolved = f"/clickhouse/tables/01/test_{TEST_RUN_SUFFIX}/{tbl}"
+            main_zk = ch_main.execute(f"SELECT count() FROM system.zookeeper WHERE path = '{zk_path_resolved}'")
             assert main_zk[0][0] > 0, "znode not visible on main node"
 
-            logs_zk = ch_logs.execute(
-                f"SELECT count() FROM system.zookeeper WHERE path = '/clickhouse/tables/01/{tbl}'"
-            )
+            logs_zk = ch_logs.execute(f"SELECT count() FROM system.zookeeper WHERE path = '{zk_path_resolved}'")
             assert logs_zk[0][0] > 0, "znode not visible on logs node — keeper sharing broken"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} SYNC")
@@ -217,7 +243,7 @@ class TestShardedDistributed:
             f"CREATE TABLE {local} ON CLUSTER posthog_migrations "
             f"(id UInt64, team_id Int64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{local}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{local}', '{{replica}}') "
             f"ORDER BY (team_id, id)"
         )
         try:
@@ -247,7 +273,7 @@ class TestShardedDistributed:
             f"CREATE TABLE {tbl} ON CLUSTER posthog_migrations "
             f"(id UInt64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
@@ -316,7 +342,7 @@ class TestReplicatedMergeTree:
         ch_main.execute(
             f"CREATE TABLE {tbl} (id UInt64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
@@ -341,7 +367,7 @@ class TestReplicatedMergeTree:
             f"CREATE TABLE {tbl} ON CLUSTER posthog_migrations "
             f"(id UInt64) "
             f"ENGINE = ReplicatedMergeTree("
-            f"'/clickhouse/tables/{{shard}}/{tbl}', '{{replica}}') "
+            f"'{ZK_PATH_PREFIX}/{tbl}', '{{replica}}') "
             f"ORDER BY id"
         )
         try:
