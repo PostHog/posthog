@@ -11,6 +11,7 @@ from django.test.client import Client as HttpClient
 import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
@@ -236,6 +237,56 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    @parameterized.expand(
+        [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
+    )
+    def test_update_schema_to_webhook_does_not_reset_pipeline(self, from_sync_type):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=from_sync_type,
+            sync_type_config={
+                "incremental_field": "created",
+                "incremental_field_type": "integer",
+                "incremental_field_last_value": 1000,
+            },
+            table=table,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger_external_data_workflow,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=True,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook"},
+            )
+
+            assert response.status_code == 200
+            mock_trigger_external_data_workflow.assert_not_called()
+
+            schema.refresh_from_db()
+
+            assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            assert schema.sync_type_config.get("reset_pipeline") is None
+            assert schema.sync_type_config.get("incremental_field") == "created"
+            assert schema.sync_type_config.get("incremental_field_type") == "integer"
+            assert schema.sync_type_config.get("incremental_field_last_value") == 1000
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(

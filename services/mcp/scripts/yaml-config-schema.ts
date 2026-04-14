@@ -38,8 +38,15 @@ export const ToolConfigSchema = z
                     .object({
                         description: z.string().optional(),
                         input_schema: z.string().optional(),
+                        /** Reference to a schema.json definition. Generates a Zod schema from JSON Schema at build time. */
+                        schema_ref: z.string().optional(),
+                        /** Properties to exclude when generating from schema_ref. */
+                        exclude_properties: z.array(z.string()).optional(),
                     })
                     .strict()
+                    .refine((data) => !(data.input_schema && data.schema_ref), {
+                        message: 'input_schema and schema_ref are mutually exclusive',
+                    })
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),

@@ -4251,7 +4251,7 @@ export namespace Schemas {
       name?: string | null;
       /** @nullable */
       response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode)[];
+      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
       /** @nullable */
       sharedMetricId?: number | null;
       /** @nullable */
@@ -22365,6 +22365,7 @@ export namespace Schemas {
       readonly email_from: string | null;
       /** @nullable */
       readonly email_to: string | null;
+      readonly cc_participants: unknown;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -26602,6 +26603,7 @@ export namespace Schemas {
       readonly email_from?: string | null;
       /** @nullable */
       readonly email_to?: string | null;
+      readonly cc_participants?: unknown;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }

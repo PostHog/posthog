@@ -41,7 +41,7 @@ To connect to a pod, follow this runbook: [https://runbooks.posthog.com/EKS/acce
 The following code snippet will both disable billing and reset the table - which means deleting all existing table files (other than query files). Make sure to run this on a `temporal-worker-data-warehouse` pod - they have all the correct env vars set up for this:
 
 ```python
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 import os
 import s3fs
 import time
@@ -55,7 +55,7 @@ for index, schema_id in enumerate(schema_ids):
     team_id = schema.team_id
     schema_id = schema.id
     source_id = schema.source.id
-    schema_name = NamingConvention().normalize_identifier(schema.name)
+    schema_name = NamingConvention.normalize_identifier(schema.name)
     s3_folder = f"{os.environ['BUCKET_URL']}/{schema.folder_path()}/{schema_name}"
     print(f"Deleting {s3_folder}")
     try:
@@ -73,7 +73,7 @@ for index, schema_id in enumerate(schema_ids):
 If you want to sync a table without resetting it - then the below snippet is for you instead:
 
 ```python
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 import os
 import s3fs
 import time
@@ -87,7 +87,7 @@ for index, schema_id in enumerate(schema_ids):
     team_id = schema.team_id
     schema_id = schema.id
     source_id = schema.source.id
-    schema_name = NamingConvention().normalize_identifier(schema.name)
+    schema_name = NamingConvention.normalize_identifier(schema.name)
     print("Starting temporal worker...")
     try:
         os.system('python manage.py start_temporal_workflow external-data-job "{\\"team_id\\": ' + str(team_id) + ',\\"external_data_source_id\\":\\"' + str(source_id) + '\\",\\"external_data_schema_id\\":\\"' + str(schema_id) + '\\",\\"billable\\":false,\\"reset_pipeline\\":false}" --workflow-id ' + str(schema_id) + '-resync-' + str(time.time()) + ' --task-queue data-warehouse-task-queue')

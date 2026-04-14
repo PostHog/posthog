@@ -55,20 +55,48 @@ jobs:
               with:
                   filters: |
                       dagster:
+                        # --- DAG code itself ---
                         - 'posthog/dags/**'
-                        # Dagster depends on Python, so ensure we run on any possible changes to it
-                        - 'posthog/**/*'
-                        - 'ee/**/*'
-                        - 'products/*'
-                        - 'products/*/!(frontend)/**'
-                        # Make sure we run if someone is explicitly change the workflow
+                        - 'products/*/dags/**'
+                        - 'ee/billing/dags/**'
+                        - 'ee/hogai/eval/**'
+                        # --- Core infrastructure that DAGs import ---
+                        - 'posthog/clickhouse/**'
+                        - 'posthog/models/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/ducklake/**'
+                        - 'posthog/hogql/**'
+                        - 'posthog/hogql_queries/**'
+                        - 'posthog/settings/**'
+                        - 'posthog/schema.py'
+                        - 'posthog/redis.py'
+                        - 'posthog/person_db_router.py'
+                        - 'posthog/cloud_utils.py'
+                        - 'posthog/utils.py'
+                        - 'posthog/git.py'
+                        - 'posthog/metrics.py'
+                        - 'posthog/errors.py'
+                        - 'posthog/exceptions_capture.py'
+                        - 'posthog/event_usage.py'
+                        - 'posthog/products.py'
+                        - 'posthog/test/**'
+                        - 'posthog/conftest.py'
+                        - 'ee/clickhouse/**'
+                        # --- Product backend models used by product DAGs ---
+                        - 'products/*/backend/models/**'
+                        - 'products/*/backend/types.py'
+                        - 'products/*/backend/constants.py'
+                        # --- Django migrations (model schema changes) ---
+                        - 'posthog/migrations/**'
+                        - 'ee/migrations/**'
+                        - 'products/*/backend/migrations/**'
+                        # --- Dependency and infra changes ---
+                        - 'pyproject.toml'
+                        - 'uv.lock'
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
-                        # We use docker compose for tests, make sure we rerun on
-                        # changes to docker-compose.dev.yml e.g. dependency
-                        # version changes
                         - docker-compose.dev.yml
-                        - frontend/public/email/*
+                        - docker-compose.profiles.yml
 
             - name: Read ClickHouse versions from JSON
               id: read-versions

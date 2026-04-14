@@ -45,7 +45,9 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Sc
         },
     })
 
-const ActionCreateSchema = ActionsCreateBody.omit({ _create_in_folder: true })
+const ActionCreateSchema = ActionsCreateBody.omit({ _create_in_folder: true }).extend({
+    name: ActionsCreateBody.shape['name'].describe('Name of the action (must be unique within the project)'),
+})
 
 const actionCreate = (): ToolBase<typeof ActionCreateSchema, WithPostHogUrl<Schemas.Action>> =>
     withUiApp('action', {

@@ -56,17 +56,6 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
         .unwrap()
 }
 
-/// Normalize an unmatched path to its first segment to avoid high-cardinality
-/// metric labels from arbitrary 404 paths (tokens, locales, scanner probes, etc.).
-///
-/// Examples: `/array/phc_xxx/config.js` → `/array/`, `/metrics` → `/metrics`
-pub fn normalize_unmatched_path(raw: &str) -> String {
-    match raw.find('/').and_then(|_| raw[1..].find('/')) {
-        Some(i) => raw[..i + 2].to_owned(),
-        None => raw.to_owned(),
-    }
-}
-
 /// Middleware to record some common HTTP metrics
 /// Someday tower-http might provide a metrics middleware: https://github.com/tower-rs/tower-http/issues/57
 pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse {
@@ -75,7 +64,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        normalize_unmatched_path(req.uri().path())
+        req.uri().path().to_owned()
     };
 
     let method = req.method().clone();
@@ -209,29 +198,5 @@ impl<'a> TimingGuardLabels<'a> {
                 labels.push((key.to_string(), value.to_string()));
             }
         };
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_unmatched_path;
-
-    #[test]
-    fn test_normalize_unmatched_path() {
-        let cases = [
-            // (input, expected)
-            ("/array/phc_xxx/config.js", "/array/"),
-            ("/array/phc_xxx/en_GB/config.js", "/array/"),
-            ("/array/N/A/config", "/array/"),
-            ("/array/https:/us.i.posthog.com/config", "/array/"),
-            ("/api/surveys/blah", "/api/"),
-            ("/array/env", "/array/"),
-            ("/array/package.json", "/array/"),
-            ("/metrics", "/metrics"),
-            ("/", "/"),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(normalize_unmatched_path(input), expected, "input: {input}");
-        }
     }
 }
