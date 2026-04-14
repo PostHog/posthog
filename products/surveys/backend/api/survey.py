@@ -1810,7 +1810,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             )
 
             if survey_dates:
-                survey_start = survey_dates["start_date"]
+                survey_start = survey_dates["start_date"] or survey_dates["created_at"]
                 survey_end = survey_dates["end_date"]
 
                 if survey_start:
