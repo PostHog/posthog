@@ -9,6 +9,7 @@ import os
 import errno
 import shutil
 import socket
+import functools
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -123,9 +124,19 @@ def workspace_argument(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Shared Click decorator adding an optional ``WORKSPACE`` positional argument.
 
     Accepts a label for the current user's workspace, or ``@user[/label]``
-    for another user's shared workspace.
+    for another user's shared workspace.  ``--name`` / ``-n`` is accepted as
+    an explicit alternative (e.g. ``--name api`` instead of just ``api``).
     """
-    return click.argument("workspace", required=False, default=None)(fn)
+
+    @click.argument("workspace", required=False, default=None)
+    @click.option("--name", "-n", "workspace_name", default=None, help="Workspace label or @user[/label] target")
+    @functools.wraps(fn)
+    def wrapper(*args: Any, workspace: str | None = None, workspace_name: str | None = None, **kwargs: Any) -> Any:
+        if workspace and workspace_name:
+            raise click.UsageError("Pass WORKSPACE or --name, not both.")
+        return fn(*args, workspace=workspace_name or workspace, **kwargs)
+
+    return wrapper
 
 
 def _print_connection_info(name: str) -> None:
