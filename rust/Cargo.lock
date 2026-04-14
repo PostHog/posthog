@@ -2631,6 +2631,7 @@ dependencies = [
  "insta",
  "limiters",
  "metrics",
+ "metrics-exporter-prometheus",
  "mockall",
  "moka",
  "once_cell",
