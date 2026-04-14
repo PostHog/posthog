@@ -13,12 +13,6 @@ class RequireAtLeastOneSeries:
             raise ValidationError(f"{get_query_insight_name(context.query)} require at least one series.")
 
 
-class RequireAtLeastTwoSeries:
-    def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
-        if not context.query.series:
-            raise ValidationError(f"{get_query_insight_name(context.query)} require at least two series.")
-
-
 class DisallowUnsupportedDataWarehouseSettings:
     def validate(
         self, context: QueryValidationContext[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery]
