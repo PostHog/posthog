@@ -1,0 +1,3 @@
+pageviews_last_week: 4
+date_from: 2026-04-07T00:00:00Z
+date_to: 2026-04-14T00:00:00Z
