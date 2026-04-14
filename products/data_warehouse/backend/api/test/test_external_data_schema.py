@@ -284,6 +284,9 @@ class TestExternalDataSchema(APIBaseTest):
 
             assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
             assert schema.sync_type_config.get("reset_pipeline") is None
+            assert schema.sync_type_config.get("incremental_field") == "created"
+            assert schema.sync_type_config.get("incremental_field_type") == "integer"
+            assert schema.sync_type_config.get("incremental_field_last_value") == 1000
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(

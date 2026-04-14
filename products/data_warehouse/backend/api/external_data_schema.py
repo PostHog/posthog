@@ -175,26 +175,30 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             ExternalDataSchema.SyncType.WEBHOOK,
         ):
             payload = instance.sync_type_config
-            payload["incremental_field"] = data.get("incremental_field")
-            payload["incremental_field_type"] = data.get("incremental_field_type")
 
-            # Only check for incremental field changes on sync types that use them
+            # Detect incremental field changes before mutating payload
+            incremental_field_changed = False
             if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
                 incremental_field_changed = (
-                    instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
-                    or instance.sync_type_config.get("incremental_field_last_value") is None
+                    payload.get("incremental_field") != data.get("incremental_field")
+                    or payload.get("incremental_field_last_value") is None
                 )
 
-                if incremental_field_changed:
-                    if instance.table is not None:
-                        # Get the max_value and set it on incremental_field_last_value
-                        max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
-                        if max_value:
-                            instance.update_incremental_field_value(max_value, save=False)
-                        else:
-                            # if we can't get the max value, reset the table
-                            payload["incremental_field_last_value"] = None
-                            trigger_refresh = True
+            if "incremental_field" in data:
+                payload["incremental_field"] = data.get("incremental_field")
+            if "incremental_field_type" in data:
+                payload["incremental_field_type"] = data.get("incremental_field_type")
+
+            if incremental_field_changed:
+                if instance.table is not None:
+                    # Get the max_value and set it on incremental_field_last_value
+                    max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
+                    if max_value:
+                        instance.update_incremental_field_value(max_value, save=False)
+                    else:
+                        # if we can't get the max value, reset the table
+                        payload["incremental_field_last_value"] = None
+                        trigger_refresh = True
 
             validated_data["sync_type_config"] = payload
         elif sync_type == ExternalDataSchema.SyncType.CDC:
