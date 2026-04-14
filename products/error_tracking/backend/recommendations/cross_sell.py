@@ -8,7 +8,7 @@ from .base import BaseRecommendation
 
 def _team_has_logs(team_id: int) -> bool:
     result = sync_execute(
-        "SELECT 1 FROM log_entries WHERE team_id = %(team_id)s LIMIT 1",
+        "SELECT 1 FROM logs_distributed WHERE team_id = %(team_id)s LIMIT 1",
         {"team_id": team_id},
     )
     return len(result) > 0
