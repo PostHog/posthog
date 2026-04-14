@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional
@@ -26,9 +27,14 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.hogql_queries.insights.lifecycle_validation import (
+    RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.validation.rules import RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -37,33 +43,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
     cached_response: CachedLifecycleQueryResponse
 
-    def validate_query(self) -> bool:
-        if not self.query.series:
-            raise ValidationError("Lifecycle insights require at least one series.")
-
-        if not self.is_data_warehouse_series:
-            if self.query.customAggregationTarget:
-                raise ValidationError(
-                    "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series."
-                )
-            return True
-
-        unsupported_settings: list[str] = []
-        if self.query.properties not in (None, []):
-            unsupported_settings.append("filters")
-        if self.query.filterTestAccounts:
-            unsupported_settings.append("test account filters")
-        if self.query.samplingFactor is not None:
-            unsupported_settings.append("sampling")
-
-        if unsupported_settings:
-            settings = " and ".join(unsupported_settings)
-            verb = "is" if unsupported_settings == ["sampling"] else "are"
-            raise ValidationError(
-                f"{settings.capitalize()} {verb} not supported for lifecycle insights with a data warehouse series."
-            )
-
-        return True
+    def validators(self) -> Sequence[QueryValidationRule[LifecycleQuery]]:
+        return (RequireAtLeastOneSeries, RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:

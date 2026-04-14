@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -97,6 +98,11 @@ from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.validation.validation import (
+    QueryValidationContext,
+    QueryValidationRule,
+    run_validation_rules,
+)
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -1072,6 +1078,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.limit_context
 
     def calculate(self) -> R:
+        run_validation_rules(self.validators(), self.validation_context)
         return self._calculate()
 
     @abstractmethod
@@ -1324,8 +1331,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
 
                     raise
-
-            self.validate_query()
 
             trigger: str | None = get_query_tag_value("trigger")
 
@@ -1766,9 +1771,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
-    def validate_query(self) -> bool:
-        """Validate the query before execution, allowing subclasses to reject unsupported input."""
-        return True
+    @property
+    def validation_context(self) -> QueryValidationContext[Q]:
+        return QueryValidationContext(query=self.query, team=self.team, user=self.user, runner=self)
+
+    def validators(self) -> Sequence[QueryValidationRule[Q]]:
+        """Overridden by subclasses to add validation rules."""
+        return ()
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # If a custom cache age was provided (e.g., from Endpoint), use our override logic
@@ -1908,7 +1917,6 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
 
     def calculate(self) -> AR:
-        self.validate_query()
         response = self._calculate()
         if not self.modifiers.timings:
             response.timings = None
