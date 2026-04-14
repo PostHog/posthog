@@ -36,7 +36,7 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
         })
         const filtered = {
             ...result,
-            results: result.results.map((item: any) =>
+            results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, ['id', 'uuid', 'name', 'distinct_ids', 'created_at', 'last_seen_at'])
             ),
         } as typeof result
