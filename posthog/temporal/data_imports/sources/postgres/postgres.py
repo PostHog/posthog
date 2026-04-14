@@ -847,6 +847,15 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
 def _get_partition_settings(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> PartitionSettings | None:
+    # For partitioned tables, a plain COUNT(*) and pg_table_size on the
+    # parent would scan every child partition / return 0. Use catalog
+    # estimates instead.
+    try:
+        if _is_partitioned_table(cursor, schema, table_name):
+            return _get_partition_settings_for_partitioned_table(cursor, schema, table_name, logger)
+    except Exception as e:
+        logger.debug(f"_get_partition_settings: partition detection failed, falling back: {e}")
+
     query = sql.SQL("""
         SELECT
             CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
@@ -885,6 +894,63 @@ def _get_partition_settings(
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
     logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
+
+
+def _get_partition_settings_for_partitioned_table(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> PartitionSettings | None:
+    """Compute PartitionSettings for a partitioned table via catalog stats.
+
+    Summing pg_table_size and reltuples across child partitions avoids the
+    full-table scan that COUNT(*) + pg_table_size on the parent would incur.
+    Returns None if catalog stats are unreliable (any partition unanalyzed),
+    letting the caller skip partitioning rather than use bad numbers.
+    """
+    cursor.execute(
+        """
+        SELECT
+            COALESCE(SUM(pg_table_size(c.oid)), 0)::bigint,
+            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
+            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
+            COUNT(*)::bigint
+        FROM pg_inherits i
+        JOIN pg_class c ON c.oid = i.inhrelid
+        WHERE i.inhparent = (
+            SELECT c2.oid
+            FROM pg_class c2
+            JOIN pg_namespace n ON n.oid = c2.relnamespace
+            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
+        )
+        """,
+        {"schema": schema, "table": table_name},
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+
+    total_size, total_rows, unanalyzed_count, partition_count_children = (
+        int(row[0]),
+        int(row[1]),
+        int(row[2]),
+        int(row[3]),
+    )
+
+    if partition_count_children == 0 or total_size == 0 or total_rows == 0 or unanalyzed_count > 0:
+        logger.debug(
+            f"_get_partition_settings_for_partitioned_table: no reliable estimate "
+            f"(children={partition_count_children}, size={total_size}, rows={total_rows}, "
+            f"unanalyzed={unanalyzed_count}), returning None"
+        )
+        return None
+
+    avg_row_size = total_size / total_rows
+    partition_size = round(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / avg_row_size)
+    partition_count = max(1, math.floor(total_rows / partition_size))
+    logger.debug(
+        f"_get_partition_settings_for_partitioned_table: partition_count={partition_count}, "
+        f"partition_size={partition_size} (total_rows={total_rows}, total_size={total_size})"
+    )
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -1159,13 +1225,22 @@ def postgres_source(
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
-                    # For partitioned tables on initial sync, use pg_class.reltuples
+                    # For partitioned tables without an incremental cursor (initial
+                    # sync, re-sync, or non-incremental), use pg_class.reltuples
                     # estimate to avoid scanning all partitions with a COUNT(*).
+                    # `is_initial_sync` only reflects the first-ever sync; a forced
+                    # re-sync keeps initial_sync_complete=True but still scans the
+                    # whole table, so we gate on the filter actually being a full
+                    # scan (no incremental cursor value).
                     rows_to_sync: int | None = None
-                    if is_initial_sync:
+                    full_table_scan = db_incremental_field_last_value is None
+                    if is_initial_sync or full_table_scan:
                         try:
                             if _is_partitioned_table(cursor, schema, table_name):
-                                logger.debug("Partitioned table detected, using estimated row count")
+                                logger.debug(
+                                    f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
+                                    f"full_table_scan={full_table_scan}), using estimated row count"
+                                )
                                 rows_to_sync = _get_estimated_row_count_for_partitioned_table(
                                     cursor, schema, table_name, logger
                                 )
