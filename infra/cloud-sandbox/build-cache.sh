@@ -94,37 +94,10 @@ log "Building database cache (this takes ~10-15 min)..."
 sudo -u ubuntu sg docker -c "python3 bin/sandbox rebuild-cache"
 log "Database cache built"
 
-# Install JetBrains IDEs into shared Docker volumes so cloud sandboxes skip
-# the ~40s download during bin/sandbox create.
-install_jetbrains_to_volume() {
-    local code="$1" name="$2" volume="$3"
-    local check
-    check=$(docker run --rm -v "${volume}:/opt/idea" alpine sh -c \
-        "test -x /opt/idea/bin/remote-dev-server.sh && echo yes" 2>/dev/null || true)
-    if [ "$check" = "yes" ]; then
-        log "$name already installed in $volume"
-        return
-    fi
-    local api_url="https://data.services.jetbrains.com/products/releases?code=${code}&latest=true&type=release"
-    local download_url
-    download_url=$(curl -sfL "$api_url" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data['${code}'][0]['downloads']['linux']['link'])")
-    log "Downloading $name..."
-    docker run --rm -v "${volume}:/opt/idea" -e "DL_URL=${download_url}" alpine sh -c \
-        'apk add --no-cache curl > /dev/null 2>&1 && curl -fSL "$DL_URL" | tar -xzf - -C /opt/idea --strip-components=1'
-    log "$name installed into $volume"
-}
-
-log "Installing JetBrains IDEs into cache..."
-install_jetbrains_to_volume "IIU" "IntelliJ IDEA Ultimate" "sandbox-intellij" &
-JB_PID1=$!
-install_jetbrains_to_volume "PCP" "PyCharm Professional" "sandbox-pycharm" &
-JB_PID2=$!
-wait $JB_PID1 || { log "ERROR: IntelliJ install failed"; exit 1; }
-wait $JB_PID2 || { log "ERROR: PyCharm install failed"; exit 1; }
-log "JetBrains IDEs ready"
+# JetBrains IDEs are no longer pre-installed into the cache archive.
+# cloud-init.sh downloads the chosen IDE into a bind-mounted host directory
+# (/opt/jetbrains/idea) after the sandbox is live, keeping ~1.5 GB out of the
+# S3 archive and off the critical boot path.
 
 log "Creating split archive of Docker data..."
 log "Docker data size: $(du -sh /var/lib/docker | cut -f1)"

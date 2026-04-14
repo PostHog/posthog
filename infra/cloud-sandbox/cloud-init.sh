@@ -203,45 +203,66 @@ fi
 
 log "Installing base dependencies..."
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml aria2
+apt-get install -y -qq ca-certificates curl gnupg zstd git python3-yaml
 
-# Download to NVMe (or /tmp on EBS) so extraction is NVMe→NVMe.
-if [ "$USE_NVME" = true ]; then
-    ARCHIVE_DL_DIR="/mnt/nvme/docker-cache"
-else
-    ARCHIVE_DL_DIR="/tmp/docker-cache"
-fi
-
-# Start one background download per cache chunk. Each chunk gets its own
-# aria2c process so we can wait on individual completions and begin
-# extracting as soon as each chunk lands — overlapping extraction I/O
-# with download of later chunks.
-CHUNK_NAMES=()
-CHUNK_DL_PIDS=()
+# Streaming download+extract pipelines. Curl streams raw bytes from S3
+# straight into `unzstd | tar`, so extraction writes to disk from the
+# first byte. No intermediate file, no "download then extract" serial
+# phase.
+#
+# Rationale:
+# - Extract is the bottleneck, not network. The previous run measured
+#   ~85 MB/s aggregate tar throughput on /var/lib/docker (millions of
+#   small overlay2 files — metadata-bound on ext4, not bandwidth-bound
+#   on NVMe). Network was ~260 MiB/s per chunk via aria2 — way faster
+#   than extract. So downloading to a file first just parked those
+#   bytes on disk waiting.
+# - base.tar.zst is ~80% of the payload and it downloads last. With
+#   download-then-extract, base extract didn't even START until all
+#   5 chunks were fully downloaded (~60s in). Now it starts at t=0.
+# - The pipe auto-regulates: when unzstd+tar can't keep up, curl blocks
+#   on write, TCP backpressure slows S3. We pull bytes at exactly extract
+#   speed, no disk churn.
+# - Single-connection curl is slower than 8-connection aria2 on paper
+#   (~1 Gbit/s vs ~2 Gbit/s per chunk), but since extract caps us well
+#   below either, it doesn't matter. 5 chunks × curl in parallel still
+#   saturates the extract pipeline.
+#
+# Runs concurrently with Docker install (guarded by policy-rc.d) and
+# git clone below, so the total critical-path cost collapses to
+# max(extract_time, docker_install_time) instead of
+# download_time + extract_time.
+mkdir -p /var/lib/docker
+CHUNK_PIDS=()
+stream_start=$SECONDS
 if [ -f /tmp/cache-manifest.json ]; then
-    mkdir -p "$ARCHIVE_DL_DIR"
-    log "Starting cache chunk downloads in background..."
+    log "Starting streaming download+extract pipelines..."
     while IFS=$'\t' read -r name url; do
-        CHUNK_NAMES+=("$name")
         (
+            set -o pipefail
             for attempt in 1 2 3; do
-                if aria2c -x 8 -s 8 --max-connection-per-server=8 \
-                        --file-allocation=none --auto-file-renaming=false \
-                        --console-log-level=error \
-                        -d "$ARCHIVE_DL_DIR" -o "$name" "$url" 2>/dev/null; then
+                echo "==> [${SECONDS}s] Streaming $name (attempt $attempt)..."
+                if curl -fsSL --retry 0 "$url" \
+                     | tar -C /var/lib/docker -I unzstd -xf -; then
+                    echo "==> [${SECONDS}s] Stream-extracted $name"
                     exit 0
                 fi
+                [ "$attempt" = 3 ] && {
+                    echo "==> [${SECONDS}s] FAILED $name after 3 attempts" >&2
+                    exit 1
+                }
                 sleep 5
             done
-            exit 1
         ) &
-        CHUNK_DL_PIDS+=($!)
+        CHUNK_PIDS+=($!)
     done < <(python3 -c "
 import json
 for e in json.load(open('/tmp/cache-manifest.json')):
     print(e['name'] + '\t' + e['url'])
 ")
-    log "Started ${#CHUNK_NAMES[@]} chunk downloads"
+    log "Started ${#CHUNK_PIDS[@]} streaming pipelines"
+else
+    log "WARNING: No cache manifest provided, Docker starts with no cached images"
 fi
 
 log "Cloning PostHog repo (background)..."
@@ -256,36 +277,26 @@ clone_repo() {
 clone_repo &
 CLONE_PID=$!
 
-log "Installing Docker..."
+# Install Docker in parallel with the streaming pipelines. policy-rc.d
+# blocks the package postinst from auto-starting dockerd, which would
+# otherwise race with our in-flight tar extracts writing into
+# /var/lib/docker.
+log "Installing Docker (in parallel with chunk extract)..."
+cat > /usr/sbin/policy-rc.d <<'POLICY'
+#!/bin/sh
+exit 101
+POLICY
+chmod +x /usr/sbin/policy-rc.d
 install_docker_overlay2
+rm -f /usr/sbin/policy-rc.d
+log "Docker installed"
 
-# Stop Docker — we need to populate /var/lib/docker from the S3 cache first.
-systemctl stop docker.socket docker
-log "Docker installed (stopped for cache extraction)"
-if [ "${#CHUNK_DL_PIDS[@]}" -gt 0 ]; then
-    mkdir -p /var/lib/docker
-    extract_start=$SECONDS
-    EXTRACT_PIDS=()
-
-    # Wait for each chunk download sequentially, then kick off its extraction in
-    # the background immediately. Disk throughput is the bottleneck — starting
-    # extraction as soon as each chunk lands maximizes the overlap between I/O
-    # and the download of later chunks.
-    for i in "${!CHUNK_NAMES[@]}"; do
-        name="${CHUNK_NAMES[$i]}"
-        wait "${CHUNK_DL_PIDS[$i]}"
-        log "Extracting $name..."
-        (tar -C /var/lib/docker -I 'zstd -T0' -xf "$ARCHIVE_DL_DIR/$name" && rm -f "$ARCHIVE_DL_DIR/$name") &
-        EXTRACT_PIDS+=($!)
-    done
-
-    for pid in "${EXTRACT_PIDS[@]}"; do
-        wait "$pid"
-    done
-
-    log "Extracted ${#CHUNK_NAMES[@]} chunks in $((SECONDS - extract_start))s"
-else
-    log "WARNING: No cache manifest provided, Docker starts with no cached images"
+# Now wait for any remaining streaming pipelines.
+for pid in "${CHUNK_PIDS[@]}"; do
+    wait "$pid" || { log "ERROR: streaming pipeline failed"; exit 1; }
+done
+if [ "${#CHUNK_PIDS[@]}" -gt 0 ]; then
+    log "All ${#CHUNK_PIDS[@]} streaming pipelines done in $((SECONDS - stream_start))s"
 fi
 
 systemctl start docker
@@ -300,9 +311,9 @@ log "Pre-populating sandbox config (jetbrains=${SANDBOX_JETBRAINS:-none})..."
 SANDBOX_CONFIG_DIR="/home/ubuntu/.posthog-sandboxes"
 mkdir -p "$SANDBOX_CONFIG_DIR"
 if [ -n "$SANDBOX_JETBRAINS" ]; then
-    # Skip the interactive prompt in _ensure_jetbrains and let it download the
-    # IDE into the shared volume during `bin/sandbox create`. The download runs
-    # in parallel with db cache restore and container build in cmd_create.
+    # Skip the interactive prompt in _resolve_jetbrains_preference. The actual
+    # IDE download happens in the background task after the sandbox is live
+    # (see "Download JetBrains IDE" block below).
     printf '{"jetbrains": "%s"}\n' "$SANDBOX_JETBRAINS" > "$SANDBOX_CONFIG_DIR/config.json"
 else
     echo '{"jetbrains": null}' > "$SANDBOX_CONFIG_DIR/config.json"
@@ -358,9 +369,17 @@ else
 fi
 USER_URL="$SANDBOX_JS_URL"
 
+# Prepare the JetBrains bind mount directory. The IDE is downloaded here
+# *after* the sandbox is live (see background task below), keeping it out of
+# the S3 cache archive and off the critical boot path.
+JETBRAINS_HOST_DIR="/opt/jetbrains/idea"
+mkdir -p "$JETBRAINS_HOST_DIR"
+chown ubuntu:ubuntu "$JETBRAINS_HOST_DIR"
+export SANDBOX_JETBRAINS_MOUNT="$JETBRAINS_HOST_DIR"
+
 log "Creating sandbox via bin/sandbox create..."
 export SANDBOX_HOSTNAME SANDBOX_JS_URL
-sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
+sudo -u ubuntu HOME=/home/ubuntu sg docker -c "SANDBOX_HOSTNAME='$SANDBOX_HOSTNAME' SANDBOX_JS_URL='$SANDBOX_JS_URL' SANDBOX_JETBRAINS_MOUNT='$SANDBOX_JETBRAINS_MOUNT' python3 bin/sandbox create '$SANDBOX_BRANCH' --no-attach"
 
 # Now expose the running sandbox via Tailscale Serve. A failure here means
 # the sandbox is unreachable — let set -e propagate so BOOT_STATUS=failed.
@@ -378,6 +397,42 @@ fi
 # Claude while that happens, exactly like the local flow.
 log "Cloud sandbox ready — attach now, app still booting"
 log "PostHog will be available at $USER_URL once healthy"
+
+# Download JetBrains IDE into the bind-mounted host directory, then trigger
+# in-container setup (backend registration, plugins, SDK config). Runs in the
+# background so the user can start working immediately.
+if [ -n "$SANDBOX_JETBRAINS" ]; then
+    (
+        # Map preference to JetBrains product code
+        case "$SANDBOX_JETBRAINS" in
+            intellij) JB_CODE="IIU" ;;
+            pycharm)  JB_CODE="PCP" ;;
+            *)        log "Unknown JetBrains preference: $SANDBOX_JETBRAINS"; exit 1 ;;
+        esac
+
+        JB_API="https://data.services.jetbrains.com/products/releases?code=${JB_CODE}&latest=true&type=release"
+        JB_URL=$(curl -sfL "$JB_API" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(data['${JB_CODE}'][0]['downloads']['linux']['link'])")
+
+        log "Downloading JetBrains $SANDBOX_JETBRAINS to $JETBRAINS_HOST_DIR (background)..."
+        curl -fSL "$JB_URL" | tar -xzf - -C "$JETBRAINS_HOST_DIR" --strip-components=1
+        log "JetBrains $SANDBOX_JETBRAINS downloaded"
+
+        # Derive container name: sandbox-{slugified_branch}-app-1
+        SLUG=$(echo "$SANDBOX_BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+        CONTAINER="sandbox-${SLUG}-app-1"
+
+        if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
+            log "Triggering JetBrains setup inside $CONTAINER..."
+            docker exec -e SANDBOX_MODE=setup-jetbrains "$CONTAINER" python3 bin/sandbox-entrypoint.py || \
+                log "WARNING: JetBrains in-container setup failed (will retry on next container start)"
+        else
+            log "Container $CONTAINER not running — JetBrains setup will run on next start"
+        fi
+    ) >> /var/log/sandbox-boot.log 2>&1 &
+fi
 
 # Health poll runs in the background so it doesn't block the CLI attach.
 (

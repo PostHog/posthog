@@ -813,57 +813,6 @@ def cmd_cloud_idea(branch: str) -> None:
     info(f"  Project: /workspace")
 
 
-def _ensure_jetbrains_in_cache() -> None:
-    """Install both JetBrains IDEs into Docker volumes for inclusion in cache."""
-    products = [
-        ("intellij", "IIU", "IntelliJ IDEA Ultimate"),
-        ("pycharm", "PCP", "PyCharm Professional"),
-    ]
-    for product, code, name in products:
-        volume = f"sandbox-{product}"
-        run(["docker", "volume", "create", volume], capture=True, check=False)
-        result = run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{volume}:/opt/idea",
-                "alpine",
-                "sh",
-                "-c",
-                "test -x /opt/idea/bin/remote-dev-server.sh && echo yes",
-            ],
-            capture=True,
-            check=False,
-        )
-        if result.stdout.strip() == "yes":
-            info(f"  {name} already in cache")
-            continue
-
-        info(f"  Downloading {name}...")
-        api_url = f"https://data.services.jetbrains.com/products/releases?code={code}&latest=true&type=release"
-        result = run(["curl", "-sfL", api_url], capture=True)
-        download_url = json.loads(result.stdout)[code][0]["downloads"]["linux"]["link"]
-        run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{volume}:/opt/idea",
-                "-e",
-                f"DL_URL={download_url}",
-                "alpine",
-                "sh",
-                "-c",
-                "apk add --no-cache curl > /dev/null 2>&1 && "
-                'curl -fSL "$DL_URL" | tar -xzf - -C /opt/idea --strip-components=1',
-            ]
-        )
-        info(f"  {name} installed into {volume}")
-
-
 def cmd_cloud_upload_cache() -> None:
     config = _ensure_cloud_config()
     s3_key = config["s3_key"]
@@ -876,8 +825,9 @@ def cmd_cloud_upload_cache() -> None:
         fatal("Docker is not running. Start Docker first.")
     info(f"  Docker has {result.stdout.strip()} images")
 
-    info("Ensuring JetBrains IDEs are in cache...")
-    _ensure_jetbrains_in_cache()
+    # JetBrains IDEs are no longer bundled in the cache archive — they are
+    # downloaded into a bind-mounted host directory after the sandbox boots.
+    # See cloud-init.sh for the background download task.
 
     info("Stopping sandbox containers...")
     run(["docker", "compose", "-p", "sandbox-cache-init", "down", "-t", "0"], check=False, capture=True)

@@ -392,28 +392,21 @@ def _read_jetbrains_data_dir_name() -> str:
     return data_dir_name
 
 
-def setup_jetbrains_background() -> None:
-    """Register JetBrains IDE backend in a background process."""
+def _setup_jetbrains_in_container() -> None:
+    """Register JetBrains IDE backend, install plugins, and configure SDK.
+
+    Runs synchronously — caller decides whether to fork or not.
+    """
     idea_script = Path("/opt/idea/bin/remote-dev-server.sh")
     if not idea_script.exists():
         return
 
     data_dir_name = _read_jetbrains_data_dir_name()
 
-    pid = os.fork()
-    if pid != 0:
-        return  # Parent continues
-
-    # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
-    log_path = "/tmp/sandbox-jetbrains.log"
-    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-    os.dup2(log_fd, 1)
-    os.dup2(log_fd, 2)
-    os.close(log_fd)
-
+    os.environ["HOME"] = str(SANDBOX_HOME)
     os.environ["JAVA_TOOL_OPTIONS"] = f"-Duser.home={SANDBOX_HOME}"
 
-    info(f"Registering {data_dir_name} for Gateway (background)...")
+    info(f"Registering {data_dir_name} for Gateway...")
     result = subprocess.run(
         ["remote-dev-server.sh", "registerBackendLocationForGateway"],
         executable=str(idea_script),
@@ -492,6 +485,26 @@ def setup_jetbrains_background() -> None:
     )
 
     info(f"{data_dir_name} backend ready")
+
+
+def setup_jetbrains_background() -> None:
+    """Register JetBrains IDE backend in a background process."""
+    idea_script = Path("/opt/idea/bin/remote-dev-server.sh")
+    if not idea_script.exists():
+        return
+
+    pid = os.fork()
+    if pid != 0:
+        return  # Parent continues
+
+    # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
+    log_path = "/tmp/sandbox-jetbrains.log"
+    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(log_fd, 1)
+    os.dup2(log_fd, 2)
+    os.close(log_fd)
+
+    _setup_jetbrains_in_container()
     os._exit(0)
 
 
@@ -711,5 +724,7 @@ if __name__ == "__main__":
         cache_init_phase()
     elif mode == "setup":
         run_setup()
+    elif mode == "setup-jetbrains":
+        _setup_jetbrains_in_container()
     else:
         user_phase()

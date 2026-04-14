@@ -163,8 +163,12 @@ services:
             - pnpm-store:/cache/pnpm
             - cargo-target:/cache/cargo-target
             - python-env:/cache/python
-            # JetBrains IDE backend for Gateway (populated by bin/sandbox)
-            - jetbrains:/opt/idea
+            # JetBrains IDE backend for Gateway (populated by bin/sandbox).
+            # Local: defaults to the named volume "jetbrains" defined below.
+            # Cloud: cloud-init exports SANDBOX_JETBRAINS_MOUNT=/opt/jetbrains/idea
+            #        so the IDE lives outside /var/lib/docker and stays out of the
+            #        S3 cache archive.
+            - ${SANDBOX_JETBRAINS_MOUNT:-jetbrains}:/opt/idea
         # Shared service defaults (Postgres, ClickHouse, Redis, etc.) come from
         # the same env file used by docker-compose.base.yml.
         env_file: dev-services.env
