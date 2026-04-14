@@ -644,9 +644,16 @@ def non_sharded_backup():
 
 
 def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
+    # Dagster's config system expects enum names (e.g. "DATA"), not values (e.g. "data").
+    # model_dump(mode="json") serializes StrEnum as the value string, so we override
+    # enum fields to use their name instead.
+    config_dict = config.model_dump(mode="json")
+    config_dict["workload"] = config.workload.name
+    config_dict["node_role"] = config.node_role.name
+
     return dagster.RunConfig(
         {
-            op.name: {"config": config.model_dump(mode="json")}
+            op.name: {"config": config_dict}
             for op in [
                 check_running_backup_for_table,
                 get_latest_backups,
