@@ -31,7 +31,6 @@ import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import type { UsageMetricFormData } from './usageMetricsConfigLogic'
 import { usageMetricsConfigLogic } from './usageMetricsConfigLogic'
 
 function sanitizeFilters(filters?: FilterType): FilterType {
@@ -100,7 +99,7 @@ function UsageMetricsTable(): JSX.Element {
                                 label: 'Edit',
                                 onClick: () => {
                                     openModal()
-                                    setUsageMetricValues(metric as UsageMetricFormData)
+                                    setUsageMetricValues(metric)
                                     reportUsageMetricsUpdateButtonClicked()
                                 },
                                 disabledReason: restrictedReason,
