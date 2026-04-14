@@ -6,12 +6,8 @@ use uuid::Uuid;
 
 use super::data_gen::{generate_properties, PersonRegistry};
 
-/// Populate the flags_person_lookup table from a PersonRegistry.
-///
-/// Properties are generated on-the-fly per batch using a separate seeded RNG
-/// (seed 43), decoupled from the structural RNG (seed 42) so that removing
-/// properties from the registry doesn't change distinct_id distribution.
-/// Each batch's properties are dropped after the DB insert.
+/// Uses a separate seeded RNG (seed 43) for properties so the structural
+/// distribution (persons, distinct_ids) is independent of property generation.
 pub async fn populate(
     pool: &PgPool,
     storage: &PostgresStorage,
@@ -23,7 +19,6 @@ pub async fn populate(
 
     let mut prop_rng = StdRng::seed_from_u64(43);
 
-    // Step 1: Insert person rows via batch_upsert_persons.
     for (batch_idx, chunk) in registry.persons.chunks(batch_size).enumerate() {
         let updates: Vec<PersonUpdateData> = chunk
             .iter()
@@ -43,20 +38,18 @@ pub async fn populate(
         }
     }
 
-    // Step 2: Assign distinct_ids via batch UPDATE (custom, not production upsert_distinct_id).
     assign_distinct_ids_bulk(pool, registry).await?;
 
     tracing::info!(total, "population complete");
     Ok(())
 }
 
-/// Batch-assign distinct_ids using a custom UPDATE that bypasses the single-row
-/// transactional upsert_distinct_id (which is designed for incremental CDC, not bulk load).
+/// Bulk-assigns distinct_ids via UNNEST instead of the single-row transactional
+/// upsert_distinct_id, which would be too slow for initial population.
 async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> anyhow::Result<()> {
     let total = registry.distinct_ids.len();
     tracing::info!(total, "assigning distinct_ids");
 
-    // Group distinct_ids by person_uuid to build per-person arrays.
     let mut person_dids: std::collections::HashMap<(i32, Uuid), Vec<String>> =
         std::collections::HashMap::new();
     for (team_id, person_uuid, did) in &registry.distinct_ids {
@@ -74,7 +67,6 @@ async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> a
         let person_uuids: Vec<Uuid> = chunk.iter().map(|((_, uuid), _)| *uuid).collect();
         let did_arrays: Vec<Vec<String>> = chunk.iter().map(|(_, dids)| dids.clone()).collect();
 
-        // Primary distinct_ids (first element of each person's array).
         let primary_dids: Vec<String> = did_arrays.iter().map(|dids| dids[0].clone()).collect();
 
         sqlx::query(
@@ -92,7 +84,6 @@ async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> a
         .execute(pool)
         .await?;
 
-        // Second distinct_ids for persons that have two (the 14% case).
         let mut extra_team_ids = Vec::new();
         let mut extra_uuids = Vec::new();
         let mut extra_dids = Vec::new();

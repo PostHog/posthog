@@ -7,34 +7,20 @@ use uuid::Uuid;
 
 use super::BenchmarkArgs;
 
-/// Lightweight person registry — no properties stored.
-/// Properties are generated on-the-fly during population and workload phases.
 pub struct PersonRegistry {
-    /// (team_id, person_uuid) for each person.
     pub persons: Vec<(i32, Uuid)>,
-    /// (team_id, person_uuid, distinct_id) — one entry per distinct_id.
     pub distinct_ids: Vec<(i32, Uuid, String)>,
 }
 
-/// Shared, Arc-wrapped data for all workload phases.
-/// Constructed once after registry generation; tasks clone the Arc (O(1)).
 pub struct BenchmarkData {
-    /// (team_id, person_uuid) for each person.
     pub persons: Arc<Vec<(i32, Uuid)>>,
-    /// (team_id, person_uuid, distinct_id) — one entry per distinct_id.
     pub distinct_ids: Arc<Vec<(i32, Uuid, String)>>,
     /// team_id -> indices into `distinct_ids` for the first distinct_id per person.
-    /// Used by merge phases to select source/target persons without cloning data.
     pub team_person_indices: Arc<HashMap<i32, Vec<usize>>>,
-    /// Weighted CDF for team selection: Vec of (cumulative_probability, team_id).
-    /// Larger teams are selected proportionally more often, matching production traffic.
+    /// Weighted CDF for team selection: (cumulative_probability, team_id).
     pub team_cdf: Arc<Vec<(f64, i32)>>,
 }
 
-/// Build the shared BenchmarkData from a PersonRegistry, consuming it by move.
-///
-/// Builds team indices and weighted CDF once. All fields are Arc-wrapped for
-/// zero-cost task sharing.
 pub fn build_benchmark_data(registry: PersonRegistry) -> BenchmarkData {
     let team_person_indices = build_team_person_indices(&registry.distinct_ids);
     let team_cdf = build_team_cdf(&team_person_indices);
@@ -47,8 +33,6 @@ pub fn build_benchmark_data(registry: PersonRegistry) -> BenchmarkData {
     }
 }
 
-/// Build a map of team_id -> Vec<usize>, where each usize is an index into
-/// `distinct_ids` pointing to the first distinct_id for a given person.
 fn build_team_person_indices(distinct_ids: &[(i32, Uuid, String)]) -> HashMap<i32, Vec<usize>> {
     let mut seen_persons = std::collections::HashSet::new();
     let mut map: HashMap<i32, Vec<usize>> = HashMap::new();
@@ -62,11 +46,7 @@ fn build_team_person_indices(distinct_ids: &[(i32, Uuid, String)]) -> HashMap<i3
     map
 }
 
-/// Build a cumulative distribution function for weighted team selection.
-///
-/// Teams are weighted proportionally to their person count, so a team with
-/// 10x more persons is selected 10x more often. Only teams with >= 2 persons
-/// are included (merges require at least 2).
+/// Only teams with >= 2 persons are included since merges require two distinct persons.
 fn build_team_cdf(team_person_indices: &HashMap<i32, Vec<usize>>) -> Vec<(f64, i32)> {
     let mut entries: Vec<(i32, usize)> = team_person_indices
         .iter()
@@ -74,7 +54,6 @@ fn build_team_cdf(team_person_indices: &HashMap<i32, Vec<usize>>) -> Vec<(f64, i
         .map(|(&tid, v)| (tid, v.len()))
         .collect();
 
-    // Sort by team_id for deterministic ordering.
     entries.sort_by_key(|(tid, _)| *tid);
 
     let eligible_total: f64 = entries.iter().map(|(_, count)| *count as f64).sum();
@@ -90,7 +69,6 @@ fn build_team_cdf(team_person_indices: &HashMap<i32, Vec<usize>>) -> Vec<(f64, i
         cdf.push((cumulative, *tid));
     }
 
-    // Fix floating-point edge case: ensure the last entry is exactly 1.0.
     if let Some(last) = cdf.last_mut() {
         last.0 = 1.0;
     }
@@ -98,9 +76,6 @@ fn build_team_cdf(team_person_indices: &HashMap<i32, Vec<usize>>) -> Vec<(f64, i
     cdf
 }
 
-/// Select a team_id from the CDF using weighted random selection.
-///
-/// Uses binary search for O(log n) lookup. Returns None if the CDF is empty.
 pub fn select_team_weighted(cdf: &[(f64, i32)], rng: &mut impl Rng) -> Option<i32> {
     if cdf.is_empty() {
         return None;
@@ -110,9 +85,7 @@ pub fn select_team_weighted(cdf: &[(f64, i32)], rng: &mut impl Rng) -> Option<i3
     Some(cdf[idx.min(cdf.len() - 1)].1)
 }
 
-/// Generate a JSONB properties object targeting approximately `target_bytes` total serialized size.
-///
-/// Uses realistic PostHog person property keys. The last value is padded to hit the target.
+/// Generate a JSONB properties object padded to approximately `target_bytes`.
 pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
     const KEYS: &[&str] = &[
         "$browser",
@@ -141,13 +114,11 @@ pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
         obj.insert(key.to_string(), Value::String(val));
     }
 
-    // Measure current size and pad the last property to hit target.
     let current = serde_json::to_string(&Value::Object(obj.clone()))
         .unwrap()
         .len();
     if current < target_bytes {
         let padding_needed = target_bytes - current;
-        // Account for the key overhead: `,"_pad":"..."` = key + quotes + colon + comma ~ 10 bytes
         let pad_val_len = padding_needed.saturating_sub(12);
         let pad: String = (0..pad_val_len)
             .map(|_| rng.gen_range(b'a'..=b'z') as char)
@@ -158,19 +129,12 @@ pub fn generate_properties(rng: &mut impl Rng, target_bytes: usize) -> Value {
     Value::Object(obj)
 }
 
-/// Generate a full person registry from the benchmark args.
-///
-/// - `scale` persons distributed across `teams` teams following a Zipf distribution
-///   (weight = 1/rank^1.5), so a few mega-teams dominate and most teams are small.
-///   This matches production where the top 2-3 teams hold the majority of persons.
-/// - 86% get 1 distinct_id, 14% get 2 (matching measured ~1.14 distinct_ids/person ratio).
-/// - Distinct IDs use UUID format (~36 bytes) to match real-world ID lengths.
-/// - Properties are NOT stored — generated on-the-fly during population.
+/// Zipf-weighted team sizes (weight = 1/rank^1.5) so a few teams dominate.
+/// 86% of persons get 1 distinct_id, 14% get 2 (matching the measured ~1.14 ratio).
 pub fn generate_person_registry(args: &BenchmarkArgs, rng: &mut impl Rng) -> PersonRegistry {
     let scale = args.scale as usize;
     let teams = args.teams;
 
-    // Zipf-weighted team sizes: weight(rank) = 1 / rank^1.5.
     let weights: Vec<f64> = (1..=teams).map(|i| 1.0 / (i as f64).powf(1.5)).collect();
     let total_weight: f64 = weights.iter().sum();
 
@@ -179,7 +143,6 @@ pub fn generate_person_registry(args: &BenchmarkArgs, rng: &mut impl Rng) -> Per
         .map(|w| ((w / total_weight) * scale as f64).round() as usize)
         .collect();
 
-    // Fix rounding drift: add or remove from the largest team.
     let total: usize = team_counts.iter().sum();
     match total.cmp(&scale) {
         std::cmp::Ordering::Greater => team_counts[0] -= total - scale,
@@ -194,21 +157,16 @@ pub fn generate_person_registry(args: &BenchmarkArgs, rng: &mut impl Rng) -> Per
         let team_id = (team_idx as i32) + 1;
         for _ in 0..count {
             let person_uuid = Uuid::new_v4();
-
             persons.push((team_id, person_uuid));
 
-            // UUID-format distinct_id (~36 bytes, matching real-world ID length).
             let mut bytes = [0u8; 16];
             rng.fill(&mut bytes);
-            let did = Uuid::from_bytes(bytes).to_string();
-            distinct_ids.push((team_id, person_uuid, did));
+            distinct_ids.push((team_id, person_uuid, Uuid::from_bytes(bytes).to_string()));
 
-            // 14% get a second distinct_id (matching measured ~1.14 ratio).
             if rng.gen_ratio(14, 100) {
                 let mut bytes2 = [0u8; 16];
                 rng.fill(&mut bytes2);
-                let did2 = Uuid::from_bytes(bytes2).to_string();
-                distinct_ids.push((team_id, person_uuid, did2));
+                distinct_ids.push((team_id, person_uuid, Uuid::from_bytes(bytes2).to_string()));
             }
         }
     }

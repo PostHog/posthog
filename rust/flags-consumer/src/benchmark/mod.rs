@@ -13,39 +13,30 @@ use rand::SeedableRng;
 use crate::storage::postgres::PostgresStorage;
 use data_gen::build_benchmark_data;
 
-/// CLI arguments for the GIN index benchmark subcommand.
 #[derive(clap::Args)]
 pub struct BenchmarkArgs {
-    /// Total number of person rows to populate.
     #[arg(long, default_value = "100000")]
     pub scale: u64,
 
-    /// Number of teams to spread data across.
     #[arg(long, default_value = "100")]
     pub teams: i32,
 
-    /// Duration in seconds for each workload phase.
     #[arg(long, default_value = "60")]
     pub duration_secs: u64,
 
-    /// Number of concurrent writer tasks per phase.
     #[arg(long, default_value = "4")]
     pub concurrency: usize,
 
-    /// Concurrency multiplier for the burst merge storm phase.
     #[arg(long, default_value = "10")]
     pub burst_factor: usize,
 
-    /// Batch size for batch_upsert_persons calls.
     #[arg(long, default_value = "500")]
     pub batch_size: usize,
 
-    /// Skip data population (reuse existing table data).
     #[arg(long)]
     pub skip_populate: bool,
 }
 
-/// Run the GIN index benchmark against the database at `FLAGS_READ_STORE_DATABASE_URL`.
 pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     let database_url = std::env::var("FLAGS_READ_STORE_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
@@ -64,7 +55,7 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
         "starting GIN index benchmark"
     );
 
-    // Size the pool for the burst phase: burst tasks + readers + headroom.
+    // Burst phase needs concurrency * burst_factor + reader tasks + headroom.
     let max_conns = (args.concurrency * args.burst_factor + args.concurrency + 4) as u32;
     let max_conns = max_conns.max(64);
 
@@ -79,16 +70,12 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     )?;
 
     let storage = PostgresStorage::new(pool.clone());
-
-    // Verify connectivity.
     storage.ping().await?;
     tracing::info!("database connected");
 
-    // Generate lightweight registry (no properties stored — ~20 bytes/person).
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
     let registry = data_gen::generate_person_registry(&args, &mut rng);
 
-    // Schema + population (if not skipped).
     if args.skip_populate {
         if !schema::table_exists(&pool).await? {
             anyhow::bail!("--skip-populate but flags_person_lookup table does not exist");
@@ -105,17 +92,14 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Build shared benchmark data: Arc-wrapped, pre-computed team indices and CDF.
     let data = build_benchmark_data(registry);
     tracing::info!(
         teams_with_merges = data.team_cdf.len(),
         "benchmark data ready"
     );
 
-    // Reset pg_stat counters for clean per-phase deltas.
     metrics::reset_stats(&pool).await;
 
-    // Run workload phases.
     let mut results = Vec::new();
 
     tracing::info!("=== Phase 1: Sustained property updates ===");
@@ -123,7 +107,6 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 1 complete");
     results.push(r);
 
-    // Reset stats between phases for clean deltas.
     metrics::reset_stats(&pool).await;
 
     tracing::info!("=== Phase 2: Identification appends ===");
@@ -180,7 +163,6 @@ pub async fn run(args: BenchmarkArgs) -> anyhow::Result<()> {
     tracing::info!(ops = r.latency.count, errors = r.errors, "phase 6 complete");
     results.push(r);
 
-    // Print final report.
     report::print_report(&args, &results);
 
     Ok(())

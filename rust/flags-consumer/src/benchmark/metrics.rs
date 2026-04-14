@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use sqlx::PgPool;
 
-/// Snapshot of PostgreSQL catalog metrics for the flags_person_lookup partitions.
 #[derive(Debug, Clone)]
 pub struct PgSnapshot {
     pub n_tup_upd: i64,
@@ -13,13 +12,11 @@ pub struct PgSnapshot {
     pub wal_lsn: Option<String>,
 }
 
-/// Delta between two snapshots for a single workload phase.
 pub struct PhaseDelta {
     pub hot_pct: f64,
     pub dead_tuples: i64,
 }
 
-/// Latency percentiles extracted from a sorted slice of durations.
 #[derive(Debug)]
 pub struct LatencyStats {
     pub count: usize,
@@ -29,9 +26,7 @@ pub struct LatencyStats {
     pub max: Duration,
 }
 
-/// Capture a snapshot of PG catalog metrics aggregated across all 64 partitions.
 pub async fn capture_snapshot(pool: &PgPool) -> anyhow::Result<PgSnapshot> {
-    // Tuple stats aggregated across partitions.
     let stats: (i64, i64, i64) = sqlx::query_as(
         "SELECT \
             COALESCE(SUM(n_tup_upd), 0)::bigint, \
@@ -43,7 +38,6 @@ pub async fn capture_snapshot(pool: &PgPool) -> anyhow::Result<PgSnapshot> {
     .fetch_one(pool)
     .await?;
 
-    // Relation sizes aggregated across partitions.
     let sizes: (i64, i64) = sqlx::query_as(
         "SELECT \
             COALESCE(SUM(pg_relation_size(oid)), 0)::bigint, \
@@ -54,7 +48,7 @@ pub async fn capture_snapshot(pool: &PgPool) -> anyhow::Result<PgSnapshot> {
     .fetch_one(pool)
     .await?;
 
-    // WAL position (requires pg_monitor role; gracefully returns None on permission error).
+    // Requires pg_monitor role; returns None on permission error.
     let wal_lsn: Option<String> =
         match sqlx::query_as::<_, (String,)>("SELECT pg_current_wal_lsn()::text")
             .fetch_one(pool)
@@ -77,7 +71,6 @@ pub async fn capture_snapshot(pool: &PgPool) -> anyhow::Result<PgSnapshot> {
     })
 }
 
-/// Compute deltas between a before and after snapshot.
 pub fn compute_delta(before: &PgSnapshot, after: &PgSnapshot) -> PhaseDelta {
     let updates = after.n_tup_upd - before.n_tup_upd;
     let hot_updates = after.n_tup_hot_upd - before.n_tup_hot_upd;
@@ -93,7 +86,6 @@ pub fn compute_delta(before: &PgSnapshot, after: &PgSnapshot) -> PhaseDelta {
     }
 }
 
-/// Compute WAL bytes written between two LSN snapshots.
 pub async fn compute_wal_delta(
     pool: &PgPool,
     before: &PgSnapshot,
@@ -118,11 +110,8 @@ pub async fn compute_wal_delta(
     }
 }
 
-/// Reset pg_stat counters for clean per-phase deltas.
-///
-/// Requires superuser or pg_stat_scan_tables role. Logs a warning if unavailable.
+/// Requires pg_stat_scan_tables role. Logs a warning and returns early if unavailable.
 pub async fn reset_stats(pool: &PgPool) {
-    // Reset stats for each partition individually.
     for i in 0..64 {
         let table = format!("flags_person_lookup_p{i}");
         let result = sqlx::query(
@@ -143,8 +132,6 @@ pub async fn reset_stats(pool: &PgPool) {
     tracing::info!("pg_stat counters reset for all partitions");
 }
 
-/// Compute latency percentiles from a mutable slice of durations.
-///
 /// Sorts the slice in place.
 pub fn compute_percentiles(latencies: &mut [Duration]) -> LatencyStats {
     let count = latencies.len();

@@ -1,9 +1,5 @@
 use sqlx::PgPool;
 
-/// Drop and recreate the flags_person_lookup table with GIN index.
-///
-/// DDL is copied from rust/flags_read_store_migrations/20260411000001_create_flags_person_lookup.sql.
-/// The heartbeat table is omitted (not relevant to the benchmark).
 pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
     tracing::info!("dropping existing schema (if any)");
     sqlx::query("DROP TABLE IF EXISTS flags_person_lookup CASCADE")
@@ -32,7 +28,6 @@ pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    // Create 64 hash partitions matching posthog_person's partition count.
     for i in 0..64 {
         let ddl = format!(
             "CREATE TABLE IF NOT EXISTS flags_person_lookup_p{i} \
@@ -54,7 +49,6 @@ pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Check whether the flags_person_lookup table exists.
 pub async fn table_exists(pool: &PgPool) -> anyhow::Result<bool> {
     let row: (bool,) = sqlx::query_as(
         "SELECT EXISTS (

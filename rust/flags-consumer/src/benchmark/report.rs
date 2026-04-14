@@ -43,7 +43,6 @@ fn print_phase_row(result: &PhaseResult, show_pg_metrics: bool) {
             wal_mb,
         );
     } else {
-        // Read-only row: skip PG metrics columns.
         println!(
             " {:<24} | {:>6} | {:>7} | {:>7} | {:>7} | {:>7} | {:>6} | {:>6} | {:>11} | {:>8} | {:>8} | {:>6}",
             result.name,
