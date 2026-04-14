@@ -50,14 +50,17 @@ export const Vertical: Story = {
     render: () => (
         <div className="flex flex-col gap-2">
             <ButtonGroup orientation="vertical">
-                <ButtonGroup>
-                    <Button variant="outline">Button 1</Button>
-                </ButtonGroup>
-                <ButtonGroup>
-                    <Button variant="outline">Button 2</Button>
-                    <Button variant="outline">Button 3</Button>
-                    <Button variant="outline">Button 4</Button>
-                </ButtonGroup>
+                <Button variant="outline" size="icon">
+                    +
+                </Button>
+                <Button variant="outline" size="icon">
+                    −
+                </Button>
+            </ButtonGroup>
+            <ButtonGroup orientation="vertical">
+                <Button variant="outline">Button 1</Button>
+                <Button variant="outline">Button 2</Button>
+                <Button variant="outline">Button 3</Button>
             </ButtonGroup>
         </div>
     ),
