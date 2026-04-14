@@ -23,6 +23,7 @@ from posthog.clickhouse.cluster import (
     Query,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
+from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -758,7 +759,9 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
     cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
-    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
+    cluster.any_host_by_role(
+        resources.adhoc_event_deletes_dictionary.source.optimize, NodeRole.DATA, Workload.ONLINE
+    ).result()
 
     return True
 
