@@ -51,33 +51,23 @@ def get_github_login(user: User) -> str | None:
     Checks GitHub App integrations created by this user first (populated during
     GitHub App installation with user authorization), then falls back to social auth.
 
-    When called with prefetched data (e.g. ``_prefetched_github_integrations``
-    or ``social_auth``), the prefetch cache is used. Otherwise, queries are issued.
+    When ``_prefetched_github_integrations`` is set on the user, that prefetch is
+    used. Otherwise, queries are issued.
     """
     # Check GitHub integrations created by this user
-    prefetched_integrations = getattr(user, "_prefetched_github_integrations", None)
-    if prefetched_integrations is not None:
-        for integration in prefetched_integrations:
-            login = (integration.config or {}).get("connecting_user_github_login")
-            if login:
-                return str(login)
-    else:
-        login = (
-            Integration.objects.filter(kind="github", created_by=user)
-            .values_list("config__connecting_user_github_login", flat=True)
-            .exclude(config__connecting_user_github_login=None)
-            .first()
-        )
-        if login:
-            return str(login)
+    login = (
+        Integration.objects.filter(kind="github", created_by=user)
+        .values_list("config__connecting_user_github_login", flat=True)
+        .exclude(config__connecting_user_github_login=None)
+        .first()
+    )
+    if login:
+        return str(login)
 
     # Fall back to social auth
     for sa in user.social_auth.all():
         if sa.provider != "github":
             continue
-        login_val = getattr(sa, "_prefetched_github_login", None)
-        if login_val:
-            return str(login_val)
         if isinstance(sa.extra_data, dict):
             login = sa.extra_data.get("login")
             if login:
@@ -88,8 +78,9 @@ def get_github_login(user: User) -> str | None:
 def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str]) -> dict[str, str]:
     """Build a mapping of PostHog user UUID string -> GitHub login for org members on the team.
 
-    Resolution order matches get_github_login: GitHub integrations created by the user
-    (``config.connecting_user_github_login``), then GitHub social auth (``extra_data.login``).
+    Resolution matches ``get_github_login``: first GitHub integration by ``id`` with a
+    stored login, else first GitHub social auth by ``id`` (same as iterating
+    ``user.social_auth.all()`` and taking the first ``provider="github"`` row per user).
     """
     if not user_uuids:
         return {}
@@ -128,7 +119,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
                 user_id__in=missing_for_social,
             )
             .only("extra_data", "user_id")
-            .order_by("user_id", "-id")
+            .order_by("user_id", "id")
             .distinct("user_id")
         )
         for sa in social_auths:
@@ -139,7 +130,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
             if login:
                 user_id_to_login[sa.user_id] = str(login)
 
-    return {user_id_to_uuid[uid]: login.lower() for uid, login in user_id_to_login.items()}
+    return {user_id_to_uuid[uid]: login for uid, login in user_id_to_login.items()}
 
 
 class SignatureVerificationError(Exception):
