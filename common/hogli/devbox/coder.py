@@ -20,6 +20,7 @@ from typing import Any, NoReturn
 
 import yaml
 import click
+import requests
 from hogli.core.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -87,13 +88,11 @@ def get_server_version() -> str:
 
     coder_url = get_coder_url()
     try:
-        import urllib.request
-
-        with urllib.request.urlopen(f"{coder_url}/api/v2/buildinfo", timeout=5) as resp:
-            data = json.loads(resp.read())
-            raw = data.get("version", "")
-            if raw:
-                return _normalize_version(raw)
+        resp = requests.get(f"{coder_url}/api/v2/buildinfo", timeout=5)
+        data = resp.json()
+        raw = data.get("version", "")
+        if raw:
+            return _normalize_version(raw)
     except Exception:
         pass
 
