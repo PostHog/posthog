@@ -4,7 +4,6 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -383,7 +382,7 @@ describe('infiniteListLogic', () => {
             joins: [],
         } as any)
 
-        const joinsLogic = dataWarehouseJoinsLogic()
+        const joinsLogic = joinsLogic()
         joinsLogic.mount()
         joinsLogic.actions.loadJoinsSuccess([
             {
