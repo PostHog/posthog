@@ -577,7 +577,7 @@ const cachePropertiesFromDataTable = (query: DataTableNode): QueryPropertyCache 
         }))
     }
 
-    return cache as QueryPropertyCache
+    return Object.keys(cache).length > 0 ? (cache as QueryPropertyCache) : null
 }
 
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
