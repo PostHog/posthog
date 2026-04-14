@@ -262,8 +262,6 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             assert results[1]["count"] == 2
 
     def test_funnels_data_warehouse_and_regular_nodes_string_aggregation_target(self):
-        # Regression: without the toString coercion on mixed legs, this errors with
-        # NO_COMMON_TYPE because events.person_id is UUID and user_id is String.
         table_name = self.setup_data_warehouse()
         with freeze_time("2025-11-07"):
             _create_person(

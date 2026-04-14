@@ -142,7 +142,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(user_id)), or(equals(step_0, 1), equals(step_1, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
         self.assertEqual(select, expected)
 
@@ -167,7 +167,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments_string_timestamp AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(user_id)), or(equals(step_0, 1), equals(step_1, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
         self.assertEqual(select, expected)
 
@@ -250,7 +250,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    0 AS step_2,
                    if(and(1, equals(other_prop, 'other_value')), 1, 0) AS step_3
             FROM table_one AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(user_id)), or(equals(step_1, 1), equals(step_3, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_1, 1), equals(step_3, 1)))
         """).strip()
         self.assertEqual(select_2, expected_2)
 
@@ -263,9 +263,35 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
                    0 AS step_3
             FROM table_two AS e
-            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999')), isNotNull(some_user_id)), equals(step_2, 1))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
         """).strip()
         self.assertEqual(select_3, expected_3)
+
+    @freeze_time("2025-11-12")
+    def test_multiple_tables_group_aggregated(self):
+        query = FunnelsQuery(
+            kind="FunnelsQuery",
+            aggregation_group_type_index=0,
+            series=[
+                EventsNode(event="$pageview"),
+                FunnelsDataWarehouseNode(
+                    id="payments",
+                    table_name="payments",
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created_at",
+                ),
+            ],
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        funnel_event_query = FunnelEventQuery(context=context).to_query()
+
+        events_leg = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
+        assert "toString($group_0) AS aggregation_target" in events_leg
+
+        dwh_leg = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
+        assert "toString(user_id) AS aggregation_target" in dwh_leg
 
     @freeze_time("2025-11-12")
     def test_group_node_two_events(self):

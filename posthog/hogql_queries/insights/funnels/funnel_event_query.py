@@ -259,7 +259,6 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
 
         date_range = self._date_range()
-        aggregation_target_expr = parse_expr(table_entity.aggregation_target_field)
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -271,9 +270,6 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_range.date_to()),
             ),
-            # Mirror events-leg hygiene — drop rows with no resolvable aggregation target so they
-            # don't pollute the funnel UDF with nulls the events side would never produce.
-            ast.Call(name="isNotNull", args=[aggregation_target_expr]),
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
