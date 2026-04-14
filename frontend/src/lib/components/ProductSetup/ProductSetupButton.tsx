@@ -6,6 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -23,6 +25,7 @@ export function ProductSetupButton(): JSX.Element | null {
     const { selectedProduct, isGlobalModalOpen, sceneHasNoSetup } = useValues(globalSetupLogic)
     const { openGlobalSetup, closeGlobalSetup, setSelectedProduct } = useActions(globalSetupLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
+    const showPulseIndicator = useFeatureFlag(FEATURE_FLAGS.QUICK_START_PULSE_INDICATOR, 'test')
 
     // Get the setup state for the selected product
     const logic = productSetupLogic({ productKey: selectedProduct })
@@ -71,6 +74,7 @@ export function ProductSetupButton(): JSX.Element | null {
                     showBadge={shouldShowSetup}
                     isActive={isGlobalModalOpen}
                     onClick={handleToggle}
+                    showPulse={showPulseIndicator}
                 />
             )}
         </ProductSetupPopover>
@@ -113,12 +117,15 @@ interface ExpandedButtonProps {
     showBadge: boolean
     isActive: boolean
     onClick: () => void
+    showPulse: boolean
 }
 
 const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(function ExpandedButton(
-    { remainingCount, showBadge, isActive, onClick },
+    { remainingCount, showBadge, isActive, onClick, showPulse },
     ref
 ) {
+    const showIndicator = showBadge && remainingCount > 0 && !isActive
+
     return (
         <LemonButton
             ref={ref}
@@ -129,8 +136,15 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
             active={isActive}
             data-attr="global-product-setup-button"
             sideIcon={
-                showBadge && remainingCount > 0 ? (
-                    <LemonBadge.Number count={remainingCount} status="warning" size="small" />
+                showIndicator ? (
+                    showPulse ? (
+                        <span className="relative flex h-3 w-3">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-danger animate-ping opacity-75" />
+                            <span className="relative inline-flex h-3 w-3 rounded-full bg-danger" />
+                        </span>
+                    ) : (
+                        <LemonBadge.Number count={remainingCount} status="warning" size="small" />
+                    )
                 ) : undefined
             }
         >

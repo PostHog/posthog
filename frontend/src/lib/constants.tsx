@@ -394,6 +394,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_DATA_WAREHOUSE_VALUE_PROP: 'onboarding-data-warehouse-value-prop', // owner: @fercgomes #team-growth multivariate=control,table,query
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     POST_ONBOARDING_MODAL_EXPERIMENT: 'post-onboarding-modal-experiment', // owner: @fercgomes #team-growth multivariate=control,test
+    QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
