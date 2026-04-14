@@ -27,6 +27,8 @@ CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
 CONSUMER_GROUP_APP_METRICS2_WS = "clickhouse_app_metrics2_ws"
 CONSUMER_GROUP_TOPHOG_WS = "clickhouse_tophog_ws"
+CONSUMER_GROUP_PRECALCULATED_EVENTS_WS = "clickhouse_precalculated_events_ws"
+CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES_WS = "clickhouse_precalculated_person_properties_ws"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
