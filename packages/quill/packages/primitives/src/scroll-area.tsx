@@ -120,8 +120,12 @@ function ScrollToEdgeButton({
 // Injected once at module load rather than authored as Tailwind arbitrary values —
 // the box-shadow syntax with nested commas and var() interactions is unreliable in
 // Tailwind's arbitrary-property parser.
-const SCROLL_SHADOWS_STYLE_ID = 'quill-scroll-area-shadows'
-const scrollShadowsCss = `
+//
+// Both the CSS string and ID are exported so consumers with strict CSP (nonce-based
+// style-src) can inject themselves via `<style nonce={...}>{scrollShadowsCss}</style>`
+// before the default auto-injection runs. Match the ID to dedupe.
+export const SCROLL_SHADOWS_STYLE_ID = 'quill-scroll-area-shadows'
+export const scrollShadowsCss = `
 [data-component="scroll-area"][data-scroll-shadows="true"] {
     --shadow-x-start: 0 0 0 0 transparent;
     --shadow-x-end: 0 0 0 0 transparent;
@@ -193,6 +197,12 @@ function ScrollArea({
 }): React.ReactElement {
     const viewportRef = React.useRef<HTMLDivElement | null>(null)
     const edges = resolveEdges(showScrollToButton)
+    if (process.env.NODE_ENV !== 'production' && hideScrollbars && alwaysShowScrollbars) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            '[ScrollArea] `hideScrollbars` and `alwaysShowScrollbars` are mutually exclusive; `alwaysShowScrollbars` will be ignored.'
+        )
+    }
     return (
         <ScrollAreaPrimitive.Root
             data-slot="scroll-area"
