@@ -43,14 +43,14 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-openai-v2
+                                    pip install openai portkey-ai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai portkey-ai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}

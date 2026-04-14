@@ -37,7 +37,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install langchain langchain-openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-langchain
+                                    pip install langchain langchain-core langchain-openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-langchain
                                 `,
                             },
                             {

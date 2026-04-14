@@ -37,14 +37,14 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install langgraph langchain-openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-langchain
+                                    pip install langgraph langchain-core langchain-openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-langchain
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @langchain/langgraph @langchain/openai @langchain/core @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
+                                    npm install @langchain/langgraph @langchain/openai @langchain/core zod @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
                                 `,
                             },
                         ]}
