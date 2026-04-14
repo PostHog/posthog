@@ -33,7 +33,7 @@ from posthog.hogql_queries.insights.lifecycle_validation import (
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
-from posthog.hogql_queries.validation.rules import RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -44,7 +44,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     cached_response: CachedLifecycleQueryResponse
 
     def validators(self) -> Sequence[QueryValidationRule[LifecycleQuery]]:
-        return (RequireAtLeastOneSeries(), RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget())
+        return (
+            RequireAtLeastOneSeries(),
+            RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget(),
+            DisallowUnsupportedDataWarehouseSettings(),
+        )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
