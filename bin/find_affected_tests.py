@@ -91,6 +91,20 @@ FILE_ALIASES = {
     "frontend/src/queries/schema.json": "posthog/schema.py",
 }
 
+# Path patterns for files that have no Python test dependents by construction.
+# Migrations are autoloaded by Django and the ClickHouse migration runner — no
+# test imports them by name, so the import graph never reaches them. Without
+# this list they'd fall through to "unmapped" whenever os.walk can't see them
+# (the file was renamed in the diff, deleted, or otherwise not on disk at
+# reverse-map build time), wrongly triggering a full run. Dedicated migration
+# safety validation runs as a separate CI job, so classifying them as no-dep
+# here doesn't lose coverage.
+NO_TEST_DEP_PATTERNS = (
+    # Django (posthog/migrations/, products/*/backend/migrations/, ee/**/migrations/)
+    # and ClickHouse (posthog/clickhouse/migrations/) migrations — all numbered.
+    re.compile(r"(^|/)migrations/\d+[A-Za-z0-9_]*\.py$"),
+)
+
 # Patterns in the dorny backend filter that don't affect test selection.
 # These exist in dorny's gate to be conservative, but changing them alone
 # doesn't require running any Python tests. Listed here so --check-sync
@@ -381,6 +395,17 @@ def requires_full_run(changed_file: str) -> bool:
     return False
 
 
+def has_no_test_deps_by_path(changed_file: str) -> bool:
+    """Return True when the path pattern itself guarantees no Python test dependents.
+
+    Used as a safety net for files (e.g. migrations) the import graph never
+    reaches — so that a diff referencing such a file, even when the file isn't
+    on disk at build time, can't fall through to the "unmapped → full run"
+    fallback. See NO_TEST_DEP_PATTERNS for the rationale.
+    """
+    return any(p.search(changed_file) for p in NO_TEST_DEP_PATTERNS)
+
+
 def parse_dorny_backend_patterns() -> list[str]:
     """Extract the backend filter patterns from ci-backend.yml."""
     ci_backend = REPO_ROOT / ".github" / "workflows" / "ci-backend.yml"
@@ -633,6 +658,11 @@ def main():
             elif normalized in all_known_source_files or changed_file in all_known_source_files:
                 # grimp/AST analyzed this file — no test depends on it.
                 # Changing it cannot break any test through import deps.
+                no_dep_files.append(changed_file)
+            elif has_no_test_deps_by_path(normalized):
+                # Path pattern guarantees no import dependents (migrations,
+                # autoloaded by Django / ClickHouse). Safe even when the file
+                # isn't on disk at reverse-map build time.
                 no_dep_files.append(changed_file)
             else:
                 unmapped_files.append(changed_file)
