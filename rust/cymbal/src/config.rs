@@ -131,6 +131,11 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_events_per_batch: usize,
 
+    // Maximum number of in-flight /process requests accepted by the API.
+    // Requests above this limit are rejected with 429 to apply backpressure.
+    #[envconfig(default = "128")]
+    pub process_max_in_flight_requests: usize,
+
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
 

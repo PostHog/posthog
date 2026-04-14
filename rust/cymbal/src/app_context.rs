@@ -49,6 +49,7 @@ pub struct AppContext {
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
+    pub process_request_limiter: Arc<Semaphore>,
     pub config: Config,
     pub geoip_client: GeoIpClient,
 
@@ -264,6 +265,8 @@ impl AppContext {
         ));
         let symbol_resolution_limiter =
             Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)));
+        let process_request_limiter =
+            Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
         Ok(Self {
             health_registry,
@@ -276,6 +279,7 @@ impl AppContext {
             catalog,
             config: config.clone(),
             symbol_resolution_limiter,
+            process_request_limiter,
             team_manager,
             geoip_client,
             billing_limiter,
