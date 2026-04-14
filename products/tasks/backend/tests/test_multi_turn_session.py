@@ -1,0 +1,240 @@
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+from unittest.mock import AsyncMock, patch
+
+from pydantic import BaseModel
+
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
+from products.tasks.backend.services.custom_prompt_runner import EmptyAgentTurnError, _poll_for_turn
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+# Stupidified version of the agent S3 log — just enough structure for _check_logs.
+# Based on the real reseach_log_debug.json, which showed the priority turn emitting
+# only usage_updates between the user_message_chunk and end_turn.
+
+
+def _agent_message_line(text: str) -> str:
+    return json.dumps(
+        {
+            "notification": {
+                "method": "session/update",
+                "params": {"update": {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}},
+            }
+        }
+    )
+
+
+def _end_turn_line() -> str:
+    return json.dumps({"notification": {"result": {"stopReason": "end_turn"}}})
+
+
+def _user_message_line(text: str) -> str:
+    return json.dumps(
+        {
+            "notification": {
+                "method": "session/update",
+                "params": {"update": {"sessionUpdate": "user_message", "content": {"type": "text", "text": text}}},
+            }
+        }
+    )
+
+
+@dataclass
+class FakeTaskRun:
+    id: str = "run-1"
+    log_url: str = "s3://fake/log"
+    status: str = "running"
+    error_message: str | None = None
+
+
+class _Resp(BaseModel):
+    value: str
+
+
+class TestPollForTurnEmptyEndTurn:
+    @pytest.mark.asyncio
+    async def test_raises_empty_agent_turn_error_with_offsets(self):
+        """_poll_for_turn must translate the _check_logs empty-end_turn flag into a
+        typed exception so the caller can retry instead of polling until timeout."""
+        turn_1 = [_agent_message_line("first"), _end_turn_line()]
+        turn_2_empty = [_user_message_line("prompt"), _end_turn_line()]
+        log = "\n".join(turn_1 + turn_2_empty)
+        skip = len(turn_1)
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch(
+                "products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS",
+                0,
+            ),
+        ):
+            with pytest.raises(EmptyAgentTurnError) as exc_info:
+                await _poll_for_turn(FakeTaskRun(), skip_lines=skip)
+
+        # Carries log offsets so the caller can resume from the tail on retry
+        # instead of re-streaming already-printed lines.
+        assert exc_info.value.total_lines == len(turn_1) + len(turn_2_empty)
+        assert exc_info.value.printed_lines >= 0
+
+
+class TestMultiTurnSessionRetry:
+    """send_followup must retry once on EmptyAgentTurnError and propagate if the retry
+    also fails, so upstream sees a typed failure rather than a timeout or parse error."""
+
+    def _make_session(self) -> MultiTurnSession:
+        # Bypass MultiTurnSession.start (which creates a real Task) by building the
+        # dataclass directly — the retry logic only needs task_run + workflow_handle.
+        workflow_handle = AsyncMock()
+        workflow_handle.signal = AsyncMock()
+        session = MultiTurnSession(
+            task=object(),  # type: ignore[arg-type]
+            task_run=FakeTaskRun(),
+            _workflow_handle=workflow_handle,
+        )
+        return session
+
+    @pytest.mark.asyncio
+    async def test_happy_path_no_retry(self):
+        session = self._make_session()
+        agent_response = json.dumps({"value": "ok"})
+
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            new=AsyncMock(return_value=(agent_response, None, 10, 5)),
+        ):
+            result = await session.send_followup("hello", _Resp, label="unit")
+
+        assert result == _Resp(value="ok")
+        # Signal sent exactly once on happy path
+        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_retries_once_on_empty_end_turn(self):
+        session = self._make_session()
+        agent_response = json.dumps({"value": "retry-success"})
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                EmptyAgentTurnError("empty", total_lines=12, printed_lines=7),
+                (agent_response, None, 20, 10),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            new=poll_mock,
+        ):
+            result = await session.send_followup("please prioritize", _Resp, label="priority")
+
+        assert result == _Resp(value="retry-success")
+        # Signal sent twice: original + retry with nudge suffix
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+        retry_call = session._workflow_handle.signal.await_args_list[1]  # type: ignore[union-attr]
+        retry_message = retry_call.args[1]
+        assert retry_message == "please prioritize" + _EMPTY_TURN_RETRY_NUDGE
+        # Offsets must advance past the empty-turn lines so the retry polls from the tail
+        assert session.log_lines_seen == 20
+        assert session.printed_lines == 10
+
+    @pytest.mark.asyncio
+    async def test_raises_after_two_consecutive_empty_turns(self):
+        session = self._make_session()
+
+        poll_mock = AsyncMock(
+            side_effect=[
+                EmptyAgentTurnError("empty-1", total_lines=12, printed_lines=7),
+                EmptyAgentTurnError("empty-2", total_lines=15, printed_lines=8),
+            ]
+        )
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            new=poll_mock,
+        ):
+            with pytest.raises(EmptyAgentTurnError, match="twice"):
+                await session.send_followup("x", _Resp, label="priority")
+
+        # Still signaled twice — we *tried* to retry before giving up
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_full_retry_path_with_real_poll_loop(self):
+        """End-to-end integration: send_followup → real _poll_for_turn → real _check_logs
+        → EmptyAgentTurnError → retry → real _check_logs finds agent_message → parsed.
+
+        The log fixture mirrors the production incident: initial turn with a real
+        agent_message, then an empty turn (usage_update + end_turn, no agent_message),
+        then a recovered turn on retry. Log visibility grows as send_followup_message
+        signals arrive — simulating how the sandbox appends lines after each prompt.
+        """
+        fixture_lines = (FIXTURES_DIR / "agent_log_empty_end_turn_retry.jsonl").read_text().strip().split("\n")
+        assert len(fixture_lines) == 8  # sanity: fixture hasn't drifted
+
+        # Log state evolves with each followup signal. Heartbeat signals (1 positional
+        # arg) don't advance; send_followup_message signals (2 positional args) do.
+        followup_signals = {"count": 0}
+
+        async def record_signal(*args, **kwargs):
+            if len(args) >= 2:
+                followup_signals["count"] += 1
+
+        def current_log(*_args, **_kwargs):
+            n = followup_signals["count"]
+            if n == 0:
+                visible = 2  # only the prior completed turn
+            elif n == 1:
+                visible = 5  # empty turn appended (user_message_chunk + usage_update + end_turn)
+            else:
+                visible = 8  # recovered turn appended (user_message_chunk + agent_message + end_turn)
+            return "\n".join(fixture_lines[:visible])
+
+        session = self._make_session()
+        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr]
+        # Session state as if MultiTurnSession.start already consumed the initial turn.
+        session.log_lines_seen = 2
+        session.printed_lines = 2
+
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=current_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+        ):
+            result = await session.send_followup("please respond", _Resp, label="priority")
+
+        assert result == _Resp(value="recovered-after-retry")
+        # Two followup signals: the original + the retry with nudge suffix.
+        assert followup_signals["count"] == 2
+        signal_calls = session._workflow_handle.signal.await_args_list  # type: ignore[union-attr]
+        followup_calls = [c for c in signal_calls if len(c.args) >= 2]
+        assert followup_calls[0].args[1] == "please respond"
+        assert followup_calls[1].args[1] == "please respond" + _EMPTY_TURN_RETRY_NUDGE
+        # Offsets advanced past the recovered turn.
+        assert session.log_lines_seen == 8
+
+    @pytest.mark.asyncio
+    async def test_advances_offsets_from_error_before_retrying(self):
+        """Regression: the retry must poll from the updated tail. Otherwise it would
+        re-see the previous turn's end_turn and think that's still the current turn."""
+        session = self._make_session()
+        session.log_lines_seen = 5
+        session.printed_lines = 3
+        agent_response = json.dumps({"value": "ok"})
+
+        captured_skip_lines: list[int] = []
+
+        async def fake_poll(task_run, *, skip_lines=0, printed_lines=0, **kwargs):
+            captured_skip_lines.append(skip_lines)
+            if len(captured_skip_lines) == 1:
+                raise EmptyAgentTurnError("empty", total_lines=99, printed_lines=50)
+            return (agent_response, None, 120, 60)
+
+        with patch(
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            new=fake_poll,
+        ):
+            await session.send_followup("x", _Resp, label="priority")
+
+        assert captured_skip_lines == [5, 99]
