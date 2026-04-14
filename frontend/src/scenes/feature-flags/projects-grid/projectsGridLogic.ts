@@ -13,7 +13,7 @@ import type { projectsGridLogicType } from './projectsGridLogicType'
 
 export const PAGE_SIZE = 25
 
-interface LoadFlagsResult {
+export interface LoadFlagsResult {
     offset: number
     search: string
     count: number
@@ -85,6 +85,7 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 startSiblingFetch: (state, { flagKey }) => [...state, flagKey],
                 siblingsLoaded: (state, { flagKey }) => state.filter((k) => k !== flagKey),
                 siblingsFailed: (state, { flagKey }) => state.filter((k) => k !== flagKey),
+                setSearch: () => [],
             },
         ],
         siblingQueue: [
@@ -95,6 +96,7 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                     return [...state, ...dedup]
                 },
                 startSiblingFetch: (state, { flagKey }) => state.filter((k) => k !== flagKey),
+                setSearch: () => [],
             },
         ],
         pickedTeamIds: [

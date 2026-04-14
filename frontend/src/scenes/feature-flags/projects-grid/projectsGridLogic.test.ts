@@ -116,6 +116,16 @@ describe('projectsGridLogic', () => {
             expect(callOrder).toEqual(['flag_1', 'flag_2', 'flag_3'])
             expect(maxInFlight).toBe(1)
         })
+
+        it('resets sibling queue when search changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.siblingQueue).toHaveLength(0)
+
+            logic.actions.enqueueSiblingFetches(['flag_x', 'flag_y'])
+            logic.actions.setSearch('something')
+            expect(logic.values.siblingQueue).toEqual([])
+            expect(logic.values.siblingsLoadingKeys).toEqual([])
+        })
     })
 
     describe('picker + localStorage', () => {
