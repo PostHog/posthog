@@ -38,7 +38,6 @@ EVAL_ACTIVITY_TYPES = {
 
 EVAL_WORKFLOW_TYPES = {
     "run-evaluation",
-    "run-tagger",
 }
 
 Attributes = dict[str, str | int | float | bool]

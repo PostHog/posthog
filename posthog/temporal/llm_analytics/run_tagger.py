@@ -17,7 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
 
-from products.llm_analytics.backend.llm import Client, CompletionRequest
+from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
 from products.llm_analytics.backend.llm.config import get_eval_config
 from products.llm_analytics.backend.llm.errors import (
     AuthenticationError,
@@ -232,6 +232,14 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
         if provider_key_id:
             provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
         else:
+            # Trial mode — enforce allowlist so teams can't run expensive non-trial
+            # models on PostHog-funded credits. Matches the guard in execute_llm_judge_activity.
+            if model not in TRIAL_MODEL_IDS:
+                raise ApplicationError(
+                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
+                    {"error_type": "model_not_allowed", "model": model},
+                    non_retryable=True,
+                )
             await database_sync_to_async(_check_trial_quota)()
             provider_key = None
     else:
@@ -325,7 +333,7 @@ Output: {output_data}"""
 
     result = response.parsed
     if result is None:
-        logger.exception("LLM tagger returned empty structured response", tagger_id=tagger["id"])
+        logger.error("LLM tagger returned empty structured response", tagger_id=tagger["id"])
         raise ValueError(f"LLM tagger returned empty structured response for tagger {tagger['id']}")
 
     assert isinstance(result, TagResult)
@@ -469,6 +477,7 @@ async def execute_hog_tagger_activity(tagger: dict[str, Any], event_data: dict[s
     return {
         "tags": result["tags"],
         "reasoning": result["reasoning"],
+        "is_hog": True,
     }
 
 
@@ -511,6 +520,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         properties: dict[str, Any] = {
             "$ai_tagger_id": tagger["id"],
             "$ai_tagger_name": tagger["name"],
+            "$ai_tagger_type": "hog" if result.get("is_hog") else "llm",
             "$ai_tags": result["tags"],
             "$ai_tag_count": len(result["tags"]),
             "$ai_tag_reasoning": result["reasoning"],
@@ -518,13 +528,22 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
             "$ai_trace_id": properties_raw.get("$ai_trace_id"),
-            "$ai_model": result.get("model", DEFAULT_TAGGER_MODEL),
-            "$ai_provider": result.get("provider", "openai"),
-            "$ai_input_tokens": result.get("input_tokens", 0),
-            "$ai_output_tokens": result.get("output_tokens", 0),
-            "$ai_tagger_key_type": "byok" if result.get("is_byok") else "posthog",
-            "$ai_tagger_key_id": result.get("key_id"),
         }
+
+        # LLM-only attribution — Hog taggers execute bytecode locally and have no
+        # model/provider/key metadata, so omit these properties for Hog runs rather
+        # than falsely tagging them as gpt-5-mini/openai/posthog-key.
+        if not result.get("is_hog"):
+            properties.update(
+                {
+                    "$ai_model": result.get("model", DEFAULT_TAGGER_MODEL),
+                    "$ai_provider": result.get("provider", "openai"),
+                    "$ai_input_tokens": result.get("input_tokens", 0),
+                    "$ai_output_tokens": result.get("output_tokens", 0),
+                    "$ai_tagger_key_type": "byok" if result.get("is_byok") else "posthog",
+                    "$ai_tagger_key_id": result.get("key_id"),
+                }
+            )
 
         event_timestamp = datetime.now(UTC)
 
@@ -598,8 +617,8 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
-                        if error_type == "trial_limit_reached":
+                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
+                        if error_type in ("trial_limit_reached", "model_not_allowed"):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
                                 args=[tagger["id"], tagger["team_id"]],

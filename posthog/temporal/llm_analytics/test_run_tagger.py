@@ -65,48 +65,49 @@ def setup_data():
 
 
 class TestBuildTaggerSystemPrompt:
-    def test_includes_all_tags(self):
-        tags = [
-            {"name": "billing", "description": "Billing related"},
-            {"name": "analytics", "description": ""},
-        ]
-        prompt = build_tagger_system_prompt("Classify this", tags, 0, None)
-        assert "- billing: Billing related" in prompt
-        assert "- analytics" in prompt
-
-    def test_includes_constraints_min_and_max(self):
-        tags = [{"name": "a"}]
-        prompt = build_tagger_system_prompt("Test", tags, 1, 3)
-        assert "at least 1" in prompt
-        assert "at most 3" in prompt
-
-    def test_includes_constraint_min_only(self):
-        tags = [{"name": "a"}]
-        prompt = build_tagger_system_prompt("Test", tags, 2, None)
-        assert "at least 2" in prompt
-        assert "at most" not in prompt
-
-    def test_includes_constraint_max_only(self):
-        tags = [{"name": "a"}]
-        prompt = build_tagger_system_prompt("Test", tags, 0, 5)
-        assert "at most 5" in prompt
-        assert "at least" not in prompt
-
-    def test_no_constraints(self):
-        tags = [{"name": "a"}]
-        prompt = build_tagger_system_prompt("Test", tags, 0, None)
-        assert "Select as many tags as apply" in prompt
-
-    def test_includes_user_prompt(self):
-        tags = [{"name": "a"}]
-        prompt = build_tagger_system_prompt("Which features are used?", tags, 0, None)
-        assert "Which features are used?" in prompt
-
-    def test_tags_without_description(self):
-        tags = [{"name": "billing"}, {"name": "analytics"}]
-        prompt = build_tagger_system_prompt("Test", tags, 0, None)
-        assert "- billing\n" in prompt
-        assert "- analytics\n" in prompt
+    @pytest.mark.parametrize(
+        "user_prompt,tags,min_tags,max_tags,expected_in,expected_not_in",
+        [
+            # Tag rendering
+            (
+                "Classify this",
+                [{"name": "billing", "description": "Billing related"}, {"name": "analytics", "description": ""}],
+                0,
+                None,
+                ["- billing: Billing related", "- analytics"],
+                [],
+            ),
+            (
+                "Test",
+                [{"name": "billing"}, {"name": "analytics"}],
+                0,
+                None,
+                ["- billing\n", "- analytics\n"],
+                [],
+            ),
+            # Min / max constraint wording
+            ("Test", [{"name": "a"}], 1, 3, ["at least 1", "at most 3"], []),
+            ("Test", [{"name": "a"}], 2, None, ["at least 2"], ["at most"]),
+            ("Test", [{"name": "a"}], 0, 5, ["at most 5"], ["at least"]),
+            ("Test", [{"name": "a"}], 0, None, ["Select as many tags as apply"], []),
+            # User prompt passthrough
+            ("Which features are used?", [{"name": "a"}], 0, None, ["Which features are used?"], []),
+        ],
+    )
+    def test_build_tagger_system_prompt(
+        self,
+        user_prompt: str,
+        tags: list[dict],
+        min_tags: int,
+        max_tags: int | None,
+        expected_in: list[str],
+        expected_not_in: list[str],
+    ):
+        prompt = build_tagger_system_prompt(user_prompt, tags, min_tags, max_tags)
+        for expected in expected_in:
+            assert expected in prompt
+        for excluded in expected_not_in:
+            assert excluded not in prompt
 
 
 class TestRunTaggerWorkflow:
