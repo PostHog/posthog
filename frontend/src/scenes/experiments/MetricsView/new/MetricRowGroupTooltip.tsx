@@ -1,3 +1,5 @@
+import { IconCursorClick } from '@posthog/icons'
+
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
@@ -79,7 +81,10 @@ export const renderTooltipContent = (
             </div>
 
             {timeseriesEnabled && (
-                <div className="text-muted-alt text-xs mt-1 text-center">Click to view timeseries</div>
+                <div className="text-muted-alt text-xs mt-1 text-center flex items-center justify-center gap-1">
+                    <IconCursorClick className="text-sm" />
+                    Click to view timeseries
+                </div>
             )}
         </div>
     )
