@@ -6,9 +6,10 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { parseTagsFilter } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { tracingDataLogic } from './tracingDataLogic'
+import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import { DEFAULT_DATE_RANGE, DEFAULT_ORDER_BY, DEFAULT_SERVICE_NAMES, tracingFiltersLogic } from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
+import type { Span } from './types'
 
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
@@ -25,6 +26,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'hasMoreToLoad',
                 'hasRunQuery',
                 'totalSpansMatchingFilters',
+                'traceSpans',
                 'traceSpansLoading',
             ],
             tracingFiltersLogic,
@@ -32,7 +34,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         ],
         actions: [
             tracingDataLogic,
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans'],
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'clearTraceSpans'],
             tracingFiltersLogic,
             ['setDateRange', 'setServiceNames', 'setFilterGroup', 'setOrderBy', 'setFilters'],
         ],
@@ -59,11 +61,30 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             (s) => [s.selectedTraceId],
             (selectedTraceId: string | null): boolean => selectedTraceId !== null,
         ],
+        modalSpans: [
+            (s) => [s.selectedTraceId, s.spans, s.traceSpans],
+            (selectedTraceId: string | null, spans: Span[], traceSpans: Span[]): Span[] => {
+                if (!selectedTraceId) {
+                    return []
+                }
+                if (traceSpans.length > 0) {
+                    return traceSpans
+                }
+                return spans.filter((s) => s.trace_id === selectedTraceId)
+            },
+        ],
+        isLoadingFullTrace: [(s) => [s.traceSpansLoading], (traceSpansLoading: boolean): boolean => traceSpansLoading],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         openTraceModal: ({ traceId }) => {
-            actions.loadTraceSpans(traceId)
+            const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
+            if (prefetchedSpans.length >= PREFETCH_SPANS) {
+                actions.loadTraceSpans(traceId)
+            }
+        },
+        closeTraceModal: () => {
+            actions.clearTraceSpans()
         },
         setDateRange: () => {
             actions.syncUrlAndRunQuery()

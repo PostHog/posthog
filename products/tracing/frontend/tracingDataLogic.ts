@@ -26,6 +26,7 @@ export interface TracingSparklineData {
 }
 
 const DEFAULT_PAGE_SIZE = 100
+export const PREFETCH_SPANS = 20
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 function isUserInitiatedError(error: unknown): boolean {
@@ -44,6 +45,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         runQuery: true,
         fetchNextPage: true,
         clearSpans: true,
+        clearTraceSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
         cancelInProgressSparkline: (controller: AbortController | null) => ({ controller }),
         setSpansAbortController: (controller: AbortController | null) => ({ controller }),
@@ -117,7 +119,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         orderBy: values.filters.orderBy,
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
-                        prefetchSpans: 20,
+                        prefetchSpans: PREFETCH_SPANS,
                         limit: DEFAULT_PAGE_SIZE,
                     })
 
@@ -153,8 +155,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
+                clearTraceSpans: () => [],
                 loadTraceSpans: async (traceId: string): Promise<Span[]> => {
-                    const response = await api.tracing.getTrace(traceId, { date_from: '-24h' })
+                    const response = await api.tracing.getTrace(traceId, {
+                        date_from: values.utcDateRange.date_from ?? '-24h',
+                        date_to: values.utcDateRange.date_to ?? undefined,
+                    })
                     return response.results as Span[]
                 },
             },
