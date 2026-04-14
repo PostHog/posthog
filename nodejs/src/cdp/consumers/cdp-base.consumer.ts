@@ -119,7 +119,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER').then((producer) => {
+            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
                 this.kafkaProducer = producer
             }),
             KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'WAREHOUSE_PRODUCER').then((producer) => {
