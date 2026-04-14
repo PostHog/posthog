@@ -23,6 +23,7 @@ from unittest.mock import patch
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
+    CompareFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -406,13 +407,12 @@ class TestSampleWebAnalyticsQueries(ClickhouseTestMixin, APIBaseTest):
         "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
         return_value=True,
     )
-    def test_prefiltered_page_scroll_bounce_query(self, _mock):
+    def test_prefiltered_page_bounce_and_avg_time_query(self, _mock):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
             properties=[],
             breakdownBy=WebStatsBreakdown.PAGE,
-            includeBounceRate=True,
-            includeScrollDepth=True,
+            includeAvgTimeOnPage=True,
             limit=10,
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
@@ -422,12 +422,13 @@ class TestSampleWebAnalyticsQueries(ClickhouseTestMixin, APIBaseTest):
         "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
         return_value=True,
     )
-    def test_prefiltered_page_bounce_and_avg_time_query(self, _mock):
+    def test_prefiltered_page_bounce_with_compare_period(self, _mock):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
             properties=[],
             breakdownBy=WebStatsBreakdown.PAGE,
-            includeAvgTimeOnPage=True,
+            includeBounceRate=True,
+            compareFilter=CompareFilter(compare=True),
             limit=10,
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)

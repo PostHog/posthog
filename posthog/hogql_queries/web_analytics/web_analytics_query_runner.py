@@ -542,8 +542,16 @@ WHERE
         return f"{original}_{self.team.path_cleaning_filters}"
 
     def _events_prefilter_expr(self) -> ast.Expr:
-        date_from = (self.query_date_range.date_from() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        date_to = (self.query_date_range.date_to() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        lower = self.query_date_range.date_from()
+        upper = self.query_date_range.date_to()
+
+        if self.query_compare_to_date_range:
+            lower = min(lower, self.query_compare_to_date_range.date_from())
+            upper = max(upper, self.query_compare_to_date_range.date_to())
+
+        utc = ZoneInfo("UTC")
+        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
         return ast.And(
             exprs=[

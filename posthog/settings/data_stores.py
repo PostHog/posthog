@@ -370,7 +370,10 @@ def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
 def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+    try:
+        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+    except Exception:
+        return []
 
 
 # Set of teams querying the data before we switched to new limits

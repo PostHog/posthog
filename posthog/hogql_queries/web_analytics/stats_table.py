@@ -32,7 +32,6 @@ from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries imp
     PATH_BOUNCE_QUERY,
     PATH_BOUNCE_QUERY_PREFILTERED,
     PATH_SCROLL_BOUNCE_QUERY,
-    PATH_SCROLL_BOUNCE_QUERY_PREFILTERED,
 )
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
@@ -196,28 +195,21 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         return query
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
-        use_prefilter = is_web_analytics_events_prefilter_team(self.team.pk)
-
         with self.timings.measure("stats_table_bounce_query"):
-            placeholders = {
-                "session_properties": self._session_properties(),
-                "event_properties": self._event_properties(),
-                "event_properties_for_scroll": self._event_properties_for_scroll(),
-                "breakdown_value": self._counts_breakdown_value(),
-                "scroll_breakdown_value": self._scroll_prev_pathname_breakdown(),
-                "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                "current_period": self._current_period_expression(),
-                "previous_period": self._previous_period_expression(),
-                "inside_periods": self._periods_expression(),
-            }
-            if use_prefilter:
-                placeholders["events_prefilter"] = self._events_prefilter_expr()
-                placeholders["events_prefilter_scroll"] = self._events_prefilter_expr()
-
             query = parse_select(
-                PATH_SCROLL_BOUNCE_QUERY_PREFILTERED if use_prefilter else PATH_SCROLL_BOUNCE_QUERY,
+                PATH_SCROLL_BOUNCE_QUERY,
                 timings=self.timings,
-                placeholders=placeholders,
+                placeholders={
+                    "session_properties": self._session_properties(),
+                    "event_properties": self._event_properties(),
+                    "event_properties_for_scroll": self._event_properties_for_scroll(),
+                    "breakdown_value": self._counts_breakdown_value(),
+                    "scroll_breakdown_value": self._scroll_prev_pathname_breakdown(),
+                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                    "current_period": self._current_period_expression(),
+                    "previous_period": self._previous_period_expression(),
+                    "inside_periods": self._periods_expression(),
+                },
             )
         assert isinstance(query, ast.SelectQuery)
 
