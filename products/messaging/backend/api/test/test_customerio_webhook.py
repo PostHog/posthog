@@ -27,7 +27,7 @@ class TestCustomerIOWebhook(APIBaseTest):
             config={"webhook_enabled": True},
             created_by=self.user,
         )
-        self.url = f"/api/environments/{self.team.id}/messaging/customerio_webhook/"
+        self.url = f"/api/environments/{self.team.id}/messaging/customerio/webhook/"
 
         # Create categories that mimic a Customer.io import (key = "customerio_topic_{id}")
         self.cat_7 = MessageCategory.objects.create(team=self.team, key="customerio_topic_7", name="Product updates")

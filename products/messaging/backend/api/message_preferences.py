@@ -83,7 +83,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def webhook_url(self, request, **kwargs):
         """Return the webhook URL for Customer.io integration setup."""
         base = request.build_absolute_uri("/")[:-1]
-        return Response({"url": f"{base}/api/environments/{self.team_id}/messaging/customerio_webhook/"})
+        return Response({"url": f"{base}/api/environments/{self.team_id}/messaging/customerio/webhook/"})
 
     @action(detail=False, methods=["post"])
     def generate_link(self, request, **kwargs):

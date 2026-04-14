@@ -220,7 +220,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
             (s) => [s.currentTeamIdStrict],
             (currentTeamIdStrict): string => {
                 const host = window.location.origin
-                return `${host}/api/environments/${currentTeamIdStrict}/messaging/customerio_webhook/`
+                return `${host}/api/environments/${currentTeamIdStrict}/messaging/customerio/webhook/`
             },
         ],
         stepCompletion: [
