@@ -4765,7 +4765,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (team_id, job_id, entity_id)
+  ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
@@ -7691,7 +7691,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
-  ORDER BY (team_id, job_id, entity_id)
+  ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
