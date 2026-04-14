@@ -1,7 +1,117 @@
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
+import { Button } from './button'
+
+type ScrollEdge = 'top' | 'right' | 'bottom' | 'left'
+type ShowScrollToButton = ScrollEdge | 'all' | ReadonlyArray<ScrollEdge>
+
+const ALL_EDGES: ReadonlyArray<ScrollEdge> = ['top', 'right', 'bottom', 'left']
+
+function resolveEdges(value: ShowScrollToButton | undefined): ReadonlyArray<ScrollEdge> {
+    if (!value) {
+        return []
+    }
+    if (value === 'all') {
+        return ALL_EDGES
+    }
+    if (Array.isArray(value)) {
+        return value
+    }
+    return [value as ScrollEdge]
+}
+
+// Each button is gated on the Root having a matching base-ui overflow data attribute
+// via Tailwind's `group-data-*` variants — no React state, no scroll listeners, no
+// effects. Visibility is pure CSS driven by base-ui's internal scroll tracking.
+const EDGE_CONFIG: Record<
+    ScrollEdge,
+    {
+        label: string
+        Icon: React.ComponentType<{ className?: string }>
+        positionClasses: string
+        visibleClasses: string
+        getScrollTarget: (viewport: HTMLElement) => ScrollToOptions
+    }
+> = {
+    top: {
+        label: 'Scroll to top',
+        Icon: ArrowUp,
+        positionClasses: 'top-2 left-1/2 -translate-x-1/2',
+        visibleClasses:
+            'group-data-[overflow-y-start]/scroll-area:opacity-100 group-data-[overflow-y-start]/scroll-area:scale-100 group-data-[overflow-y-start]/scroll-area:pointer-events-auto',
+        getScrollTarget: () => ({ top: 0 }),
+    },
+    bottom: {
+        label: 'Scroll to bottom',
+        Icon: ArrowDown,
+        positionClasses: 'bottom-2 left-1/2 -translate-x-1/2',
+        visibleClasses:
+            'group-data-[overflow-y-end]/scroll-area:opacity-100 group-data-[overflow-y-end]/scroll-area:scale-100 group-data-[overflow-y-end]/scroll-area:pointer-events-auto',
+        getScrollTarget: (viewport) => ({ top: viewport.scrollHeight }),
+    },
+    left: {
+        label: 'Scroll to start',
+        Icon: ArrowLeft,
+        positionClasses: 'left-2 top-1/2 -translate-y-1/2 not-disabled:active:-translate-y-1/2',
+        visibleClasses:
+            'group-data-[overflow-x-start]/scroll-area:opacity-100 group-data-[overflow-x-start]/scroll-area:scale-100 group-data-[overflow-x-start]/scroll-area:pointer-events-auto',
+        getScrollTarget: () => ({ left: 0 }),
+    },
+    right: {
+        label: 'Scroll to end',
+        Icon: ArrowRight,
+        positionClasses: 'right-2 top-1/2 -translate-y-1/2 not-disabled:active:-translate-y-1/2',
+        visibleClasses:
+            'group-data-[overflow-x-end]/scroll-area:opacity-100 group-data-[overflow-x-end]/scroll-area:scale-100 group-data-[overflow-x-end]/scroll-area:pointer-events-auto',
+        getScrollTarget: (viewport) => ({ left: viewport.scrollWidth }),
+    },
+}
+
+function ScrollToEdgeButton({
+    edge,
+    viewportRef,
+}: {
+    edge: ScrollEdge
+    viewportRef: React.RefObject<HTMLDivElement | null>
+}): React.ReactElement {
+    const config = EDGE_CONFIG[edge]
+    const { Icon } = config
+    const handleClick = (): void => {
+        const viewport = viewportRef.current
+        if (!viewport) {
+            return
+        }
+        const prefersReducedMotion =
+            typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        viewport.scrollTo({
+            ...config.getScrollTarget(viewport),
+            behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        })
+    }
+    return (
+        <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            aria-label={config.label}
+            onClick={handleClick}
+            className={cn(
+                'bg-background not-disabled:hover:bg-accent absolute z-10 grid place-items-center rounded-full shadow-md',
+                'opacity-0 scale-95 pointer-events-none',
+                'transition-[opacity,transform,background-color] duration-150 ease-out',
+                'motion-reduce:transition-none',
+                'focus-visible:opacity-100 focus-visible:scale-100 focus-visible:pointer-events-auto',
+                config.positionClasses,
+                config.visibleClasses
+            )}
+        >
+            <Icon className="size-4" />
+        </Button>
+    )
+}
 
 // Base-UI sets data-overflow-{x,y}-{start,end} attributes on the Root when the
 // viewport has scrollable content remaining in that direction. Two pseudos on Root
@@ -73,22 +183,27 @@ function ScrollArea({
     scrollShadows = true,
     hideScrollbars = false,
     alwaysShowScrollbars = false,
+    showScrollToButton,
     ...props
 }: ScrollAreaPrimitive.Root.Props & {
     scrollShadows?: boolean
     hideScrollbars?: boolean
     alwaysShowScrollbars?: boolean
+    showScrollToButton?: ShowScrollToButton
 }): React.ReactElement {
+    const viewportRef = React.useRef<HTMLDivElement | null>(null)
+    const edges = resolveEdges(showScrollToButton)
     return (
         <ScrollAreaPrimitive.Root
             data-slot="scroll-area"
             // Just to keep around so we know it's a scroll area in case we merge props with another component
             data-component="scroll-area"
             data-scroll-shadows={scrollShadows}
-            className={cn('relative', className)}
+            className={cn('group/scroll-area relative', className)}
             {...props}
         >
             <ScrollAreaPrimitive.Viewport
+                ref={viewportRef}
                 data-slot="scroll-area-viewport"
                 className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
             >
@@ -104,6 +219,9 @@ function ScrollArea({
                     />
                 </>
             )}
+            {edges.map((edge) => (
+                <ScrollToEdgeButton key={edge} edge={edge} viewportRef={viewportRef} />
+            ))}
         </ScrollAreaPrimitive.Root>
     )
 }
