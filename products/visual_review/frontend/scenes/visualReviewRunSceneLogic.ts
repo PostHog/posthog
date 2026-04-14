@@ -70,6 +70,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             {
                 loadRepo: async () => {
                     const response = await visualReviewReposList(String(values.currentProjectId))
+                    const run = values.run
+                    if (run) {
+                        return response.results.find((r) => r.id === run.repo_id) || response.results[0] || null
+                    }
                     return response.results[0] || null
                 },
             },
@@ -131,6 +135,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             if (snapshot) {
                 actions.loadSnapshotHistory(snapshot.identifier)
             }
+        },
+        loadRunSuccess: () => {
+            actions.loadRepo()
         },
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
@@ -212,6 +219,5 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     afterMount(({ actions }) => {
         actions.loadRun()
         actions.loadSnapshots()
-        actions.loadRepo()
     }),
 ])
