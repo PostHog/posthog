@@ -6,7 +6,8 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
+from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
 
@@ -30,6 +31,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
@@ -234,8 +236,25 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if search.isdigit():
                 queryset = queryset.filter(ticket_number=int(search))
             else:
+                # EXISTS subquery: matches any comment in the ticket's conversation.
+                # Uses the (team_id, scope, item_id) composite index on Comment to
+                # narrow to per-ticket comments; EXISTS short-circuits on first match.
+                # If this becomes slow at scale (10k+ candidate tickets with broad
+                # filters), consider adding a GIN trigram index on Comment.content:
+                #   GinIndex(name="comment_content_trigram", fields=["content"],
+                #            opclasses=["gin_trgm_ops"])
+                comment_match = Comment.objects.filter(
+                    team_id=OuterRef("team_id"),
+                    scope="conversations_ticket",
+                    item_id=Cast(OuterRef("id"), output_field=CharField()),
+                    content__icontains=search,
+                    deleted=False,
+                )
                 queryset = queryset.filter(
-                    Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
+                    Q(anonymous_traits__name__icontains=search)
+                    | Q(anonymous_traits__email__icontains=search)
+                    | Q(email_subject__icontains=search)
+                    | Exists(comment_match)
                 )
 
         sla_param = self.request.query_params.get("sla")
