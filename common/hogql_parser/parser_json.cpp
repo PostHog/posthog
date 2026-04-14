@@ -110,6 +110,25 @@ bool containsMatchingProperty(const Json& json, const string& prop_name, const s
   return false;
 }
 
+bool isQuotedIdentifier(const string& text) {
+  return text.size() >= 2 &&
+         ((text.front() == '`' && text.back() == '`') || (text.front() == '"' && text.back() == '"'));
+}
+
+string unquoteIdentifierText(const string& text) {
+  if (isQuotedIdentifier(text)) {
+    return parse_string_literal_text(text);
+  }
+  return text;
+}
+
+void assertValidAlias(const vector<string>& reserved_keywords, const string& alias, const string& raw_text) {
+  if (!isQuotedIdentifier(raw_text) &&
+      find(reserved_keywords.begin(), reserved_keywords.end(), to_lower_copy(alias)) != reserved_keywords.end()) {
+    throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
+  }
+}
+
 // PARSING AND AST CONVERSION
 
 class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
@@ -712,7 +731,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     // Add basic query fields
     json["ctes"] = visitAsJSONOrNull(ctx->withClause());
-    json["select"] = visitAsJSONOrEmptyArray(ctx->selectColumnExprList());
+    json["select"] = visitAsJSONOrEmptyArray(ctx->selectColumnExprListBeforeFrom());
     json["distinct"] = ctx->DISTINCT() ? Json(true) : Json(nullptr);
     json["select_from"] = visitAsJSONOrNull(ctx->fromClause());
     json["where"] = visitAsJSONOrNull(ctx->whereClause());
@@ -1439,14 +1458,15 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprList) { return visitJSONArrayOfObjects(ctx->columnExpr()); }
 
+  VISIT(SelectColumnExprListBeforeFromTrailingComma) { return visitJSONArrayOfObjects(ctx->selectColumnExpr()); }
+
+  VISIT(SelectColumnExprListBeforeFromPlain) { return visit(ctx->selectColumnExprList()); }
+
   VISIT(SelectColumnExprList) { return visitJSONArrayOfObjects(ctx->selectColumnExpr()); }
 
   VISIT(ColumnExprAliasBefore) {
     string alias = visitAsString(ctx->identifier());
-
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
-    }
+    assertValidAlias(RESERVED_KEYWORDS, alias, ctx->identifier()->getText());
 
     Json json = Json::object();
     json["node"] = "Alias";
@@ -1473,17 +1493,33 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprAlias) {
     string alias;
+    string raw_alias_text;
     if (ctx->identifier()) {
       alias = visitAsString(ctx->identifier());
+      raw_alias_text = ctx->identifier()->getText();
     } else if (ctx->STRING_LITERAL()) {
       alias = parse_string_literal_ctx(ctx->STRING_LITERAL());
+      raw_alias_text = ctx->STRING_LITERAL()->getText();
     } else {
       throw ParsingError("A ColumnExprAlias must have the alias in some form");
     }
+    assertValidAlias(RESERVED_KEYWORDS, alias, raw_alias_text);
 
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
-    }
+    Json json = Json::object();
+    json["node"] = "Alias";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = visitAsJSON(ctx->columnExpr());
+    json["alias"] = alias;
+    return json;
+  }
+
+  VISIT(ColumnExprInvalidFromImplicitAlias) {
+    throw SyntaxError("Cannot use \"from\" before an implicit alias");
+  }
+
+  VISIT(ColumnExprAliasImplicit) {
+    string alias = visitAsString(ctx->implicitAlias());
+    assertValidAlias(RESERVED_KEYWORDS, alias, ctx->implicitAlias()->getText());
 
     Json json = Json::object();
     json["node"] = "Alias";
@@ -1907,15 +1943,16 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnTypeCastExprSimple) {
-    return Json(to_lower_copy(visitAsString(ctx->identifier())));
+    return Json(to_lower_copy(visitAsString(ctx->columnTypeCastIdentifier())));
   }
 
-  VISIT(ColumnTypeCastExprCompound) {
-    string result;
-    for (auto ident : ctx->identifier()) {
-      if (!result.empty()) result += " ";
-      result += visitAsString(ident);
+  VISIT(ColumnTypeCastExprWithTimeZone) {
+    string result = visitAsString(ctx->columnTypeCastIdentifier());
+    result += " with ";
+    if (ctx->LOCAL()) {
+      result += "local ";
     }
+    result += "time zone";
     return Json(to_lower_copy(result));
   }
 
@@ -2528,7 +2565,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
-  VISIT(NestedIdentifier) { return visitAsVectorOfStrings(ctx->identifier()); }
+  VISIT(NestedIdentifier) {
+    return visitAsVectorOfStrings(ctx->identifier());
+  }
 
   VISIT(TableExprIdentifier) {
     vector<string> chain_vec = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
@@ -2648,10 +2687,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();
-    string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("ALIAS is a reserved keyword");
-    }
+    string alias = alias_ctx ? visitAsString(alias_ctx) : visitAsString(ctx->identifier());
+    string raw_alias_text = alias_ctx ? alias_ctx->getText() : ctx->identifier()->getText();
+    assertValidAlias(RESERVED_KEYWORDS, alias, raw_alias_text);
 
     // Parse column aliases if present
     Json column_aliases = nullptr;
@@ -2799,27 +2837,17 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(Keyword)
 
-  VISIT_UNSUPPORTED(KeywordForAlias)
+  VISIT(KeywordForAlias) { return unquoteIdentifierText(ctx->getText()); }
 
-  VISIT(Alias) {
-    string text = ctx->getText();
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(text)) != RESERVED_KEYWORDS.end()) {
-      throw SyntaxError("ALIAS is a reserved keyword");
-    }
-    return text;
-  }
+  VISIT(KeywordForImplicitAlias) { return unquoteIdentifierText(ctx->getText()); }
 
-  VISIT(Identifier) {
-    string text = ctx->getText();
-    if (text.size() >= 2) {
-      char first_char = text.front();
-      char last_char = text.back();
-      if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return parse_string_literal_text(text);
-      }
-    }
-    return text;
-  }
+  VISIT(Identifier) { return unquoteIdentifierText(ctx->getText()); }
+
+  VISIT(ColumnTypeCastIdentifier) { return unquoteIdentifierText(ctx->getText()); }
+
+  VISIT(Alias) { return unquoteIdentifierText(ctx->getText()); }
+
+  VISIT(ImplicitAlias) { return unquoteIdentifierText(ctx->getText()); }
 
   VISIT(HogqlxTagAttribute) {
     Json json = Json::object();

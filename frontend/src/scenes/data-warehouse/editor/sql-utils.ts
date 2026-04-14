@@ -1,41 +1,98 @@
+import type { ASTNode } from '@posthog/hogql-parser'
+
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+
+import { parseSelect } from './hogqlParserSingleton'
+
+/** Escape a possibly qualified (dot-separated) name, escaping each segment individually. */
+const escapeQualifiedIdentifier = (name: string): string => {
+    return name.split('.').map(escapePropertyAsHogQLIdentifier).join('.')
+}
 
 export const normalizeIdentifier = (identifier: string): string => {
     return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
 }
 
-const parseSelectedColumns = (selectedColumns: string): string[] => {
-    return selectedColumns
-        .split(',')
-        .map((column) => column.trim())
-        .filter((column) => column.length > 0)
+/** Try to parse a SELECT query, returning the AST node or null on failure. */
+const tryParseSelect = async (query: string): Promise<ASTNode | null> => {
+    try {
+        const result = JSON.parse(await parseSelect(query))
+        if (result.error || result.node !== 'SelectQuery') {
+            return null
+        }
+        return result as ASTNode
+    } catch {
+        return null
+    }
 }
 
-export const buildQueryForColumnClick = (
+/** Extract the field name string from a select column AST node, or null for non-Field expressions. */
+const fieldChainToString = (node: ASTNode): string | null => {
+    if (node.node === 'Field') {
+        return (node.chain as string[]).join('.')
+    }
+    return null
+}
+
+/** Collect all table names from a JoinExpr chain. */
+const collectTablesFromJoinExpr = (joinExpr: ASTNode | null): string[] => {
+    const tables: string[] = []
+    let current = joinExpr
+    while (current) {
+        if (current.table?.node === 'Field') {
+            tables.push((current.table.chain as string[]).join('.'))
+        }
+        current = current.next_join ?? null
+    }
+    return tables
+}
+
+/** Extract the LIMIT/OFFSET clause string from an AST, or null if absent. */
+const extractLimitOffsetFromAST = (ast: ASTNode): string | null => {
+    const parts: string[] = []
+    if (ast.limit != null && ast.limit.node === 'Constant' && ast.limit.value != null) {
+        parts.push(`LIMIT ${ast.limit.value}`)
+    }
+    if (ast.offset != null && ast.offset.node === 'Constant' && ast.offset.value != null) {
+        parts.push(`OFFSET ${ast.offset.value}`)
+    }
+    return parts.length > 0 ? parts.join(' ') : null
+}
+
+export const buildQueryForColumnClick = async (
     currentQuery: string | null,
     tableName: string,
     columnName: string
-): string => {
-    const limitOffsetClause = currentQuery ? extractLimitOffsetClause(currentQuery) : null
-    const baseQuery = `SELECT ${columnName} FROM ${escapePropertyAsHogQLIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
+): Promise<string> => {
+    const ast = currentQuery ? await tryParseSelect(currentQuery) : null
+    const limitOffsetClause = ast ? extractLimitOffsetFromAST(ast) : null
+    const baseQuery = `SELECT ${escapeQualifiedIdentifier(columnName)} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 
-    if (!currentQuery) {
+    if (!ast || !currentQuery) {
         return baseQuery
     }
 
-    const match = currentQuery.match(/^\s*select\s+([\s\S]+?)\s+from\s+([^\s;]+)[\s\S]*$/i)
-
-    if (!match) {
+    const tables = collectTablesFromJoinExpr(ast.select_from)
+    if (tables.length === 0) {
         return baseQuery
     }
 
-    const [, selectedColumnsRaw, selectedTableRaw] = match
-
-    if (normalizeIdentifier(selectedTableRaw) !== normalizeIdentifier(tableName)) {
+    const selectedTable = tables[0]
+    if (normalizeIdentifier(selectedTable) !== normalizeIdentifier(tableName)) {
         return baseQuery
     }
 
-    let columns = parseSelectedColumns(selectedColumnsRaw)
+    const selectNodes: ASTNode[] = ast.select ?? []
+    const fieldNames = selectNodes.map(fieldChainToString)
+    const hasNonFieldExpressions = fieldNames.some((name) => name === null)
+
+    // If the query contains non-Field expressions (e.g. COUNT(*), SUM(x)),
+    // we can't safely rewrite the SELECT list — fall back to a simple query.
+    if (hasNonFieldExpressions) {
+        return baseQuery
+    }
+
+    let columns = fieldNames as string[]
     const normalizedColumnName = normalizeIdentifier(columnName)
     const isStarOnly = columns.length === 1 && columns[0] === '*'
 
@@ -57,83 +114,68 @@ export const buildQueryForColumnClick = (
         columns = ['*']
     }
 
-    return `SELECT ${columns.map(escapePropertyAsHogQLIdentifier).join(', ')} FROM ${tableName} ${limitOffsetClause ?? 'LIMIT 100'}`
+    return `SELECT ${columns.map(escapeQualifiedIdentifier).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 }
 
-const normalizeKeywordSpacing = (query: string): string => {
-    return query.replace(/\s+/g, ' ').trim()
-}
-
-const extractLimitOffsetClause = (query: string): string | null => {
-    const matches = Array.from(query.matchAll(/\b(limit\s+\d+(?:\s+offset\s+\d+)?|offset\s+\d+)\b/gi))
-
-    if (matches.length === 0) {
-        return null
-    }
-
-    return matches[matches.length - 1][0].replace(/;$/, '').trim()
-}
-
-export const parseQueryTablesAndColumns = (queryInput: string | null): Record<string, Record<string, boolean>> => {
+export const parseQueryTablesAndColumns = async (
+    queryInput: string | null
+): Promise<Record<string, Record<string, boolean>>> => {
     if (!queryInput) {
         return {}
     }
 
-    const normalizedQuery = normalizeKeywordSpacing(queryInput)
-    const selectMatch = normalizedQuery.match(/\bselect\b\s+(.+?)\s+\bfrom\b\s+(.+)/i)
-
-    if (!selectMatch) {
+    const ast = await tryParseSelect(queryInput)
+    if (!ast) {
         return {}
     }
 
-    const [, rawColumns, rawFrom] = selectMatch
-    const columns = parseSelectedColumns(rawColumns)
-    const fromClause = rawFrom.split(/\bwhere\b|\bgroup\b|\border\b|\blimit\b/i)[0] ?? ''
-    const tableMatches = `from ${fromClause}`.match(/\bfrom\b\s+([^\s,]+)|\bjoin\b\s+([^\s,]+)/gi) ?? []
-    const tables = tableMatches
-        .flatMap((match) => match.split(/\s+/).slice(1))
-        .map((table) => table.replace(/,$/, ''))
-        .filter((table) => table.length > 0)
-    const selectedTables = Array.from(new Set(tables))
-
-    const selectedColumnsByTable: Record<string, Record<string, boolean>> = {}
-
+    const selectedTables = collectTablesFromJoinExpr(ast.select_from)
     if (selectedTables.length === 0) {
-        return selectedColumnsByTable
+        return {}
     }
 
-    columns.forEach((column) => {
-        if (column === '*') {
-            selectedTables.forEach((table) => {
+    const selectedColumnsByTable: Record<string, Record<string, boolean>> = {}
+    const selectNodes: ASTNode[] = ast.select ?? []
+
+    for (const node of selectNodes) {
+        // Handle SELECT *
+        if (node.node === 'Field' && node.chain.length === 1 && node.chain[0] === '*') {
+            for (const table of selectedTables) {
                 selectedColumnsByTable[table] = {
                     '*': true,
                     ...selectedColumnsByTable[table],
                 }
-            })
-            return
-        }
-
-        const [tablePrefix, columnName] = column.split('.')
-        if (
-            columnName &&
-            selectedTables.some((table) => normalizeIdentifier(table) === normalizeIdentifier(tablePrefix))
-        ) {
-            const tableKey = selectedTables.find(
-                (table) => normalizeIdentifier(table) === normalizeIdentifier(tablePrefix)
-            ) as string
-            selectedColumnsByTable[tableKey] = {
-                [columnName]: true,
-                ...selectedColumnsByTable[tableKey],
             }
-            return
+            continue
         }
 
-        const fallbackTable = selectedTables[0]
-        selectedColumnsByTable[fallbackTable] = {
-            [column]: true,
-            ...selectedColumnsByTable[fallbackTable],
+        if (node.node === 'Field') {
+            const chain = node.chain as string[]
+
+            // table.column form
+            if (chain.length >= 2) {
+                const tablePrefix = chain.slice(0, -1).join('.')
+                const col = chain[chain.length - 1]
+                const tableKey = selectedTables.find(
+                    (table) => normalizeIdentifier(table) === normalizeIdentifier(tablePrefix)
+                )
+                if (tableKey) {
+                    selectedColumnsByTable[tableKey] = {
+                        [col]: true,
+                        ...selectedColumnsByTable[tableKey],
+                    }
+                    continue
+                }
+            }
+
+            // Bare column — assign to first table
+            const fallbackTable = selectedTables[0]
+            selectedColumnsByTable[fallbackTable] = {
+                [chain.join('.')]: true,
+                ...selectedColumnsByTable[fallbackTable],
+            }
         }
-    })
+    }
 
     return selectedColumnsByTable
 }

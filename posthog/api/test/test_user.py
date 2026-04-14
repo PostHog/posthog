@@ -1423,6 +1423,7 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
             },
         )
@@ -1440,6 +1441,7 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
             },
         )
@@ -1543,6 +1545,7 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
             },
         )

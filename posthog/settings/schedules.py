@@ -57,13 +57,6 @@ CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON = get_from_env(
     "0 5 1 */3 *",
 )
 
-# Schedule to count items in playlists. Follows crontab syntax.
-PLAYLIST_COUNTER_SCHEDULE_CRON = get_from_env(
-    "PLAYLIST_COUNTER_SCHEDULE_CRON",
-    # Defaults to every hour at minute 30
-    "30 * * * *",
-)
-
 # Teams that should process all their cohorts (comma-separated team IDs)
 # Example: "2,42" means team 2 and team 42 process all cohorts
 REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {

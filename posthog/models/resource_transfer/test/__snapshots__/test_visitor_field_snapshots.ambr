@@ -192,7 +192,6 @@
   list([
     'description',
     'exposure_criteria',
-    'exposure_preaggregation_enabled',
     'filters',
     'metrics',
     'metrics_secondary',
@@ -452,6 +451,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotations__',
     '__doc__',
     '__module__',
     '__repr__',

@@ -179,6 +179,14 @@ class WorkflowsConsumer(Consumer):
                             raise _make_exception(ServiceUnavailable, err)
                         case n if n >= 500:
                             raise _make_exception(InternalServerError, err)
+                else:
+                    response_body = await response.json()
+                    if response_body.get("status") == "error":
+                        self.logger.warning(
+                            "Hog function execution failed",
+                            errors=response_body.get("errors", []),
+                        )
+                        self.records_failed_count += 1
 
     async def finalize_file(self):
         """Required by consumer interface."""
@@ -260,7 +268,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             try:
                 async with tg:
                     # TODO: Use multiple consumers
-                    result = await run_consumer_from_stage(
+                    _ = await run_consumer_from_stage(
                         queue=queue,
                         consumer=consumer,
                         producer_task=producer_task,
@@ -278,7 +286,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             except* NotFound as exc_group:
                 raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
 
-        return result
+        return consumer.collect_result()
 
 
 @temporalio.workflow.defn(name="workflows-export", failure_exception_types=[temporalio.workflow.NondeterminismError])
