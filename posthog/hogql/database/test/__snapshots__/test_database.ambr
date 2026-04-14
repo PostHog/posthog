@@ -5822,6 +5822,342 @@
           "row_count": null,
           "type": "system"
       },
+      "system.session_recording_playlists": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "short_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "short_id",
+                  "id": null,
+                  "name": "short_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "derived_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "derived_name",
+                  "id": null,
+                  "name": "derived_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "pinned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pinned",
+                  "id": null,
+                  "name": "pinned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_modified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_at",
+                  "id": null,
+                  "name": "last_modified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.session_recording_playlists",
+          "name": "system.session_recording_playlists",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.session_recordings": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id",
+                  "id": null,
+                  "name": "session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "duration": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "duration",
+                  "id": null,
+                  "name": "duration",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "active_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "active_seconds",
+                  "id": null,
+                  "name": "active_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "inactive_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "inactive_seconds",
+                  "id": null,
+                  "name": "inactive_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_time",
+                  "id": null,
+                  "name": "start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "end_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "end_time",
+                  "id": null,
+                  "name": "end_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "click_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "click_count",
+                  "id": null,
+                  "name": "click_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "keypress_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "keypress_count",
+                  "id": null,
+                  "name": "keypress_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "mouse_activity_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "mouse_activity_count",
+                  "id": null,
+                  "name": "mouse_activity_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "console_log_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "console_log_count",
+                  "id": null,
+                  "name": "console_log_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "console_warn_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "console_warn_count",
+                  "id": null,
+                  "name": "console_warn_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "console_error_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "console_error_count",
+                  "id": null,
+                  "name": "console_error_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "start_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_url",
+                  "id": null,
+                  "name": "start_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "retention_period_days": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "retention_period_days",
+                  "id": null,
+                  "name": "retention_period_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "storage_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "storage_version",
+                  "id": null,
+                  "name": "storage_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.session_recordings",
+          "name": "system.session_recordings",
+          "row_count": null,
+          "type": "system"
+      },
       "system.source_schemas": {
           "fields": {
               "id": {
@@ -11105,6 +11441,342 @@
           },
           "id": "system.notebooks",
           "name": "system.notebooks",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.session_recording_playlists": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "short_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "short_id",
+                  "id": null,
+                  "name": "short_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "derived_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "derived_name",
+                  "id": null,
+                  "name": "derived_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "pinned": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "pinned",
+                  "id": null,
+                  "name": "pinned",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_modified_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_at",
+                  "id": null,
+                  "name": "last_modified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_modified_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_modified_by_id",
+                  "id": null,
+                  "name": "last_modified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.session_recording_playlists",
+          "name": "system.session_recording_playlists",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.session_recordings": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "session_id",
+                  "id": null,
+                  "name": "session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "distinct_id",
+                  "id": null,
+                  "name": "distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "duration": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "duration",
+                  "id": null,
+                  "name": "duration",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "active_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "active_seconds",
+                  "id": null,
+                  "name": "active_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "inactive_seconds": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "inactive_seconds",
+                  "id": null,
+                  "name": "inactive_seconds",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "start_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_time",
+                  "id": null,
+                  "name": "start_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "end_time": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "end_time",
+                  "id": null,
+                  "name": "end_time",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "click_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "click_count",
+                  "id": null,
+                  "name": "click_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "keypress_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "keypress_count",
+                  "id": null,
+                  "name": "keypress_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "mouse_activity_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "mouse_activity_count",
+                  "id": null,
+                  "name": "mouse_activity_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "console_log_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "console_log_count",
+                  "id": null,
+                  "name": "console_log_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "console_warn_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "console_warn_count",
+                  "id": null,
+                  "name": "console_warn_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "console_error_count": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "console_error_count",
+                  "id": null,
+                  "name": "console_error_count",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "start_url": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "start_url",
+                  "id": null,
+                  "name": "start_url",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "retention_period_days": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "retention_period_days",
+                  "id": null,
+                  "name": "retention_period_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "storage_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "storage_version",
+                  "id": null,
+                  "name": "storage_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.session_recordings",
+          "name": "system.session_recordings",
           "row_count": null,
           "type": "system"
       },
