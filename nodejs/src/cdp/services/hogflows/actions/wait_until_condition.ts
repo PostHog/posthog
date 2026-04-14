@@ -39,7 +39,7 @@ export class WaitUntilConditionHandler implements ActionHandler {
         result,
     }: ActionHandlerOptions<WaitUntilConditionAction>): Promise<ActionHandlerResult> {
         const hasEvents = (action.config.events?.length ?? 0) > 0
-        const hasCondition = Boolean(action.config.condition?.filters)
+        const hasCondition = hasConfiguredCondition(action.config.condition?.filters)
         const isParked = invocation.state?.currentAction?.waitingForEvent === true
 
         if (hasEvents && !this.subscriptions) {
@@ -196,6 +196,24 @@ export class WaitUntilConditionHandler implements ActionHandler {
             invocation.state.currentAction.waitingForEvent = false
         }
     }
+}
+
+/**
+ * A condition is only considered configured if its filters contain actual
+ * content: non-empty property filters, event filters, action filters, or
+ * compiled bytecode. An empty `{}` or null should NOT be treated as a
+ * configured condition, otherwise the empty-filter evaluation can match
+ * anything and take the matched path on first visit.
+ */
+function hasConfiguredCondition(filters: any): boolean {
+    if (!filters || typeof filters !== 'object') {
+        return false
+    }
+    const hasProperties = Array.isArray(filters.properties) && filters.properties.length > 0
+    const hasEvents = Array.isArray(filters.events) && filters.events.length > 0
+    const hasActions = Array.isArray(filters.actions) && filters.actions.length > 0
+    const hasBytecode = Array.isArray(filters.bytecode) && filters.bytecode.length > 0
+    return hasProperties || hasEvents || hasActions || hasBytecode
 }
 
 /**
