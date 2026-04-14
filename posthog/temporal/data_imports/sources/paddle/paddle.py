@@ -94,7 +94,7 @@ def get_rows(
             break
         seen_urls.add(url)
 
-        response = paddle_request(session, "GET", url, logger=logger, headers=headers, params=params)
+        response = paddle_request(session, "GET", url, headers=headers)
 
         response.raise_for_status()
         data = response.json()
@@ -176,7 +176,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
 
     for endpoint in endpoints_to_check:
         response = paddle_request(
-            session, "GET", f"{PADDLE_BASE_URL}/{endpoint}", headers=headers, params={"per_page": 1}
+            session, "GET", f"{PADDLE_BASE_URL}/{endpoint}", headers=headers
         )
         if response.status_code == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")

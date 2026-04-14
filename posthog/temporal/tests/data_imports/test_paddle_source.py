@@ -231,11 +231,19 @@ def test_get_rows_stops_on_repeated_cursor(mock_request):
     assert items[0].column("id").to_pylist() == ["pro_1", "pro_2"]
 
 
-def test_get_schemas_only_enables_incremental_for_transactions():
+@parameterized.expand(
+    [
+        ("transactions", True),
+        ("customers", False),
+        ("discounts", False),
+        ("prices", False),
+        ("products", False),
+        ("subscriptions", False),
+        ("adjustments", False),
+    ]
+)
+def test_get_schemas_incremental_flag(self, endpoint, expected_incremental):
     source = PaddleSource()
     schemas = {schema.name: schema for schema in source.get_schemas(config=MagicMock(), team_id=1)}
-
-    assert schemas["transactions"].supports_incremental is True
-    assert schemas["transactions"].supports_append is True
-    assert schemas["customers"].supports_incremental is False
-    assert schemas["customers"].supports_append is False
+    assert schemas[endpoint].supports_incremental is expected_incremental
+    assert schemas[endpoint].supports_append is expected_incremental
