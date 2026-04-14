@@ -545,7 +545,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.created, 'UTC')) AS day_start
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
-        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), and(equals(e.prop_1, 'a'), equals(e.prop_2, 'e')))
+        WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), and(equals(e.prop_1, 'a'), equals(e.prop_2, 'e'), equals(e.prop_1, 'a')))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)

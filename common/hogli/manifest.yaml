@@ -2,8 +2,6 @@ metadata:
     devbox:
         coder_url: https://coder.hedgehog-kitefin.ts.net
     categories:
-        - key: devbox
-          title: Remote development environment (devbox)
         - key: devenv
           title: Intent-based dev environment
         - key: core
@@ -30,6 +28,8 @@ metadata:
           title: Developer tools and utilities
         - key: utilities
           title: Git worktrees and admin
+        - key: devbox
+          title: Remote development environment (devbox)
         - key: environment
           title: Environment and shell
     services:
@@ -100,6 +100,9 @@ devbox:
     devbox:setup: null
     devbox:start: null
     devbox:stop: null
+    devbox:restart: null
+    devbox:update: null
+    devbox:list: null
     devbox:ssh: null
     devbox:open: null
     devbox:logs: null
