@@ -27,7 +27,7 @@ from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
-from posthog.models import Action, Person
+from posthog.models import Action, Person, PropertyDefinition
 from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
@@ -381,6 +381,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
 
         # Convert star field from tuple to dict in each result
@@ -446,6 +447,15 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                                 if person_distinct_id in requested_batch:
                                     distinct_to_person[person_distinct_id] = person
 
+                # Load restricted person properties to strip from the side-channel result
+                from products.access_control.backend.property_access_control import get_restricted_property_names
+
+                restricted_person_props = get_restricted_property_names(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    property_type=PropertyDefinition.Type.PERSON,
+                )
+
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
                     for index, result in enumerate(self.paginator.results):
@@ -453,10 +463,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         self.paginator.results[index] = list(result)
                         if distinct_to_person.get(distinct_id):
                             person = distinct_to_person[distinct_id]
+                            properties = person.properties or {}
+                            if restricted_person_props:
+                                properties = {k: v for k, v in properties.items() if k not in restricted_person_props}
                             self.paginator.results[index][column_index] = {
                                 "uuid": person.uuid,
                                 "created_at": person.created_at,
-                                "properties": person.properties or {},
+                                "properties": properties,
                                 "distinct_id": distinct_id,
                             }
                         else:
