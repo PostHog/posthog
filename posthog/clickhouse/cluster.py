@@ -542,7 +542,9 @@ def get_cluster_by_name(
     """Get a ClickhouseCluster for a logical cluster name (main, logs, etc).
 
     Resolves the host and cluster name from Django settings based on the
-    registry. Falls back to the default cluster for unknown names.
+    registry. Raises ``ValueError`` for unknown names — misconfigured names
+    must not silently fall back to the default cluster (risk of writing to
+    the wrong shard).
     """
     if logical_name not in _CLUSTER_REGISTRY:
         known = ", ".join(sorted(_CLUSTER_REGISTRY.keys()))

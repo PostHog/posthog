@@ -21,7 +21,11 @@ from posthog.clickhouse.cluster import (
     Query,
     RetryPolicy,
     T,
+    _CLUSTER_REGISTRY,
+    get_all_logical_clusters,
     get_cluster,
+    get_cluster_by_name,
+    is_known_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -535,3 +539,64 @@ def test_logs_role_does_not_trigger_dev_fallback() -> None:
         # fire for it, to match legacy migrate_clickhouse behavior.
         ingestion_result = hosts_by_roles(all_hosts, [NodeRole.INGESTION_SMALL])
         assert len(ingestion_result) > 0, "INGESTION_SMALL should still hit the DEBUG fallback (no dedicated dev node)"
+
+
+class TestClusterRegistry:
+    """Tests for the logical-cluster registry added in #53230."""
+
+    def test_registry_covers_all_expected_clusters(self):
+        # Hard-pinned so a removed entry becomes a loud test failure, not a
+        # silent misroute. Compare as sets — order isn't meaningful.
+        assert set(_CLUSTER_REGISTRY.keys()) == {
+            "main",
+            "logs",
+            "migrations",
+            "endpoints",
+            "single_shard",
+            "writable",
+            "primary_replica",
+            "sessions",
+            "aux",
+            "ops",
+            "ai_events",
+        }
+
+    def test_get_all_logical_clusters_returns_sorted(self):
+        names = get_all_logical_clusters()
+        assert names == sorted(names)
+        assert set(names) == set(_CLUSTER_REGISTRY.keys())
+
+    def test_is_known_cluster_true_for_each_registered(self):
+        for name in _CLUSTER_REGISTRY:
+            assert is_known_cluster(name), name
+
+    def test_is_known_cluster_false_for_garbage(self):
+        assert not is_known_cluster("")
+        assert not is_known_cluster("does_not_exist")
+        assert not is_known_cluster("MAIN")  # case-sensitive
+
+    def test_get_cluster_by_name_unknown_raises_with_known_names_listed(self):
+        with pytest.raises(ValueError) as excinfo:
+            get_cluster_by_name("nonsense")
+        msg = str(excinfo.value)
+        assert "nonsense" in msg
+        # Every registered name should appear in the error so operators can
+        # spot typos at a glance.
+        for name in _CLUSTER_REGISTRY:
+            assert name in msg, f"{name} missing from error: {msg}"
+
+    def test_get_cluster_by_name_calls_get_cluster_with_registry_host(self):
+        with patch("posthog.clickhouse.cluster.get_cluster") as mock_get_cluster:
+            mock_get_cluster.return_value = sentinel.cluster
+            result = get_cluster_by_name("main")
+        assert result is sentinel.cluster
+        # Verify the host + cluster_name resolution pulled from the registry,
+        # not a hardcoded fallback.
+        call_kwargs = mock_get_cluster.call_args.kwargs
+        assert "host" in call_kwargs and "cluster" in call_kwargs
+
+    def test_get_cluster_by_name_passes_kwargs_through(self):
+        with patch("posthog.clickhouse.cluster.get_cluster") as mock_get_cluster:
+            mock_get_cluster.return_value = sentinel.cluster
+            get_cluster_by_name("logs", client_settings={"custom": "value"})
+        assert mock_get_cluster.call_args.kwargs["client_settings"] == {"custom": "value"}
