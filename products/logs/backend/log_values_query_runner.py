@@ -58,12 +58,13 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
                 AND attribute_value ILIKE {search}
                 AND {where}
                 GROUP BY team_id, attribute_value
-                ORDER BY sum(attribute_count) desc, attribute_value asc
+                ORDER BY lower(attribute_value) = lower({exact}) DESC, has(splitByNonAlpha(lower(attribute_value)), lower({exact})) DESC, sum(attribute_count) desc, attribute_value asc
                 OFFSET {offset}
             )
             """,
             placeholders={
                 "search": ast.Constant(value=f"%{self.query.search}%"),
+                "exact": ast.Constant(value=self.query.search),
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "attributeKey": ast.Constant(value=self.query.attributeKey),
                 "limit": ast.Constant(value=self.query.limit),

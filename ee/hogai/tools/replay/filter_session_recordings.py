@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
 from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
 
 from products.replay.backend.prompts import (
     DATE_FIELDS_PROMPT,

@@ -203,34 +203,7 @@ If you get `Configuration property "enable.ssl.certificate.verification" not sup
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
 
-## Option 2: Developing with Codespaces
-
-This is a faster option to get up and running if you can't or don't want to set up locally.
-GitHub Codespaces gives you a cloud-hosted dev environment with all dependencies pre-installed.
-
-### Creating a codespace
-
-1. Go to the [PostHog repository](https://github.com/PostHog/posthog) and click **Code > Codespaces > New codespace**.
-2. Select at least the **8-core** machine type — smaller sizes don't have enough resources.
-3. Wait for the codespace to build. The devcontainer installs all system dependencies, Python/Node packages, Docker infrastructure, and runs database migrations automatically. This takes a while on first creation but is cached for subsequent starts.
-4. Once the codespace is ready, open a terminal and run `hogli start`.
-5. Open your browser to the forwarded port for **PostHog (proxy)** (port 8010).
-
-### How it works
-
-The devcontainer lifecycle scripts handle everything automatically:
-
-- **on-create** (`on-create.sh`) — installs Python/Node dependencies, pulls Docker images, starts infrastructure, runs migrations. This only runs once when the codespace is first created.
-- **update-content** (`update-content.sh`) — re-syncs dependencies and rebuilds if the branch changes (e.g. during a prebuild update).
-- **post-create** (`post-create.sh`) — final setup after creation (hogli symlink, demo data generation).
-- **post-start** (`post-start.sh`) — restarts Docker services if they stopped during idle suspension. Runs on every codespace start/resume.
-- **post-attach** (`post-attach.sh`) — prints a welcome message on each client attach.
-
-### Generating test data
-
-To get practical test data, run `hogli dev:demo-data`.
-
-## Option 3: Developing with Coder workspaces (PostHog employees only)
+## Option 2: Developing with Coder workspaces (PostHog employees only)
 
 If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](../../../internal/coder-workspaces.md).
 

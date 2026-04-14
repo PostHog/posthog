@@ -1,10 +1,16 @@
 // Colors
-export { semanticColors, resolveTheme, generateColorSystemCSS, generateStylesCSS } from './colors'
-export type { SemanticColorKey, ColorTuple, StylesConfig } from './colors'
+export {
+    semanticColors,
+    buildSemanticColors,
+    resolveTheme,
+    generateColorSystemCSS,
+    generateStylesCSS,
+    DEFAULT_THEME,
+} from './colors'
+export type { SemanticColorKey, ColorTuple, StylesConfig, ThemeConfig } from './colors'
 
 // Spacing
-export { spacing } from './spacing'
-export type { Spacing } from './spacing'
+export { spacing, spacingPx, SPACING_BASE, SPACING_BASE_REM } from './spacing'
 
 // Typography
 export { fontSize, fontFamily } from './typography'

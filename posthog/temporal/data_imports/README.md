@@ -24,7 +24,7 @@ On rare occasions, OOMs can be caused by tables that have too wide data - that i
 
 The `ExternalDataSchema` model stores partitioning settings in the `sync_type_config` json column. We have all the possible settings listed at `posthog/warehouse/models/external_data_schema.py#L57`.
 
-More info on what partitioning options and the different modes can be found here: https://github.com/PostHog/posthog/blob/master/posthog/temporal/data_imports/sources/README.md#partitioning
+More info on what partitioning options and the different modes can be found here: [https://github.com/PostHog/posthog/blob/master/posthog/temporal/data_imports/sources/README.md#partitioning](https://github.com/PostHog/posthog/blob/master/posthog/temporal/data_imports/sources/README.md#partitioning)
 
 If a table has the `partition_mode` set to `datetime`, then you'll likely see that `partition_format` is set to either `month` or `None` (which means `month`). To repartition by `day`, you'll want to update this value to `day` and then perform a resync below.
 
@@ -36,7 +36,7 @@ If the table has no partitions, but it could be partitioned, then again just res
 
 When we resync a table, we do so from a k8s pod. We have the ability to disable billing for a sync via this method meaning that a user won't be charged for us repartitioning their data.
 
-To connect to a pod, follow this runbook: https://runbooks.posthog.com/EKS/access
+To connect to a pod, follow this runbook: [https://runbooks.posthog.com/EKS/access](https://runbooks.posthog.com/EKS/access)
 
 The following code snippet will both disable billing and reset the table - which means deleting all existing table files (other than query files). Make sure to run this on a `temporal-worker-data-warehouse` pod - they have all the correct env vars set up for this:
 
@@ -94,6 +94,117 @@ for index, schema_id in enumerate(schema_ids):
     except Exception as e:
         print(e)
     print(f"{index + 1}/{len(schema_ids)}")
+```
+
+## How to replay load messages for a stuck/failed job in PipelineV3
+
+When extraction completed but the load consumer failed (OOM, crash, retries exhausted), the parquet files are still in S3. You can replay the Kafka messages to re-trigger just the load phase without re-extracting from the source.
+
+Run this on a `temporal-worker-data-warehouse` pod via `manage.py shell_plus`:
+
+```python
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import list_parquet_files, read_parquet
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import get_base_folder, get_data_folder
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import ExportSignalMessage, get_warpstream_kafka_producer
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.retry_tracker import clear_retry_info
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import is_batch_already_processed
+from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
+
+schema_id = '...'  # UUID of the schema to replay
+dry_run = True  # Set to False to actually send messages
+
+schema = ExternalDataSchema.objects.select_related('source').get(id=schema_id)
+source = schema.source
+team_id = schema.team_id
+
+# Find the latest failed or running job for this schema
+job = (
+    ExternalDataJob.objects
+    .filter(schema_id=schema_id, status__in=[ExternalDataJob.Status.FAILED, ExternalDataJob.Status.RUNNING])
+    .order_by('-created_at')
+    .first()
+)
+
+if job is None:
+    print(f"No failed/running job found for schema {schema_id}")
+else:
+    run_uuid = job.workflow_run_id
+    print(f"Found job {job.id} (status={job.status}, run_uuid={run_uuid})")
+    base_folder = get_base_folder(team_id, str(schema.id), run_uuid)
+    data_folder = get_data_folder(base_folder)
+    parquet_files = list_parquet_files(data_folder)
+    if not parquet_files:
+        print(f"No parquet files found in {data_folder}")
+    else:
+        print(f"Found {len(parquet_files)} parquet files in {data_folder}")
+    sync_type_config = schema.sync_type_config or {}
+    sync_type = schema.sync_type or 'full_refresh'
+    if sync_type == 'incremental':
+        sync_type_literal = 'incremental'
+    elif sync_type == 'append':
+        sync_type_literal = 'append'
+    else:
+        sync_type_literal = 'full_refresh'
+    total_rows = 0
+    messages = []
+    for i, s3_path in enumerate(parquet_files):
+        pa_table = read_parquet(s3_path)
+        row_count = pa_table.num_rows
+        total_rows += row_count
+        already_processed = is_batch_already_processed(team_id, str(schema.id), run_uuid, i)
+        messages.append({
+            'batch_index': i,
+            's3_path': s3_path,
+            'row_count': row_count,
+            'byte_size': pa_table.nbytes,
+            'already_processed': already_processed,
+        })
+        print(f"  batch {i}: {s3_path} ({row_count} rows) {'[SKIP - already processed]' if already_processed else ''}")
+    print(f"\nTotal: {len(messages)} batches, {total_rows} rows")
+    if not dry_run:
+        producer = get_warpstream_kafka_producer()
+        # Reset job status
+        job.status = ExternalDataJob.Status.RUNNING
+        job.latest_error = None
+        job.finished_at = None
+        job.save()
+        print(f"Reset job {job.id} to RUNNING")
+        for msg_info in messages:
+            # Clear retry info so previously-exhausted retries don't block
+            clear_retry_info(team_id, str(schema.id), run_uuid, msg_info['batch_index'])
+            is_final = msg_info['batch_index'] == len(messages) - 1
+            message = ExportSignalMessage(
+                team_id=team_id,
+                job_id=str(job.id),
+                schema_id=str(schema.id),
+                source_id=str(source.id),
+                resource_name=schema.name,
+                run_uuid=run_uuid,
+                batch_index=msg_info['batch_index'],
+                s3_path=msg_info['s3_path'],
+                row_count=msg_info['row_count'],
+                byte_size=msg_info['byte_size'],
+                is_final_batch=is_final,
+                total_batches=len(messages) if is_final else None,
+                total_rows=total_rows if is_final else None,
+                sync_type=sync_type_literal,
+                data_folder=data_folder if is_final else None,
+                schema_path=None,
+                primary_keys=sync_type_config.get('primary_keys'),
+                is_resume=True,
+                partition_count=sync_type_config.get('partition_count'),
+                partition_size=sync_type_config.get('partition_size'),
+                partition_keys=sync_type_config.get('partition_keys'),
+                partition_format=sync_type_config.get('partition_format'),
+                partition_mode=sync_type_config.get('partition_mode'),
+            )
+            key = f"{team_id}:{schema.id}"
+            producer.produce(topic=KAFKA_WAREHOUSE_SOURCES_JOBS, data=message.to_dict(), key=key)
+        producer.flush()
+        print(f"Sent {len(messages)} messages to {KAFKA_WAREHOUSE_SOURCES_JOBS}")
+    else:
+        print("\nDry run - set dry_run = False to send messages")
 ```
 
 ## How to clean up orphaned S3 data

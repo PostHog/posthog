@@ -1,4 +1,4 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -15,6 +15,7 @@ export function CustomerJourneys(): JSX.Element {
     const mountedCustomerJourneysLogic = customerJourneysLogic()
     const { journeyOptions, journeysLoading, activeInsightLoading, activeJourneyFullQuery } =
         useValues(mountedCustomerJourneysLogic)
+    const { setQueryOverride } = useActions(mountedCustomerJourneysLogic)
     useAttachedLogic(mountedCustomerJourneysLogic, mountedSceneLogic)
 
     if (journeysLoading) {
@@ -40,7 +41,7 @@ export function CustomerJourneys(): JSX.Element {
                     <Spinner />
                 </div>
             ) : activeJourneyFullQuery ? (
-                <Query query={activeJourneyFullQuery} readOnly />
+                <Query query={activeJourneyFullQuery} setQuery={setQueryOverride} readOnly />
             ) : (
                 <div className="text-muted text-center p-8">Insight not found</div>
             )}
