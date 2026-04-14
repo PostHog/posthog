@@ -50,6 +50,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Python's `DeprecationWarning` is suppressed by default outside of
+        # `-Wd`. Emit a visible stderr warning so developers actually notice
+        # the migration path to `ch_migrate`. See the migrations README.
+        self.stderr.write(
+            self.style.WARNING(
+                "DEPRECATED: `migrate_clickhouse` is being replaced by `ch_migrate`. "
+                "New schema changes should be expressed as YAML under "
+                "`posthog/clickhouse/schema/`. See `posthog/clickhouse/migrations/README.md`."
+            )
+        )
         self.migrate(CLICKHOUSE_HTTP_URL, options)
 
     def migrate(self, host, options):
