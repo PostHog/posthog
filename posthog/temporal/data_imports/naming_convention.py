@@ -12,7 +12,7 @@ import re
 import math
 import base64
 import hashlib
-from functools import cache
+from functools import lru_cache
 
 RE_UNDERSCORES = re.compile("__+")
 RE_LEADING_DIGITS = re.compile(r"^\d+")
@@ -57,7 +57,7 @@ class NamingConvention:
         return _normalize_identifier(identifier, max_length)
 
 
-@cache
+@lru_cache
 def _normalize_identifier(identifier: str, max_length: int | None) -> str:
     normalized = identifier.translate(_TR_REDUCE_ALPHABET)
     normalized = RE_NON_ALPHANUMERIC.sub("_", normalized)
@@ -79,7 +79,7 @@ def _to_snake_case(identifier: str) -> str:
     return RE_UNDERSCORES.sub("_", stripped)
 
 
-@cache
+@lru_cache
 def _shorten_identifier(
     normalized_ident: str,
     identifier: str,
