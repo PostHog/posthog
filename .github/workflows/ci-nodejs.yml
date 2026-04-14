@@ -57,9 +57,14 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality
+        name: Node.js Code quality (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
@@ -98,9 +103,14 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build
+        name: Node.js Build (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
@@ -147,15 +157,17 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests (${{matrix.shard}}/3)
+        name: Node.js Tests (${{matrix.shard}}/3, ${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-latest-4
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
         timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
             fail-fast: false
             matrix:
                 shard: [1, 2, 3]
+                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest-4","blacksmith-4vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest-4"]') }}
 
         env:
             REDIS_URL: 'redis://localhost'
