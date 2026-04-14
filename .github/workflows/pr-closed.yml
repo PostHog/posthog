@@ -33,6 +33,7 @@ jobs:
               with:
                   app-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
 
             - name: Dispatch canary disable to charts repo
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
