@@ -816,12 +816,6 @@ class TestExperimentService(APIBaseTest):
         assert len(variants) == 3
         assert variants[2]["key"] == "variant-b"
 
-    def _create_running_experiment(self) -> Experiment:
-        experiment = self._create_draft_experiment()
-        self._service().update_experiment(experiment, {"start_date": timezone.now()})
-        experiment.feature_flag.refresh_from_db()
-        return experiment
-
     def test_update_running_experiment_syncs_flag_when_update_feature_flag_params_true(self):
         experiment = self._create_running_experiment()
         assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
