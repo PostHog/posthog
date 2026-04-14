@@ -30,6 +30,7 @@ from django_otp.util import random_hex
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
+from requests.exceptions import SSLError
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -1229,11 +1230,13 @@ def test_slack_webhook(request):
             session.mount("https://", PublicIPOnlyHttpAdapter())
             session.mount("http://", PublicIPOnlyHttpAdapter())
 
-        response = session.post(webhook, verify=False, json=message)
+        response = session.post(webhook, json=message)
 
         if response.ok:
             return JsonResponse({"success": True})
         else:
             return JsonResponse({"error": response.text})
-    except:
+    except SSLError:
+        return JsonResponse({"error": "TLS certificate verification failed"})
+    except Exception:
         return JsonResponse({"error": "invalid webhook URL"})

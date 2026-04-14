@@ -17,6 +17,7 @@ from django.test import override_settings
 from django.utils import timezone
 from django.utils.text import slugify
 
+import responses
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
@@ -1573,6 +1574,30 @@ class TestUserSlackWebhook(APIBaseTest):
         response = self.send_request({"webhook": "http://localhost/bla"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["error"], "invalid webhook URL")
+
+    @responses.activate
+    def test_slack_webhook_success(self):
+        responses.post("https://hooks.slack.com/services/test", body="ok", status=200)
+
+        response = self.send_request({"webhook": "https://hooks.slack.com/services/test"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True})
+
+    @responses.activate
+    def test_slack_webhook_ssl_error(self):
+        from requests.exceptions import SSLError
+
+        webhook_url = "https://hooks.slack.com/services/ssl-test"
+        responses.post(webhook_url, body=SSLError("certificate verify failed"))
+
+        response = self.send_request({"webhook": webhook_url})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["error"],
+            "TLS certificate verification failed",
+        )
 
 
 class TestSessionAuthEndpoints(APIBaseTest):
