@@ -77,7 +77,12 @@ def KAFKA_PERSONS_TABLE_SQL(on_cluster=True):
     )
 
 
-def PERSONS_TABLE_MV_SQL(on_cluster=True, target_table=PERSONS_WRITABLE_TABLE):
+def PERSONS_TABLE_MV_SQL(
+    on_cluster=True,
+    target_table=PERSONS_WRITABLE_TABLE,
+    mv_name=PERSONS_TABLE_MV,
+    kafka_table=KAFKA_PERSONS_TABLE,
+):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {target_table}
@@ -94,10 +99,10 @@ _timestamp,
 _offset
 FROM {kafka_table}
 """.format(
-        mv_name=PERSONS_TABLE_MV,
+        mv_name=mv_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=target_table,
-        kafka_table=KAFKA_PERSONS_TABLE,
+        kafka_table=kafka_table,
     )
 
 
@@ -133,24 +138,10 @@ def KAFKA_PERSONS_WS_TABLE_SQL():
 
 
 def PERSONS_WS_TABLE_MV_SQL(target_table=PERSONS_WRITABLE_TABLE):
-    return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
-TO {target_table}
-AS SELECT
-id,
-created_at,
-team_id,
-properties,
-is_identified,
-is_deleted,
-version,
-last_seen_at,
-_timestamp,
-_offset
-FROM {kafka_table}
-""".format(
-        mv_name=PERSONS_WS_MV,
+    return PERSONS_TABLE_MV_SQL(
+        on_cluster=False,
         target_table=target_table,
+        mv_name=PERSONS_WS_MV,
         kafka_table=KAFKA_PERSONS_WS_TABLE,
     )
 
@@ -307,7 +298,12 @@ def KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL(on_cluster=True):
     )
 
 
-def PERSON_DISTINCT_ID2_MV_SQL(on_cluster=True, target_table=PERSON_DISTINCT_ID2_WRITABLE_TABLE):
+def PERSON_DISTINCT_ID2_MV_SQL(
+    on_cluster=True,
+    target_table=PERSON_DISTINCT_ID2_WRITABLE_TABLE,
+    mv_name=PERSON_DISTINCT_ID2_TABLE_MV,
+    kafka_table=KAFKA_PERSON_DISTINCT_ID2_TABLE,
+):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {target_table}
@@ -322,10 +318,10 @@ _offset,
 _partition
 FROM {kafka_table}
 """.format(
-        mv_name=PERSON_DISTINCT_ID2_TABLE_MV,
+        mv_name=mv_name,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         target_table=target_table,
-        kafka_table=KAFKA_PERSON_DISTINCT_ID2_TABLE,
+        kafka_table=kafka_table,
     )
 
 
@@ -364,22 +360,10 @@ def KAFKA_PERSON_DISTINCT_ID2_WS_TABLE_SQL():
 
 
 def PERSON_DISTINCT_ID2_WS_MV_SQL(target_table=PERSON_DISTINCT_ID2_WRITABLE_TABLE):
-    return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
-TO {target_table}
-AS SELECT
-team_id,
-distinct_id,
-person_id,
-is_deleted,
-version,
-_timestamp,
-_offset,
-_partition
-FROM {kafka_table}
-""".format(
-        mv_name=PERSON_DISTINCT_ID2_WS_MV,
+    return PERSON_DISTINCT_ID2_MV_SQL(
+        on_cluster=False,
         target_table=target_table,
+        mv_name=PERSON_DISTINCT_ID2_WS_MV,
         kafka_table=KAFKA_PERSON_DISTINCT_ID2_WS_TABLE,
     )
 

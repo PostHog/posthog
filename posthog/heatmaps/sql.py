@@ -101,14 +101,21 @@ HEATMAPS_TABLE_SQL = lambda on_cluster=True: (
     ttl_period=ttl_period("timestamp", 90, unit="DAY"),
 )
 
+HEATMAPS_WRITABLE_TABLE = "writable_heatmaps"
+
 KAFKA_HEATMAPS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
     table_name="kafka_heatmaps",
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS, group=CONSUMER_GROUP_HEATMAPS),
 )
 
-HEATMAPS_TABLE_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv
+
+def HEATMAPS_TABLE_MV_SQL(
+    mv_name="heatmaps_mv",
+    kafka_table="kafka_heatmaps",
+    target_table=HEATMAPS_WRITABLE_TABLE,
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {database}.{target_table}
 AS SELECT
     session_id,
@@ -130,18 +137,20 @@ AS SELECT
     _timestamp,
     _offset,
     _partition
-FROM {database}.kafka_heatmaps
+FROM {database}.{kafka_table}
 """.format(
-        target_table="writable_heatmaps",
+        mv_name=mv_name,
+        target_table=target_table,
+        kafka_table=kafka_table,
         database=settings.CLICKHOUSE_DATABASE,
     )
-)
+
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_heatmaps based on a sharding key.
 WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
-    table_name="writable_heatmaps",
+    table_name=HEATMAPS_WRITABLE_TABLE,
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
@@ -159,7 +168,7 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
 
 DROP_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
 
-DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS writable_heatmaps")
+DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_WRITABLE_TABLE}")
 
 DROP_HEATMAPS_TABLE_MV_SQL = lambda: (f"DROP TABLE IF EXISTS heatmaps_mv")
 
@@ -189,31 +198,10 @@ KAFKA_HEATMAPS_WS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
     ),
 )
 
-HEATMAPS_WS_TABLE_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
-TO {database}.{target_table}
-AS SELECT
-    session_id,
-    team_id,
-    distinct_id,
-    timestamp,
-    x,
-    y,
-    scale_factor,
-    viewport_width,
-    viewport_height,
-    pointer_target_fixed,
-    current_url,
-    type,
-    _timestamp,
-    _offset,
-    _partition
-FROM {database}.{from_table}
-""".format(
+
+def HEATMAPS_WS_TABLE_MV_SQL():
+    return HEATMAPS_TABLE_MV_SQL(
         mv_name=HEATMAPS_WS_MV,
-        target_table="writable_heatmaps",
-        from_table=KAFKA_HEATMAPS_WS_TABLE,
-        database=settings.CLICKHOUSE_DATABASE,
+        kafka_table=KAFKA_HEATMAPS_WS_TABLE,
+        target_table=HEATMAPS_WRITABLE_TABLE,
     )
-)

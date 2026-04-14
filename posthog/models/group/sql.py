@@ -68,9 +68,14 @@ def GROUPS_WRITABLE_TABLE_SQL():
     )
 
 
-def GROUPS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE, on_cluster=True):
+def GROUPS_TABLE_MV_SQL(
+    target_table=GROUPS_WRITABLE_TABLE,
+    on_cluster=True,
+    mv_name=GROUPS_TABLE_MV,
+    kafka_table=KAFKA_GROUPS_TABLE,
+):
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_TABLE_MV} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {ON_CLUSTER_CLAUSE(on_cluster)}
 TO {target_table}
 AS SELECT
 group_type_index,
@@ -80,7 +85,7 @@ team_id,
 group_properties,
 _timestamp,
 _offset
-FROM {KAFKA_GROUPS_TABLE}
+FROM {kafka_table}
 """
 
 
@@ -107,19 +112,12 @@ def KAFKA_GROUPS_WS_TABLE_SQL():
 
 
 def GROUPS_WS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE):
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_WS_MV}
-TO {target_table}
-AS SELECT
-group_type_index,
-group_key,
-created_at,
-team_id,
-group_properties,
-_timestamp,
-_offset
-FROM {KAFKA_GROUPS_WS_TABLE}
-"""
+    return GROUPS_TABLE_MV_SQL(
+        target_table=target_table,
+        on_cluster=False,
+        mv_name=GROUPS_WS_MV,
+        kafka_table=KAFKA_GROUPS_WS_TABLE,
+    )
 
 
 # { ..., "group_0": 1325 }
