@@ -83,11 +83,11 @@ describe('the authorized urls list logic', () => {
                     })
             )
 
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
             logic.actions.addUrl('https://new-suggestion.example.com')
 
-            // Flush microtasks so the listener executes up to its `await sharedListeners.saveUrls()`
-            await Promise.resolve()
-            await Promise.resolve()
+            await flushPromises()
 
             expect(api.update).toHaveBeenCalledWith(
                 `api/environments/${MOCK_TEAM_ID}`,
