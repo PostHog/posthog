@@ -317,4 +317,5 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             chunk_size_override=schema.chunk_size_override,
             team_id=inputs.team_id,
             require_ssl=require_ssl,
+            is_initial_sync=not schema.initial_sync_complete,
         )

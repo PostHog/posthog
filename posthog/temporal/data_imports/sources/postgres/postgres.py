@@ -542,6 +542,102 @@ def _build_count_query(
     )
 
 
+def _is_partitioned_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> bool:
+    """Check if a table is a partitioned (parent) table via pg_partitioned_table."""
+    cursor.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_partitioned_table pt
+            JOIN pg_class c ON c.oid = pt.partrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = %(schema)s AND c.relname = %(table)s
+        )
+        """,
+        {"schema": schema, "table": table_name},
+    )
+    row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def _get_estimated_row_count_for_partitioned_table(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> int | None:
+    """Get approximate row count for a partitioned table by summing stats across child partitions.
+
+    Tries two sources in order:
+    1. pg_class.reltuples — accurate after ANALYZE, but 0 if ANALYZE never ran.
+    2. pg_stat_user_tables.n_live_tup — maintained incrementally by the stats
+       collector (tracks inserts/deletes in near-real-time), works even without ANALYZE.
+
+    Returns None if neither source has data (no child partitions found), so the
+    caller can fall back to an exact COUNT(*).
+    """
+    # pg_class.reltuples = -1 means the partition has never been ANALYZEd.
+    # Summing a mix of analyzed (>=0) and unanalyzed (-1) partitions produces
+    # an under-count, so we track unanalyzed partitions separately and only
+    # trust reltuples_sum when every partition has been analyzed.
+    cursor.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
+            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
+            COALESCE(SUM(s.n_live_tup), 0)::bigint,
+            COUNT(*)::bigint
+        FROM pg_inherits i
+        JOIN pg_class c ON c.oid = i.inhrelid
+        LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+        WHERE i.inhparent = (
+            SELECT c2.oid
+            FROM pg_class c2
+            JOIN pg_namespace n ON n.oid = c2.relnamespace
+            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
+        )
+        """,
+        {"schema": schema, "table": table_name},
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        logger.debug("_get_estimated_row_count_for_partitioned_table: no result, returning None")
+        return None
+
+    reltuples_sum, unanalyzed_count, n_live_tup_sum, partition_count = (
+        int(row[0]),
+        int(row[1]),
+        int(row[2]),
+        int(row[3]),
+    )
+
+    if partition_count == 0:
+        logger.debug("_get_estimated_row_count_for_partitioned_table: no child partitions, returning None")
+        return None
+
+    # reltuples is most accurate (set by ANALYZE), but only trustworthy when
+    # every partition has been analyzed — otherwise the sum under-counts.
+    if unanalyzed_count == 0 and reltuples_sum > 0:
+        logger.debug(f"_get_estimated_row_count_for_partitioned_table: reltuples estimate = {reltuples_sum}")
+        return reltuples_sum
+
+    # reltuples unreliable (unanalyzed partitions present) — fall back to
+    # stats collector count, which is maintained incrementally.
+    if n_live_tup_sum > 0:
+        logger.debug(
+            f"_get_estimated_row_count_for_partitioned_table: reltuples unreliable "
+            f"(unanalyzed_partitions={unanalyzed_count}/{partition_count}), "
+            f"n_live_tup estimate = {n_live_tup_sum}"
+        )
+        return n_live_tup_sum
+
+    # Both sources unreliable — caller will fall back to exact COUNT(*).
+    logger.debug(
+        f"_get_estimated_row_count_for_partitioned_table: no reliable estimate "
+        f"(reltuples={reltuples_sum}, unanalyzed={unanalyzed_count}/{partition_count}, "
+        f"n_live_tup={n_live_tup_sum}), returning None"
+    )
+    return None
+
+
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
@@ -988,6 +1084,7 @@ def postgres_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
+    is_initial_sync: bool = False,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -1062,7 +1159,20 @@ def postgres_source(
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
-                    rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                    # For partitioned tables on initial sync, use pg_class.reltuples
+                    # estimate to avoid scanning all partitions with a COUNT(*).
+                    rows_to_sync: int | None = None
+                    if is_initial_sync:
+                        try:
+                            if _is_partitioned_table(cursor, schema, table_name):
+                                logger.debug("Partitioned table detected, using estimated row count")
+                                rows_to_sync = _get_estimated_row_count_for_partitioned_table(
+                                    cursor, schema, table_name, logger
+                                )
+                        except Exception as e:
+                            logger.debug(f"Partition detection failed, falling back to exact count: {e}")
+                    if rows_to_sync is None:
+                        rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
                     logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
