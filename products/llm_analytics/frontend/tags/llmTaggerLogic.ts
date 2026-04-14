@@ -214,11 +214,18 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                         },
                     ],
                     breakdownFilter: {
-                        breakdown: "arrayJoin(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)'))",
+                        // Emit one breakdown row per event. If $ai_tags is empty, bucket under
+                        // "(no tag)" so the chart still reflects that the tagger is running even
+                        // when no tags matched (otherwise arrayJoin on [] drops the event).
+                        breakdown:
+                            "arrayJoin(if(length(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)')) = 0, ['(no tag)'], JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)')))",
                         breakdown_type: 'hogql',
                     },
                     trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
+                        // Stacked area makes the composition read naturally: total height = run
+                        // volume, colored bands = tag share. Handles the "(no tag)" bucket cleanly
+                        // without it looking like a stray zero-line.
+                        display: ChartDisplayType.ActionsAreaGraph,
                     },
                     dateRange: {
                         date_from: dateFrom,

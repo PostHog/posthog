@@ -251,8 +251,10 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                         },
                     ],
                     breakdownFilter: {
+                        // Bucket runs with no tags under "(no tag)" so taggers still appear
+                        // on the chart when they ran but produced no matches.
                         breakdown:
-                            "concat(properties.$ai_tagger_name, ' — ', arrayJoin(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)')))",
+                            "concat(properties.$ai_tagger_name, ' — ', arrayJoin(if(length(JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)')) = 0, ['(no tag)'], JSONExtract(ifNull(properties.$ai_tags, '[]'), 'Array(String)'))))",
                         breakdown_type: 'hogql',
                     },
                     trendsFilter: {

@@ -251,28 +251,6 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
         <div className="space-y-4">
             <TrialUsageMeter showSettingsLink={false} noun="runs" />
 
-            <div className="flex justify-between items-center">
-                <div>
-                    <h2 className="text-xl font-semibold">Tags</h2>
-                    <p className="text-muted">
-                        Set up taggers to automatically add custom tags to your LLM generations.
-                    </p>
-                </div>
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.LlmAnalytics}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        to={combineUrl(urls.llmAnalyticsTag('new'), searchParams).url}
-                        data-attr="create-tagger-button"
-                    >
-                        Create tagger
-                    </LemonButton>
-                </AccessControlAction>
-            </div>
-
             <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
             <TaggerMetrics tabId={tabId} />
@@ -304,9 +282,29 @@ function LLMAnalyticsTagsContent({ tabId }: { tabId?: string }): JSX.Element {
 }
 
 export function LLMAnalyticsTagsScene({ tabId }: { tabId?: string }): JSX.Element {
+    const { searchParams } = useValues(router)
     return (
         <SceneContent>
-            <SceneTitleSection name="Tags" resourceType={{ type: 'llm_tags' }} />
+            <SceneTitleSection
+                name="Tags"
+                description="Set up taggers to automatically add custom tags to your LLM generations."
+                resourceType={{ type: 'llm_tags' }}
+                actions={
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            to={combineUrl(urls.llmAnalyticsTag('new'), searchParams).url}
+                            data-attr="create-tagger-button"
+                        >
+                            Create tagger
+                        </LemonButton>
+                    </AccessControlAction>
+                }
+            />
             <LLMAnalyticsTagsContent tabId={tabId} />
         </SceneContent>
     )

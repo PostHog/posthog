@@ -606,6 +606,25 @@ class RunTaggerWorkflow(PostHogWorkflow):
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
+                            if temporalio.workflow.patched("trial-usage-email"):
+                                try:
+                                    from posthog.temporal.llm_analytics.run_evaluation import (
+                                        SendTrialUsageEmailInputs,
+                                        send_trial_usage_email_activity,
+                                    )
+
+                                    await temporalio.workflow.execute_activity(
+                                        send_trial_usage_email_activity,
+                                        SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=100),
+                                        activity_id=f"send-trial-usage-email-100pct-tagger-{tagger['team_id']}",
+                                        schedule_to_close_timeout=timedelta(seconds=30),
+                                        retry_policy=RetryPolicy(maximum_attempts=2),
+                                    )
+                                except Exception:
+                                    temporalio.workflow.logger.exception(
+                                        "Failed to send trial exhausted email",
+                                        team_id=tagger["team_id"],
+                                    )
                         return {
                             "tags": [],
                             "skipped": True,
@@ -632,15 +651,35 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
         # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)
         if tagger_type != "hog" and not result.get("is_byok"):
-            from posthog.temporal.llm_analytics.run_evaluation import increment_trial_eval_count_activity
+            from posthog.temporal.llm_analytics.run_evaluation import (
+                SendTrialUsageEmailInputs,
+                increment_trial_eval_count_activity,
+                send_trial_usage_email_activity,
+            )
 
-            await temporalio.workflow.execute_activity(
+            threshold_pct = await temporalio.workflow.execute_activity(
                 increment_trial_eval_count_activity,
                 tagger["team_id"],
                 activity_id=f"increment-trial-tagger-{tagger['id']}",
                 schedule_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+
+            if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        send_trial_usage_email_activity,
+                        SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=threshold_pct),
+                        activity_id=f"send-trial-usage-email-{threshold_pct}pct-tagger-{tagger['team_id']}",
+                        schedule_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "Failed to send trial usage email",
+                        team_id=tagger["team_id"],
+                        threshold_pct=threshold_pct,
+                    )
 
         # Activity 3: Emit tagger event
         await temporalio.workflow.execute_activity(
