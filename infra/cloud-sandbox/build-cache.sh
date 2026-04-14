@@ -101,6 +101,10 @@ log "Database cache built"
 
 log "Creating split archive of Docker data..."
 log "Docker data size: $(du -sh /var/lib/docker | cut -f1)"
+log "Volume breakdown:"
+du -sh /var/lib/docker/volumes/*/ 2>/dev/null | while read -r line; do log "  $line"; done
+log "Top-level breakdown:"
+du -sh /var/lib/docker/*/ 2>/dev/null | while read -r line; do log "  $line"; done
 systemctl stop docker.socket docker
 
 NUM_CACHE_CHUNKS=4
