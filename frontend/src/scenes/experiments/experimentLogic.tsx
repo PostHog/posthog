@@ -1785,9 +1785,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateDistribution: async ({ variants }) => {
+            // Not sending rollout_percentage as it's non-editable in the modal
+            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
                 parameters: {
-                    ...values.experiment?.parameters,
+                    ...otherParams,
                     feature_flag_variants: variants,
                 },
                 holdout_id: values.experiment.holdout_id,

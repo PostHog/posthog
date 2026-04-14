@@ -1246,6 +1246,9 @@ describe('experimentLogic', () => {
                     update_feature_flag_params: true,
                 })
             )
+            // Should not send rollout_percentage — it's not editable in the distribution modal
+            const sentParams = api.update.mock.calls[0][1].parameters
+            expect(sentParams).not.toHaveProperty('rollout_percentage')
         })
 
         it('does not call feature flag API directly', async () => {
