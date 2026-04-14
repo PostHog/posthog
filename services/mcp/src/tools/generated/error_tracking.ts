@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
+    ErrorTrackingGroupingRulesCreateBody,
     ErrorTrackingIssuesListQueryParams,
     ErrorTrackingIssuesMergeCreateBody,
     ErrorTrackingIssuesMergeCreateParams,
@@ -81,6 +82,35 @@ const errorTrackingGroupingRulesList = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingGroupingRuleListResponse>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingGroupingRulesCreateSchema = ErrorTrackingGroupingRulesCreateBody
+
+const errorTrackingGroupingRulesCreate = (): ToolBase<
+    typeof ErrorTrackingGroupingRulesCreateSchema,
+    Schemas.ErrorTrackingGroupingRule
+> => ({
+    name: 'error-tracking-grouping-rules-create',
+    schema: ErrorTrackingGroupingRulesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingGroupingRulesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.assignee !== undefined) {
+            body['assignee'] = params.assignee
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingGroupingRule>({
+            method: 'POST',
+            path: `/api/environments/${projectId}/error_tracking/grouping_rules/`,
+            body,
         })
         return result
     },
@@ -564,6 +594,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-assignment-rules-list': errorTrackingAssignmentRulesList,
     'error-tracking-assignment-rules-create': errorTrackingAssignmentRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
+    'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,

@@ -84,7 +84,17 @@ tools:
             their filters, optional assignee, description, and linked issue when available.
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking grouping rule
+        description: >
+            Create an error tracking grouping rule for the current project. Provide required `filters`, and
+            optionally set `assignee` and `description` for the issues this rule creates.
     error-tracking-grouping-rules-reorder-partial-update:
         operation: error_tracking_grouping_rules_reorder_partial_update
         enabled: false
