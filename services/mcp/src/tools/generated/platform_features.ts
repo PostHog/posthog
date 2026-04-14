@@ -162,7 +162,9 @@ const commentCount = (): ToolBase<typeof CommentCountSchema, unknown> => ({
     },
 })
 
-const ActivityLogListSchema = ActivityLogListQueryParams
+const ActivityLogListSchema = ActivityLogListQueryParams.extend({
+    page_size: ActivityLogListQueryParams.shape['page_size'].default(10).optional(),
+})
 
 const activityLogList = (): ToolBase<
     typeof ActivityLogListSchema,
@@ -187,14 +189,29 @@ const activityLogList = (): ToolBase<
         const filtered = {
             ...result,
             results: result.results.map((item: any) =>
-                pickResponseFields(item, ['id', 'user', 'activity', 'scope', 'item_id', 'detail', 'created_at'])
+                pickResponseFields(item, [
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'created_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/')
     },
 })
 
-const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams
+const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
+    page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
+})
 
 const advancedActivityLogsList = (): ToolBase<
     typeof AdvancedActivityLogsListSchema,
@@ -226,7 +243,21 @@ const advancedActivityLogsList = (): ToolBase<
         const filtered = {
             ...result,
             results: result.results.map((item: any) =>
-                pickResponseFields(item, ['id', 'user', 'activity', 'scope', 'item_id', 'detail', 'created_at'])
+                pickResponseFields(item, [
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'detail.changes',
+                    'created_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/')

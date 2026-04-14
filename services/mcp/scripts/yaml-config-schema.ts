@@ -37,6 +37,8 @@ export const ToolConfigSchema = z
                 z
                     .object({
                         description: z.string().optional(),
+                        /** Override the default value for this parameter. The field becomes optional with `.default(value)`. */
+                        default: z.unknown().optional(),
                         input_schema: z.string().optional(),
                         /** Reference to a schema.json definition. Generates a Zod schema from JSON Schema at build time. */
                         schema_ref: z.string().optional(),
