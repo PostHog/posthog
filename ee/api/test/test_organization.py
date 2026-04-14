@@ -72,8 +72,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         # Organization and team records are now deleted asynchronously by the task
         # so we can't assert they're gone immediately - verify task was called instead
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="organization deleted",
+            distinct_id=self.user.distinct_id,
+            properties=organization_props,
+            groups={"instance": ANY, "organization": str(organization.id)},
+        )
+        mock_capture.assert_any_call(
+            event="organization deletion initiated",
             distinct_id=self.user.distinct_id,
             properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
