@@ -1,6 +1,5 @@
-from .cross_sell import RECOMMENDATION_TYPE, compute
+from . import cross_sell
 
-__all__ = [
-    "RECOMMENDATION_TYPE",
-    "compute",
-]
+REGISTRY = {
+    cross_sell.RECOMMENDATION_TYPE: cross_sell,
+}
