@@ -719,3 +719,72 @@ def open_web_ide(name: str) -> None:
     """Open code-server for the workspace."""
     username = get_username()
     webbrowser.open(f"{get_coder_url()}/@{username}/{name}/apps/code-server")
+
+
+# ---------------------------------------------------------------------------
+# Shared workspace helpers
+# ---------------------------------------------------------------------------
+
+
+def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
+    """Build a workspace name for another user's workspace.
+
+    Returns ``devbox-{user}`` for the default workspace, or
+    ``devbox-{user}-{label}`` for a labeled workspace.
+    """
+    base = f"{_WORKSPACE_PREFIX}-{user}"
+    if label is None:
+        return base
+    return f"{base}-{label}"
+
+
+def parse_workspace_target(target: str) -> str:
+    """Parse a workspace target string into a full workspace name.
+
+    Supports:
+    - ``@user`` -> another user's default workspace
+    - ``@user/label`` -> another user's labeled workspace
+    - ``label`` -> current user's labeled workspace
+    """
+    if target.startswith("@"):
+        rest = target[1:]
+        if "/" in rest:
+            user, label = rest.split("/", 1)
+            return resolve_shared_workspace_name(user, label)
+        return resolve_shared_workspace_name(rest)
+    return get_workspace_name(target)
+
+
+def share_workspace(name: str, users: list[str], role: str = "use") -> None:
+    """Grant workspace access to one or more users."""
+    user_spec = ",".join(f"{u}:{role}" for u in users)
+    result = _run(["coder", "sharing", "share", name, "--user", user_spec])
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
+def unshare_workspace(name: str, users: list[str]) -> None:
+    """Revoke workspace access from one or more users."""
+    for user in users:
+        result = _run(["coder", "sharing", "remove", name, "--user", user])
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
+
+
+def get_sharing_status(name: str) -> subprocess.CompletedProcess[str]:
+    """Return the output of ``coder sharing status`` for a workspace."""
+    return _run(["coder", "sharing", "status", name], capture_output=True)
+
+
+def list_shared_workspaces() -> list[dict[str, Any]]:
+    """Return workspaces that have been shared with the current user."""
+    result = _run(["coder", "list", "--search", "shared:true", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return []
+
+    try:
+        workspaces = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    return workspaces if isinstance(workspaces, list) else []
