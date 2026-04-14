@@ -21,6 +21,11 @@ import type { Experiment, MultivariateFlagVariant } from '~/types'
 import { NEW_EXPERIMENT } from '../constants'
 import { ensureIsPercent, isEvenlyDistributed } from '../utils'
 import {
+    BucketingIdentifierSelector,
+    BucketingIdentifierValue,
+    bucketingValueFromExperiment,
+} from './BucketingIdentifierSelector'
+import {
     computeUpdatedVariantSplit,
     distributeVariantsEvenly,
     parseVariantPercentage,
@@ -38,6 +43,8 @@ interface VariantsPanelCreateFeatureFlagProps {
             feature_flag_variants?: MultivariateFlagVariant[]
             ensure_experience_continuity?: boolean
             rollout_percentage?: number
+            aggregation_group_type_index?: number | null
+            bucketing_identifier?: string | null
         }
     }) => void
     disabled?: boolean
@@ -105,12 +112,30 @@ export const VariantsPanelCreateFeatureFlag = ({
     const rolloutPercentage =
         experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
 
+    const aggregationGroupTypeIndex = experiment.parameters?.aggregation_group_type_index ?? null
+    const bucketingIdentifier =
+        (experiment.parameters as { bucketing_identifier?: string | null })?.bucketing_identifier ?? null
+
     const updateRolloutPercentage = (value: number): void => {
         onChange({
             parameters: {
                 feature_flag_variants: variants,
                 ensure_experience_continuity: ensureExperienceContinuity,
                 rollout_percentage: value,
+                aggregation_group_type_index: aggregationGroupTypeIndex,
+                bucketing_identifier: bucketingIdentifier,
+            },
+        })
+    }
+
+    const updateBucketingIdentifier = (bucketingValue: BucketingIdentifierValue): void => {
+        onChange({
+            parameters: {
+                feature_flag_variants: variants,
+                ensure_experience_continuity: ensureExperienceContinuity,
+                rollout_percentage: rolloutPercentage,
+                aggregation_group_type_index: bucketingValue.aggregationGroupTypeIndex ?? null,
+                bucketing_identifier: bucketingValue.option === 'device' ? 'device_id' : null,
             },
         })
     }
@@ -325,6 +350,15 @@ export const VariantsPanelCreateFeatureFlag = ({
                 </div>
             </div>
 
+            <BucketingIdentifierSelector
+                value={bucketingValueFromExperiment({
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                    bucketing_identifier: bucketingIdentifier,
+                })}
+                onChange={updateBucketingIdentifier}
+                disabled={disabled}
+            />
+
             <div>
                 <LemonCheckbox
                     label="Persist flag across authentication steps"
@@ -334,6 +368,8 @@ export const VariantsPanelCreateFeatureFlag = ({
                                 feature_flag_variants: variants,
                                 ensure_experience_continuity: checked,
                                 rollout_percentage: rolloutPercentage,
+                                aggregation_group_type_index: aggregationGroupTypeIndex,
+                                bucketing_identifier: bucketingIdentifier,
                             },
                         })
                     }}

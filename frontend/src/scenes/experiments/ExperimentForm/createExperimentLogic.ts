@@ -113,6 +113,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             parameters?: {
                 feature_flag_variants?: MultivariateFlagVariant[]
                 ensure_experience_continuity?: boolean
+                aggregation_group_type_index?: number | null
+                bucketing_identifier?: string | null
             }
         }) => ({ config }),
         saveExperiment: true,
