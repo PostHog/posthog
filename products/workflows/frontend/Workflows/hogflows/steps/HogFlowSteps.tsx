@@ -5,13 +5,13 @@ import { useMemo } from 'react'
 import {
     IconBolt,
     IconClock,
+    IconCursor,
     IconDay,
     IconDecisionTree,
     IconHourglass,
     IconLeave,
     IconLetter,
     IconPercentage,
-    IconTarget,
     IconWebhooks,
 } from '@posthog/icons'
 
@@ -91,7 +91,7 @@ const HogFlowStepConfigs: Partial<{
     },
     wait_until_event: {
         type: 'wait_until_event',
-        icon: () => <IconTarget />,
+        icon: () => <IconCursor />,
         color: () => '#ffaa00',
         renderConfiguration: (node) => <StepWaitUntilEventConfiguration key={node.id} node={node} />,
     },
