@@ -507,6 +507,22 @@ db:
         services:
             - postgresql
             - docker
+    db:prime-test-db:
+        steps:
+            - db:download-schema
+            - name: restore-to-test-db
+              cmd: |
+                  set -e
+                  set -o pipefail
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  echo "✅ Restored test_posthog from CI schema artifact"
+        description: Download pre-migrated schema and prime the test_posthog database for
+            pytest --reuse-db (used in CI to skip migration overhead)
+        services:
+            - postgresql
+            - docker
     db:download-schema:
         cmd: "set -e\nmkdir -p .postgres-backups\necho \"Finding latest CI run with migrated-schema\
             \ artifact...\"\nRUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10'\
