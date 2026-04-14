@@ -62,6 +62,6 @@ tables:
         engine: MaterializedView
         source: kafka_groups
         target: writable_groups
-        select: "SELECT group_type_index, group_key, created_at, team_id, group_properties, _timestamp, _offset FROM {{ database }}.kafka_groups"
+        select: 'SELECT group_type_index, group_key, created_at, team_id, group_properties, _timestamp, _offset FROM {{ database }}.kafka_groups'
         on_nodes: INGESTION_EVENTS
         columns: []

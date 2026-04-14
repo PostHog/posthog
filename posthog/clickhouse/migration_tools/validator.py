@@ -125,6 +125,7 @@ def validate_desired_states(desired_states: list[DesiredState]) -> list[str]:
     for state in desired_states:
         errors.extend(_check_ecosystem_completeness(state, dynamic_lookup))
         errors.extend(_check_cross_cluster_targeting(state))
+        errors.extend(_check_engine_required_fields(state))
         errors.extend(_check_mergetree_order_by(state))
 
     return errors
@@ -203,4 +204,24 @@ def _check_mergetree_order_by(state: DesiredState) -> list[str]:
                 f"[{state.ecosystem}] Table '{table_name}' (engine={table.engine}) "
                 f"is missing ORDER BY \u2014 ClickHouse will reject this CREATE"
             )
+    return errors
+
+
+def _check_engine_required_fields(state: DesiredState) -> list[str]:
+    """Catch engine-specific required fields before apply-time failures."""
+    errors: list[str] = []
+
+    for table_name, table in state.tables.items():
+        if _is_distributed(table.engine) and not table.source:
+            errors.append(
+                f"[{state.ecosystem}] Table '{table_name}' (engine={table.engine}) "
+                "is missing source — Distributed tables must declare a source table"
+            )
+
+        if _is_mv(table.engine) and not table.target:
+            errors.append(
+                f"[{state.ecosystem}] Table '{table_name}' (engine={table.engine}) "
+                "is missing target — MaterializedView tables must declare a target table"
+            )
+
     return errors

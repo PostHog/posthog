@@ -58,7 +58,7 @@ tables:
         engine: MaterializedView
         source: kafka_person_overrides
         target: person_overrides
-        select: "SELECT team_id, old_person_id, override_person_id, merged_at, oldest_event, version FROM {{ database }}.kafka_person_overrides"
+        select: 'SELECT team_id, old_person_id, override_person_id, merged_at, oldest_event, version FROM {{ database }}.kafka_person_overrides'
         on_nodes: ALL
         columns: []
 
@@ -72,7 +72,7 @@ tables:
         primary_key: team_id, old_person_id
         source:
             type: CLICKHOUSE
-            query: "SELECT team_id, old_person_id, argMax(override_person_id, version) FROM `posthog`.`person_overrides` AS overrides GROUP BY team_id, old_person_id"
+            query: 'SELECT team_id, old_person_id, argMax(override_person_id, version) FROM `posthog`.`person_overrides` AS overrides GROUP BY team_id, old_person_id'
         layout:
             type: COMPLEX_KEY_HASHED
             params:

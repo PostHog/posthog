@@ -60,6 +60,6 @@ tables:
         engine: MaterializedView
         source: kafka_distinct_id_usage
         target: writable_distinct_id_usage
-        select: "SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count FROM {{ database }}.kafka_distinct_id_usage"
+        select: 'SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count FROM {{ database }}.kafka_distinct_id_usage'
         on_nodes: INGESTION_EVENTS
         columns: []

@@ -10,10 +10,10 @@ tables:
         on_nodes: DATA
         order_by:
             - team_id
-            - "toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))"
+            - 'toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))'
             - 'cityHash64(session_id_v7)'
             - session_id_v7
-        partition_by: "toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))"
+        partition_by: 'toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))'
         columns:
             - name: team_id
               type: Int64
@@ -28,7 +28,7 @@ tables:
             - name: max_inserted_at
               type: "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
             - name: urls
-              type: "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray, Array(String))'
             - name: entry_url
               type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
             - name: end_url
@@ -108,21 +108,21 @@ tables:
             - name: initial_irclid
               type: "AggregateFunction(argMin, String, DateTime64(6, 'UTC'))"
             - name: pageview_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: pageview_uniq
-              type: "AggregateFunction(uniq, Nullable(UUID))"
+              type: 'AggregateFunction(uniq, Nullable(UUID))'
             - name: autocapture_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: autocapture_uniq
-              type: "AggregateFunction(uniq, Nullable(UUID))"
+              type: 'AggregateFunction(uniq, Nullable(UUID))'
             - name: screen_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: screen_uniq
-              type: "AggregateFunction(uniq, Nullable(UUID))"
+              type: 'AggregateFunction(uniq, Nullable(UUID))'
             - name: maybe_has_session_replay
-              type: "SimpleAggregateFunction(max, Bool)"
+              type: 'SimpleAggregateFunction(max, Bool)'
             - name: page_screen_autocapture_uniq_up_to
-              type: "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
+              type: 'AggregateFunction(uniqUpTo(1), Nullable(UUID))'
             - name: vitals_lcp
               type: "AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))"
 
@@ -144,7 +144,7 @@ tables:
         engine: MaterializedView
         source: sharded_events
         target: writable_raw_sessions
-        select: "SELECT ... FROM {{ database }}.sharded_events"
+        select: 'SELECT ... FROM {{ database }}.sharded_events'
         on_nodes: DATA
         columns: []
 

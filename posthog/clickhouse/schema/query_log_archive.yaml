@@ -111,7 +111,7 @@ tables:
             - name: ProfileEvents_WriteBufferFromS3Bytes
               type: Int64
             - name: ProfileEvents
-              type: "Map(String, UInt64)"
+              type: 'Map(String, UInt64)'
             - name: lc_workflow
               type: LowCardinality(String)
             - name: lc_kind

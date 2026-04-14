@@ -54,7 +54,7 @@ tables:
         engine: MaterializedView
         source: kafka_person_distinct_id
         target: person_distinct_id
-        select: "SELECT distinct_id, person_id, team_id, coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign, _timestamp, _offset FROM {{ database }}.kafka_person_distinct_id"
+        select: 'SELECT distinct_id, person_id, team_id, coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign, _timestamp, _offset FROM {{ database }}.kafka_person_distinct_id'
         on_nodes: INGESTION_EVENTS
         columns: []
 

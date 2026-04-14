@@ -33,7 +33,7 @@ tables:
             - name: metric_name
               type: LowCardinality(String)
             - name: count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             # Kafka virtual columns
             - name: _timestamp
               type: DateTime
@@ -86,6 +86,6 @@ tables:
         engine: MaterializedView
         source: kafka_app_metrics2
         target: writable_app_metrics2
-        select: "SELECT team_id, timestamp, app_source, app_source_id, instance_id, metric_kind, metric_name, count, _timestamp, _offset, _partition FROM {{ database }}.kafka_app_metrics2"
+        select: 'SELECT team_id, timestamp, app_source, app_source_id, instance_id, metric_kind, metric_name, count, _timestamp, _offset, _partition FROM {{ database }}.kafka_app_metrics2'
         on_nodes: INGESTION_EVENTS
         columns: []

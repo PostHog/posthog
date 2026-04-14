@@ -42,7 +42,7 @@ tables:
               default_kind: DEFAULT
             - name: expires_at
               type: Date
-              default_expression: "today() + toIntervalDay(7)"
+              default_expression: 'today() + toIntervalDay(7)'
               default_kind: DEFAULT
 
     experiment_exposures_preaggregated:
