@@ -28,7 +28,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install "pydantic-ai[openai]" opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+                            pip install "pydantic-ai[openai]" opentelemetry-sdk posthog[otel]
                         `}
                     />
                 </>
@@ -50,9 +50,8 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                             import os
                             from opentelemetry import trace
                             from opentelemetry.sdk.trace import TracerProvider
-                            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
                             from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+                            from posthog.ai.otel import PostHogSpanProcessor
                             from pydantic_ai import Agent
 
                             resource = Resource(attributes={
@@ -61,13 +60,13 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                                 "foo": "bar", # custom properties are passed through
                             })
 
-                            exporter = OTLPSpanExporter(
-                                endpoint="<ph_client_api_host>/i/v0/ai/otel",
-                                headers={"Authorization": "Bearer <ph_project_token>"},
-                            )
-
                             provider = TracerProvider(resource=resource)
-                            provider.add_span_processor(SimpleSpanProcessor(exporter))
+                            provider.add_span_processor(
+                                PostHogSpanProcessor(
+                                    api_key="<ph_project_token>",
+                                    host="<ph_client_api_host>",
+                                )
+                            )
                             trace.set_tracer_provider(provider)
 
                             # Enable automatic OTel instrumentation for all Pydantic AI agents

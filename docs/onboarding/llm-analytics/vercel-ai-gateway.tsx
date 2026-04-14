@@ -43,7 +43,7 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-openai-v2
+                                    pip install openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
@@ -76,9 +76,8 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                                 code: dedent`
                                     from opentelemetry import trace
                                     from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
                                     from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+                                    from posthog.ai.otel import PostHogSpanProcessor
                                     from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 
                                     resource = Resource(attributes={
@@ -87,13 +86,13 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                                         "foo": "bar", # custom properties are passed through
                                     })
 
-                                    exporter = OTLPSpanExporter(
-                                        endpoint="<ph_client_api_host>/i/v0/ai/otel",
-                                        headers={"Authorization": "Bearer <ph_project_token>"},
-                                    )
-
                                     provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(SimpleSpanProcessor(exporter))
+                                    provider.add_span_processor(
+                                        PostHogSpanProcessor(
+                                            api_key="<ph_project_token>",
+                                            host="<ph_client_api_host>",
+                                        )
+                                    )
                                     trace.set_tracer_provider(provider)
 
                                     OpenAIInstrumentor().instrument()

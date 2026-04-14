@@ -30,7 +30,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install llama-index llama-index-llms-openai opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-llamaindex
+                            pip install llama-index llama-index-llms-openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-llamaindex
                         `}
                     />
                 </>
@@ -51,9 +51,8 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         code={dedent`
                             from opentelemetry import trace
                             from opentelemetry.sdk.trace import TracerProvider
-                            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
                             from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+                            from posthog.ai.otel import PostHogSpanProcessor
                             from opentelemetry.instrumentation.llamaindex import LlamaIndexInstrumentor
 
                             resource = Resource(attributes={
@@ -62,13 +61,13 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                                         "foo": "bar", # custom properties are passed through
                             })
 
-                            exporter = OTLPSpanExporter(
-                                endpoint="<ph_client_api_host>/i/v0/ai/otel",
-                                headers={"Authorization": "Bearer <ph_project_token>"},
-                            )
-
                             provider = TracerProvider(resource=resource)
-                            provider.add_span_processor(SimpleSpanProcessor(exporter))
+                            provider.add_span_processor(
+                                PostHogSpanProcessor(
+                                    api_key="<ph_project_token>",
+                                    host="<ph_client_api_host>",
+                                )
+                            )
                             trace.set_tracer_provider(provider)
 
                             LlamaIndexInstrumentor().instrument()
