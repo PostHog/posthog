@@ -310,7 +310,9 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         # nosemgrep: aiohttp-missing-trust-env
         async with aiohttp.ClientSession(
             trust_env=False,
-            connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
+            connector=aiohttp.TCPConnector(
+                limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS, keepalive_timeout=5
+            ),
             headers={
                 "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
             },
