@@ -105,6 +105,9 @@ class BreakdownInjector:
         """
         Injects breakdown columns into funnel query AST.
         Modifies query in-place.
+
+        The legacy funnel query uses 4 CTEs: exposures, metric_events, entity_events, entity_metrics.
+        Breakdown columns flow: metric_events -> entity_events (attribution) -> entity_metrics (passthrough).
         """
         if not self._has_breakdown():
             return
@@ -119,10 +122,10 @@ class BreakdownInjector:
                 for alias, expr in breakdown_exprs:
                     metric_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
 
-        # Inject into entity_metrics CTE SELECT (attribution - extract from exposure events only)
-        if query.ctes and "entity_metrics" in query.ctes:
-            entity_metrics_cte = query.ctes["entity_metrics"]
-            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+        # Inject into entity_events CTE SELECT (attribution - extract from exposure events only)
+        if query.ctes and "entity_events" in query.ctes:
+            entity_events_cte = query.ctes["entity_events"]
+            if isinstance(entity_events_cte, ast.CTE) and isinstance(entity_events_cte.expr, ast.SelectQuery):
                 # Check if this is an unordered funnel (has exposures CTE with LEFT JOIN)
                 # In that case, breakdown comes from exposures, not metric_events
                 has_exposures = "exposures" in query.ctes if query.ctes else False
@@ -130,13 +133,13 @@ class BreakdownInjector:
                 for alias in aliases:
                     if has_exposures:
                         # Unordered funnel: get breakdown from exposures (already attributed)
-                        entity_metrics_cte.expr.select.append(
+                        entity_events_cte.expr.select.append(
                             ast.Alias(alias=alias, expr=ast.Field(chain=["exposures", alias]))
                         )
                     else:
                         # Ordered funnel: use argMinIf to attribute from first exposure in metric_events
                         # Qualify the field reference to avoid ambiguity
-                        entity_metrics_cte.expr.select.append(
+                        entity_events_cte.expr.select.append(
                             ast.Alias(
                                 alias=alias,
                                 expr=ast.Call(
@@ -154,12 +157,21 @@ class BreakdownInjector:
                             )
                         )
 
-                # For unordered funnels, also add breakdown to entity_metrics GROUP BY
+                # For unordered funnels, also add breakdown to entity_events GROUP BY
                 if has_exposures:
-                    if entity_metrics_cte.expr.group_by is None:
-                        entity_metrics_cte.expr.group_by = []
+                    if entity_events_cte.expr.group_by is None:
+                        entity_events_cte.expr.group_by = []
                     for alias in aliases:
-                        entity_metrics_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+                        entity_events_cte.expr.group_by.append(ast.Field(chain=["exposures", alias]))
+
+        # Pass through breakdown columns from entity_events to entity_metrics
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_events", alias]))
+                    )
 
         # Inject into final SELECT - breakdown columns must come right after variant
         for i, alias in enumerate(aliases):
@@ -176,8 +188,9 @@ class BreakdownInjector:
 
     def inject_funnel_breakdown_columns_optimized(self, query: ast.SelectQuery) -> None:
         """
-        Injects breakdown columns into the optimized 2-CTE funnel query AST.
-        The optimized query has base_events and entity_metrics CTEs (no exposures CTE).
+        Injects breakdown columns into the optimized funnel query AST.
+        The optimized query has base_events, entity_events, and entity_metrics CTEs.
+        Breakdown columns flow: base_events -> entity_events (attribution) -> entity_metrics (passthrough).
         Modifies query in-place.
         """
         if not self._has_breakdown():
@@ -193,12 +206,12 @@ class BreakdownInjector:
                 for alias, expr in breakdown_exprs:
                     base_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
 
-        # Inject into entity_metrics CTE SELECT using argMinIf attribution from first exposure
-        if query.ctes and "entity_metrics" in query.ctes:
-            entity_metrics_cte = query.ctes["entity_metrics"]
-            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+        # Inject into entity_events CTE SELECT using argMinIf attribution from first exposure
+        if query.ctes and "entity_events" in query.ctes:
+            entity_events_cte = query.ctes["entity_events"]
+            if isinstance(entity_events_cte, ast.CTE) and isinstance(entity_events_cte.expr, ast.SelectQuery):
                 for alias in aliases:
-                    entity_metrics_cte.expr.select.append(
+                    entity_events_cte.expr.select.append(
                         ast.Alias(
                             alias=alias,
                             expr=ast.Call(
@@ -214,6 +227,15 @@ class BreakdownInjector:
                                 ],
                             ),
                         )
+                    )
+
+        # Pass through breakdown columns from entity_events to entity_metrics
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["entity_events", alias]))
                     )
 
         # Inject into final SELECT - breakdown columns must come right after variant

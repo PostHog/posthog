@@ -31,6 +31,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
     funnel_evaluation_expr,
+    funnel_sorted_events_expr,
     funnel_steps_to_filter,
     get_source_value_expr,
     is_session_property_metric,
@@ -303,8 +304,13 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_query_legacy(self) -> ast.SelectQuery:
         """
-        Legacy funnel query: 3 CTEs (exposures, metric_events, entity_metrics).
+        Legacy funnel query: 4 CTEs (exposures, metric_events, entity_events, entity_metrics).
         Used when precomputed exposures are available.
+
+        exposures: precomputed or scanned exposure data
+        metric_events: raw events with step columns
+        entity_events: GROUP BY aggregation, materializes sorted events array
+        entity_metrics: applies dedup + funnel UDF on sorted_events (no GROUP BY)
 
         Supports two patterns:
         1. Events-only: Single query with boolean step columns
@@ -355,23 +361,26 @@ class ExperimentQueryBuilder:
         temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
 
         if self.funnel_steps_data_disabled:
-            # When steps data is disabled, we skip the expensive session/event maps and
-            # the per-exposure columns that are only needed for steps_event_data.
-            # The exposures CTE already deduplicates to one row per (entity_id, variant),
-            # so removing these from GROUP BY doesn't change results.
-            extra_select_columns = ""
-            extra_group_by_columns = ""
+            entity_events_extra_columns = ""
+            entity_events_extra_group_by = ""
+            entity_metrics_extra_columns = ""
         else:
-            extra_select_columns = """,
+            entity_events_extra_columns = """,
                     exposures.exposure_event_uuid AS exposure_event_uuid,
                     exposures.exposure_session_id AS exposure_session_id,
                     exposures.first_exposure_time AS exposure_timestamp,
                     {uuid_to_session_map} AS uuid_to_session,
                     {uuid_to_timestamp_map} AS uuid_to_timestamp"""
-            extra_group_by_columns = """,
+            entity_events_extra_group_by = """,
                     exposures.exposure_event_uuid,
                     exposures.exposure_session_id,
                     exposures.first_exposure_time"""
+            entity_metrics_extra_columns = """,
+                    entity_events.exposure_event_uuid AS exposure_event_uuid,
+                    entity_events.exposure_session_id AS exposure_session_id,
+                    entity_events.exposure_timestamp AS exposure_timestamp,
+                    entity_events.uuid_to_session AS uuid_to_session,
+                    entity_events.uuid_to_timestamp AS uuid_to_timestamp"""
 
         ctes_sql = f"""
             exposures AS (
@@ -380,20 +389,31 @@ class ExperimentQueryBuilder:
 
             {metric_events_cte_str},
 
-            entity_metrics AS (
+            entity_events AS (
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {{funnel_aggregation}} AS value{extra_select_columns}
+                    {{sorted_events_expr}} AS sorted_events{entity_events_extra_columns}
                 FROM exposures
                 LEFT JOIN metric_events
                     ON exposures.entity_id = metric_events.entity_id
                     {temporal_filter}  -- Only for unordered: filters out events before exposure
                 GROUP BY
                     exposures.entity_id,
-                    exposures.variant{extra_group_by_columns}
+                    exposures.variant{entity_events_extra_group_by}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    entity_events.entity_id AS entity_id,
+                    entity_events.variant AS variant,
+                    {{funnel_aggregation}} AS value{entity_metrics_extra_columns}
+                FROM entity_events
             )
         """
+
+        # Bit value for the last step: bit (num_steps-1) = 2^(num_steps-1)
+        last_step_bit_value = 2 ** (num_steps - 1)
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._build_exposure_predicate(),
@@ -401,8 +421,9 @@ class ExperimentQueryBuilder:
             "variant_expr": self._build_variant_expr_for_funnel(),
             "entity_key": parse_expr(self.entity_key),
             "funnel_steps_filter": self._build_funnel_steps_filter(),
+            "sorted_events_expr": self._build_sorted_events_expr(),
             "funnel_aggregation": self._build_funnel_aggregation_expr(),
-            "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+            "last_step_bit_value": ast.Constant(value=last_step_bit_value),
             "exposure_select_query": self._get_exposure_query(),
         }
         if not self.funnel_steps_data_disabled:
@@ -417,11 +438,11 @@ class ExperimentQueryBuilder:
             SELECT
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
-                -- The return value from the funnel eval is zero indexed. So reaching first step means
-                -- it return 0, and so on. So reaching the last step means it will return
-                -- num_steps - 1
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+                -- Use bitfield (value.3) for step completion checks.
+                -- Bit N is set when step N is completed. Checking the last step's bit
+                -- is equivalent to checking step_reached = num_steps - 1.
+                countIf(ifNull(notEquals(bitAnd((entity_metrics.value).3, {{last_step_bit_value}}), 0), 1)) AS total_sum,
+                countIf(ifNull(notEquals(bitAnd((entity_metrics.value).3, {{last_step_bit_value}}), 0), 1)) AS total_sum_of_squares
                 -- step_counts added programmatically below
                 -- steps_event_data added programmatically below
                 -- breakdown columns added programmatically below
@@ -448,11 +469,11 @@ class ExperimentQueryBuilder:
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
-        # Inject the additional selects we do for getting the data we need to render the funnel chart
-        # Add step counts - how many users reached each step
+        # Add step counts using bitfield - bit N set means step N completed
         step_count_exprs = []
         for i in range(1, num_steps):
-            step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
+            bit_value = 2**i
+            step_count_exprs.append(f"countIf(ifNull(notEquals(bitAnd((entity_metrics.value).3, {bit_value}), 0), 1))")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
         query.select.append(parse_expr(step_counts_expr))
@@ -460,6 +481,7 @@ class ExperimentQueryBuilder:
         # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
         # that step as their last step in the funnel.
         # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
+        # steps_event_data still uses value.1 (step_reached) for exact equality check.
         # This is skipped when funnel_steps_data_disabled is set, as it's expensive for high-traffic experiments.
         if not self.funnel_steps_data_disabled:
             event_uuids_exprs = []
@@ -483,14 +505,15 @@ class ExperimentQueryBuilder:
     def _build_funnel_query_optimized(self) -> ast.SelectQuery:
         """
         Optimized funnel query: eliminates the second events table scan and the
-        intermediate JOIN. Uses 2 CTEs for ordered funnels, 3 for unordered:
+        intermediate JOIN. Uses 3 CTEs for ordered funnels, 4 for unordered:
 
-        Ordered:   base_events -> entity_metrics -> final SELECT
-        Unordered: base_events -> first_exposures -> entity_metrics -> final SELECT
+        Ordered:   base_events -> entity_events -> entity_metrics -> final SELECT
+        Unordered: base_events -> first_exposures -> entity_events -> entity_metrics -> final SELECT
 
         base_events: single scan of events, computes step_0/step_1/variant_value inline
         first_exposures: (unordered only) min exposure time per entity for temporal filtering
-        entity_metrics: GROUP BY entity_id, conditional aggregation for variant, funnel UDF
+        entity_events: GROUP BY entity_id, aggregation + sorted events array
+        entity_metrics: applies dedup filter + funnel UDF on sorted_events (no GROUP BY)
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
@@ -522,16 +545,25 @@ class ExperimentQueryBuilder:
 
         is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
-        # CTE 2: entity_metrics - GROUP BY entity_id, no JOIN
+        # entity_events: aggregation CTE that materializes the sorted events array
+        # and other per-entity aggregates. The sorted_events column is computed once
+        # here and referenced three times in the dedup filter of entity_metrics.
         if self.funnel_steps_data_disabled:
-            extra_select_columns = ""
+            entity_events_extra_columns = ""
+            entity_metrics_extra_columns = ""
         else:
-            extra_select_columns = """,
+            entity_events_extra_columns = """,
                     argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
                     argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
                     minIf(timestamp, step_0 = 1) AS exposure_timestamp,
                     {uuid_to_session_map} AS uuid_to_session,
                     {uuid_to_timestamp_map} AS uuid_to_timestamp"""
+            entity_metrics_extra_columns = """,
+                    entity_events.exposure_event_uuid AS exposure_event_uuid,
+                    entity_events.exposure_session_id AS exposure_session_id,
+                    entity_events.exposure_timestamp AS exposure_timestamp,
+                    entity_events.uuid_to_session AS uuid_to_session,
+                    entity_events.uuid_to_timestamp AS uuid_to_timestamp"""
 
         # Unordered funnels need temporal filtering: the UDF doesn't enforce that
         # step_0 (exposure) happens before step_1..N, so we must exclude events
@@ -558,16 +590,26 @@ class ExperimentQueryBuilder:
         ctes_sql = f"""
             {base_events_cte_str},
             {first_exposures_cte_str}
-            entity_metrics AS (
+            entity_events AS (
                 SELECT
                     base_events.entity_id AS entity_id,
                     {{variant_expr}} AS variant,
-                    {{funnel_aggregation}} AS value{extra_select_columns}
+                    {{sorted_events_expr}} AS sorted_events{entity_events_extra_columns}
                 FROM base_events
                 {temporal_join}
                 GROUP BY base_events.entity_id{having_clause}
+            ),
+            entity_metrics AS (
+                SELECT
+                    entity_events.entity_id AS entity_id,
+                    entity_events.variant AS variant,
+                    {{funnel_aggregation}} AS value{entity_metrics_extra_columns}
+                FROM entity_events
             )
         """
+
+        # Bit value for the last step: bit (num_steps-1) = 2^(num_steps-1)
+        last_step_bit_value = 2 ** (num_steps - 1)
 
         placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
             "exposure_predicate": self._build_exposure_predicate(),
@@ -575,8 +617,9 @@ class ExperimentQueryBuilder:
             "variant_expr": self._build_variant_expr_for_funnel_optimized(),
             "entity_key": parse_expr(self.entity_key),
             "funnel_steps_filter": self._build_funnel_steps_filter(),
+            "sorted_events_expr": self._build_sorted_events_expr_optimized(),
             "funnel_aggregation": self._build_funnel_aggregation_expr_optimized(),
-            "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+            "last_step_bit_value": ast.Constant(value=last_step_bit_value),
         }
         if not self.funnel_steps_data_disabled:
             placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map_optimized()
@@ -590,11 +633,11 @@ class ExperimentQueryBuilder:
             SELECT
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
-                -- The return value from the funnel eval is zero indexed. So reaching first step means
-                -- it return 0, and so on. So reaching the last step means it will return
-                -- num_steps - 1
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+                -- Use bitfield (value.3) for step completion checks.
+                -- Bit N is set when step N is completed. Checking the last step's bit
+                -- is equivalent to checking step_reached = num_steps - 1.
+                countIf(ifNull(notEquals(bitAnd((entity_metrics.value).3, {{last_step_bit_value}}), 0), 1)) AS total_sum,
+                countIf(ifNull(notEquals(bitAnd((entity_metrics.value).3, {{last_step_bit_value}}), 0), 1)) AS total_sum_of_squares
                 -- step_counts added programmatically below
                 -- steps_event_data added programmatically below
                 -- breakdown columns added programmatically below
@@ -619,29 +662,30 @@ class ExperimentQueryBuilder:
                 step_columns = self._build_funnel_step_columns()
                 base_events_cte.expr.select.extend(step_columns)
 
-        # Inject maturity HAVING clause into entity_metrics CTE
+        # Inject maturity HAVING clause into entity_events CTE
         # Use maxIf to only consider exposure events for maturity
         maturity_having = self._build_maturity_having_clause_optimized()
         if maturity_having is not None:
-            if query.ctes and "entity_metrics" in query.ctes:
-                entity_metrics_cte = query.ctes["entity_metrics"]
-                if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
-                    if entity_metrics_cte.expr.having is None:
-                        entity_metrics_cte.expr.having = maturity_having
+            if query.ctes and "entity_events" in query.ctes:
+                entity_events_cte = query.ctes["entity_events"]
+                if isinstance(entity_events_cte, ast.CTE) and isinstance(entity_events_cte.expr, ast.SelectQuery):
+                    if entity_events_cte.expr.having is None:
+                        entity_events_cte.expr.having = maturity_having
                     else:
-                        entity_metrics_cte.expr.having = ast.And(
-                            exprs=[entity_metrics_cte.expr.having, maturity_having]
-                        )
+                        entity_events_cte.expr.having = ast.And(exprs=[entity_events_cte.expr.having, maturity_having])
 
-        # Add step counts - how many users reached each step
+        # Add step counts using bitfield - bit N set means step N completed
         step_count_exprs = []
         for i in range(1, num_steps):
-            step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
+            bit_value = 2**i
+            step_count_exprs.append(f"countIf(ifNull(notEquals(bitAnd((entity_metrics.value).3, {bit_value}), 0), 1))")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
         query.select.append(parse_expr(step_counts_expr))
 
-        # For each step in the funnel, get sample tuples of person_id, session_id, event uuid, and timestamp
+        # For each step in the funnel, get sample tuples of person_id, session_id, event uuid, and timestamp.
+        # steps_event_data still uses value.1 (step_reached) for exact equality check since we need
+        # to identify which step was the user's highest reached step, not just whether a step was completed.
         if not self.funnel_steps_data_disabled:
             event_uuids_exprs = []
             for i in range(1, num_steps + 1):
@@ -1656,8 +1700,9 @@ class ExperimentQueryBuilder:
 
         if has_dw_nodes:
             raise NotImplementedError(
-                "ExperimentDataWarehouseNode is not yet supported in funnel metrics. "
-                "Mixed-source UNION ALL query pattern needs to be implemented."
+                "UNION ALL pattern for datawarehouse funnel steps not yet fully implemented. "
+                "The abstractions (FunnelStepBuilder, MetricSourceInfo, FunnelDWValidator) are in place. "
+                "See experiment_query_builder.py:_build_funnel_metric_events_cte_with_union for implementation TODO."
             )
 
         # Use FunnelStepBuilder abstraction for boolean columns
@@ -1696,12 +1741,24 @@ class ExperimentQueryBuilder:
             },
         )
 
+    def _build_sorted_events_expr(self) -> ast.Expr:
+        """
+        Sorted events array for the legacy path. Materialized in entity_events CTE
+        so it can be referenced three times in the dedup filter without tripling groupArray cost.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        return funnel_sorted_events_expr(self.metric, events_alias="metric_events", include_exposure=True)
+
     def _build_funnel_aggregation_expr(self) -> ast.Expr:
         """
         Returns the funnel evaluation expression using aggregate_funnel_array.
+        References entity_events.sorted_events (pre-computed in the entity_events CTE)
+        and applies dedup before the UDF.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        return funnel_evaluation_expr(self.team, self.metric, events_alias="metric_events", include_exposure=True)
+        return funnel_evaluation_expr(
+            self.team, self.metric, include_exposure=True, sorted_events_ref="entity_events.sorted_events"
+        )
 
     def _build_uuid_to_session_map(self) -> ast.Expr:
         """
@@ -1771,12 +1828,23 @@ class ExperimentQueryBuilder:
                 },
             )
 
-    def _build_funnel_aggregation_expr_optimized(self) -> ast.Expr:
+    def _build_sorted_events_expr_optimized(self) -> ast.Expr:
         """
-        Funnel aggregation for the optimized path. References base_events instead of metric_events.
+        Sorted events array for the optimized path. Materialized in entity_events CTE
+        so it can be referenced three times in the dedup filter without tripling groupArray cost.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        return funnel_evaluation_expr(self.team, self.metric, events_alias="base_events", include_exposure=True)
+        return funnel_sorted_events_expr(self.metric, events_alias="base_events", include_exposure=True)
+
+    def _build_funnel_aggregation_expr_optimized(self) -> ast.Expr:
+        """
+        Funnel aggregation for the optimized path. References entity_events.sorted_events
+        (pre-computed in the entity_events CTE) and applies dedup before the UDF.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        return funnel_evaluation_expr(
+            self.team, self.metric, include_exposure=True, sorted_events_ref="entity_events.sorted_events"
+        )
 
     def _build_uuid_to_session_map_optimized(self) -> ast.Expr:
         """

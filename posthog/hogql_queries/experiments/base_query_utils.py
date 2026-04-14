@@ -392,12 +392,90 @@ def funnel_steps_to_filter(
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in event_and_action_steps])
 
 
+def _build_sorted_events_sql(events_alias: str, num_steps: int) -> str:
+    """
+    Returns the SQL string for building the sorted events array from pre-computed
+    step columns. Used by both funnel_evaluation_expr and as a standalone column alias.
+    """
+    timestamp_field = f"{events_alias}.timestamp"
+    uuid_field = f"{events_alias}.uuid"
+    step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
+    step_conditions_str = ", ".join(step_conditions)
+
+    return f"""arraySort(t -> t.1, groupArray(tuple(
+        toFloat({timestamp_field}),
+        {uuid_field},
+        array(''),
+        arrayFilter(x -> x > 0, [{step_conditions_str}])
+    )))"""
+
+
+def _build_dedup_filter_sql(sorted_events_sql: str) -> str:
+    """
+    Wraps a sorted events array expression with the deduplication filter.
+
+    Removes events that are "sandwiched" between neighbors with identical step sets
+    and breakdown properties. This shrinks the array the UDF has to process,
+    which is especially effective for high-frequency exposure events like
+    $feature_flag_called that fire on every page load.
+
+    An event is removed only if ALL of the following are true:
+    - It matches only a single step (length(x.4) <= 1)
+    - Its step set is identical to both its left and right neighbors
+    - Its breakdown props are identical to both neighbors
+    - It is not the first or last element (timestamp bounds check)
+    """
+    return f"""arrayFilter(
+        (x, x_before, x_after) -> not(and(
+            ifNull(lessOrEquals(length(x.4), 1), 0),
+            ifNull(equals(x.4, x_before.4), isNull(x.4) and isNull(x_before.4)),
+            ifNull(equals(x.4, x_after.4), isNull(x.4) and isNull(x_after.4)),
+            ifNull(equals(x.3, x_before.3), isNull(x.3) and isNull(x_before.3)),
+            ifNull(equals(x.3, x_after.3), isNull(x.3) and isNull(x_after.3)),
+            ifNull(greater(x.1, x_before.1), 0),
+            ifNull(less(x.1, x_after.1), 0)
+        )),
+        {sorted_events_sql},
+        arrayRotateRight({sorted_events_sql}, 1),
+        arrayRotateLeft({sorted_events_sql}, 1)
+    )"""
+
+
+def funnel_sorted_events_expr(
+    funnel_metric: ExperimentFunnelMetric, events_alias: str, include_exposure: bool = False
+) -> ast.Expr:
+    """
+    Returns the sorted events array expression as an AST node.
+    Used as a column alias in the entity_events CTE so the array is computed once
+    and can be referenced multiple times (in the dedup filter's 3-way comparison).
+    """
+    num_steps = len(funnel_metric.series)
+    if include_exposure:
+        num_steps += 1
+    return parse_expr(_build_sorted_events_sql(events_alias, num_steps))
+
+
 def funnel_evaluation_expr(
-    team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str, include_exposure: bool = False
+    team: Team,
+    funnel_metric: ExperimentFunnelMetric,
+    events_alias: str | None = None,
+    include_exposure: bool = False,
+    sorted_events_ref: str | None = None,
 ) -> ast.Expr:
     """
     Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
-    Returns the highest step number (0-indexed) that the user reached.
+    Returns a tuple of (step_reached, uuid_of_last_step_event, steps_bitfield).
+
+    - step_reached: highest step number (0-indexed) that the user reached
+    - uuid_of_last_step_event: UUID of the event at the highest reached step
+    - steps_bitfield: bitmask of completed steps (bit N = step N completed)
+
+    Two modes:
+    - sorted_events_ref provided: references a pre-computed sorted events column
+      (e.g., "entity_events.sorted_events") and applies deduplication. This avoids
+      tripling the groupArray cost since the column is computed once in a prior CTE.
+    - sorted_events_ref is None: builds the sorted array inline with no dedup.
+      Used by the actors query builder where the CTE structure differs.
 
     When events_alias is provided, assumes that step conditions have been pre-calculated
     as step_0, step_1, etc. fields in the aliased table.
@@ -415,22 +493,24 @@ def funnel_evaluation_expr(
     if include_exposure:
         num_steps += 1
 
-    # Create field references with proper alias support
-    timestamp_field = f"{events_alias}.timestamp"
-    uuid_field = f"{events_alias}.uuid"
-
-    # When using an alias, assume step conditions are pre-calculated
-    step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
-
-    step_conditions_str = ", ".join(step_conditions)
-
     # Determine funnel order type - default to "ordered" for backward compatibility
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
 
-    # Return tuple of (highest step reached, uuid of that step's event)
+    if sorted_events_ref:
+        # Reference pre-computed sorted events and apply dedup filter.
+        # The sorted_events_ref is a column from a prior CTE (e.g., entity_events.sorted_events),
+        # so it's computed once and referenced three times in the dedup filter.
+        udf_input = _build_dedup_filter_sql(sorted_events_ref)
+    else:
+        # Build sorted events inline, no dedup (backward compatible)
+        assert events_alias is not None, "events_alias is required when sorted_events_ref is not provided"
+        udf_input = _build_sorted_events_sql(events_alias, num_steps)
+
+    # Return tuple of (step_reached, uuid, steps_bitfield)
     # aggregate_funnel_array returns an array of tuples where:
     # result.1 is the step_reached (0-indexed)
     # result.4 is an array of arrays of UUIDs for each step
+    # result.5 is the steps_bitfield (bitmask of completed steps)
     expression = f"""
     arraySort(x -> -x.1,
         arrayMap(
@@ -442,7 +522,8 @@ def funnel_evaluation_expr(
                         ''
                     ),
                     ''
-                )
+                ),
+                result.5
             ),
             aggregate_funnel_array(
                 {num_steps},
@@ -451,12 +532,7 @@ def funnel_evaluation_expr(
                 '{funnel_order_type}',
                 array(array('')),
                 [],
-                arraySort(t -> t.1, groupArray(tuple(
-                    toFloat({timestamp_field}),
-                    {uuid_field},
-                    array(''),
-                    arrayFilter(x -> x > 0, [{step_conditions_str}])
-                )))
+                {udf_input}
             )
         )
     )[1]
