@@ -174,8 +174,8 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
         now = temporalio.workflow.now()
         day_ranges: list[tuple[dt.datetime, dt.datetime]] = []
         for day_offset in range(inputs.days_to_backfill):
-            day_end = (now - dt.timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
-            day_start = day_end - dt.timedelta(days=1)
+            day_start = (now - dt.timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + dt.timedelta(days=1)
             # For today's partial day, use now as the end
             if day_offset == 0:
                 day_end = now
