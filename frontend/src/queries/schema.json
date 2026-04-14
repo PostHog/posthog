@@ -1050,6 +1050,141 @@
             "required": ["type", "key", "value", "operator"],
             "type": "object"
         },
+        "AssistantDataVisualizationAxis": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "description": "Name of a column returned by the SQL query to map onto this axis.",
+                    "type": "string"
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "goalLines": {
+                    "description": "Horizontal goal lines drawn across the chart.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantDataVisualizationGoalLine"
+                    },
+                    "type": "array"
+                },
+                "seriesBreakdownColumn": {
+                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
+                    "type": ["string", "null"]
+                },
+                "showLegend": {
+                    "description": "Show the chart legend.",
+                    "type": "boolean"
+                },
+                "showNullsAsZero": {
+                    "description": "Replace null aggregation results with zero.",
+                    "type": "boolean"
+                },
+                "stackBars100": {
+                    "description": "Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.",
+                    "type": "boolean"
+                },
+                "xAxis": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxis",
+                    "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                },
+                "yAxis": {
+                    "description": "One or more numeric columns plotted as Y series.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantDataVisualizationAxis"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationDisplayType": {
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "enum": [
+                "ActionsTable",
+                "BoldNumber",
+                "ActionsLineGraph",
+                "ActionsBar",
+                "ActionsStackedBar",
+                "ActionsAreaGraph",
+                "TwoDimensionalHeatmap"
+            ],
+            "type": "string"
+        },
+        "AssistantDataVisualizationGoalLine": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "description": "Label rendered next to the goal line.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Y-axis value at which the goal line is drawn.",
+                    "type": "number"
+                }
+            },
+            "required": ["label", "value"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationNode": {
+            "additionalProperties": false,
+            "description": "SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be expressed as a standard product-analytics insight — cross-source joins with the data warehouse, window functions, or bespoke aggregations.\n\nPrefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention, paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.",
+            "properties": {
+                "chartSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationChartSettings",
+                    "description": "Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."
+                },
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+                },
+                "kind": {
+                    "const": "DataVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "HogQL query object that produces the rows to visualize.",
+                    "type": "object"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationTableSettings",
+                    "description": "Table configuration. Only applies when `display` is `ActionsTable` or omitted."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationTableSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "description": "Columns to display and their order. Omit to show every column returned by the query.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantDataVisualizationAxis"
+                    },
+                    "type": "array"
+                },
+                "pinnedColumns": {
+                    "description": "Column names to pin to the left of the table.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "showTotalRow": {
+                    "description": "Show a total row at the bottom of the table.",
+                    "type": "boolean"
+                },
+                "transpose": {
+                    "description": "Transpose rows and columns.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDateRange": {
             "additionalProperties": false,
             "description": "This filter only works with absolute dates.",
@@ -1976,6 +2111,21 @@
                 }
             },
             "required": ["kind", "query"],
+            "type": "object"
+        },
+        "AssistantInsightVizNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightVizNode",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "source"],
             "type": "object"
         },
         "AssistantInsightsQueryBase": {
@@ -20567,6 +20717,16 @@
                 "WebOverviewQuery"
             ],
             "type": "string"
+        },
+        "InsightQuery": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantInsightVizNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantDataVisualizationNode"
+                }
+            ]
         },
         "InsightQueryNode": {
             "discriminator": {
