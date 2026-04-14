@@ -5059,6 +5059,19 @@ const api = {
                 .withAction('source_prefix')
                 .create({ data: { source_type, prefix } })
         },
+        async check_cdc_prerequisites(payload: {
+            source_type: ExternalDataSourceType
+            cdc_management_mode: 'posthog' | 'self_managed'
+            tables?: string[]
+            cdc_slot_name?: string | null
+            cdc_publication_name?: string | null
+            [key: string]: any
+        }): Promise<{ valid: boolean; errors: string[] }> {
+            return await new ApiRequest()
+                .externalDataSources()
+                .withAction('check_cdc_prerequisites')
+                .create({ data: payload })
+        },
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,

@@ -283,6 +283,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             result,
         }),
         submitWebhookFields: true,
+        openCdcSelfManagedSetupDialog: true,
+        closeCdcSelfManagedSetupDialog: true,
     }),
     connect(() => ({
         values: [
@@ -311,6 +313,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as ManualLinkSourceType | null,
             {
                 setManualLinkingProvider: (_, { provider }) => provider,
+            },
+        ],
+        cdcSelfManagedSetupDialogOpen: [
+            false,
+            {
+                openCdcSelfManagedSetupDialog: () => true,
+                closeCdcSelfManagedSetupDialog: () => false,
+                onClear: () => false,
             },
         ],
         selectedConnector: [
@@ -829,11 +839,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     </div>
                 )
 
+                const sourcePayload = (values.source?.payload || {}) as Record<string, any>
+                const cdcSelfManaged =
+                    !!sourcePayload.cdc_enabled &&
+                    sourcePayload.cdc_management_mode === 'self_managed' &&
+                    cdcTables.length > 0
+
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
                     content: confirmation,
                     primaryButton: {
-                        children: 'Confirm',
+                        children: cdcSelfManaged ? 'Next: CDC setup SQL' : 'Confirm',
                         type: 'primary',
                         onClick: () => {
                             actions.updateSource({
@@ -851,6 +867,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     })),
                                 },
                             })
+                            if (cdcSelfManaged) {
+                                // Show the setup SQL popup; user confirms → we verify → createSource fires
+                                actions.openCdcSelfManagedSetupDialog()
+                                return
+                            }
                             actions.setIsLoading(true)
                             actions.createSource()
                             if (values.selectedConnector) {

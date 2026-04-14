@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 import { FieldName, Form, Group } from 'kea-forms'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import {
+    LemonButton,
     LemonDivider,
     LemonFileInput,
     LemonInput,
@@ -12,15 +13,18 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { ExternalDataSourceType } from '~/types'
 
 import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
@@ -242,6 +246,104 @@ export const sourceFieldToElement = (
     )
 }
 
+function CDCRequirementsPanel(): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    return (
+        <div className="rounded border border-border p-3">
+            <button
+                type="button"
+                className="flex items-center text-xs text-secondary hover:text-default cursor-pointer w-full"
+                onClick={() => setExpanded((v) => !v)}
+            >
+                <span className="mr-2">{expanded ? '▾' : '▸'}</span>
+                <span>What your database needs for CDC</span>
+            </button>
+            {expanded && (
+                <div className="mt-3 text-xs space-y-2">
+                    <p className="m-0">
+                        PostgreSQL 13+ with logical replication enabled. Typical setup on your server:
+                    </p>
+                    <ul className="list-disc ml-5 space-y-1 m-0">
+                        <li>
+                            <code>wal_level = logical</code> (requires a server restart). On RDS, set{' '}
+                            <code>rds.logical_replication = 1</code>.
+                        </li>
+                        <li>
+                            <code>max_replication_slots</code> and <code>max_wal_senders</code> at least 10.
+                        </li>
+                        <li>
+                            Database user with the <code>REPLICATION</code> role for PostHog-managed mode (
+                            <code>ALTER USER &lt;user&gt; WITH REPLICATION</code>). For self-managed mode, only{' '}
+                            <code>SELECT</code> is needed.
+                        </li>
+                        <li>Every table you want to sync must have a primary key.</li>
+                        <li>
+                            SSL/TLS is required — connect over a public endpoint with <code>sslmode=require</code>.
+                        </li>
+                    </ul>
+                    <p className="m-0 text-secondary">
+                        Click "Check database prerequisites" below to verify your configuration against a live
+                        connection.
+                    </p>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function CDCPrerequisitesCheck(): JSX.Element {
+    const { sourceConnectionDetails } = useValues(sourceWizardLogic)
+    const [loading, setLoading] = useState(false)
+    const [result, setResult] = useState<{ valid: boolean; errors: string[] } | null>(null)
+
+    const runCheck = async (): Promise<void> => {
+        setLoading(true)
+        setResult(null)
+        try {
+            const payload = sourceConnectionDetails?.payload || {}
+            const managementMode = (payload.cdc_management_mode || 'posthog') as 'posthog' | 'self_managed'
+            const response = await api.externalDataSources.check_cdc_prerequisites({
+                source_type: 'Postgres' as ExternalDataSourceType,
+                ...payload,
+                cdc_management_mode: managementMode,
+                // Pre-selection: no table list yet. Slot/pub checks only relevant in self_managed popup.
+                tables: [],
+                cdc_slot_name: managementMode === 'self_managed' ? payload.cdc_slot_name : null,
+                cdc_publication_name: managementMode === 'self_managed' ? payload.cdc_publication_name : null,
+            })
+            setResult(response)
+        } catch (e: any) {
+            lemonToast.error(e?.detail || e?.message || 'Failed to check prerequisites')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div>
+            <LemonButton type="secondary" onClick={runCheck} loading={loading}>
+                Check database prerequisites
+            </LemonButton>
+            {result && (
+                <LemonBanner type={result.valid ? 'success' : 'error'} className="mt-2">
+                    {result.valid ? (
+                        <p className="m-0">Your database is ready for CDC.</p>
+                    ) : (
+                        <>
+                            <p className="font-semibold mb-1">Some prerequisites are not met:</p>
+                            <ul className="list-disc ml-5 mb-0 text-sm">
+                                {result.errors.map((err, i) => (
+                                    <li key={i}>{err}</li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                </LemonBanner>
+            )}
+        </div>
+    )
+}
+
 function CDCConfigSection(): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
@@ -323,17 +425,11 @@ function CDCConfigSection(): JSX.Element {
                                                     )}
                                                 </LemonField>
                                                 <LemonBanner type="info">
-                                                    <p className="font-semibold mb-1">Setup SQL</p>
-                                                    <p className="text-xs mb-2">
-                                                        Run these commands on your PostgreSQL database before
-                                                        connecting:
+                                                    <p className="font-semibold mb-1">Setup SQL comes next</p>
+                                                    <p className="text-xs m-0">
+                                                        After you pick the tables to sync, we'll show you the exact SQL
+                                                        to create the replication slot and publication for those tables.
                                                     </p>
-                                                    <pre className="text-xs bg-surface-primary p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                                                        {`CREATE PUBLICATION posthog_pub FOR TABLE public.your_table
-  WITH (publish_via_partition_root = true);
-
-SELECT pg_create_logical_replication_slot('posthog_slot', 'pgoutput');`}
-                                                    </pre>
                                                 </LemonBanner>
                                             </div>
                                         ) : (
@@ -341,6 +437,9 @@ SELECT pg_create_logical_replication_slot('posthog_slot', 'pgoutput');`}
                                         )
                                     }
                                 </LemonField>
+
+                                <CDCRequirementsPanel />
+                                <CDCPrerequisitesCheck />
 
                                 <div>
                                     <button

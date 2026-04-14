@@ -1,12 +1,26 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconQuestion } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCopy, IconQuestion } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonModal,
+    LemonSkeleton,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
@@ -220,7 +234,145 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
                 {footer()}
             </>
+            <CDCSelfManagedSetupDialog />
         </div>
+    )
+}
+
+function CDCSelfManagedSetupDialog(): JSX.Element | null {
+    const { cdcSelfManagedSetupDialogOpen, source, databaseSchema, sourceConnectionDetails, selectedConnector } =
+        useValues(sourceWizardLogic)
+    const { closeCdcSelfManagedSetupDialog, setIsLoading, createSource } = useActions(sourceWizardLogic)
+
+    const [confirmed, setConfirmed] = useState(false)
+    const [verifying, setVerifying] = useState(false)
+    const [errors, setErrors] = useState<string[] | null>(null)
+
+    const payload = (source?.payload || {}) as Record<string, any>
+    const cdcTableNames = useMemo(
+        () =>
+            (databaseSchema || [])
+                .filter((s: any) => s.should_sync && s.sync_type === 'cdc')
+                .map((s: any) => s.table as string),
+        [databaseSchema]
+    )
+    const schema = (sourceConnectionDetails?.payload?.schema as string) || 'public'
+    const slotName = (payload.cdc_slot_name as string) || 'posthog_slot'
+    const pubName = (payload.cdc_publication_name as string) || 'posthog_pub'
+    const dbUser = (sourceConnectionDetails?.payload?.user as string) || '<your_user>'
+
+    const tableList =
+        cdcTableNames.length > 0
+            ? cdcTableNames.map((t) => `"${schema}"."${t}"`).join(', ')
+            : `"${schema}"."your_table"`
+
+    const sql = `-- 1. Grants (if the database user doesn't already own these tables)
+GRANT USAGE ON SCHEMA "${schema}" TO "${dbUser}";
+GRANT SELECT ON ${tableList} TO "${dbUser}";
+
+-- 2. Publication covering the ${cdcTableNames.length} selected table${cdcTableNames.length === 1 ? '' : 's'}
+CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
+  WITH (publish_via_partition_root = true);
+
+-- 3. Logical replication slot
+SELECT pg_create_logical_replication_slot('${slotName}', 'pgoutput');
+
+-- Later, to add a new table to the publication:
+-- ALTER PUBLICATION "${pubName}" ADD TABLE "${schema}"."new_table";`
+
+    const handleCopy = async (): Promise<void> => {
+        await copyToClipboard(sql, 'Setup SQL')
+    }
+
+    const handleVerifyAndCreate = async (): Promise<void> => {
+        setVerifying(true)
+        setErrors(null)
+        try {
+            const connectionPayload = (sourceConnectionDetails?.payload || {}) as Record<string, any>
+            const response = await api.externalDataSources.check_cdc_prerequisites({
+                source_type: 'Postgres' as ExternalDataSourceType,
+                ...connectionPayload,
+                cdc_management_mode: 'self_managed',
+                cdc_slot_name: slotName,
+                cdc_publication_name: pubName,
+                tables: cdcTableNames,
+            })
+            if (!response.valid) {
+                setErrors(response.errors)
+                return
+            }
+            closeCdcSelfManagedSetupDialog()
+            setIsLoading(true)
+            createSource()
+            if (selectedConnector) {
+                posthog.capture('source created', { sourceType: selectedConnector.name })
+            }
+        } catch (e: any) {
+            lemonToast.error(e?.detail || e?.message || 'Could not verify CDC setup')
+        } finally {
+            setVerifying(false)
+        }
+    }
+
+    if (!cdcSelfManagedSetupDialogOpen) {
+        return null
+    }
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={closeCdcSelfManagedSetupDialog}
+            title="Create your replication slot and publication"
+            description={`Self-managed CDC needs the slot and publication to exist in your Postgres before PostHog connects. Run the SQL below against ${cdcTableNames.length} table${cdcTableNames.length === 1 ? '' : 's'} you selected for CDC, then click Verify & create.`}
+            width={720}
+            footer={
+                <>
+                    <LemonButton
+                        type="tertiary"
+                        onClick={closeCdcSelfManagedSetupDialog}
+                        disabledReason={verifying ? 'Verifying...' : undefined}
+                    >
+                        Back
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        loading={verifying}
+                        disabledReason={!confirmed ? 'Confirm you have executed the SQL' : undefined}
+                        onClick={() => void handleVerifyAndCreate()}
+                    >
+                        Verify & create source
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="flex justify-end">
+                    <LemonButton size="small" type="secondary" icon={<IconCopy />} onClick={() => void handleCopy()}>
+                        Copy SQL
+                    </LemonButton>
+                </div>
+                <pre className="text-xs bg-surface-primary p-3 rounded overflow-x-auto whitespace-pre-wrap border border-border">
+                    {sql}
+                </pre>
+
+                <LemonCheckbox
+                    checked={confirmed}
+                    onChange={setConfirmed}
+                    label="I have executed the SQL above on my PostgreSQL database"
+                />
+
+                {errors && errors.length > 0 && (
+                    <LemonBanner type="error">
+                        <p className="font-semibold mb-1">Verification failed — please fix the following and retry:</p>
+                        <ul className="list-disc ml-5 mb-0 text-sm">
+                            {errors.map((err, i) => (
+                                <li key={i}>{err}</li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                )}
+            </div>
+        </LemonModal>
     )
 }
 

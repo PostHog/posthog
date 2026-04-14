@@ -1220,6 +1220,63 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=data)
 
     @action(methods=["POST"], detail=False)
+    def check_cdc_prerequisites(self, request: Request, *arg: Any, **kwargs: Any):
+        """Validate CDC prerequisites against a live Postgres connection.
+
+        Used by the source wizard to surface ✅/❌ checks before source creation,
+        and by the self-managed setup popup to verify user-created slot/publication.
+        """
+        source_type = request.data.get("source_type")
+        if source_type != ExternalDataSourceType.POSTGRES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC prerequisite checks are only supported for Postgres."},
+            )
+
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source_impl: PostgresSource = PostgresSource()
+        is_valid, errors = source_impl.validate_config(request.data)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        config = source_impl.parse_config(request.data)
+
+        management_mode = request.data.get("cdc_management_mode", "posthog")
+        if management_mode not in ("posthog", "self_managed"):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
+            )
+
+        tables = request.data.get("tables") or []
+        slot_name = request.data.get("cdc_slot_name") or None
+        publication_name = request.data.get("cdc_publication_name") or None
+
+        try:
+            prereq_errors = source_impl.check_cdc_prerequisites(
+                config,
+                self.team_id,
+                management_mode=management_mode,
+                tables=tables,
+                slot_name=slot_name,
+                publication_name=publication_name,
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
+        )
+
+    @action(methods=["POST"], detail=False)
     def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
