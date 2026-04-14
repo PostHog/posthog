@@ -610,7 +610,10 @@ class TestDiffConvergenceMvSelect:
                 columns=[_live_col("event", "String")],
             ),
         }
-        diffs = diff_state(desired, current, database="posthog", cluster="test_cluster")
+        # `database` arg must match what CH stored (posthog_test); the prefix
+        # strip is scoped to that DB so JOIN aliases and other-DB references
+        # (other_db.t) survive. See `_normalize_mv_select` docstring.
+        diffs = diff_state(desired, current, database="posthog_test", cluster="test_cluster")
         assert len(diffs) == 0, f"Expected 0 diffs but got: {[d.detail for d in diffs]}"
 
     @_PATCH_RESOLVE
