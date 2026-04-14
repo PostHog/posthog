@@ -13,7 +13,6 @@ health = { path = "../common/health" }
 async-trait = { workspace = true }
 axum = { workspace = true }
 metrics = { workspace = true }
-metrics-exporter-prometheus = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
