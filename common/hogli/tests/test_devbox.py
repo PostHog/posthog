@@ -191,15 +191,12 @@ class TestCoderVersion:
         monkeypatch.delenv("HOGLI_DEVBOX_CODER_VERSION", raising=False)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
 
-        response_body = json.dumps({"version": "v2.30.5+abc123"}).encode()
         mock_resp = MagicMock()
-        mock_resp.read.return_value = response_body
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_resp.json.return_value = {"version": "v2.30.5+abc123"}
 
-        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+        with patch("hogli.devbox.coder.requests.get", return_value=mock_resp) as mock_get:
             assert coder.get_server_version() == "2.30.5"
-            mock_urlopen.assert_called_once_with("https://coder.example.com/api/v2/buildinfo", timeout=5)
+            mock_get.assert_called_once_with("https://coder.example.com/api/v2/buildinfo", timeout=5)
 
     @pytest.mark.parametrize(
         "raw_version, expected",
