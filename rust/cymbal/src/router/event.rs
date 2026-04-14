@@ -89,18 +89,18 @@ pub async fn process_events(
     let request_id = get_request_id(&headers);
     let started_at = Instant::now();
 
-    let batch_events = events.len();
+    let batch_event_count = events.len();
     let team_count = events
         .iter()
         .map(|event| event.team_id)
         .collect::<HashSet<_>>()
         .len();
 
-    metrics::histogram!(PROCESS_BATCH_EVENTS).record(batch_events as f64);
+    metrics::histogram!(PROCESS_BATCH_EVENTS).record(batch_event_count as f64);
 
     debug!(
         request_id = %request_id,
-        batch_events,
+        batch_event_count,
         team_count,
         "Started /process request"
     );
@@ -119,12 +119,12 @@ pub async fn process_events(
 
     match &output {
         Ok(batch) => {
-            let suppressed_events = batch
+            let suppressed_event_count = batch
                 .inner_ref()
                 .iter()
                 .filter(|item| item.is_none())
                 .count();
-            let output_events = batch_events.saturating_sub(suppressed_events);
+            let output_event_count = batch_event_count.saturating_sub(suppressed_event_count);
 
             metrics::counter!(
                 PROCESS_REQUESTS_TOTAL,
@@ -137,9 +137,9 @@ pub async fn process_events(
                 warn!(
                     request_id = %request_id,
                     duration_ms,
-                    batch_events,
-                    output_events,
-                    suppressed_events,
+                    batch_event_count,
+                    output_event_count,
+                    suppressed_event_count,
                     team_count,
                     "Completed /process request (slow)"
                 );
@@ -147,9 +147,9 @@ pub async fn process_events(
                 debug!(
                     request_id = %request_id,
                     duration_ms,
-                    batch_events,
-                    output_events,
-                    suppressed_events,
+                    batch_event_count,
+                    output_event_count,
+                    suppressed_event_count,
                     team_count,
                     "Completed /process request"
                 );
@@ -167,7 +167,7 @@ pub async fn process_events(
                 request_id = %request_id,
                 error = %err,
                 duration_ms,
-                batch_events,
+                batch_event_count,
                 team_count,
                 "Failed /process request"
             );
