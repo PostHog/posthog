@@ -468,40 +468,11 @@ fi
 log "Cloud sandbox ready — attach now, app still booting"
 log "PostHog will be available at $USER_URL once healthy"
 
-# Download JetBrains IDE into the bind-mounted host directory, then trigger
-# in-container setup (backend registration, plugins, SDK config). Runs in the
-# background so the user can start working immediately.
+# Download JetBrains IDE in the background (script lives in the cloned repo).
 if [ -n "$SANDBOX_JETBRAINS" ]; then
-    (
-        # Map preference to JetBrains product code
-        case "$SANDBOX_JETBRAINS" in
-            intellij) JB_CODE="IIU" ;;
-            pycharm)  JB_CODE="PCP" ;;
-            *)        log "Unknown JetBrains preference: $SANDBOX_JETBRAINS"; exit 1 ;;
-        esac
-
-        JB_API="https://data.services.jetbrains.com/products/releases?code=${JB_CODE}&latest=true&type=release"
-        JB_URL=$(curl -sfL "$JB_API" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data['${JB_CODE}'][0]['downloads']['linux']['link'])")
-
-        log "Downloading JetBrains $SANDBOX_JETBRAINS to $JETBRAINS_HOST_DIR (background)..."
-        curl -fSL "$JB_URL" | tar -xzf - -C "$JETBRAINS_HOST_DIR" --strip-components=1
-        log "JetBrains $SANDBOX_JETBRAINS downloaded"
-
-        # Derive container name: sandbox-{slugified_branch}-app-1
-        SLUG=$(echo "$SANDBOX_BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
-        CONTAINER="sandbox-${SLUG}-app-1"
-
-        if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
-            log "Triggering JetBrains setup inside $CONTAINER..."
-            docker exec -e SANDBOX_MODE=setup-jetbrains "$CONTAINER" python3 bin/sandbox-entrypoint.py || \
-                log "WARNING: JetBrains in-container setup failed (will retry on next container start)"
-        else
-            log "Container $CONTAINER not running — JetBrains setup will run on next start"
-        fi
-    ) >> /var/log/sandbox-boot.log 2>&1 &
+    bash "$REPO_DIR/infra/cloud-sandbox/install-jetbrains.sh" \
+        "$SANDBOX_JETBRAINS" "$JETBRAINS_HOST_DIR" "$SANDBOX_BRANCH" \
+        >> /var/log/sandbox-boot.log 2>&1 &
 fi
 
 # Health poll runs in the background so it doesn't block the CLI attach.
