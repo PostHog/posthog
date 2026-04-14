@@ -110,6 +110,8 @@ const backgroundTaskHogTransformerDuration = new Histogram({
     labelNames: ['groupId'],
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
+
+export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
