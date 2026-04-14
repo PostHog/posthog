@@ -1239,6 +1239,58 @@ def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
     return integration_id, mentioning_user_id
 
 
+def _get_recent_repos_for_slack_user(integration: Integration, slack_user_id: str) -> list[str]:
+    """Return recently used repo names for a Slack user, most recent first.
+
+    Resolves the Slack user to a PostHog user via the cached profile, then
+    queries the last 100 tasks to find distinct repositories ordered by recency.
+    Returns [] on any failure so the picker still works without boosting.
+    """
+    from products.slack_app.backend.models import SlackUserProfileCache
+    from products.tasks.backend.models import Task
+
+    try:
+        profile = SlackUserProfileCache.objects.filter(
+            integration_id=integration.id, slack_user_id=slack_user_id
+        ).first()
+        if not profile or not profile.email:
+            return []
+
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=integration.team.organization_id, user__email=profile.email
+            )
+            .select_related("user")
+            .first()
+        )
+        if not membership or not membership.user:
+            return []
+
+        recent_tasks = (
+            Task.objects.filter(
+                team_id=integration.team_id,
+                created_by=membership.user,
+                repository__isnull=False,
+            )
+            .exclude(repository="")
+            .order_by("-created_at")
+            .values_list("repository", flat=True)[:100]
+        )
+
+        # Deduplicate preserving recency order, case-insensitive
+        seen: set[str] = set()
+        result: list[str] = []
+        for repo in recent_tasks:
+            key = repo.lower()
+            if key not in seen:
+                seen.add(key)
+                result.append(repo)
+        return result
+    except Exception:
+        logger.warning("posthog_code_recent_repos_failed", exc_info=True)
+        return []
+
+
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     """Return filtered repo options for the external_select picker."""
     action = payload.get("action_id") or (payload.get("actions", [{}])[0].get("action_id", ""))
@@ -1315,6 +1367,21 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
 
     query = (payload.get("value") or "").lower()
     filtered = [r for r in all_repos if query in r.lower()] if query else all_repos
+
+    # Boost recently used repos to the top of the list
+    recent_repos = _get_recent_repos_for_slack_user(integration, requesting_user)
+    if recent_repos:
+        # Map lowercased recent repos to their canonical GitHub names from the filtered list
+        canonical_by_lower = {r.lower(): r for r in filtered}
+        boosted = []
+        boosted_lower: set[str] = set()
+        for repo in recent_repos:
+            canonical = canonical_by_lower.get(repo.lower())
+            if canonical and repo.lower() not in boosted_lower:
+                boosted.append(canonical)
+                boosted_lower.add(repo.lower())
+        rest = [r for r in filtered if r.lower() not in boosted_lower]
+        filtered = boosted + rest
 
     options = [{"text": {"type": "plain_text", "text": r}, "value": r} for r in filtered[:25]]
     return JsonResponse({"options": options})

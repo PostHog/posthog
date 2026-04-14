@@ -951,3 +951,113 @@ class TestRepoRoutingRuleModel:
         team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
         assert len(team_a_rules) == 1
         assert team_a_rules[0].rule_text == "Team A rule"
+
+
+class TestGetRecentReposForSlackUser:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from posthog.models.organization import OrganizationMembership
+        from products.slack_app.backend.models import SlackUserProfileCache
+
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="dev@example.com", distinct_id="dev-user")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.user)
+
+        self.slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        SlackUserProfileCache.objects.create(
+            integration=self.slack_integration,
+            slack_user_id="U_DEV",
+            email="dev@example.com",
+            display_name="Dev",
+            real_name="Developer",
+        )
+
+    def _create_task(self, repository: str, minutes_ago: int = 0):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        from products.tasks.backend.models import Task
+
+        return Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test task",
+            description="desc",
+            origin_product="user_created",
+            repository=repository,
+            created_at=timezone.now() - timedelta(minutes=minutes_ago),
+        )
+
+    def test_returns_repos_ordered_by_recency(self):
+        from products.slack_app.backend.api import _get_recent_repos_for_slack_user
+
+        self._create_task("posthog/posthog", minutes_ago=10)
+        self._create_task("posthog/posthog-js", minutes_ago=5)
+        self._create_task("posthog/plugin-server", minutes_ago=1)
+
+        result = _get_recent_repos_for_slack_user(self.slack_integration, "U_DEV")
+        assert result == ["posthog/plugin-server", "posthog/posthog-js", "posthog/posthog"]
+
+    def test_deduplicates_preserving_recency(self):
+        from products.slack_app.backend.api import _get_recent_repos_for_slack_user
+
+        self._create_task("posthog/posthog", minutes_ago=10)
+        self._create_task("posthog/posthog-js", minutes_ago=5)
+        self._create_task("posthog/posthog", minutes_ago=1)
+
+        result = _get_recent_repos_for_slack_user(self.slack_integration, "U_DEV")
+        assert result == ["posthog/posthog", "posthog/posthog-js"]
+
+    def test_no_tasks_returns_empty(self):
+        from products.slack_app.backend.api import _get_recent_repos_for_slack_user
+
+        result = _get_recent_repos_for_slack_user(self.slack_integration, "U_DEV")
+        assert result == []
+
+    def test_unknown_slack_user_returns_empty(self):
+        from products.slack_app.backend.api import _get_recent_repos_for_slack_user
+
+        result = _get_recent_repos_for_slack_user(self.slack_integration, "U_UNKNOWN")
+        assert result == []
+
+    def test_excludes_tasks_without_repository(self):
+        from products.slack_app.backend.api import _get_recent_repos_for_slack_user
+        from products.tasks.backend.models import Task
+
+        Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="No repo task",
+            description="desc",
+            origin_product="user_created",
+            repository=None,
+        )
+        self._create_task("posthog/posthog", minutes_ago=1)
+
+        result = _get_recent_repos_for_slack_user(self.slack_integration, "U_DEV")
+        assert result == ["posthog/posthog"]
+
+    def test_scoped_to_team(self):
+        from products.slack_app.backend.api import _get_recent_repos_for_slack_user
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        from products.tasks.backend.models import Task
+
+        Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other team task",
+            description="desc",
+            origin_product="user_created",
+            repository="posthog/other-repo",
+        )
+        self._create_task("posthog/posthog", minutes_ago=1)
+
+        result = _get_recent_repos_for_slack_user(self.slack_integration, "U_DEV")
+        assert result == ["posthog/posthog"]
