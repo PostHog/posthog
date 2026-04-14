@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    api_cmd::ApiCommand,
     dsym::DsymSubcommand,
     error::CapturedError,
     experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
@@ -66,6 +67,12 @@ pub enum Commands {
     Proguard {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
+    },
+
+    /// Call any PostHog API endpoint directly. Operations are auto-generated from the OpenAPI spec.
+    Api {
+        #[command(subcommand)]
+        cmd: ApiCommand,
     },
 }
 
@@ -155,7 +162,7 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
-        if !matches!(self.command, Commands::Login) {
+        if !matches!(self.command, Commands::Login | Commands::Api { cmd: ApiCommand::List { .. } }) {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,
@@ -202,6 +209,9 @@ impl Cli {
                     crate::proguard::upload::upload(&args)?;
                 }
             },
+            Commands::Api { cmd } => {
+                cmd.run()?;
+            }
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
@@ -248,7 +258,9 @@ impl Cli {
             },
         }
 
-        context().finish();
+        if crate::invocation_context::INVOCATION_CONTEXT.get().is_some() {
+            context().finish();
+        }
 
         Ok(())
     }

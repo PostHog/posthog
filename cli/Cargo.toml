@@ -61,6 +61,10 @@ zstd = "0.13"
 symbolic = { version = "12.12", features = ["debuginfo"] }
 plist = "1"
 
+[build-dependencies]
+openapi-to-rust = "0.1.7"
+serde_json = "1.0"
+
 [dev-dependencies]
 test-log = "0.2.17"
 
