@@ -1832,7 +1832,7 @@ def snapshot_hogql_queries(fn_or_class):
 class HogQLSnapshotExtension(AmberSnapshotExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
-    _file_extension = "hogql.ambr"
+    file_extension = "hogql.ambr"
 
     @classmethod
     def serialize(cls, data, **kwargs):
