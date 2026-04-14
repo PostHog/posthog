@@ -314,7 +314,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             where_exprs.append(property_to_expr(prop, self.team))
 
                 # Filter sessions by events
-                if self.query.event or self.query.actionId:
+                if self.query.event or self.query.actionId or self.query.eventProperties:
                     with self.timings.measure("event_filter"):
                         # Build the events subquery conditions
                         event_where_exprs = []

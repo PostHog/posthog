@@ -38,6 +38,7 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
+import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import {
@@ -206,13 +207,13 @@ interface SupportTicketsTableProps {
 
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { filteredTickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
     const { setCurrentPage, setSorting } = useActions(logic)
     const { push } = useActions(router)
 
     return (
         <LemonTable<Ticket>
-            dataSource={filteredTickets}
+            dataSource={tickets}
             rowKey="id"
             loading={ticketsLoading}
             embedded={embedded}
@@ -474,17 +475,20 @@ export function SupportTicketsTableFilters(): JSX.Element {
                     label="Unassigned only"
                 />
             </div>
-            <LemonButton
-                type="secondary"
-                icon={<IconRefresh />}
-                loading={ticketsLoading}
-                disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
-                onClick={loadTickets}
-                size="small"
-                data-attr="refresh-tickets"
-            >
-                Refresh
-            </LemonButton>
+            <div className="flex items-center gap-2">
+                <SavedViewsButton id="SupportTicketsScene" />
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    loading={ticketsLoading}
+                    disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
+                    onClick={loadTickets}
+                    size="small"
+                    data-attr="refresh-tickets"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
         </div>
     )
 }

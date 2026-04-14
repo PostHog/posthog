@@ -2,25 +2,30 @@
 """
 Sandbox container entrypoint.
 
-Two-phase startup:
-  1. Root phase (UID 0): create sandbox user, configure system, bind-mount
-     node_modules onto the cache volume, then re-exec as the sandbox user.
-  2. User phase: install dependencies and launch mprocs inside tmux.
+Four modes, dispatched at the bottom of this file:
 
-Alternate user-phase mode (SANDBOX_MODE=cache-init): install all dependencies,
-run migrations, generate demo data, pre-build the Rust workspace, then exit.
-Used by `bin/sandbox create` to populate shared cache volumes before snapshotting
-the databases. Skips sshd/claude-auth/node_modules bind mount in the root phase
-since they're not needed for a one-off cache build.
+  1. Root phase (UID 0): create sandbox user, seed SSH/git config, re-exec
+     as the sandbox user. Workspace is already populated by bin/sandbox.
+  2. User phase (default): launch tmux with claude immediately in window 0
+     and a setup window in window 1; PID 1 poll-blocks on the tmux session.
+  3. Setup phase (SANDBOX_MODE=setup): runs in tmux window 1. Installs deps
+     (Python/Node/Rust in parallel), migrates, seeds demo data, spawns the
+     phrocs window, then exec's into bash -l so the window stays usable.
+  4. Cache-init phase (SANDBOX_MODE=cache-init): one-shot cache warming for
+     `bin/sandbox create` — installs deps, migrates, generates demo data,
+     pre-builds Rust, then exits so the host can snapshot databases.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import stat
 import time
 import shutil
+import traceback
 import subprocess
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from textwrap import dedent
@@ -28,6 +33,9 @@ from textwrap import dedent
 WORKSPACE = Path("/workspace")
 SANDBOX_HOME = Path("/tmp/sandbox-home")
 PROGRESS_FILE = Path("/tmp/sandbox-progress")
+
+# Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
+STATUS_FILE = Path("/tmp/sandbox-status")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,6 +78,14 @@ def write_file_if_missing(path: Path, content: str) -> None:
         write_file(path, content)
 
 
+def _write_status(step: str) -> None:
+    """Update the tmux status bar label. Swallows OSError — purely cosmetic."""
+    try:
+        STATUS_FILE.write_text(step)
+    except OSError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Root phase — runs as UID 0
 # ---------------------------------------------------------------------------
@@ -108,6 +124,31 @@ def export_environment(uid: int, gid: int) -> None:
 
     Path("/etc/environment").write_text("\n".join(lines) + "\n")
     Path("/etc/profile.d/sandbox-env.sh").write_text("\n".join(f"export {line}" for line in lines) + "\n")
+
+
+def _configure_ssh_agent_env() -> None:
+    """Set SSH_AUTH_SOCK only if /ssh-agent is a real socket (not /dev/null fallback)."""
+    if Path("/ssh-agent").exists() and stat.S_ISSOCK(Path("/ssh-agent").lstat().st_mode):
+        os.environ["SSH_AUTH_SOCK"] = "/ssh-agent"
+    else:
+        os.environ.pop("SSH_AUTH_SOCK", None)
+
+
+def configure_user_ssh(uid: int, gid: int) -> None:
+    """Seed ~/.ssh/config so git push doesn't hang on a host-key prompt in tmux."""
+    ssh_dir = SANDBOX_HOME / ".ssh"
+    ssh_dir.mkdir(parents=True, exist_ok=True)
+    config = ssh_dir / "config"
+    config.write_text(
+        dedent("""\
+            Host github.com
+                StrictHostKeyChecking accept-new
+                UserKnownHostsFile ~/.ssh/known_hosts
+            """)
+    )
+    ssh_dir.chmod(0o700)
+    config.chmod(0o600)
+    run(["chown", "-R", f"{uid}:{gid}", str(ssh_dir)])
 
 
 def start_sshd(uid: int, gid: int) -> None:
@@ -156,32 +197,29 @@ def copy_claude_auth(uid: int, gid: int) -> None:
     run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
 
 
-def bind_mount_node_modules(uid: int, gid: int) -> None:
-    """Bind-mount node_modules dirs onto the /cache/node-modules volume.
+def copy_host_gitconfig(uid: int, gid: int) -> None:
+    """Copy host ~/.gitconfig and rewrite signing paths for the container.
 
-    This redirects pnpm I/O from the slow VirtioFS bind mount to fast ext4
-    storage inside the Docker VM.
+    Copied (not mounted) so ``git config --global`` works without leaking
+    back to the host. Signing paths (user.signingkey, allowedSignersFile)
+    are rewritten to their in-container mount locations.
     """
-    log("Bind-mounting node_modules onto cache volume...")
-    cache_root = Path("/cache/node-modules")
+    src = Path("/tmp/host-gitconfig")
+    if not src.is_file():
+        return
+    dst = SANDBOX_HOME / ".gitconfig"
+    shutil.copy2(src, dst)
+    run(["chown", f"{uid}:{gid}", str(dst)])
 
-    for pkg_json in WORKSPACE.rglob("package.json"):
-        # Skip anything inside node_modules or .git
-        parts = pkg_json.parts
-        if "node_modules" in parts or ".git" in parts:
-            continue
-
-        pkg_dir = pkg_json.parent
-        rel = pkg_dir.relative_to(WORKSPACE)
-        nm = pkg_dir / "node_modules"
-        cache_dir = cache_root / rel
-
-        nm.mkdir(parents=True, exist_ok=True)
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        run(["chown", f"{uid}:{gid}", str(nm)])
-        run(["mount", "--bind", str(cache_dir), str(nm)])
-
-    run(["chown", "-R", f"{uid}:{gid}", str(cache_root)])
+    # Rewrite host-absolute paths to in-container mount paths.
+    # Compose mounts /dev/null when unconfigured, so is_file() is correct.
+    rewrites = {
+        "user.signingkey": Path("/tmp/host-git-signingkey"),
+        "gpg.ssh.allowedSignersFile": Path("/tmp/host-allowed-signers"),
+    }
+    for config_key, mount_path in rewrites.items():
+        if mount_path.is_file():
+            run(["git", "config", "--file", str(dst), config_key, str(mount_path)])
 
 
 def root_phase() -> None:
@@ -196,26 +234,16 @@ def root_phase() -> None:
 
     create_sandbox_user(uid, gid)
 
-    # The worktree's .git file points to a host path that doesn't exist in
-    # the container. Fix it by bind-mounting a rewritten .git file that
-    # points at /repo.git (where the main repo's .git is mounted).
-    # This avoids setting GIT_DIR globally, which would poison every
-    # subprocess that runs `git` (uv sync, cargo fetch, etc.).
-    gitdir_line = (WORKSPACE / ".git").read_text().strip()
-    worktree_name = gitdir_line.rsplit("/", 1)[-1]
-    container_gitdir = f"/repo.git/worktrees/{worktree_name}"
-    patched_gitfile = Path("/tmp/sandbox-gitfile")
-    patched_gitfile.write_text(f"gitdir: {container_gitdir}\n")
-    run(["mount", "--bind", str(patched_gitfile), str(WORKSPACE / ".git")])
-
+    # Must run before export_environment snapshots os.environ into /etc/profile.d.
+    _configure_ssh_agent_env()
     export_environment(uid, gid)
 
-    # Skip steps that aren't needed for a one-off cache build (no SSH access,
-    # no IDE, no pnpm install against a throwaway worktree).
+    # cache-init doesn't need SSH, auth, or IDE config.
     if os.environ.get("SANDBOX_MODE") != "cache-init":
         start_sshd(uid, gid)
+        configure_user_ssh(uid, gid)
         copy_claude_auth(uid, gid)
-        bind_mount_node_modules(uid, gid)
+        copy_host_gitconfig(uid, gid)
 
     # Re-exec as the sandbox user.
     os.execvp("gosu", ["gosu", f"{uid}:{gid}", sys.executable, __file__, *sys.argv[1:]])
@@ -226,16 +254,23 @@ def root_phase() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _run_captured(label: str, cmd: list[str], **kwargs) -> None:
+    """Run a subprocess, suppressing output on success, dumping it on failure."""
+    result = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    if result.returncode == 0:
+        return
+    info(f"ERROR: {label} failed:")
+    for line in (result.stdout or "").strip().splitlines():
+        info(f"  {line}")
+    for line in (result.stderr or "").strip().splitlines():
+        info(f"  {line}")
+    raise subprocess.CalledProcessError(result.returncode, cmd)
+
+
 def install_python_deps() -> None:
     info("Started: uv sync...")
-    result = subprocess.run(["uv", "sync", "--no-editable"], capture_output=True, text=True)
-    if result.returncode != 0:
-        info("ERROR: uv sync failed:")
-        for line in (result.stdout or "").strip().splitlines():
-            info(f"  {line}")
-        for line in (result.stderr or "").strip().splitlines():
-            info(f"  {line}")
-        raise subprocess.CalledProcessError(result.returncode, result.args)
+    _write_status("installing python deps")
+    _run_captured("uv sync", ["uv", "sync", "--no-editable"])
     info("Finished: uv sync.")
     # Make hogli available — normally done by flox on-activate.sh.
     hogli_link = Path("/cache/python/bin/hogli")
@@ -248,9 +283,11 @@ def install_python_deps() -> None:
 
 def install_node_deps() -> None:
     info("Started: pnpm install...")
+    _write_status("installing node deps")
     # CI=1 suppresses interactive prompts. --no-frozen-lockfile is needed
     # because the sandbox branch may have different dependencies than the cache.
-    run(
+    _run_captured(
+        "pnpm install",
         ["pnpm", "install", "--no-frozen-lockfile"],
         env={**os.environ, "CI": "1"},
     )
@@ -260,7 +297,8 @@ def install_node_deps() -> None:
 def fetch_rust_crates() -> None:
     """Pre-fetch Rust crate sources so concurrent cargo builds don't race."""
     info("Started: cargo fetch...")
-    run(["cargo", "fetch"], cwd=str(WORKSPACE / "rust"))
+    _write_status("fetching rust crates")
+    _run_captured("cargo fetch", ["cargo", "fetch"], cwd=str(WORKSPACE / "rust"))
     info("Finished: cargo fetch.")
 
 
@@ -287,12 +325,21 @@ def ensure_demo_data() -> None:
 
 
 def install_geoip() -> None:
-    """Symlink the GeoIP database from the Docker image into the worktree."""
-    mmdb = WORKSPACE / "share/GeoLite2-City.mmdb"
-    if mmdb.exists() or mmdb.is_symlink():
-        return
-    mmdb.parent.mkdir(parents=True, exist_ok=True)
-    mmdb.symlink_to("/share/GeoLite2-City.mmdb")
+    """Symlink GeoIP database from the Docker image into the worktree.
+
+    The .json sidecar prevents bin/start's download-mmdb from clobbering
+    the symlink and re-fetching on every boot.
+    """
+    share = WORKSPACE / "share"
+    share.mkdir(parents=True, exist_ok=True)
+
+    mmdb = share / "GeoLite2-City.mmdb"
+    if not mmdb.exists() and not mmdb.is_symlink():
+        mmdb.symlink_to("/share/GeoLite2-City.mmdb")
+
+    sidecar = share / "GeoLite2-City.json"
+    if not sidecar.exists():
+        sidecar.write_text(f'{{ "date": "{time.strftime("%Y-%m-%d")}" }}\n')
 
 
 def create_kafka_topics() -> None:
@@ -330,7 +377,7 @@ def generate_mprocs_config() -> None:
         lines.append("procs: {}")
         config_file.write_text("\n".join(lines) + "\n")
 
-    subprocess.run(["hogli", "dev:generate"], capture_output=True)
+    _run_captured("hogli dev:generate", ["hogli", "dev:generate"])
 
 
 def _read_jetbrains_data_dir_name() -> str:
@@ -355,7 +402,13 @@ def setup_jetbrains_background() -> None:
     if pid != 0:
         return  # Parent continues
 
-    # Child process — runs in background
+    # Child: redirect stdio to log so late writes don't clobber the tmux prompt.
+    log_path = "/tmp/sandbox-jetbrains.log"
+    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(log_fd, 1)
+    os.dup2(log_fd, 2)
+    os.close(log_fd)
+
     os.environ["JAVA_TOOL_OPTIONS"] = f"-Duser.home={SANDBOX_HOME}"
 
     info(f"Registering {data_dir_name} for Gateway (background)...")
@@ -441,13 +494,7 @@ def setup_jetbrains_background() -> None:
 
 
 def _setup_user_env() -> None:
-    """Shared env setup for user_phase and cache_init_phase.
-
-    Sets cache directory env vars, ensures the cargo target dir exists, chdirs
-    to /workspace, and marks the worktree as a safe git directory (the workspace
-    is a bind mount owned by the host UID, which differs from the sandbox user,
-    and Git 2.35.2+ refuses to operate in repos with mismatched ownership).
-    """
+    """Shared env setup for user_phase and cache_init_phase."""
     PROGRESS_FILE.write_text("")
     os.environ.update(
         {
@@ -461,33 +508,18 @@ def _setup_user_env() -> None:
             "npm_config_store_dir": "/cache/pnpm",
         }
     )
+    _configure_ssh_agent_env()
     Path("/cache/cargo-target").mkdir(parents=True, exist_ok=True)
     os.chdir(WORKSPACE)
-    run(["git", "config", "--global", "--add", "safe.directory", str(WORKSPACE)])
+    # pushInsteadOf (not insteadOf) so anonymous HTTPS fetches still work
+    # for cargo deps that clone without an SSH agent during cache-init.
+    run(["git", "config", "--global", "url.git@github.com:.pushInsteadOf", "https://github.com/"])
 
 
-def user_phase() -> None:
-    _setup_user_env()
-
-    install_geoip()
-    create_kafka_topics()
-
-    # Run dependency installs in parallel.
-    # Migrations and demo data are chained after Python deps (uv ~1.5s)
-    # so they overlap with the slower pnpm/cargo installs.
-    # On subsequent boots phrocs migration processes handle any new
-    # migrations (usually a fast no-op).
-    def install_python_and_migrate() -> None:
-        install_python_deps()
-        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
-        ensure_demo_data()
-
+def _run_parallel(tasks: dict[str, Callable[[], None]]) -> None:
+    """Run named tasks in parallel, re-raising the first failure."""
     with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(install_python_and_migrate): "python deps + migrations",
-            pool.submit(install_node_deps): "node deps",
-            pool.submit(fetch_rust_crates): "rust crates",
-        }
+        futures = {pool.submit(fn): name for name, fn in tasks.items()}
         for future in as_completed(futures):
             name = futures[future]
             try:
@@ -496,21 +528,127 @@ def user_phase() -> None:
                 print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
                 raise
 
-    # generate_mprocs_config needs the hogli symlink created by install_python_deps.
-    generate_mprocs_config()
-    # setup_jetbrains_background uses os.fork(), which is unsafe inside a
-    # ThreadPoolExecutor, so it runs after the pool is closed.
+
+def user_phase() -> None:
+    """PID 1: launch tmux (claude + setup windows), then poll-block on the session."""
+    _setup_user_env()
+    install_geoip()
+
+    _write_status("booting")
+
+    # Window 0: claude (launched immediately, may lack hogli until uv sync finishes)
+    # Window 1: setup (deps, migrations, then spawns phrocs in window 2)
+    tmux = ["tmux", "-L", "sandbox"]
+    run(
+        [
+            *tmux,
+            "-f",
+            "/etc/tmux.sandbox.conf",
+            "new-session",
+            "-d",
+            "-s",
+            "posthog",
+            "-c",
+            "/workspace",
+            "-n",
+            "claude",
+            "claude",
+        ]
+    )
+    # Auto-respawn on crash (pairs with pane-died hook in tmux.sandbox.conf).
+    # Scoped to claude window only so setup/phrocs close normally.
+    run([*tmux, "set-window-option", "-t", "posthog:claude", "remain-on-exit", "on"])
+
+    run(
+        [
+            *tmux,
+            "new-window",
+            "-t",
+            "posthog:",
+            "-n",
+            "setup",
+            "-e",
+            "SANDBOX_MODE=setup",
+            f"{sys.executable} {__file__}",
+        ]
+    )
+    run([*tmux, "select-window", "-t", "posthog:claude"])
+
+    # Block on tmux session. Exit non-zero when it dies so compose's
+    # restart: on-failure brings the container back.
+    while (
+        subprocess.run(
+            [*tmux, "has-session", "-t", "posthog"],
+            capture_output=True,
+        ).returncode
+        == 0
+    ):
+        time.sleep(2)
+    sys.exit(1)
+
+
+def run_setup() -> None:
+    """Tmux window 1: install deps, migrate, seed data, spawn phrocs, exec bash.
+
+    On failure, writes "SETUP FAILED" to the status bar and drops into bash
+    so the user can diagnose. Claude keeps running in window 0 either way.
+    """
+    _setup_user_env()
+    _write_status("setup starting")
+
     try:
-        setup_jetbrains_background()
-    except Exception as e:
-        # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
-        print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
+        # Kafka is health-gated by compose, safe to call early.
+        create_kafka_topics()
 
-    info("Starting PostHog via mprocs in tmux...")
-    lock = WORKSPACE / "bin/start.lock"
-    lock.unlink(missing_ok=True)
+        def install_python_and_migrate() -> None:
+            install_python_deps()
+            _write_status("running migrations")
+            run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+            _write_status("seeding demo data")
+            ensure_demo_data()
 
-    os.execvp("tmux", ["tmux", "-L", "sandbox", "new-session", "-s", "posthog", "bin/start --phrocs"])
+        _run_parallel(
+            {
+                "python deps + migrations": install_python_and_migrate,
+                "node deps": install_node_deps,
+                "rust crates": fetch_rust_crates,
+            }
+        )
+
+        # generate_mprocs_config needs the hogli symlink created by install_python_deps.
+        generate_mprocs_config()
+
+        # Forks internally — must run after ThreadPoolExecutor is closed.
+        try:
+            setup_jetbrains_background()
+        except Exception as e:
+            # Loud but non-fatal — IDE setup failing should not prevent the sandbox from booting.
+            print(f"[{_ts()}] ERROR: JetBrains IDE setup failed: {e}", flush=True)  # noqa: T201
+
+        lock = WORKSPACE / "bin/start.lock"
+        lock.unlink(missing_ok=True)
+
+        _write_status("sandbox ready")
+
+        # Spawn phrocs in its own tmux window.
+        run(["tmux", "-L", "sandbox", "new-window", "-t", "posthog:", "-n", "phrocs", "bin/start --phrocs"])
+
+        print(  # noqa: T201
+            "\nSetup complete — phrocs running in window 2 (Ctrl-b 2), Claude in window 0 (Ctrl-b 0).\n",
+            flush=True,
+        )
+    except Exception:
+        traceback.print_exc()
+        _write_status("!! SETUP FAILED — see window 1")
+        print(  # noqa: T201
+            "\n\n!!! Setup failed — traceback above. This window is now a bash shell;"
+            "\n!!! claude is still running in window 0 against whatever managed to come up."
+            "\n!!! Re-run the failing step manually, then `tmux new-window bin/start --phrocs` when ready.\n",
+            flush=True,
+        )
+
+    # Exec into bash so this window stays usable (both success and failure).
+    os.execvp("bash", ["bash", "-l"])
 
 
 # ---------------------------------------------------------------------------
@@ -536,10 +674,7 @@ def cache_init_phase() -> None:
     def build_rust() -> None:
         info("Pre-building Rust workspace...")
         try:
-            run(
-                ["cargo", "build", "--workspace"],
-                cwd=str(WORKSPACE / "rust"),
-            )
+            run(["cargo", "build", "--workspace"], cwd=str(WORKSPACE / "rust"))
             info("Finished: cargo build.")
         except subprocess.CalledProcessError as e:
             # Non-fatal: even a partial build warms the cargo cache for subsequent
@@ -548,21 +683,15 @@ def cache_init_phase() -> None:
             # for debugging.
             info(f"Rust pre-build failed (exit {e.returncode}), continuing (cargo cache still warmed).")
 
-    # Run all three cache-warming streams in parallel. Python path is usually
-    # the critical path (migrations on a fresh DB take several minutes).
-    with ThreadPoolExecutor() as pool:
-        futures = {
-            pool.submit(install_python_and_migrate): "python + migrations + demo data",
-            pool.submit(install_node_deps): "node deps",
-            pool.submit(build_rust): "rust build",
+    # Python path is usually the critical path (migrations on a fresh DB take
+    # several minutes) so we want node + rust overlapping with it.
+    _run_parallel(
+        {
+            "python + migrations + demo data": install_python_and_migrate,
+            "node deps": install_node_deps,
+            "rust build": build_rust,
         }
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                print(f"[{_ts()}] ERROR: {name} failed: {e}", flush=True)  # noqa: T201
-                raise
+    )
 
     info("Cache init complete.")
 
@@ -572,10 +701,13 @@ def cache_init_phase() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    mode = os.environ.get("SANDBOX_MODE")
     uid = int(os.environ.get("SANDBOX_UID", "1000"))
     if os.getuid() == 0 and uid != 0:
         root_phase()
-    elif os.environ.get("SANDBOX_MODE") == "cache-init":
+    elif mode == "cache-init":
         cache_init_phase()
+    elif mode == "setup":
+        run_setup()
     else:
         user_phase()

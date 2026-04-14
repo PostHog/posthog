@@ -128,13 +128,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if expanded_query.filter_test_accounts:
             expanded_query.properties = expand_test_account_filters(team) + (expanded_query.properties or [])
 
-        # Convert $lib event property filters to snapshot_library recording filters
-        # This avoids expensive events table scans by using the pre-aggregated column
+        # Route recording-type and $lib event filters from properties to having_predicates.
+        # Recording metrics (duration, click_count, etc.) are aggregated columns that
+        # only exist after GROUP BY, so they must go in HAVING rather than WHERE.
         if expanded_query.properties:
             remaining_properties = []
             for prop in expanded_query.properties:
                 if getattr(prop, "type", None) == "event" and getattr(prop, "key", None) == "$lib":
-                    # Convert to recording property filter and add to having_predicates
                     recording_filter = RecordingPropertyFilter(
                         type="recording",
                         key="snapshot_library",
@@ -142,6 +142,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         operator=getattr(prop, "operator", PropertyOperator.EXACT),
                     )
                     expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
+                elif getattr(prop, "type", None) == "recording":
+                    expanded_query.having_predicates = (expanded_query.having_predicates or []) + [prop]
                 else:
                     remaining_properties.append(prop)
             expanded_query.properties = remaining_properties if remaining_properties else None
