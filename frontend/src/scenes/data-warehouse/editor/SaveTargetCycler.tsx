@@ -74,16 +74,27 @@ interface SaveTargetCyclerProps {
 export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetCyclerProps): JSX.Element | null {
     const [index, setIndex] = useState(candidates.initialIndex)
 
+    // Clamp the active index whenever the candidate set shrinks so we never read past the end.
     useEffect(() => {
-        onChange(candidates.queries[index], index)
+        if (candidates.queries.length > 0 && index >= candidates.queries.length) {
+            setIndex(candidates.queries.length - 1)
+        }
+    }, [candidates.queries.length, index])
+
+    useEffect(() => {
+        const safeIndex = Math.min(index, candidates.queries.length - 1)
+        if (safeIndex >= 0) {
+            onChange(candidates.queries[safeIndex], safeIndex)
+        }
     }, [index, candidates, onChange])
 
     if (candidates.queries.length === 0) {
         return null
     }
 
+    const safeIndex = Math.min(index, candidates.queries.length - 1)
     const multi = candidates.queries.length > 1
-    const label = candidates.selectionLabel ?? (multi ? `Query ${index + 1} of ${candidates.queries.length}` : null)
+    const label = candidates.selectionLabel ?? (multi ? `Query ${safeIndex + 1} of ${candidates.queries.length}` : null)
 
     if (!label && !children) {
         return null
@@ -98,23 +109,23 @@ export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetC
                         <LemonButton
                             size="xsmall"
                             icon={<IconChevronLeft />}
-                            disabledReason={index === 0 ? 'First query' : undefined}
+                            disabledReason={safeIndex === 0 ? 'First query' : undefined}
                             onClick={() => setIndex((i) => Math.max(0, i - 1))}
                         />
                         <LemonButton
                             size="xsmall"
                             icon={<IconChevronRight />}
-                            disabledReason={index === candidates.queries.length - 1 ? 'Last query' : undefined}
+                            disabledReason={safeIndex === candidates.queries.length - 1 ? 'Last query' : undefined}
                             onClick={() => setIndex((i) => Math.min(candidates.queries.length - 1, i + 1))}
                         />
                     </div>
                 )}
             </div>
             {children ? (
-                children(candidates.queries[index], index)
+                children(candidates.queries[safeIndex], safeIndex)
             ) : (
                 <CodeSnippet language={Language.SQL} wrap compact maxLinesWithoutExpansion={8}>
-                    {candidates.queries[index]}
+                    {candidates.queries[safeIndex]}
                 </CodeSnippet>
             )}
         </div>
