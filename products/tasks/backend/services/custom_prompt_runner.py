@@ -124,6 +124,15 @@ async def _create_task_and_trigger(
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 
 
+class EmptyAgentTurnError(RuntimeError):
+    """Raised when the agent emitted end_turn but no agent_message (Claude Agent SDK short-circuits)."""
+
+    def __init__(self, message: str, *, total_lines: int, printed_lines: int):
+        super().__init__(message)
+        self.total_lines = total_lines
+        self.printed_lines = printed_lines
+
+
 async def _poll_for_turn(
     task_run,
     *,
