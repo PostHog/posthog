@@ -155,6 +155,7 @@ jobs:
                   sparse-checkout: |
                       .nvmrc
                       products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
                       frontend/snapshots.yml
                   sparse-checkout-cone-mode: false
 
