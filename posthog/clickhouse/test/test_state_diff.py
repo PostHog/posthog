@@ -539,7 +539,7 @@ class TestNormalizeMvSelect:
     def test_database_prefix_stripped(self):
         ch = "SELECT event FROM posthog_test.kafka_events"
         yaml = "SELECT event FROM kafka_events"
-        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+        assert _normalize_mv_select(ch, database="posthog_test") == _normalize_mv_select(yaml, database="posthog_test")
 
     def test_keyword_case_normalized(self):
         ch = "SELECT event FROM kafka_events WHERE team_id = 1"
@@ -559,12 +559,31 @@ class TestNormalizeMvSelect:
     def test_combined_differences(self):
         ch = "SELECT event, timestamp AS ts FROM posthog_test.kafka_events WHERE team_id = 1 SETTINGS max_threads = 4"
         yaml = "select event, timestamp as ts from kafka_events where team_id = 1"
-        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+        assert _normalize_mv_select(ch, database="posthog_test") == _normalize_mv_select(yaml, database="posthog_test")
 
     def test_multiple_db_prefixes(self):
         ch = "SELECT a FROM posthog.t1 JOIN posthog.t2 ON t1.id = t2.id"
         yaml = "SELECT a FROM t1 JOIN t2 ON t1.id = t2.id"
-        assert _normalize_mv_select(ch) == _normalize_mv_select(yaml)
+        assert _normalize_mv_select(ch, database="posthog") == _normalize_mv_select(yaml, database="posthog")
+
+    def test_join_aliases_preserved(self):
+        """``a.col``/``b.col`` in JOIN must not be stripped — they are table aliases, not DB prefixes."""
+        sql = "SELECT a.x, b.y FROM t1 AS a JOIN t2 AS b ON a.id = b.id"
+        out = _normalize_mv_select(sql, database="posthog")
+        assert "a.x" in out and "b.y" in out and "a.id" in out and "b.id" in out
+
+    def test_settings_inside_subquery_preserved(self):
+        """Trailing SETTINGS strip must not chop a subquery's SETTINGS clause."""
+        sql = "SELECT x FROM (SELECT y FROM t SETTINGS max_threads = 4) z SETTINGS insert_quorum = 2"
+        out = _normalize_mv_select(sql)
+        assert "insert_quorum" not in out, "outer SETTINGS should be stripped"
+        assert "max_threads" in out, "subquery SETTINGS must survive"
+
+    def test_settings_inside_subquery_only(self):
+        """When only the subquery has SETTINGS, it must survive."""
+        sql = "SELECT x FROM (SELECT y FROM t SETTINGS max_threads = 4) z"
+        out = _normalize_mv_select(sql)
+        assert "max_threads" in out
 
 
 class TestDiffConvergenceMvSelect:

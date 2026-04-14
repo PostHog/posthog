@@ -158,12 +158,22 @@ def acquire_apply_lock(
         database=database,
     )
 
-    # Wait for replication convergence then re-check for double-locks.
-    # 0.5s was too short for ReplicatedMergeTree under load — two concurrent
-    # callers could each read their own insert without seeing the peer's.
-    # 5s covers typical fetch/merge latency on a contended cluster; apply
-    # runs are minute-scale so this is a rounding error in wall time.
-    time.sleep(5)
+    # Force replication convergence before the double-lock check. A fixed
+    # sleep (0.5s, 5s, ...) is not a correctness barrier — under replication
+    # lag each host can still see only its own insert. SYSTEM SYNC REPLICA
+    # STRICT blocks until the local replica has drained its ZooKeeper
+    # replication queue, so when we then SELECT we observe all peer inserts
+    # that beat ours to the leader. Hosts that INSERT simultaneously will
+    # disagree on the tie-break (applied_at, host) but both observe the same
+    # sorted set and agree on the winner.
+    try:
+        client.execute(f"SYSTEM SYNC REPLICA {table_ref} STRICT")
+    except Exception:
+        # SYNC REPLICA is only valid on Replicated engines; fall back to a
+        # short sleep for local-only dev stacks where the tracking table is
+        # plain MergeTree. This path is not safe under real concurrency but
+        # matches the single-host dev environment.
+        time.sleep(1)
     # Deterministic tie-break: earliest-applied wins, then lexicographic
     # hostname. Both callers sort the same rows identically regardless of
     # which one landed in the driver result first, so they agree on the

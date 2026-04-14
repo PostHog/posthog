@@ -634,7 +634,28 @@ def _generate_create_sql(
     )
 
 
-def _normalize_mv_select(sql: str) -> str:
+def _strip_trailing_settings(s: str) -> str:
+    """Remove a top-level trailing ``SETTINGS ...`` clause.
+
+    Scans for ``SETTINGS`` tokens from right to left and strips the first one
+    that sits at paren-depth 0. Tokens inside subqueries (positive depth)
+    are left alone — those aren't the MV's engine settings, they're part of
+    the SELECT's semantics.
+    """
+    positions = [m.start() for m in re.finditer(r"\bSETTINGS\b", s, re.IGNORECASE)]
+    for pos in reversed(positions):
+        depth = 0
+        for ch in s[:pos]:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+        if depth == 0:
+            return s[:pos].rstrip()
+    return s
+
+
+def _normalize_mv_select(sql: str, database: str | None = None) -> str:
     """Normalize MV SELECT SQL for semantic comparison.
 
     Handles the common false-positive cases that cause spurious MV recreates:
@@ -642,19 +663,24 @@ def _normalize_mv_select(sql: str) -> str:
     - Keyword casing (CH uppercases keywords in stored SELECT)
     - Database prefix on table names (CH adds ``posthog_test.`` or ``<db>.``)
     - Trailing ``SETTINGS`` clause (CH may append engine settings)
+
+    ``database`` scopes the database-prefix strip: only ``<database>.`` is
+    removed, so table aliases in JOINs (e.g. ``a.x, b.y``) survive. When
+    ``None``, the legacy Jinja ``{{ database }}.`` template is still stripped.
     """
     # Remove comments
     s = re.sub(r"--[^\n]*\n", " ", sql)
     s = re.sub(r"/\*.*?\*/", " ", s, flags=re.DOTALL)
-    # Strip trailing SETTINGS clause (not part of the logical query)
-    s = re.sub(r"\bSETTINGS\b\s+.*$", "", s, flags=re.IGNORECASE)
+    # Strip top-level trailing SETTINGS clause (subquery SETTINGS survive)
+    s = _strip_trailing_settings(s)
     # Resolve Jinja-style {{ database }} template before lowercasing
     s = re.sub(r"\{\{\s*database\s*\}\}\.", "", s)
     # Lowercase everything — simpler and more robust than keyword-by-keyword
     s = s.lower()
-    # Strip database prefix from qualified table names: `db.table` → `table`
-    # Matches `word.` before an identifier (letter/underscore start).
-    s = re.sub(r"\b\w+\.\b(?=[a-z_])", "", s)
+    # Strip the configured database prefix only (not JOIN aliases). If the
+    # caller didn't supply one, leave all ``word.`` prefixes intact.
+    if database:
+        s = re.sub(rf"\b{re.escape(database.lower())}\.", "", s)
     # Normalize == to = with surrounding spaces (CH stores `x = 0`, YAML may have `x==0`)
     s = re.sub(r"==", " = ", s)
     # Strip redundant parens that CH adds to lambda bodies and expressions
@@ -967,9 +993,9 @@ def diff_state(
             current_select = current_table.as_select if hasattr(current_table, "as_select") else ""
             # SELECT * expands to explicit columns at creation time — skip comparison
             # since CH will always store the expanded form, never matching the YAML literally.
-            desired_norm = _normalize_mv_select(desired_table.select)
+            desired_norm = _normalize_mv_select(desired_table.select, database=db)
             is_select_star = re.match(r"^select \* from\b", desired_norm)
-            if current_select and not is_select_star and desired_norm != _normalize_mv_select(current_select):
+            if current_select and not is_select_star and desired_norm != _normalize_mv_select(current_select, database=db):
                 drops.append(
                     StateDiff(
                         action="drop",
