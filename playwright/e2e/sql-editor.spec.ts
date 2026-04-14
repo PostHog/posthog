@@ -59,6 +59,9 @@ test.describe('SQL Editor', () => {
 
             // Wait for the success message which confirms the API call completed
             await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
+
+            // Reload so the URL hash (set by syncUrlWithQuery) loads the saved view deterministically
+            await page.reload({ waitUntil: 'networkidle' })
             await expect(
                 page.locator('[data-attr=scene-name]').getByText(uniqueViewName, { exact: true })
             ).toBeVisible()
