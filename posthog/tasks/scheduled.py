@@ -166,9 +166,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
     sender.add_periodic_task(
-        30, run_all_error_tracking_recommendations.s(), name="30 sec error tracking recommendations"
-    )
-    sender.add_periodic_task(
         QueryStatusManager.POLL_INTERVAL_SECONDS,
         start_poll_query_performance.s(),
         name="query performance heartbeat",
@@ -588,4 +585,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_expired_test_saved_queries.s(),
         name="cleanup expired test saved queries",
+    )
+
+    # Recompute error tracking recommendations for all teams
+    sender.add_periodic_task(
+        30, run_all_error_tracking_recommendations.s(), name="30 sec error tracking recommendations"
     )

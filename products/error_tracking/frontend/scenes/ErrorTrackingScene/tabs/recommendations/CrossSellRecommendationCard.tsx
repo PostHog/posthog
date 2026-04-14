@@ -1,6 +1,9 @@
-import { IconCheck } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { recommendationsTabLogic } from './recommendationsTabLogic'
 import type { CrossSellRecommendationRun } from './types'
 
 export function CrossSellRecommendationCard({
@@ -8,6 +11,8 @@ export function CrossSellRecommendationCard({
 }: {
     recommendation: CrossSellRecommendationRun
 }): JSX.Element | null {
+    const { recommendationsLoading } = useValues(recommendationsTabLogic)
+    const { refreshRecommendations } = useActions(recommendationsTabLogic)
     const products = recommendation.meta.products ?? []
 
     if (products.length === 0) {
@@ -33,11 +38,18 @@ export function CrossSellRecommendationCard({
                     </span>
                     <div className="w-20 h-1.5 bg-border rounded-full">
                         <div
-                            className="h-1.5 bg-success rounded-full transition-all"
+                            className="h-1.5 bg-success rounded-full"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: `${(enabledCount / products.length) * 100}%` }}
                         />
                     </div>
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        icon={<IconRefresh />}
+                        loading={recommendationsLoading}
+                        onClick={refreshRecommendations}
+                    />
                 </div>
             </div>
             <p className="text-xs text-secondary mt-1 mb-3">Complete your setup to get the full picture.</p>

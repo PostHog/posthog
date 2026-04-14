@@ -34,24 +34,16 @@ class CrossSellRecommendation(BaseRecommendation):
             {
                 "key": "session_replay",
                 "name": "Session replay",
-                "enable_url": "/settings/environment-replay#replay",
+                "enable_url": "/replay/home",
                 "enabled": bool(team.session_recording_opt_in),
-                "reason": (
-                    "Session replay lets you watch exactly what the user was doing right before "
-                    "an exception was thrown. Pairing it with error tracking gives you the full "
-                    "picture — the stack trace and the user interaction that triggered it."
-                ),
+                "reason": "See what the user did right before the error happened.",
             },
             {
                 "key": "logs",
                 "name": "Logs",
-                "enable_url": "/settings/environment-logs#logs",
+                "enable_url": "/logs",
                 "enabled": _team_has_logs(team.id),
-                "reason": (
-                    "Logs let you correlate application output with exceptions. When an error "
-                    "happens, you can jump straight to the logs around the failure instead of "
-                    "guessing what the app was doing."
-                ),
+                "reason": "Jump straight to application output around the failure.",
             },
         ]
 
