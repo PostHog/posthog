@@ -23,7 +23,7 @@ impl PropertyFilter {
             return None;
         }
         self.value.as_ref().and_then(|value| match value {
-            Value::Number(n) => n.as_i64().map(|id| id as CohortId),
+            Value::Number(n) => n.as_i64().and_then(|id| CohortId::try_from(id).ok()),
             Value::String(s) => s.parse::<CohortId>().ok(),
             _ => None,
         })
