@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -25,7 +24,7 @@ export function ProductSetupButton(): JSX.Element | null {
     const { selectedProduct, isGlobalModalOpen, sceneHasNoSetup } = useValues(globalSetupLogic)
     const { openGlobalSetup, closeGlobalSetup, setSelectedProduct } = useActions(globalSetupLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
-    const showPulseIndicator = useFeatureFlag(FEATURE_FLAGS.QUICK_START_PULSE_INDICATOR, 'test')
+    const showPulseIndicator = useFeatureFlag('QUICK_START_PULSE_INDICATOR', 'test')
 
     // Get the setup state for the selected product
     const logic = productSetupLogic({ productKey: selectedProduct })
@@ -124,7 +123,9 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
     { remainingCount, showBadge, isActive, onClick, showPulse },
     ref
 ) {
-    const showIndicator = showBadge && remainingCount > 0 && !isActive
+    // Hide the pulse when the popover is open to avoid distracting the user, but keep the
+    // numeric badge visible in the control variant so its behavior matches the pre-experiment baseline.
+    const showIndicator = showBadge && remainingCount > 0 && (!showPulse || !isActive)
 
     return (
         <LemonButton
