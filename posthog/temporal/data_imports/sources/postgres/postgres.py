@@ -945,13 +945,7 @@ def _get_partition_settings_for_partitioned_table(
         return None
 
     avg_row_size = total_size / total_rows
-    if avg_row_size <= 0:
-        return None
-
     partition_size = round(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / avg_row_size)
-    if partition_size <= 0:
-        return None
-
     partition_count = max(1, math.floor(total_rows / partition_size))
     logger.debug(
         f"_get_partition_settings_for_partitioned_table: partition_count={partition_count}, "
