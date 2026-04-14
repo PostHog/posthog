@@ -1857,6 +1857,14 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('remove_customerio_app_config')
     }
 
+    public messagingCategoriesSaveWebhookConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('save_webhook_config')
+    }
+
+    public messagingCategoriesRemoveWebhookIntegration(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_webhook_integration')
+    }
+
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }

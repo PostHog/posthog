@@ -49,6 +49,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
+from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.slack_app.backend.api import (
@@ -200,6 +201,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    path("api/environments/<int:team_id>/messaging/customerio_webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_doctor/", sdk_doctor),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path(
