@@ -256,6 +256,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         finally:
             self.calculating = False
 
+    def _validate(self) -> None:
+        super()._validate()
+        if self.source_query_runner is not None:
+            self.source_query_runner._validate()
+
     def input_columns(self) -> list[str]:
         strategy_input_cols = self.strategy.input_columns()
         if self.query.select:

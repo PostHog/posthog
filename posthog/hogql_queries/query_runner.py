@@ -1078,8 +1078,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.limit_context
 
     def calculate(self) -> R:
-        run_validation_rules(self.validators(), self.validation_context)
+        self._validate()
         return self._calculate()
+
+    def _validate(self) -> None:
+        run_validation_rules(self.validators(), self.validation_context)
 
     @abstractmethod
     def _calculate(self) -> R:

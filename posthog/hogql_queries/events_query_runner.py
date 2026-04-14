@@ -74,6 +74,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
 
+    def _validate(self) -> None:
+        super()._validate()
+        self.source_runner._validate()
+
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
         person_indices: list[int] = []
