@@ -668,6 +668,44 @@ email@example.org
         self.assertEqual(response.status_code, 400)
         self.assertIn("Editing the criteria of a static cohort is not supported yet", response.json()["detail"])
 
+    def test_static_cohort_rejects_adding_criteria_to_csv_cohort(self):
+        """Adding filter criteria to a CSV-uploaded static cohort must be rejected
+        so that filters don't get silently saved without being acted on."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="csv upload cohort",
+            is_static=True,
+            filters={"properties": {}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "match@example.com",
+                                        "operator": PropertyOperator.EXACT,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Editing the criteria of a static cohort is not supported yet", response.json()["detail"])
+
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",

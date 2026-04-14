@@ -154,7 +154,10 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             # Only fetch cohorts that have a retriggerable population source
             # (HogQL query or filter criteria). Excludes CSV-upload cohorts
             # that would always be discarded by the retry logic.
-            Q(query__isnull=False) | ~Q(filters={}) & ~Q(filters={"properties": {}})
+            # This may match old static cohorts with stale filter data that
+            # predate criteria-based creation; those are caught and skipped
+            # by static_cohort_has_supported_population_source in the loop body.
+            Q(query__isnull=False) | (Q(filters__isnull=False) & ~Q(filters={}) & ~Q(filters={"properties": {}}))
         )
     )
 
@@ -594,7 +597,6 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
     try:
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
-        cohort.refresh_from_db()
 
         insert_cohort_filter_actors_into_ch(cohort, team=team)
         logger.info(

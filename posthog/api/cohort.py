@@ -934,7 +934,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         deleted_state = validated_data.get("deleted", None)
 
-        if cohort.is_static and existing_has_criteria and filters_changed:
+        incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
+        if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):
             raise ValidationError(
                 "Editing the criteria of a static cohort is not supported yet. Create a new static cohort instead."
             )
