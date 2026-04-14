@@ -62,14 +62,30 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
 
     def _create_funnel_data_both_variants(self, feature_flag_property: str):
         """Create test data: control (6 signup, 4 purchase) and test (8 signup, 6 purchase)."""
+        # Extract flag key from feature_flag_property ($feature/test-experiment -> test-experiment)
+        flag_key = feature_flag_property.replace("$feature/", "")
+
         for i in range(10):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            # Add exposure event FIRST with correct $feature_flag_called properties
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag": flag_key,  # The flag key
+                    "$feature_flag_response": "control",  # The variant
+                },
+            )
+
             if i < 6:
                 _create_event(
                     team=self.team,
                     event="signup",
                     distinct_id=f"user_control_{i}",
-                    timestamp="2020-01-02T13:00:00Z",
+                    timestamp="2020-01-02T13:00:00Z",  # After exposure
                     properties={feature_flag_property: "control"},
                 )
                 if i < 4:
@@ -77,18 +93,31 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
                         team=self.team,
                         event="purchase",
                         distinct_id=f"user_control_{i}",
-                        timestamp="2020-01-02T14:00:00Z",
+                        timestamp="2020-01-02T14:00:00Z",  # After signup
                         properties={feature_flag_property: "control"},
                     )
 
         for i in range(10):
             _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            # Add exposure event FIRST with correct $feature_flag_called properties
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag": flag_key,  # The flag key
+                    "$feature_flag_response": "test",  # The variant
+                },
+            )
+
             if i < 8:
                 _create_event(
                     team=self.team,
                     event="signup",
                     distinct_id=f"user_test_{i}",
-                    timestamp="2020-01-02T13:00:00Z",
+                    timestamp="2020-01-02T13:00:00Z",  # After exposure
                     properties={feature_flag_property: "test"},
                 )
                 if i < 6:
@@ -96,7 +125,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
                         team=self.team,
                         event="purchase",
                         distinct_id=f"user_test_{i}",
-                        timestamp="2020-01-02T14:00:00Z",
+                        timestamp="2020-01-02T14:00:00Z",  # After signup
                         properties={feature_flag_property: "test"},
                     )
 
@@ -177,6 +206,19 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
 
         # Create a user with events (complete both funnel steps)
         _create_person(distinct_ids=["user_with_recording"], team_id=self.team.pk)
+
+        # Exposure event first
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_with_recording",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag": feature_flag.key,
+                "$feature_flag_response": "control",
+            },
+        )
+
         _create_event(
             team=self.team,
             event="signup",
@@ -335,3 +377,93 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         self.assertIn("2 metric steps", error_message)  # Shows context
         self.assertIn("Valid conversion steps: 1", error_message)  # Shows valid range start
         self.assertIn("(first metric step) to 2", error_message)  # Shows valid range end with explanation
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_experiment_funnel_actors_excludes_events_before_exposure(self):
+        """
+        Test that actors query only counts events AFTER exposure, matching main query behavior.
+
+        Scenario:
+        - User does $pageview BEFORE being exposed
+        - User gets exposed
+        - User never does purchase
+
+        Expected:
+        - Main query: NOT counted as drop-off (pageview was before exposure)
+        - Actors query: Also NOT counted (with fix applied)
+        """
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+
+        # Create user who did events BEFORE exposure
+        _create_person(distinct_ids=["user_before_exposure"], team_id=self.team.pk)
+
+        # Event BEFORE exposure (should be ignored)
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_before_exposure",
+            timestamp="2020-01-02T10:00:00Z",  # Before exposure
+        )
+
+        # Exposure event with correct properties for $feature_flag_called
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_before_exposure",
+            timestamp="2020-01-02T12:00:00Z",  # Exposure
+            properties={
+                "$feature_flag": feature_flag.key,
+                "$feature_flag_response": "control",
+            },
+        )
+
+        # No purchase event
+
+        # Create user who did events AFTER exposure (should be counted)
+        _create_person(distinct_ids=["user_after_exposure"], team_id=self.team.pk)
+
+        # Exposure event with correct properties for $feature_flag_called
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_after_exposure",
+            timestamp="2020-01-02T12:00:00Z",  # Exposure
+            properties={
+                "$feature_flag": feature_flag.key,
+                "$feature_flag_response": "control",
+            },
+        )
+
+        # Event AFTER exposure (should be counted)
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_after_exposure",
+            timestamp="2020-01-02T13:00:00Z",  # After exposure
+        )
+
+        # No purchase event
+
+        flush_persons_and_events()
+
+        # Query for step 2 drop-offs (did signup after exposure, but no purchase)
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=-2,  # Drop-offs at step 2
+            funnelStepBreakdown="control",
+            includeRecordings=False,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["id", "person"],
+        )
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        # Should only return 1 user (user_after_exposure)
+        # user_before_exposure should NOT be counted because their signup was before exposure
+        assert len(response.results) == 1
+        assert response.results[0][1]["distinct_ids"][0] == "user_after_exposure"

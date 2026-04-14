@@ -1,7 +1,8 @@
 import './CardMeta.scss'
 
+import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import React from 'react'
+import React, { useRef } from 'react'
 import { Transition } from 'react-transition-group'
 
 import { IconPieChart } from '@posthog/icons'
@@ -74,6 +75,8 @@ export function CardMeta({
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
     const { ref: topRef, width: topWidth } = useResizeObserver()
     const { ref: headingRef, width: headingWidth } = useResizeObserver()
+    const transitionNodeRef = useRef<HTMLDivElement>(null)
+    const mergedDetailsRef = useMergeRefs([transitionNodeRef, detailsRef])
 
     // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
     const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
@@ -186,8 +189,14 @@ export function CardMeta({
                     }}
                 >
                     {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
-                    <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
-                        <div className="CardMeta__details__content" ref={detailsRef}>
+                    <Transition
+                        nodeRef={transitionNodeRef}
+                        in={areDetailsShown}
+                        timeout={200}
+                        mountOnEnter
+                        unmountOnExit
+                    >
+                        <div className="CardMeta__details__content" ref={mergedDetailsRef}>
                             {/* Stops the padding getting in the height calc  */}
                             <div className="p-4">{metaDetails}</div>
                         </div>

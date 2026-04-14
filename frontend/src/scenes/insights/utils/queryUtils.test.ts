@@ -148,6 +148,22 @@ describe('validateQuery', () => {
         expect(validateQuery(funnelQuery)).toBe(true)
     })
 
+    it('returns false for funnels with incomplete data warehouse step', () => {
+        const funnelQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    table_name: 'events_table',
+                    id_field: 'person_id',
+                    timestamp_field: 'timestamp',
+                },
+                { kind: NodeKind.EventsNode, event: '$signup' },
+            ],
+        }
+        expect(validateQuery(funnelQuery)).toBe(false)
+    })
+
     it('returns false for query with invalid regex property filter', () => {
         const trendsQuery = {
             kind: NodeKind.TrendsQuery,

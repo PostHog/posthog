@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
 
+from products.mcp_store.backend.facade.api import get_active_installations
+
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task
 
@@ -81,13 +83,42 @@ def get_sandbox_api_url() -> str:
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
-def get_sandbox_mcp_configs(
+def get_user_mcp_server_configs(
+    token: str,
+    team_id: int,
+    user_id: int,
+) -> list[McpServerConfig]:
+    """Fetch the user's MCP Store installations and return sandbox configs.
+
+    Uses the mcp_store facade to get active installations, then builds
+    McpServerConfig entries with full proxy URLs and auth headers.
+
+    Returns an empty list on errors (non-fatal).
+    """
+    installations = get_active_installations(team_id, user_id)
+    api_base = get_sandbox_api_url().rstrip("/")
+
+    configs: list[McpServerConfig] = []
+    for installation in installations:
+        configs.append(
+            McpServerConfig(
+                type="http",
+                name=installation.name,
+                url=f"{api_base}{installation.proxy_path}",
+                headers=[{"name": "Authorization", "value": f"Bearer {token}"}],
+            )
+        )
+
+    return configs
+
+
+def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
     *,
     scopes: PosthogMcpScopes = "read_only",
 ) -> list[McpServerConfig]:
-    """Return MCP server configurations for sandbox agents.
+    """Return PostHog MCP server configurations for sandbox agents.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
