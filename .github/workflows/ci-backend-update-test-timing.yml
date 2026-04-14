@@ -1,9 +1,6 @@
 name: Backend & Dagster CI - Update test timing
 
 on:
-    pull_request:
-        paths:
-            - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
         inputs:
             backend_run_id:
