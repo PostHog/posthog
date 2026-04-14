@@ -15,6 +15,7 @@ from oauth2_provider.models import (
     AbstractRefreshToken,
 )
 
+from posthog.helpers.encrypted_fields import EncryptedCharField
 from posthog.models.utils import UUIDT
 
 if TYPE_CHECKING:
@@ -107,6 +108,50 @@ class OAuthApplication(AbstractApplication):
     cimd_metadata_last_fetched: models.DateTimeField = models.DateTimeField(
         null=True, blank=True, help_text="When the CIMD metadata was last successfully fetched"
     )
+
+    # Provisioning fields - only relevant for partners that provision accounts/resources
+    # via the agentic provisioning API. Null/blank for regular OAuth clients.
+    provisioning_auth_method: models.CharField = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Auth method for provisioning requests: hmac, bearer, or pkce. Empty for non-provisioning apps.",
+    )
+    provisioning_signing_secret = EncryptedCharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        default="",
+        help_text="HMAC shared secret for provisioning request verification (encrypted at rest)",
+    )
+    provisioning_partner_type: models.CharField = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Partner identifier: stripe, wizard, etc. Empty for non-provisioning apps.",
+    )
+    provisioning_active: models.BooleanField = models.BooleanField(
+        default=False, help_text="Must be explicitly enabled for provisioning access"
+    )
+    provisioning_can_create_accounts: models.BooleanField = models.BooleanField(
+        default=False, help_text="Can this app create PostHog accounts on behalf of users"
+    )
+    provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
+        default=True, help_text="Can this app provision projects and API keys"
+    )
+    provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
+        null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
+    )
+    provisioning_rate_limit_token_exchanges: models.IntegerField = models.IntegerField(
+        null=True, blank=True, help_text="Override default rate limit for token exchanges (per hour)"
+    )
+    provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
+        null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
+    )
+
+    @property
+    def is_provisioning_partner(self) -> bool:
+        return bool(self.provisioning_auth_method)
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"

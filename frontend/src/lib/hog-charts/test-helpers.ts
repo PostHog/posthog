@@ -1,4 +1,4 @@
-import { fireEvent } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/react'
 
 import { DEFAULT_MARGINS } from './core/Chart'
 import type { ChartDimensions, Series } from './core/types'
@@ -51,4 +51,16 @@ export function hoverAtIndex(wrapper: HTMLElement, index: number, totalLabels: n
         clientX: dimensions.plotLeft + step * index,
         clientY: dimensions.plotTop + dimensions.plotHeight / 2,
     })
+}
+
+export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): Promise<void> {
+    hoverAtIndex(wrapper, index, totalLabels)
+    // Wait for the hover state to flush — onClick reads tooltipCtx synchronously
+    // to decide between pinning and onPointClick, and a stale null takes the wrong branch.
+    await waitFor(() => {
+        if (!document.querySelector('[data-hog-charts-tooltip]')) {
+            throw new Error('tooltip not yet rendered')
+        }
+    })
+    fireEvent.click(wrapper)
 }

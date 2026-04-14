@@ -2,11 +2,22 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
+// Trends.tsx routes line/area displays through ActionsLineGraph (chart.js) until
+// the hog-charts feature-flag gate lands. Swap it at the import boundary so
+// renderInsight() picks up TrendsLineChartD3 — the one under test.
+jest.mock('scenes/trends/viz', () => {
+    const actual = jest.requireActual('scenes/trends/viz')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { TrendsLineChartD3 } = require('scenes/trends/viz/TrendsLineChartD3')
+    return { ...actual, ActionsLineGraph: TrendsLineChartD3 }
+})
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, renderInsight } from '~/test/insight-testing'
+import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -16,13 +27,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+    personsModal.cleanupAll()
     cleanupJsdom()
     cleanup()
 })
 
 const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true }
 
-describe.skip('TrendsLineChartD3', () => {
+describe('TrendsLineChartD3', () => {
     describe('tooltips', () => {
         it('shows the series value and glyph for a single series', async () => {
             renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
@@ -62,8 +74,11 @@ describe.skip('TrendsLineChartD3', () => {
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
-            const tooltip = await chart.hoverTooltip(2)
+            // Breakdown data produces multiple series, so the chart requires a
+            // click to pin the tooltip (hover alone won't render it).
+            await chart.clickAtIndex(2)
 
+            const tooltip = createTooltipAccessor(chart.getTooltip()!)
             expect(tooltip.row('Spike')).toContain('3')
         })
 
@@ -122,7 +137,7 @@ describe.skip('TrendsLineChartD3', () => {
             expect(tooltip.element.querySelector('.graph-series-glyph')).not.toBeInTheDocument()
         })
 
-        it('excludes zero-count series', async () => {
+        it('shows zero-count series alongside active ones', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
@@ -133,7 +148,7 @@ describe.skip('TrendsLineChartD3', () => {
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('ActiveSeries')).toContain('3')
-            expect(tooltip.row('EmptySeries')).toBeUndefined()
+            expect(tooltip.row('EmptySeries')).toContain('0')
         })
 
         it('renders correctly when series has no action metadata', async () => {
@@ -147,6 +162,55 @@ describe.skip('TrendsLineChartD3', () => {
             const tooltip = await chart.hoverTooltip(0)
 
             expect(tooltip.row('Minimal')).toContain('1')
+        })
+    })
+
+    describe('click → persons modal', () => {
+        it('single series: direct click shows the actors for the clicked day', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+
+            await chart.clickAtIndex(2)
+
+            await waitFor(() => {
+                expect(personsModal.actorNames()).toEqual(['pageview-wed-a@example.com', 'pageview-wed-b@example.com'])
+            })
+            expect(personsModal.title()).toMatch(/12 Jun/)
+        })
+
+        it('multi-series: first click pins the tooltip without opening the modal', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+
+            expect(chart.getTooltip()).toBeInTheDocument()
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it.each([
+            ['Spike', ['spike-fan@example.com']],
+            ['Bramble', ['bramble-fan@example.com']],
+            ['Thistle', ['thistle-fan@example.com']],
+        ] as const)('multi-series: clicking the %s row shows only %s actors', async (breakdown, expectedActors) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+            await chart.clickTooltipRow(breakdown)
+
+            await waitFor(() => {
+                expect(personsModal.actorNames()).toEqual(expectedActors)
+            })
         })
     })
 })
