@@ -441,6 +441,91 @@ class ClickHousePrinter(BasePrinter):
 
         return self.visit(node.type)
 
+    def visit_field_type(self, type: ast.FieldType):
+        field_sql = super().visit_field_type(type)
+        return self._maybe_apply_json_drop_keys(type, field_sql)
+
+    def _get_materialized_property_source_for_property_type(
+        self, type: ast.PropertyType
+    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
+        # If this property is restricted by property-level access control, skip the
+        # materialized-column / property-group shortcut and force the JSON-extract path
+        # below. The JSON column itself is wrapped by ``JSONDropKeys`` in
+        # ``_maybe_apply_json_drop_keys`` (see ``visit_field_type``), so the extracted
+        # value collapses to an empty string instead of leaking the materialized value.
+        if self._is_property_type_restricted(type):
+            return None
+        return super()._get_materialized_property_source_for_property_type(type)
+
+    def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
+        if not self.context.restricted_properties or len(type.chain) == 0:
+            return False
+        keys_to_drop = self._get_restricted_keys_for_table_type(type.field_type.table_type)
+        if not keys_to_drop:
+            return False
+        # Only the first chain element is a top-level key on the JSON blob; nested
+        # accesses (``properties.foo.bar``) are restricted iff their root key is.
+        return str(type.chain[0]) in keys_to_drop
+
+    def _maybe_apply_json_drop_keys(self, type: ast.FieldType, field_sql: str) -> str:
+        """
+        Wraps a StringJSONDatabaseField in JSONDropKeys() to strip restricted property keys
+        when the raw JSON blob is selected directly (e.g., `SELECT properties FROM events`).
+        """
+        if not self.context.restricted_properties:
+            return field_sql
+
+        from posthog.hogql.database.models import StringJSONDatabaseField
+
+        resolved_field = type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, StringJSONDatabaseField):
+            return field_sql
+
+        # Use the resolved DB column name, not ``type.name``. With column-alias table syntax
+        # (``FROM events AS e(uuid, event, ..., p)``) the AST field name is the alias (``p``),
+        # but ClickHouse resolves it back to the original column. Comparing ``type.name`` here
+        # would incorrectly skip JSONDropKeys wrapping for the aliased ``properties`` column.
+        # ``person_properties`` is the underlying DB column for ``EventsPersonSubTable.properties``
+        # (PoE mode); it is also a JSON blob that must be stripped of restricted person-property keys.
+        if resolved_field.name not in ("properties", "person_properties"):
+            return field_sql
+
+        keys_to_drop = self._get_restricted_keys_for_table_type(type.table_type)
+        if not keys_to_drop:
+            return field_sql
+
+        keys_placeholders = ", ".join(self.context.add_sensitive_value(k) for k in sorted(keys_to_drop))
+        return f"JSONDropKeys([{keys_placeholders}])({field_sql})"
+
+    def _get_restricted_keys_for_table_type(self, table_type: ast.Type) -> set[str]:
+        """
+        Given a table type, returns the set of property names that should be stripped
+        from the JSON blob based on restricted_properties in the context.
+        """
+        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
+        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
+
+        from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+        if not isinstance(table_type, ast.BaseTableType):
+            return set()
+
+        try:
+            table = table_type.resolve_database_table(self.context)
+        except Exception:
+            return set()
+
+        if isinstance(table, EventsPersonSubTable):
+            prop_def_type = PropertyDefinition.Type.PERSON
+        elif isinstance(table, EventsTable):
+            prop_def_type = PropertyDefinition.Type.EVENT
+        elif isinstance(table, (PersonsTable, RawPersonsTable)):
+            prop_def_type = PropertyDefinition.Type.PERSON
+        else:
+            return set()
+
+        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
+
     def _get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str
     ) -> PrintableMaterializedPropertyGroupItem | None:
