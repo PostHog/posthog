@@ -4,6 +4,7 @@ from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKey
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import (
     Incremental,
     IncrementalParam,
+    _merge_resource_endpoints,
     create_auth,
     create_paginator,
     setup_incremental_object,
@@ -108,3 +109,38 @@ class TestSetupIncrementalObject:
         }
         with pytest.raises(ValueError, match="Only a single incremental"):
             setup_incremental_object(params)
+
+
+class TestMergeResourceEndpoints:
+    def test_default_params_merged_with_resource_params(self) -> None:
+        """Default ``endpoint.params`` must be merged with resource-level params,
+        not dropped when the resource also defines params."""
+        default = {"endpoint": {"params": {"limit": 100, "page_size": 25}}}
+        resource = {"endpoint": {"params": {"since": "2024-01-01"}}}
+
+        merged = _merge_resource_endpoints(default, resource)
+
+        assert merged["endpoint"]["params"] == {
+            "limit": 100,
+            "page_size": 25,
+            "since": "2024-01-01",
+        }
+
+    def test_resource_params_override_default_params(self) -> None:
+        default = {"endpoint": {"params": {"limit": 100}}}
+        resource = {"endpoint": {"params": {"limit": 50}}}
+
+        merged = _merge_resource_endpoints(default, resource)
+
+        assert merged["endpoint"]["params"] == {"limit": 50}
+
+    def test_default_json_and_params_are_independent(self) -> None:
+        """Merging ``params`` must not be affected by default ``json`` and
+        vice versa."""
+        default = {"endpoint": {"json": {"a": 1}, "params": {"limit": 100}}}
+        resource = {"endpoint": {"json": {"b": 2}, "params": {"since": "x"}}}
+
+        merged = _merge_resource_endpoints(default, resource)
+
+        assert merged["endpoint"]["params"] == {"limit": 100, "since": "x"}
+        assert merged["endpoint"]["json"] == {"a": 1, "b": 2}

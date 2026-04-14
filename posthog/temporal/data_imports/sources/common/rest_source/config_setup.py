@@ -413,7 +413,7 @@ def _merge_resource_endpoints(default_config: EndpointResourceBase, config: Endp
         }
     if "params" in config_endpoint:
         merged_endpoint["params"] = {
-            **(merged_endpoint.get("json", {})),
+            **(merged_endpoint.get("params", {})),
             **config_endpoint["params"],
         }
     if (default_columns := default_config.get("columns")) and (columns := config.get("columns")):

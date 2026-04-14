@@ -1,7 +1,7 @@
 """Generic API Source"""
 
 import graphlib  # type: ignore[import,unused-ignore]
-from collections.abc import AsyncGenerator, Callable, Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
 from dateutil import parser
@@ -104,10 +104,10 @@ def _make_paginate_dependent_resource(
     incremental_param: Optional[IncrementalParam],
     incremental_cursor_transform: Optional[Callable[..., Any]],
     db_incremental_field_last_value: Optional[Any],
-) -> Callable[..., AsyncGenerator[Any, Any]]:
-    """Build the async generator for a dependent (child) resource."""
+) -> Callable[..., Iterator[list[Any]]]:
+    """Build the generator for a dependent (child) resource."""
 
-    async def paginate_dependent_resource(
+    def paginate_dependent_resource(
         items: list[dict[str, Any]],
         method: HTTPMethodBasic,
         path: str,
@@ -116,7 +116,7 @@ def _make_paginate_dependent_resource(
         data_selector: Optional[TJsonPath],
         hooks: Optional[dict[str, Any]],
         columns_config: Optional[Any] = None,
-    ) -> AsyncGenerator[Any, Any]:
+    ) -> Iterator[list[Any]]:
         effective_columns_config = columns_config if columns_config is not None else default_columns_config
 
         if incremental_object:
@@ -210,7 +210,7 @@ def create_resources(
 
         if resolved_param is None:
 
-            async def paginate_resource(
+            def paginate_resource(
                 method: HTTPMethodBasic,
                 path: str,
                 params: dict[str, Any],
@@ -223,7 +223,7 @@ def create_resources(
                 incremental_object: Optional[Incremental] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-            ) -> AsyncGenerator[Any, Any]:
+            ) -> Iterator[list[Any]]:
                 if incremental_object:
                     params = _set_incremental_params(
                         params,
@@ -233,20 +233,16 @@ def create_resources(
                         db_incremental_field_last_value,
                     )
 
-                yield list(
-                    convert_types(
-                        client.paginate(
-                            method=method,
-                            path=path,
-                            params=params,
-                            json=json,
-                            paginator=paginator,
-                            data_selector=data_selector,
-                            hooks=hooks,
-                        ),
-                        columns_config,
-                    )
-                )
+                for page in client.paginate(
+                    method=method,
+                    path=path,
+                    params=params,
+                    json=json,
+                    paginator=paginator,
+                    data_selector=data_selector,
+                    hooks=hooks,
+                ):
+                    yield list(convert_types(page, columns_config))
 
             resources[resource_name] = Resource(
                 paginate_resource,
@@ -285,7 +281,8 @@ def create_resources(
                 name=resource_name,
                 hints=hints,
                 kwargs={
-                    "items": [],  # placeholder, will be populated from parent
+                    # ``items`` is injected per parent page by Resource.__iter__
+                    # when ``data_from`` is set.
                     "method": endpoint_config.get("method", "get"),
                     "path": endpoint_config.get("path"),
                     "params": base_params,

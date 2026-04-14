@@ -72,7 +72,7 @@ class TestGetResource:
 
         assert resource["name"] == "campaigns"
         assert resource["table_name"] == "campaigns"
-        assert resource["primary_key"] == ["id"]
+        assert "primary_key" not in resource
         assert isinstance(resource["endpoint"], dict)
         assert resource["endpoint"]["path"] == "/ad_accounts/test_account/campaigns"
         assert resource["endpoint"]["method"] == "GET"

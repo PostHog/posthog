@@ -117,3 +117,25 @@ class TestRESTClient:
     def test_join_url_absolute_path(self) -> None:
         client = RESTClient(base_url="https://api.example.com")
         assert client._join_url("https://other.com/items") == "https://other.com/items"
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_paginate_drops_none_params(self, MockSession) -> None:
+        """``None`` values in ``params`` must be dropped before the request is
+        prepared — otherwise ``requests`` serializes them as the literal string
+        ``"None"`` in the query string."""
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.return_value = _make_response({"data": []})
+
+        client = RESTClient(base_url="https://api.example.com")
+        list(
+            client.paginate(
+                path="/items",
+                params={"limit": 100, "since": None, "until": None, "name": "alice"},
+                paginator=SinglePagePaginator(),
+            )
+        )
+
+        prepared_request = mock_session.prepare_request.call_args.args[0]
+        assert prepared_request.params == {"limit": 100, "name": "alice"}

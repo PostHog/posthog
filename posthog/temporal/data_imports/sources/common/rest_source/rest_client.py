@@ -54,10 +54,15 @@ class RESTClient:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
 
+        # `requests` serializes None values as the literal string "None" in the
+        # query string — drop them so optional/incremental params that are not
+        # set don't leak into the URL.
+        request_params = {key: value for key, value in (params or {}).items() if value is not None}
+
         request = Request(
             method=method.upper(),
             url=self._join_url(path),
-            params=params or {},
+            params=request_params,
             json=json,
             auth=self.auth,
         )

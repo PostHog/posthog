@@ -1,4 +1,3 @@
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -202,22 +201,18 @@ def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> No
         db_incremental_field_last_value=None,
     )
 
-    async def run():
-        results = []
-        async for page in paginate_fn(
-            items=[{"id": "parent_a"}, {"id": "parent_b"}],
-            method="get",
-            path="/parents/{parent_id}/children",
-            params={"page_size": 100, "since": "2026-01-01", "until": "2026-03-01"},
-            paginator=None,
-            data_selector="items",
-            hooks=None,
-        ):
-            if isinstance(page, list):
-                results.append(page)
-        return results
-
-    asyncio.run(run())
+    results: list[list[dict[str, Any]]] = []
+    for page in paginate_fn(
+        items=[{"id": "parent_a"}, {"id": "parent_b"}],
+        method="get",
+        path="/parents/{parent_id}/children",
+        params={"page_size": 100, "since": "2026-01-01", "until": "2026-03-01"},
+        paginator=None,
+        data_selector="items",
+        hooks=None,
+    ):
+        if isinstance(page, list):
+            results.append(page)
 
     assert len(captured_initial_params) == 2
     # Parent B's first request must have the original since/until,

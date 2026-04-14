@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator, Callable, Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 
@@ -10,12 +10,19 @@ class Resource:
     - ``_hints``: dict with ``columns``, ``write_disposition``, etc.
     - ``add_map(fn)``: add per-item transformation
     - ``add_filter(fn)``: add per-item filter
-    - iteration: yields pages of data (list[dict])
+    - iteration: yields pages of data (``list[dict]``)
+    - ``data_from``: when set, the generator is re-invoked for each page of
+      the parent resource, with the parent page passed in as the ``items``
+      kwarg. This is how dependent (fan-out) resources are driven.
+
+    Generators passed in are plain sync generators — the rest_source does no
+    awaiting, so there's no reason to pay the cost of an async event loop to
+    walk them.
     """
 
     def __init__(
         self,
-        generator_fn: Callable[..., AsyncGenerator[Any, Any]],
+        generator_fn: Callable[..., Iterator[Any]],
         *,
         name: str,
         hints: dict[str, Any],
@@ -63,31 +70,22 @@ class Resource:
             result.append(item)
         return result
 
-    def __iter__(self) -> Iterator[Any]:
-        import asyncio
+    def _iter_generator(self, call_kwargs: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+        for page in self._generator_fn(*self._args, **call_kwargs):
+            transformed = self._apply_transforms(page)
+            if transformed:
+                yield transformed
 
-        gen = self._generator_fn(*self._args, **self._kwargs)
+    def __iter__(self) -> Iterator[list[dict[str, Any]]]:
+        if self._data_from is None:
+            yield from self._iter_generator(self._kwargs)
+            return
 
-        loop = None
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-
-        if loop and loop.is_running():
-            raise RuntimeError(
-                "Cannot iterate Resource synchronously from within a running event loop. Use async iteration instead."
-            )
-
-        loop = asyncio.new_event_loop()
-        try:
-            while True:
-                try:
-                    page = loop.run_until_complete(gen.__anext__())
-                    transformed = self._apply_transforms(page)
-                    if transformed:
-                        yield transformed
-                except StopAsyncIteration:
-                    break
-        finally:
-            loop.close()
+        # Dependent resource: drive the child generator with each parent page
+        # as the ``items`` kwarg. The parent's own transforms are applied
+        # before the pages reach us (via the parent's ``__iter__``).
+        for parent_page in self._data_from:
+            if not parent_page:
+                continue
+            call_kwargs = {**self._kwargs, "items": parent_page}
+            yield from self._iter_generator(call_kwargs)
