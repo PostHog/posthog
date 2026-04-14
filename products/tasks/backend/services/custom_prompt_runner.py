@@ -286,24 +286,22 @@ def _stream_new_lines(
     return len(lines)
 
 
-def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int]:
-    """Parse S3 logs. Returns (agent_finished, last_agent_message, full_log_content, total_line_count).
-
-    When skip_lines > 0, only lines after that offset are inspected for end_turn
+def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool]:
+    """Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
     """
     from posthog.storage import object_storage
 
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
-        return False, None, None, 0
+        return False, None, None, 0, False
 
     all_lines = log_content.strip().split("\n")
     total_lines = len(all_lines)
 
     # Eventual consistency: if S3 returns fewer lines than expected, no new data
     if total_lines <= skip_lines:
-        return False, None, log_content, total_lines
+        return False, None, log_content, total_lines, False
 
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
@@ -352,13 +350,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else None
 
-    # If we found end_turn but no agent message in the new lines, keep polling rather than
-    # rescanning from line 0. A full rescan could pull a previous turn's agent message (if multi turns),
-    # and lead to duplicated results silently.
+    # If we found end_turn but no agent message in the new lines, flag it as an empty turn.
+    # Caller decides whether to retry (multi-turn sessions) or keep polling (initial turn,
+    # where skip_lines == 0 and a rescan could pull a previous turn's message).
     if agent_finished and latest_text is None and skip_lines > 0:
-        return False, None, log_content, total_lines
-
-    return agent_finished, latest_text, log_content, total_lines
+        return False, None, log_content, total_lines, True
+    return agent_finished, latest_text, log_content, total_lines, False
 
 
 def _extract_text(update: dict) -> str | None:
