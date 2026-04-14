@@ -875,7 +875,7 @@ export interface SurveyDateRange {
 }
 
 export function getResolvedSurveyDateRange(
-    survey: Pick<Survey, 'created_at' | 'start_date' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): { fromDate: string; toDate: string } {
     let fromDate = getSurveyStartDateForQuery(survey)
@@ -896,7 +896,7 @@ export function getResolvedSurveyDateRange(
 }
 
 export function buildSurveyTimestampFilter(
-    survey: Pick<Survey, 'created_at' | 'start_date' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): string {
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
