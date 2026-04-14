@@ -1285,10 +1285,18 @@ def cmd_create(branch: str, base_branch: str = "master", no_attach: bool = False
     entry = registry.allocate(branch, slug, intents=intents)
     port = entry.port
 
+    # On cloud, cloud-init handles IDE download into a bind-mounted host
+    # directory — skip the local Docker-volume download to avoid duplicating
+    # 1.5 GB of work on the critical path.
+    cloud_ide = bool(os.environ.get("SANDBOX_JETBRAINS_MOUNT"))
+
     # Background the IDE download so it overlaps with workspace volume
     # population and container build.
     with ThreadPoolExecutor(max_workers=1) as ide_pool:
-        ide_future = ide_pool.submit(_install_jetbrains_if_needed, ide_choice)
+        if not cloud_ide:
+            ide_future = ide_pool.submit(_install_jetbrains_if_needed, ide_choice)
+        else:
+            ide_future = None
 
         # From here down anything that fails leaves partial state (workspace
         # volume, compose project, registry entry), so wrap in rollback.
@@ -1304,10 +1312,11 @@ def cmd_create(branch: str, base_branch: str = "master", no_attach: bool = False
             # Await the IDE download before starting containers. Loud but
             # non-fatal on failure — the user can still use the sandbox, just
             # without JetBrains Gateway.
-            try:
-                ide_future.result()
-            except Exception as e:
-                warn(f"JetBrains IDE setup failed: {e}. Gateway may not work.")
+            if ide_future is not None:
+                try:
+                    ide_future.result()
+                except Exception as e:
+                    warn(f"JetBrains IDE setup failed: {e}. Gateway may not work.")
 
             _restore_and_start(project, port, use_cache, profiles=profiles)
         except BaseException:
