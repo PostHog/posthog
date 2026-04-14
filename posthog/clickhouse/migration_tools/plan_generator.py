@@ -145,5 +145,3 @@ def generate_manifest_steps(diffs: list[StateDiff]) -> list[tuple[ManifestStep, 
             )
 
     return steps
-
-
