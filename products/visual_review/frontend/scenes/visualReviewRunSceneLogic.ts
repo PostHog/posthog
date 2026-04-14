@@ -201,7 +201,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/visual_review/runs/:runId': (_params, { snapshot }) => {
+        '/visual_review/runs/:runId': (_params, _searchParams, { snapshot }) => {
             if (snapshot && snapshot !== values.selectedSnapshotId) {
                 actions.setSelectedSnapshotId(snapshot)
             }
