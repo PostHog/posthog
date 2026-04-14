@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill",
-    "version": "0.1.0-alpha.3",
+    "version": "0.1.0-alpha.4",
     "description": "PostHog's unified design system — primitives, components, and blocks designed to be compiled by the consumer's Tailwind v4.",
     "license": "MIT",
     "repository": {

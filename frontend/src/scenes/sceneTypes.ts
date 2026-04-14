@@ -192,6 +192,7 @@ export enum Scene {
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
     OrganizationDeactivated = 'OrganizationDeactivated',
+    OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
 }
 

@@ -58,7 +58,7 @@ const featureFlagGetAll = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: result.results.map((item: any) =>
+            results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
             ),
         } as typeof result
@@ -67,7 +67,7 @@ const featureFlagGetAll = (): ToolBase<
             {
                 ...filtered,
                 results: await Promise.all(
-                    filtered.results.map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
                 ),
             },
             '/feature_flags'

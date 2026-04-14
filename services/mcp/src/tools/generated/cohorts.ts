@@ -35,7 +35,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
             })
             const filtered = {
                 ...result,
-                results: result.results.map((item: any) =>
+                results: (result.results ?? []).map((item: any) =>
                     pickResponseFields(item, ['id', 'name', 'description', 'count', 'is_static', 'created_at'])
                 ),
             } as typeof result
@@ -44,7 +44,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                 {
                     ...filtered,
                     results: await Promise.all(
-                        filtered.results.map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
+                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
                     ),
                 },
                 '/cohorts'

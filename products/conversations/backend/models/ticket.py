@@ -73,6 +73,7 @@ class Ticket(UUIDTModel):
     )
     email_subject = models.CharField(max_length=500, null=True, blank=True)
     email_from = models.EmailField(null=True, blank=True)
+    cc_participants = models.JSONField(default=list, blank=True)
 
     # Session context (captured when ticket is created)
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID

@@ -1481,7 +1481,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         db_schemas = ExternalDataSchema.objects.filter(
             source=instance,
             team_id=self.team_id,
-            sync_type="incremental",
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
             should_sync=True,
         ).exclude(deleted=True)
 
@@ -1554,7 +1554,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSchema.objects.filter(
                 source=instance,
                 team_id=self.team_id,
-                sync_type="incremental",
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
                 should_sync=True,
             )
             .exclude(deleted=True)
@@ -1602,21 +1602,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "This source type does not support webhooks"},
             )
 
-        # Check that no schemas are using incremental sync — deleting the webhook
+        # Check that no schemas are still relying on the webhook — deleting it
         # would break their sync pipeline.
-        incremental_schemas = ExternalDataSchema.objects.filter(
+        webhook_schemas = ExternalDataSchema.objects.filter(
             source=instance,
             team_id=self.team_id,
-            sync_type="incremental",
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
             should_sync=True,
         ).exclude(deleted=True)
 
-        if incremental_schemas.exists():
-            schema_names = list(incremental_schemas.values_list("name", flat=True))
+        if webhook_schemas.exists():
+            schema_names = list(webhook_schemas.values_list("name", flat=True))
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
-                    "message": f"Cannot delete webhook while tables are using incremental sync: {', '.join(schema_names)}. Switch them to full refresh or disable syncing first.",
+                    "message": f"Cannot delete webhook while tables are using webhook sync: {', '.join(schema_names)}. Switch them to full refresh, incremental, or disable syncing first.",
                 },
             )
 

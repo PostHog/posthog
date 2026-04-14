@@ -702,7 +702,17 @@ class PauseStateResponseSerializer(serializers.Serializer):
 class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """View and control signal processing pipeline state for a team."""
 
-    scope_object = "INTERNAL"
+    # Same scope family as other signals team APIs (SignalSourceConfigViewSet, etc.)
+    scope_object = "task"
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "pause",
+        "unpause",
+    ]
 
     @extend_schema(request=None, responses={200: PauseStateResponseSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:

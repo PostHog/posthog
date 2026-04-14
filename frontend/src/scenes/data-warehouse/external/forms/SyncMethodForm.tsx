@@ -294,7 +294,7 @@ export const SyncMethodForm = ({
         }
     )
 
-    if (schema.cdc_available != null) {
+    if (schema.cdc_available) {
         radioOptions.push({
             value: 'cdc',
             disabledReason: (cdcSyncSupported.disabled && cdcSyncSupported.disabledReason) || undefined,

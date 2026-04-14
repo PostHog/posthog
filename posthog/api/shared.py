@@ -233,6 +233,7 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
             "members_can_use_personal_api_keys",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
