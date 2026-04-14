@@ -714,8 +714,8 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         mocked_cursor = MagicMock()
-        mocked_cursor.fetchall.return_value = [(1,)]
-        column = MagicMock(type_code=23)
+        mocked_cursor.fetchall.return_value = [(True,)]
+        column = MagicMock(type_code=16)
         column.name = "value"
         mocked_cursor.description = [column]
         mocked_connection = MagicMock()
@@ -723,7 +723,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mock_connect.return_value.__enter__.return_value = mocked_connection
 
         executor = HogQLQueryExecutor(
-            query="SELECT 1::int AS value",
+            query="SELECT 1 IS TRUE AS value",
             team=self.team,
             connection_id=str(source.id),
             send_raw_query=True,
@@ -731,11 +731,11 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
-        self.assertEqual(response.clickhouse, "SELECT 1::int AS value")
+        self.assertEqual(response.results, [(True,)])
+        self.assertEqual(response.clickhouse, "SELECT 1 IS TRUE AS value")
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)
-        mocked_cursor.execute.assert_called_once_with("SELECT 1::int AS value", None)
+        mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
         mock_capture_exception.assert_called_once()
 
     def test_selected_connection_rejects_disabled_direct_tables(self):

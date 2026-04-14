@@ -85,7 +85,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Output message',
                 render: OutputMessageColumn,
             },
-            timestamp: {
+            createdAt: {
                 title: 'Time',
                 render: TimestampColumn,
             },
@@ -105,7 +105,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             person: llmAnalyticsColumnRenderers.person,
             __llm_sentiment: llmAnalyticsColumnRenderers.__llm_sentiment,
             __llm_tools: llmAnalyticsColumnRenderers.__llm_tools,
-            errors: {
+            errorCount: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,
             },
