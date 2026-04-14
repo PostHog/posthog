@@ -6,11 +6,14 @@ import { dayjs } from 'lib/dayjs'
 import { lowercaseFirstLetter } from 'lib/utils'
 
 import { MetadataTag } from '../components/MetadataTag'
+import { formatLLMCost } from '../utils'
 
 export function MetadataHeader({
     inputTokens,
     outputTokens,
     totalCostUsd,
+    inputCostUsd,
+    outputCostUsd,
     model,
     latency,
     className,
@@ -26,6 +29,8 @@ export function MetadataHeader({
     cacheReadTokens?: number
     cacheWriteTokens?: number
     totalCostUsd?: number
+    inputCostUsd?: number
+    outputCostUsd?: number
     model?: string
     latency?: number
     isError?: boolean
@@ -67,7 +72,20 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {typeof totalCostUsd === 'number' && (
-                <MetadataTag label="Total generation cost">{`$${Math.round(totalCostUsd * 10e6) / 10e6}`}</MetadataTag>
+                <MetadataTag
+                    label="Total generation cost"
+                    tooltipContent={
+                        typeof inputCostUsd === 'number' || typeof outputCostUsd === 'number' ? (
+                            <div className="flex flex-col gap-0.5">
+                                {typeof inputCostUsd === 'number' && <div>Input: {formatLLMCost(inputCostUsd)}</div>}
+                                {typeof outputCostUsd === 'number' && <div>Output: {formatLLMCost(outputCostUsd)}</div>}
+                                <div className="font-semibold">Total: {formatLLMCost(totalCostUsd)}</div>
+                            </div>
+                        ) : undefined
+                    }
+                >
+                    {formatLLMCost(totalCostUsd)}
+                </MetadataTag>
             )}
         </div>
     )

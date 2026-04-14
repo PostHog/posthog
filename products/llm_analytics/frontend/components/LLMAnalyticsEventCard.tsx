@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -94,9 +94,28 @@ export function LLMAnalyticsEventCard({
                         </LemonTag>
                     )}
                     {(isGeneration || isEmbedding) && typeof cost === 'number' && (
-                        <LemonTag type="muted" size="small">
-                            {formatLLMCost(cost)}
-                        </LemonTag>
+                        <Tooltip
+                            title={
+                                typeof event.properties.$ai_input_cost_usd === 'number' ||
+                                typeof event.properties.$ai_output_cost_usd === 'number' ? (
+                                    <div className="flex flex-col gap-0.5">
+                                        {typeof event.properties.$ai_input_cost_usd === 'number' && (
+                                            <div>Input: {formatLLMCost(event.properties.$ai_input_cost_usd)}</div>
+                                        )}
+                                        {typeof event.properties.$ai_output_cost_usd === 'number' && (
+                                            <div>Output: {formatLLMCost(event.properties.$ai_output_cost_usd)}</div>
+                                        )}
+                                        <div className="font-semibold">Total: {formatLLMCost(cost)}</div>
+                                    </div>
+                                ) : (
+                                    'Total cost'
+                                )
+                            }
+                        >
+                            <LemonTag type="muted" size="small">
+                                {formatLLMCost(cost)}
+                            </LemonTag>
+                        </Tooltip>
                     )}
                     {isGeneration &&
                         traceId &&

@@ -62,6 +62,8 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     cacheReadTokens={eventProperties.$ai_cache_read_input_tokens}
                     cacheWriteTokens={eventProperties.$ai_cache_creation_input_tokens}
                     totalCostUsd={eventProperties.$ai_total_cost_usd}
+                    inputCostUsd={eventProperties.$ai_input_cost_usd}
+                    outputCostUsd={eventProperties.$ai_output_cost_usd}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
                     timeToFirstToken={eventProperties.$ai_time_to_first_token}

@@ -594,6 +594,62 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
     ) : null
 }
 
+function CostChip({
+    totalCost,
+    inputCost,
+    outputCost,
+    billedTotalUsd,
+    billedCredits,
+    markupUsd,
+    showBillingInfo,
+}: {
+    totalCost: number
+    inputCost?: number
+    outputCost?: number
+    billedTotalUsd?: number
+    billedCredits?: number
+    markupUsd?: number
+    showBillingInfo?: boolean
+}): JSX.Element {
+    const hasBreakdown = typeof inputCost === 'number' || typeof outputCost === 'number'
+    const hasBilling = showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0
+
+    const tooltipContent =
+        hasBreakdown || hasBilling ? (
+            <div className="flex flex-col gap-0.5">
+                {typeof inputCost === 'number' && (
+                    <div className="flex items-center gap-1">
+                        <IconArrowUp className="text-xs" />
+                        Input: {formatLLMCost(inputCost)}
+                    </div>
+                )}
+                {typeof outputCost === 'number' && (
+                    <div className="flex items-center gap-1">
+                        <IconArrowDown className="text-xs" />
+                        Output: {formatLLMCost(outputCost)}
+                    </div>
+                )}
+                <div className="font-semibold">Total: {formatLLMCost(totalCost)}</div>
+                {hasBilling && (
+                    <>
+                        <hr className="my-0.5 border-border" />
+                        <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
+                        {typeof markupUsd === 'number' && markupUsd > 0 && (
+                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                        )}
+                        {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
+                    </>
+                )}
+            </div>
+        ) : undefined
+
+    return (
+        <Chip title="Total cost" tooltipTitle={tooltipContent} icon={<IconReceipt />}>
+            {formatLLMCost(totalCost)}
+        </Chip>
+    )
+}
+
 function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const { isTraceReviewPanelExpanded } = useValues(traceLogic)
@@ -983,35 +1039,16 @@ function TraceMetadata({
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.inputCost === 'number' && (
-                <Chip title="Input cost" icon={<IconArrowUp />}>
-                    {formatLLMCost(trace.inputCost)}
-                </Chip>
-            )}
-            {typeof trace.outputCost === 'number' && (
-                <Chip title="Output cost" icon={<IconArrowDown />}>
-                    {formatLLMCost(trace.outputCost)}
-                </Chip>
-            )}
             {typeof trace.totalCost === 'number' && (
-                <Chip title="Total cost" icon={<IconReceipt />}>
-                    {formatLLMCost(trace.totalCost)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
-                <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
-                    billed: {formatLLMCost(billedTotalUsd)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof markupUsd === 'number' && markupUsd > 0 && (
-                <Chip title="Markup (20%)" icon={<span className="text-base">➕</span>}>
-                    markup: {formatLLMCost(markupUsd)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
-                <Chip title="Credits spent" icon={<span className="text-base">💳</span>}>
-                    credits: {billedCredits}
-                </Chip>
+                <CostChip
+                    totalCost={trace.totalCost}
+                    inputCost={trace.inputCost}
+                    outputCost={trace.outputCost}
+                    billedTotalUsd={billedTotalUsd}
+                    billedCredits={billedCredits}
+                    markupUsd={markupUsd}
+                    showBillingInfo={showBillingInfo}
+                />
             )}
             {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
@@ -1527,6 +1564,8 @@ const EventContent = React.memo(
                                     cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
                                     cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
                                     totalCostUsd={event.properties.$ai_total_cost_usd}
+                                    inputCostUsd={event.properties.$ai_input_cost_usd}
+                                    outputCostUsd={event.properties.$ai_output_cost_usd}
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
@@ -1538,6 +1577,8 @@ const EventContent = React.memo(
                                     inputTokens={event.inputTokens}
                                     outputTokens={event.outputTokens}
                                     totalCostUsd={event.totalCost}
+                                    inputCostUsd={event.inputCost}
+                                    outputCostUsd={event.outputCost}
                                     latency={event.totalLatency}
                                     timestamp={event.createdAt}
                                 />
