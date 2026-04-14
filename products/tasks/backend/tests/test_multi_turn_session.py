@@ -1,5 +1,4 @@
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -9,46 +8,14 @@ from pydantic import BaseModel
 
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
 from products.tasks.backend.services.custom_prompt_runner import EmptyAgentTurnError, _poll_for_turn
+from products.tasks.backend.tests.agent_log_fixtures import (
+    FakeTaskRun,
+    _agent_message_line,
+    _end_turn_line,
+    _user_message_line,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-# Stupidified version of the agent S3 log — just enough structure for _check_logs.
-# Based on the real reseach_log_debug.json, which showed the priority turn emitting
-# only usage_updates between the user_message_chunk and end_turn.
-
-
-def _agent_message_line(text: str) -> str:
-    return json.dumps(
-        {
-            "notification": {
-                "method": "session/update",
-                "params": {"update": {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}},
-            }
-        }
-    )
-
-
-def _end_turn_line() -> str:
-    return json.dumps({"notification": {"result": {"stopReason": "end_turn"}}})
-
-
-def _user_message_line(text: str) -> str:
-    return json.dumps(
-        {
-            "notification": {
-                "method": "session/update",
-                "params": {"update": {"sessionUpdate": "user_message", "content": {"type": "text", "text": text}}},
-            }
-        }
-    )
-
-
-@dataclass
-class FakeTaskRun:
-    id: str = "run-1"
-    log_url: str = "s3://fake/log"
-    status: str = "running"
-    error_message: str | None = None
 
 
 class _Resp(BaseModel):

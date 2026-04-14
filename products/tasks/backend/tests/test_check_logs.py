@@ -1,66 +1,13 @@
-import json
-from dataclasses import dataclass
-
 from unittest.mock import patch
 
 from products.tasks.backend.services.custom_prompt_runner import _check_logs
-
-
-def _agent_message_line(text: str) -> str:
-    return json.dumps(
-        {
-            "notification": {
-                "method": "session/update",
-                "params": {
-                    "update": {
-                        "sessionUpdate": "agent_message",
-                        "content": {"type": "text", "text": text},
-                    }
-                },
-            }
-        }
-    )
-
-
-def _end_turn_line() -> str:
-    return json.dumps({"notification": {"result": {"stopReason": "end_turn"}}})
-
-
-def _user_message_line(text: str) -> str:
-    return json.dumps(
-        {
-            "notification": {
-                "method": "session/update",
-                "params": {
-                    "update": {
-                        "sessionUpdate": "user_message",
-                        "content": {"type": "text", "text": text},
-                    }
-                },
-            }
-        }
-    )
-
-
-def _usage_update_line(used: int = 1000) -> str:
-    return json.dumps(
-        {
-            "notification": {
-                "method": "session/update",
-                "params": {
-                    "update": {
-                        "sessionUpdate": "usage_update",
-                        "used": used,
-                    }
-                },
-            }
-        }
-    )
-
-
-@dataclass
-class FakeTaskRun:
-    log_url: str = "s3://fake/log"
+from products.tasks.backend.tests.agent_log_fixtures import (
+    FakeTaskRun,
+    _agent_message_line,
+    _end_turn_line,
+    _usage_update_line,
+    _user_message_line,
+)
 
 
 class TestCheckLogs:
