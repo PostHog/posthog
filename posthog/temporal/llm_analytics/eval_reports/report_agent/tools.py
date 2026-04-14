@@ -60,28 +60,12 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     return result.results or []
 
 
-@tool
-def get_summary_metrics(
-    state: Annotated[dict, InjectedState],
-) -> str:
-    """Get pass/fail/NA counts and pass rate for the current period AND the previous period.
+def _fetch_period_counts(team_id: int, evaluation_id: str, ts_start: str, ts_end: str) -> tuple[int, int, int, int]:
+    """Fetch pass/fail/NA/total counts for a single time window.
 
-    Returns current and previous period statistics for comparison. Call this first
-    to understand the baseline. Note: these numbers are also computed mechanically
-    after you finish and attached to the report as `metrics` — you don't need to
-    restate them in your sections, just reference them analytically.
+    Returns (pass_count, fail_count, na_count, total).
     """
-    team_id = state["team_id"]
-    evaluation_id = state["evaluation_id"]
-    period_start = state["period_start"]
-    period_end = state["period_end"]
-    previous_period_start = state["previous_period_start"]
-
-    ts_start = _ch_ts(period_start)
-    ts_end = _ch_ts(period_end)
-    ts_prev_start = _ch_ts(previous_period_start)
-
-    current_rows = _execute_hogql(
+    rows = _execute_hogql(
         team_id,
         f"""
         SELECT
@@ -96,35 +80,32 @@ def get_summary_metrics(
             AND timestamp < '{ts_end}'
         """,
     )
+    row = rows[0] if rows else [0, 0, 0, 0]
+    return int(row[0]), int(row[1]), int(row[2]), int(row[3])
 
-    previous_rows = _execute_hogql(
-        team_id,
-        f"""
-        SELECT
-            countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
-            countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
-            countIf(properties.$ai_evaluation_applicable = false) as na_count,
-            count() as total
-        FROM events
-        WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = '{evaluation_id}'
-            AND timestamp >= '{ts_prev_start}'
-            AND timestamp < '{ts_start}'
-        """,
-    )
 
-    current = current_rows[0] if current_rows else [0, 0, 0, 0]
-    previous = previous_rows[0] if previous_rows else [0, 0, 0, 0]
+@tool
+def get_summary_metrics(
+    state: Annotated[dict, InjectedState],
+) -> str:
+    """Get pass/fail/NA counts and pass rate for the current period AND the previous period.
 
-    pass_count = int(current[0])
-    fail_count = int(current[1])
-    na_count = int(current[2])
-    total = int(current[3])
+    Returns current and previous period statistics for comparison. Call this first
+    to understand the baseline. Note: these numbers are also computed mechanically
+    after you finish and attached to the report as `metrics` — you don't need to
+    restate them in your sections, just reference them analytically.
+    """
+    team_id = state["team_id"]
+    evaluation_id = state["evaluation_id"]
+    ts_start = _ch_ts(state["period_start"])
+    ts_end = _ch_ts(state["period_end"])
+    ts_prev_start = _ch_ts(state["previous_period_start"])
+
+    pass_count, fail_count, na_count, total = _fetch_period_counts(team_id, evaluation_id, ts_start, ts_end)
+    prev_pass, prev_fail, prev_na, prev_total = _fetch_period_counts(team_id, evaluation_id, ts_prev_start, ts_start)
+
     applicable = pass_count + fail_count
     pass_rate = round(pass_count / applicable * 100, 2) if applicable > 0 else 0.0
-
-    prev_pass = int(previous[0])
-    prev_fail = int(previous[1])
     prev_applicable = prev_pass + prev_fail
     previous_pass_rate = round(prev_pass / prev_applicable * 100, 2) if prev_applicable > 0 else None
 
@@ -137,10 +118,10 @@ def get_summary_metrics(
             "pass_rate": pass_rate,
         },
         "previous_period": {
-            "total_runs": int(previous[3]),
+            "total_runs": prev_total,
             "pass_count": prev_pass,
             "fail_count": prev_fail,
-            "na_count": int(previous[2]),
+            "na_count": prev_na,
             "pass_rate": previous_pass_rate,
         },
     }

@@ -20,7 +20,11 @@ from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import (
     ReportSection,
 )
 from posthog.temporal.llm_analytics.eval_reports.report_agent.state import EvalReportAgentState
-from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import EVAL_REPORT_TOOLS, _ch_ts, _execute_hogql
+from posthog.temporal.llm_analytics.eval_reports.report_agent.tools import (
+    EVAL_REPORT_TOOLS,
+    _ch_ts,
+    _fetch_period_counts,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -62,50 +66,13 @@ def _compute_metrics(
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
 
-        current_rows = _execute_hogql(
-            team_id,
-            f"""
-            SELECT
-                countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
-                countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
-                countIf(properties.$ai_evaluation_applicable = false) as na_count,
-                count() as total
-            FROM events
-            WHERE event = '$ai_evaluation'
-                AND properties.$ai_evaluation_id = '{evaluation_id}'
-                AND timestamp >= '{ts_start}'
-                AND timestamp < '{ts_end}'
-            """,
+        pass_count, fail_count, na_count, total = _fetch_period_counts(team_id, evaluation_id, ts_start, ts_end)
+        prev_pass, prev_fail, _prev_na, prev_total = _fetch_period_counts(
+            team_id, evaluation_id, ts_prev_start, ts_start
         )
 
-        previous_rows = _execute_hogql(
-            team_id,
-            f"""
-            SELECT
-                countIf(properties.$ai_evaluation_result = true AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as pass_count,
-                countIf(properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)) as fail_count,
-                count() as total
-            FROM events
-            WHERE event = '$ai_evaluation'
-                AND properties.$ai_evaluation_id = '{evaluation_id}'
-                AND timestamp >= '{ts_prev_start}'
-                AND timestamp < '{ts_start}'
-            """,
-        )
-
-        current = current_rows[0] if current_rows else [0, 0, 0, 0]
-        previous = previous_rows[0] if previous_rows else [0, 0, 0]
-
-        pass_count = int(current[0])
-        fail_count = int(current[1])
-        na_count = int(current[2])
-        total = int(current[3])
         applicable = pass_count + fail_count
         pass_rate = round(pass_count / applicable * 100, 2) if applicable > 0 else 0.0
-
-        prev_pass = int(previous[0])
-        prev_fail = int(previous[1])
-        prev_total = int(previous[2]) if len(previous) > 2 else None
         prev_applicable = prev_pass + prev_fail
         previous_pass_rate = round(prev_pass / prev_applicable * 100, 2) if prev_applicable > 0 else None
 
