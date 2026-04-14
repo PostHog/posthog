@@ -208,6 +208,25 @@ function objectToZod(schema: JsonSchema, ctx: ConvertContext): string {
     const props = schema.properties ?? {}
     const required = new Set(schema.required ?? [])
 
+    // additionalProperties can be boolean (permissive flag) or a schema describing
+    // the value type for arbitrary keys. We only handle the schema form here —
+    // boolean true/false would map to .passthrough() / .strict() on the object.
+    const ap = schema.additionalProperties
+    const apSchema = typeof ap === 'object' && ap !== null ? (ap as JsonSchema) : null
+
+    // Pure record: no named properties, only additionalProperties describes values.
+    // Emit z.record(z.string(), <value>) instead of z.object({}).
+    if (Object.keys(props).length === 0 && apSchema) {
+        return `z.record(z.string(), ${schemaToZod(apSchema, ctx)})`
+    }
+
+    // Open object: no named properties and no additionalProperties schema.
+    // JSON Schema treats this as "any object shape" — emit a permissive record
+    // so nested keys survive zod parsing instead of being stripped.
+    if (Object.keys(props).length === 0 && ap !== false) {
+        return `z.record(z.string(), z.unknown())`
+    }
+
     const fields: string[] = []
     for (const [name, propSchema] of Object.entries(props)) {
         // Skip excluded properties at the top level
@@ -243,6 +262,13 @@ function objectToZod(schema: JsonSchema, ctx: ConvertContext): string {
     }
 
     const obj = `z.object({\n${fields.join('\n')}\n})`
+
+    // Mixed: named properties + open-ended extra keys. Use .catchall() so the
+    // fixed fields are typed and extras are validated against the schema.
+    if (apSchema) {
+        return `${obj}.catchall(${schemaToZod(apSchema, ctx)})`
+    }
+
     return obj
 }
 
@@ -265,9 +291,10 @@ function topologicalSort(root: JsonSchemaRoot, entryDefName: string, excludeProp
         if (!schema) {
             return
         }
-        // For the entry definition, filter out excluded properties before collecting refs
-        const effectiveSchema = isEntry && excludeSet.size > 0 ? filterProperties(schema, excludeSet) : schema
-        for (const ref of collectDirectRefs(effectiveSchema)) {
+        // Only apply the caller's excludeSet at the entry level (it's a top-level prop filter).
+        // response/readOnly skips are applied universally inside collectDirectRefs.
+        const topLevelExcludes = isEntry ? excludeSet : new Set<string>()
+        for (const ref of collectDirectRefs(schema, topLevelExcludes)) {
             visit(ref)
         }
         result.push(defName)
@@ -277,25 +304,20 @@ function topologicalSort(root: JsonSchemaRoot, entryDefName: string, excludeProp
     return result
 }
 
-/** Return a copy of the schema with certain properties removed */
-function filterProperties(schema: JsonSchema, excludeSet: Set<string>): JsonSchema {
-    if (!schema.properties) {
-        return schema
-    }
-    const filtered: Record<string, JsonSchema> = {}
-    for (const [name, prop] of Object.entries(schema.properties)) {
-        if (!excludeSet.has(name) && name !== 'response' && !prop.readOnly) {
-            filtered[name] = prop
-        }
-    }
-    return { ...schema, properties: filtered }
-}
-
-/** Collect $ref names directly referenced by a schema (non-recursive) */
-function collectDirectRefs(schema: JsonSchema): string[] {
+/**
+ * Collect $ref names reachable from a schema, mirroring the skip rules that
+ * `objectToZod` applies at emit time:
+ *   - properties named `response` are skipped (response types aren't tool inputs)
+ *   - properties marked `readOnly` are skipped
+ *   - at the schema's top level, properties in `topLevelExcludes` are also skipped
+ *
+ * Without these skips, refs collected from filtered-out properties leak into the
+ * dependency graph and get emitted as orphan const declarations.
+ */
+function collectDirectRefs(schema: JsonSchema, topLevelExcludes: Set<string> = new Set()): string[] {
     const refs: string[] = []
 
-    function walk(s: JsonSchema | undefined): void {
+    function walk(s: JsonSchema | undefined, isTop: boolean): void {
         if (!s) {
             return
         }
@@ -304,34 +326,40 @@ function collectDirectRefs(schema: JsonSchema): string[] {
             return
         }
         if (s.properties) {
-            for (const prop of Object.values(s.properties)) {
-                walk(prop)
+            for (const [name, prop] of Object.entries(s.properties)) {
+                if (name === 'response' || prop.readOnly) {
+                    continue
+                }
+                if (isTop && topLevelExcludes.has(name)) {
+                    continue
+                }
+                walk(prop, false)
             }
         }
         if (s.items) {
-            walk(s.items)
+            walk(s.items, false)
         }
         if (s.anyOf) {
             for (const v of s.anyOf) {
-                walk(v)
+                walk(v, false)
             }
         }
         if (s.oneOf) {
             for (const v of s.oneOf) {
-                walk(v)
+                walk(v, false)
             }
         }
         if (s.allOf) {
             for (const v of s.allOf) {
-                walk(v)
+                walk(v, false)
             }
         }
         if (typeof s.additionalProperties === 'object') {
-            walk(s.additionalProperties)
+            walk(s.additionalProperties, false)
         }
     }
 
-    walk(schema)
+    walk(schema, true)
     return refs
 }
 

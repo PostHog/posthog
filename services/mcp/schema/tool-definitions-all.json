@@ -29,55 +29,11 @@
             "readOnlyHint": true
         }
     },
-    "insight-create-from-query": {
-        "description": "Create an insight from a query that you have previously tested with 'query-run'. You should check the query runs, before creating an insight. Do not create an insight before running the query, unless you know already that it is correct (e.g. you are making a minor modification to an existing query you have seen).",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Save a query as an insight.",
-        "title": "Create insight from query",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "insight-delete": {
-        "description": "Delete an insight by ID (soft delete - marks as deleted).",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Delete an insight by ID.",
-        "title": "Delete insight",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "insight-get": {
-        "description": "Get a specific insight by ID.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Get a specific insight by ID.",
-        "title": "Get insight",
-        "required_scopes": ["insight:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "insight-query": {
-        "description": "Execute a query on an existing insight to get its results/data. Provide the insight ID to retrieve the current query results.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results.",
         "category": "Insights & analytics",
         "feature": "insights",
-        "summary": "Execute a query on an existing insight to get its results/data.",
+        "summary": "Run a saved insight's query and return results.",
         "title": "Query insight",
         "required_scopes": ["query:read"],
         "new_mcp": true,
@@ -86,35 +42,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "insights-get-all": {
-        "description": "Get all insights in the project with optional filtering. Can filter by saved status, favorited status, or search term.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Get all insights in the project with optional filtering.",
-        "title": "Get all insights",
-        "required_scopes": ["insight:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "insight-update": {
-        "description": "Update an existing insight by ID. Can update name, description, filters, and other properties. You should get the insight before update it to see it's current query structure, and only modify the parts needed to answer the user's request.",
-        "category": "Insights & analytics",
-        "feature": "insights",
-        "summary": "Update an existing insight by ID.",
-        "title": "Update insight",
-        "required_scopes": ["insight:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "query-run": {
@@ -2560,6 +2487,81 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "insights-list": {
+        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get all insights",
+        "title": "Get all insights",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-get": {
+        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get insight",
+        "title": "Get insight",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insight-create": {
+        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Create insight",
+        "title": "Create insight",
+        "required_scopes": ["insight:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "insight-update": {
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Update insight",
+        "title": "Update insight",
+        "required_scopes": ["insight:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "insight-delete": {
+        "description": "Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Delete insight",
+        "title": "Delete insight",
+        "required_scopes": ["insight:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "prompt-list": {

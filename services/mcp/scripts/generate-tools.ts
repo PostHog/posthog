@@ -254,6 +254,8 @@ function operationIdToPascal(operationId: string): string {
 interface SchemaComposition {
     orvalImports: string[]
     toolInputsImports: string[]
+    /** Inline Zod declarations generated from schema_ref (emitted before the schema declaration) */
+    schemaRefBlocks: string[]
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
@@ -262,7 +264,12 @@ interface SchemaComposition {
     renamedFields: Record<string, string>
 }
 
-function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec: OpenApiSpec): SchemaComposition {
+function composeToolSchema(
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec,
+    getQuerySchema: () => JsonSchemaRoot
+): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
     const schemaParts: string[] = []
@@ -402,15 +409,56 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
         }
     }
 
-    // param_overrides with description tweaks are applied in the tool definitions JSON.
-    // param_overrides with input_schema replace individual fields in the Zod schema.
+    // param_overrides:
+    //   - input_schema  → replace the field with a named import from @/schema/tool-inputs
+    //   - schema_ref    → generate inline Zod from schema.json and use that
+    //   - description   → wrap the existing Orval-derived field with .describe(...)
     const toolInputsImports: string[] = []
+    const schemaRefBlocks: string[] = []
+    // Fields added via param_overrides (input_schema/schema_ref) need to participate in
+    // the body builder for write ops — otherwise the override is in the schema but
+    // the handler never forwards the value to the API. On PATCH (partial update) the
+    // field defaults to optional, mirroring the original Orval body schema.
+    const isWriteOp = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
+    const isPartialUpdate = resolved.method === 'PATCH'
+    const optionalSuffix = isPartialUpdate ? '.optional()' : ''
     if (config.param_overrides) {
         const schemaOverrides: string[] = []
         for (const [paramName, override] of Object.entries(config.param_overrides)) {
             if (override.input_schema) {
                 toolInputsImports.push(override.input_schema)
-                schemaOverrides.push(`${paramName}: ${override.input_schema}`)
+                schemaOverrides.push(`${paramName}: ${override.input_schema}${optionalSuffix}`)
+                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                    bodyFieldNames.push(paramName)
+                }
+            } else if (override.schema_ref) {
+                const excludeProps = override.exclude_properties ?? []
+                const zodCode = generateZodFromSchemaRef(getQuerySchema(), override.schema_ref, excludeProps)
+                schemaRefBlocks.push(zodCode)
+                const varName = getEntryVarName(override.schema_ref)
+                schemaOverrides.push(`${paramName}: ${varName}${optionalSuffix}`)
+                if (isWriteOp && !bodyFieldNames.includes(paramName)) {
+                    bodyFieldNames.push(paramName)
+                }
+            } else if (override.description) {
+                // Locate the Orval source schema this param came from, so we can reference
+                // its original field type via .shape and wrap it with .describe(...).
+                let sourceImport: string | null = null
+                if (bodyFieldNames.includes(paramName)) {
+                    sourceImport = `${pascal}Body`
+                } else if (queryParamNames.includes(paramName)) {
+                    sourceImport = `${pascal}QueryParams`
+                } else if (pathParamNames.includes(paramName)) {
+                    sourceImport = `${pascal}Params`
+                }
+                if (sourceImport) {
+                    const escaped = override.description
+                        .trim()
+                        .replace(/\\/g, '\\\\')
+                        .replace(/'/g, "\\'")
+                        .replace(/\n\s*/g, ' ')
+                    schemaOverrides.push(`${paramName}: ${sourceImport}.shape['${paramName}'].describe('${escaped}')`)
+                }
             }
         }
         if (schemaOverrides.length > 0) {
@@ -434,6 +482,7 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
     return {
         orvalImports,
         toolInputsImports,
+        schemaRefBlocks,
         schemaExpr,
         pathParamNames,
         queryParamNames,
@@ -540,11 +589,13 @@ function generateToolCode(
     resolved: ResolvedOperation,
     category: CategoryConfig,
     spec: OpenApiSpec,
-    knownTypes: Set<string>
+    knownTypes: Set<string>,
+    getQuerySchema: () => JsonSchemaRoot
 ): {
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
@@ -558,7 +609,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
@@ -688,6 +739,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         code,
         orvalImports: composition.orvalImports,
         toolInputsImports: composition.toolInputsImports,
+        schemaRefBlocks: composition.schemaRefBlocks,
         responseType,
         needsWithPostHogUrl,
         hasEnrichment,
@@ -707,6 +759,7 @@ function generateCustomSchemaToolCode(
     code: string
     orvalImports: string[]
     toolInputsImports: string[]
+    schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
@@ -781,6 +834,7 @@ ${handlerBody}    },
         code,
         orvalImports: [],
         toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        schemaRefBlocks: [],
         responseType,
         needsWithPostHogUrl: false,
         hasEnrichment: false,
@@ -856,6 +910,8 @@ function generateCategoryFile(
 
     const allOrvalImports = new Set<string>()
     const allToolInputsImports = new Set<string>()
+    const allSchemaRefBlocks: string[] = []
+    const emittedSchemaRefDefs = new Set<string>()
     const toolCodes: string[] = []
     let hasResponseType = false
     let hasWithPostHogUrl = false
@@ -865,13 +921,24 @@ function generateCategoryFile(
     const responseFilterImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
-        const result = generateToolCode(name, config, resolved, category, spec, knownTypes)
+        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
         }
         for (const imp of result.toolInputsImports) {
             allToolInputsImports.add(imp)
+        }
+        // Collect schema_ref blocks, deduplicating by const name
+        for (const block of result.schemaRefBlocks) {
+            for (const decl of block.split('\n\nconst ')) {
+                const line = decl.startsWith('const ') ? decl : `const ${decl}`
+                const match = line.match(/^const (\w+) =/)
+                if (match && !emittedSchemaRefDefs.has(match[1]!)) {
+                    emittedSchemaRefDefs.add(match[1]!)
+                    allSchemaRefBlocks.push(line)
+                }
+            }
         }
         if (result.responseType) {
             hasResponseType = true
@@ -1017,11 +1084,13 @@ function generateCategoryFile(
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
+    const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
+
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
