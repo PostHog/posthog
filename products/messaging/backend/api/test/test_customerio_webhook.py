@@ -72,6 +72,15 @@ class TestCustomerIOWebhook(APIBaseTest):
             MessageRecipientPreference.objects.filter(team=self.team, identifier="user@example.com").exists()
         )
 
+    def test_missing_both_headers_rejected(self):
+        body = {"metric": "unsubscribed", "data": {"email_address": "user@example.com"}}
+        response = self.client.post(
+            self.url,
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 401)
+
     def test_missing_signature_header_rejected(self):
         body = {"metric": "unsubscribed", "data": {"email_address": "user@example.com"}}
         response = self.client.post(
