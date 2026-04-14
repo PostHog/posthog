@@ -719,16 +719,22 @@ class TestEmailInboundCcParticipants(BaseTest):
             "stripped-text": "Need help",
         }
 
+    @parameterized.expand(
+        [
+            ("with_display_names", "Dev <dev@company.com>, pm@company.com", ["dev@company.com", "pm@company.com"]),
+            ("self_cc_filtered", "dev@company.com, team-cc00ee11ff22@mg.posthog.com", ["dev@company.com"]),
+            ("no_cc_header", None, []),
+        ]
+    )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_new_ticket_stores_cc_participants(self, _mock_sig: MagicMock):
-        data = self._base_data("<cc1@test.com>")
-        data["Cc"] = "Dev <dev@company.com>, pm@company.com"
-
+    def test_new_ticket_cc_participants(self, _name, cc_header, expected, _mock_sig):
+        data = self._base_data(f"<cc-{_name}@test.com>")
+        if cc_header:
+            data["Cc"] = cc_header
         response = self.client.post("/api/conversations/v1/email/inbound", data)
         assert response.status_code == 200
-
         ticket = Ticket.objects.get(team=self.team)
-        assert ticket.cc_participants == ["dev@company.com", "pm@company.com"]
+        assert ticket.cc_participants == expected
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_reply_merges_cc_participants(self, _mock_sig: MagicMock):
@@ -746,27 +752,6 @@ class TestEmailInboundCcParticipants(BaseTest):
 
         ticket.refresh_from_db()
         assert ticket.cc_participants == ["dev@company.com", "new@company.com"]
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_self_cc_filtered_out(self, _mock_sig: MagicMock):
-        data = self._base_data("<cc4@test.com>")
-        data["Cc"] = "dev@company.com, team-cc00ee11ff22@mg.posthog.com"
-
-        response = self.client.post("/api/conversations/v1/email/inbound", data)
-        assert response.status_code == 200
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.cc_participants == ["dev@company.com"]
-
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_no_cc_header_stores_empty_list(self, _mock_sig: MagicMock):
-        data = self._base_data("<cc5@test.com>")
-
-        response = self.client.post("/api/conversations/v1/email/inbound", data)
-        assert response.status_code == 200
-
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.cc_participants == []
 
 
 class TestEmailInboundAttachments(BaseTest):
