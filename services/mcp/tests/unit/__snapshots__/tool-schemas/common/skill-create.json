@@ -18,6 +18,31 @@
             "maxLength": 1024,
             "type": "string"
         },
+        "files": {
+            "description": "Bundled files to include with the initial version (scripts, references, assets).",
+            "items": {
+                "properties": {
+                    "content": {
+                        "description": "Text content of the file.",
+                        "type": "string"
+                    },
+                    "content_type": {
+                        "default": "text/plain",
+                        "description": "MIME type of the file content.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.",
+                        "maxLength": 500,
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "content"],
+                "type": "object"
+            },
+            "type": "array"
+        },
         "license": {
             "description": "License name or reference to a bundled license file.",
             "maxLength": 255,
