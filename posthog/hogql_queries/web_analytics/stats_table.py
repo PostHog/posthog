@@ -28,9 +28,7 @@ from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries imp
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
     PATH_BOUNCE_AND_AVG_TIME_QUERY,
-    PATH_BOUNCE_AND_AVG_TIME_QUERY_PREFILTERED,
     PATH_BOUNCE_QUERY,
-    PATH_BOUNCE_QUERY_PREFILTERED,
     PATH_SCROLL_BOUNCE_QUERY,
 )
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
@@ -153,32 +151,24 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy not in [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE]:
             raise NotImplementedError("Time on page is only supported for page breakdowns")
 
-        use_prefilter = is_web_analytics_events_prefilter_team(self.team.pk)
-
         with self.timings.measure("stats_table_time_on_page_query"):
-            placeholders = {
-                "breakdown_value": self._counts_breakdown_value(),
-                "session_properties": self._session_properties(),
-                "event_properties": self._event_properties(),
-                "time_on_page_event_properties": self._event_properties_for_scroll(),
-                "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
-                "bounce_event_properties": self._event_properties_for_bounce_rate(),
-                "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                "current_period": self._current_period_expression(),
-                "previous_period": self._previous_period_expression(),
-                "avg_current_period": self._current_period_expression("timestamp"),
-                "avg_previous_period": self._previous_period_expression("timestamp"),
-                "inside_periods": self._periods_expression(),
-            }
-            if use_prefilter:
-                prefilter = self._events_prefilter_expr()
-                placeholders["events_prefilter"] = prefilter
-                placeholders["events_prefilter_scroll"] = prefilter
-
             query = parse_select(
-                PATH_BOUNCE_AND_AVG_TIME_QUERY_PREFILTERED if use_prefilter else PATH_BOUNCE_AND_AVG_TIME_QUERY,
+                PATH_BOUNCE_AND_AVG_TIME_QUERY,
                 timings=self.timings,
-                placeholders=placeholders,
+                placeholders={
+                    "breakdown_value": self._counts_breakdown_value(),
+                    "session_properties": self._session_properties(),
+                    "event_properties": self._event_properties(),
+                    "time_on_page_event_properties": self._event_properties_for_scroll(),
+                    "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
+                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
+                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                    "current_period": self._current_period_expression(),
+                    "previous_period": self._previous_period_expression(),
+                    "avg_current_period": self._current_period_expression("timestamp"),
+                    "avg_previous_period": self._previous_period_expression("timestamp"),
+                    "inside_periods": self._periods_expression(),
+                },
             )
         assert isinstance(query, ast.SelectQuery)
 
@@ -228,26 +218,20 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy not in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]:
             raise NotImplementedError("Bounce rate is only supported for page breakdowns")
 
-        use_prefilter = is_web_analytics_events_prefilter_team(self.team.pk)
-
         with self.timings.measure("stats_table_scroll_query"):
-            placeholders = {
-                "breakdown_value": self._counts_breakdown_value(),
-                "session_properties": self._session_properties(),
-                "event_properties": self._event_properties(),
-                "bounce_event_properties": self._event_properties_for_bounce_rate(),
-                "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                "current_period": self._current_period_expression(),
-                "previous_period": self._previous_period_expression(),
-                "inside_periods": self._periods_expression(),
-            }
-            if use_prefilter:
-                placeholders["events_prefilter"] = self._events_prefilter_expr()
-
             query = parse_select(
-                PATH_BOUNCE_QUERY_PREFILTERED if use_prefilter else PATH_BOUNCE_QUERY,
+                PATH_BOUNCE_QUERY,
                 timings=self.timings,
-                placeholders=placeholders,
+                placeholders={
+                    "breakdown_value": self._counts_breakdown_value(),
+                    "session_properties": self._session_properties(),
+                    "event_properties": self._event_properties(),
+                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
+                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                    "current_period": self._current_period_expression(),
+                    "previous_period": self._previous_period_expression(),
+                    "inside_periods": self._periods_expression(),
+                },
             )
         assert isinstance(query, ast.SelectQuery)
 
@@ -545,13 +529,61 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.convertToProjectTimezone = False
 
-        response = self.paginator.execute_hogql_query(
-            query_type="stats_table_query",
-            query=query,
-            team=self.team,
-            timings=self.timings,
-            modifiers=modifiers,
-        )
+        use_prefilter = not self.used_preaggregated_tables and is_web_analytics_events_prefilter_team(self.team.pk)
+
+        if use_prefilter:
+            from posthog.schema import HogQLQueryResponse
+
+            from posthog.hogql.query import HogQLQueryExecutor
+
+            from posthog.hogql_queries.web_analytics.events_prefilter import EventsPrefilterTransformer
+
+            paginated_query = self.paginator.paginate(query)
+            executor = HogQLQueryExecutor(
+                query=paginated_query,
+                query_type="stats_table_query",
+                team=self.team,
+                timings=self.timings,
+                modifiers=modifiers,
+            )
+            executor._parse_query()
+            executor._process_variables()
+            executor._process_placeholders()
+            executor._apply_limit()
+            executor._generate_hogql()
+            executor._generate_clickhouse_sql()
+
+            if executor.clickhouse_sql:
+                date_from, date_to = self._events_prefilter_date_bounds()
+                transformer = EventsPrefilterTransformer(
+                    team_id=self.team.pk,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                executor.clickhouse_sql = transformer.transform(executor.clickhouse_sql)
+
+            executor._execute_clickhouse_query()
+            response = HogQLQueryResponse(
+                query=None,
+                hogql=executor.hogql,
+                clickhouse=executor.clickhouse_sql,
+                results=executor.results,
+                columns=executor.print_columns,
+                types=executor.types,
+                timings=executor.timings.to_list(),
+                modifiers=executor.query_modifiers,
+            )
+            self.paginator.response = response
+            self.paginator.results = self.paginator.trim_results()
+        else:
+            response = self.paginator.execute_hogql_query(
+                query_type="stats_table_query",
+                query=query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=modifiers,
+            )
+
         results = self.paginator.results
 
         assert results is not None

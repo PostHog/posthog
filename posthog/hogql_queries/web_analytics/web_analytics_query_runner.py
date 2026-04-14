@@ -541,7 +541,7 @@ WHERE
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
-    def _events_prefilter_expr(self) -> ast.Expr:
+    def _events_prefilter_date_bounds(self) -> tuple[str, str]:
         lower = self.query_date_range.date_from()
         upper = self.query_date_range.date_to()
 
@@ -550,23 +550,10 @@ WHERE
             upper = max(upper, self.query_compare_to_date_range.date_to())
 
         utc = ZoneInfo("UTC")
-        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        date_from = (lower.astimezone(utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        date_to = (upper.astimezone(utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
-        return ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    left=ast.Field(chain=["events", "timestamp"]),
-                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_from), ast.Constant(value="UTC")]),
-                    op=ast.CompareOperationOp.GtEq,
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["events", "timestamp"]),
-                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_to), ast.Constant(value="UTC")]),
-                    op=ast.CompareOperationOp.LtEq,
-                ),
-            ]
-        )
+        return date_from, date_to
 
     @cached_property
     def events_session_property(self):

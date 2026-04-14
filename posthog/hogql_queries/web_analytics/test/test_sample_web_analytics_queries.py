@@ -18,12 +18,10 @@ Let's try to keep this up to date with the components used in the WebAnalyticsSc
 """
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_hogql_queries
-from unittest.mock import patch
 
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
-    CompareFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -317,121 +315,6 @@ class TestSampleWebAnalyticsQueries(ClickhouseTestMixin, APIBaseTest):
             filterTestAccounts=True,
         )
         runner = TrendsQueryRunner(team=self.team, query=query)
-        runner.calculate()
-
-    # --- Prefiltered bounce/scroll query snapshots ---
-    # These verify that the events_prefilter predicate pushdown works correctly:
-    # timestamp bounds are pushed into bounce/scroll subqueries while filters
-    # and columns needed by the outer query (person_id, session, properties) remain accessible.
-
-    @patch(
-        "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
-        return_value=True,
-    )
-    def test_prefiltered_page_bounce_query(self, _mock):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[],
-            breakdownBy=WebStatsBreakdown.PAGE,
-            includeBounceRate=True,
-            limit=10,
-        )
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
-        runner.calculate()
-
-    @patch(
-        "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
-        return_value=True,
-    )
-    def test_prefiltered_page_bounce_with_event_filter(self, _mock):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[
-                EventPropertyFilter(
-                    key="$geoip_city_name",
-                    operator=PropertyOperator.EXACT,
-                    value=["Pretoria"],
-                )
-            ],
-            breakdownBy=WebStatsBreakdown.PAGE,
-            includeBounceRate=True,
-            limit=10,
-        )
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
-        runner.calculate()
-
-    @patch(
-        "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
-        return_value=True,
-    )
-    def test_prefiltered_page_bounce_with_session_filter(self, _mock):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[
-                SessionPropertyFilter(
-                    key="$channel_type",
-                    value="Direct",
-                    operator="exact",
-                    type="session",
-                )
-            ],
-            breakdownBy=WebStatsBreakdown.PAGE,
-            includeBounceRate=True,
-            limit=10,
-        )
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
-        runner.calculate()
-
-    @patch(
-        "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
-        return_value=True,
-    )
-    def test_prefiltered_page_bounce_with_pathname_filter(self, _mock):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[
-                EventPropertyFilter(
-                    key="$pathname",
-                    operator=PropertyOperator.EXACT,
-                    value="/pricing",
-                )
-            ],
-            breakdownBy=WebStatsBreakdown.PAGE,
-            includeBounceRate=True,
-            limit=10,
-        )
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
-        runner.calculate()
-
-    @patch(
-        "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
-        return_value=True,
-    )
-    def test_prefiltered_page_bounce_and_avg_time_query(self, _mock):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[],
-            breakdownBy=WebStatsBreakdown.PAGE,
-            includeAvgTimeOnPage=True,
-            limit=10,
-        )
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
-        runner.calculate()
-
-    @patch(
-        "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
-        return_value=True,
-    )
-    def test_prefiltered_page_bounce_with_compare_period(self, _mock):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[],
-            breakdownBy=WebStatsBreakdown.PAGE,
-            includeBounceRate=True,
-            compareFilter=CompareFilter(compare=True),
-            limit=10,
-        )
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
         runner.calculate()
 
     def test_web_trends_sessions_snapshot(self):
