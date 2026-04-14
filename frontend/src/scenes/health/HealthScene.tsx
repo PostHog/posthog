@@ -128,7 +128,7 @@ const UnifiedHealthScene = (): JSX.Element => {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-6 max-w-5xl">
+            <div className="flex flex-col gap-6">
                 <LemonBanner
                     type="info"
                     className="mb-2"
