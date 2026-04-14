@@ -1,7 +1,6 @@
-import re
-
 import requests
 import structlog
+from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,7 +15,9 @@ logger = structlog.get_logger(__name__)
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 
-_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+class TeamsChannelRequestSerializer(serializers.Serializer):
+    team_id = serializers.UUIDField(required=True)
 
 
 class TeamsTeamsView(APIView):
@@ -67,9 +68,10 @@ class TeamsChannelsView(APIView):
         if not isinstance(user, User) or user.current_team is None:
             return Response({"error": "No current team selected"}, status=400)
 
-        teams_team_id = request.data.get("team_id")
-        if not teams_team_id or not isinstance(teams_team_id, str) or not _UUID_RE.match(teams_team_id):
+        serializer = TeamsChannelRequestSerializer(data=request.data)
+        if not serializer.is_valid():
             return Response({"error": "team_id must be a valid UUID"}, status=400)
+        teams_team_id = str(serializer.validated_data["team_id"])
 
         try:
             token = get_graph_token(user.current_team)
@@ -78,7 +80,7 @@ class TeamsChannelsView(APIView):
             return Response({"error": "Failed to get Teams access token"}, status=400)
 
         try:
-            resp = requests.get(  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests
+            resp = requests.get(
                 f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=15,
