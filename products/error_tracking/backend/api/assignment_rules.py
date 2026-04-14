@@ -11,7 +11,7 @@ from posthog.event_usage import groups
 
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 
-from .utils import RuleReorderingMixin, generate_byte_code
+from .helpers import RuleReorderingMixin, generate_byte_code
 
 logger = structlog.get_logger(__name__)
 

@@ -32,7 +32,7 @@ from products.error_tracking.backend.models import (
 )
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
-from .utils import ErrorTrackingIssueAssignmentSerializer
+from .helpers import ErrorTrackingIssueAssignmentSerializer
 
 DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 DEFAULT_EMBEDDING_VERSION = 1

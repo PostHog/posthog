@@ -7,11 +7,11 @@ from rest_framework import status
 
 from posthog.schema import PropertyGroupFilterValue
 
+from products.error_tracking.backend.api.helpers import generate_byte_code
 from products.error_tracking.backend.api.suppression_rules import (
     _get_client_safe_filters,
     get_client_safe_suppression_rules,
 )
-from products.error_tracking.backend.api.utils import generate_byte_code
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
 from common.hogvm.python.execute import execute_bytecode
