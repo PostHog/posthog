@@ -237,7 +237,11 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_from_append_to_webhook_does_not_reset_pipeline(self):
+    @pytest.mark.parametrize(
+        "from_sync_type",
+        [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
+    )
+    def test_update_schema_to_webhook_does_not_reset_pipeline(self, from_sync_type):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,
@@ -250,7 +254,7 @@ class TestExternalDataSchema(APIBaseTest):
             source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
-            sync_type=ExternalDataSchema.SyncType.APPEND,
+            sync_type=from_sync_type,
             sync_type_config={
                 "incremental_field": "created",
                 "incremental_field_type": "integer",
