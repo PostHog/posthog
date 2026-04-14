@@ -1,9 +1,13 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { OrgSwitcher } from 'lib/components/Account/OrgSwitcher'
 import { HogWelder } from 'lib/components/hedgehogs'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { SupportModalButton } from 'scenes/authentication/SupportModalButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,6 +21,8 @@ export const scene: SceneExport = {
 export function OrganizationPendingDeletion(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { otherOrganizations } = useValues(userLogic)
+    const { isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
+    const { openOrgSwitcher, closeOrgSwitcher } = useActions(newAccountMenuLogic)
     const hasOtherOrgs = otherOrganizations.length > 0
 
     return (
@@ -33,14 +39,38 @@ export function OrganizationPendingDeletion(): JSX.Element {
                         deleted shortly - this usually takes a couple of minutes.
                     </p>
                     {hasOtherOrgs && (
-                        <>
-                            <p className="text-secondary text-sm">Switch to another organization:</p>
-                            <div className="w-full max-w-[400px] border rounded overflow-hidden">
-                                <OrgSwitcher dialog={false} />
-                            </div>
-                        </>
+                        <Popover
+                            visible={isOrgSwitcherOpen}
+                            onClickOutside={closeOrgSwitcher}
+                            overlay={
+                                <div className="w-[320px]">
+                                    <OrgSwitcher dialog={false} />
+                                </div>
+                            }
+                            placement="bottom"
+                        >
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => (isOrgSwitcherOpen ? closeOrgSwitcher() : openOrgSwitcher())}
+                                sideIcon={<IconChevronDown />}
+                            >
+                                {currentOrganization ? (
+                                    <span className="flex items-center gap-2">
+                                        <UploadedLogo
+                                            name={currentOrganization.name}
+                                            entityId={currentOrganization.id}
+                                            mediaId={currentOrganization.logo_media_id}
+                                            size="xsmall"
+                                        />
+                                        Switch organization
+                                    </span>
+                                ) : (
+                                    'Switch organization'
+                                )}
+                            </LemonButton>
+                        </Popover>
                     )}
-                    <SupportModalButton kind="support" target_area="billing" label="Contact support" />
+                    <SupportModalButton kind="support" target_area="login" label="Contact support" />
                 </div>
             </LemonCard>
         </div>
