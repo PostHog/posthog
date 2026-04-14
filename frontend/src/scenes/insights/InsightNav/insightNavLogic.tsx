@@ -113,17 +113,14 @@ const cleanSeriesEntityMath = (
         )
     }
 
-    // TODO: This should be improved to keep a math that differs from the default.
-    // For this we need to know wether the math was actively changed e.g.
-    // On which insight type the math properties have been set.
     if (mathAvailability === MathAvailability.All) {
-        // return entity with default all availability math set
+        if (math != null) {
+            return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
+        }
         return { ...baseEntity, math: BaseMathType.TotalCount }
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
-        // return entity with default actors only availability math set
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
     }
-    // return entity without math properties for insights that don't support it
     return baseEntity
 }
 
@@ -477,6 +474,24 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     //     }
     // }
 
+    if (cache?.series && newCache.series && !isTrendsQuery(query) && !isStickinessQuery(query)) {
+        newCache.series = newCache.series.map((entity, index) => {
+            const cachedEntity = cache.series?.[index]
+            if (cachedEntity && cachedEntity.math !== undefined && entity.math === undefined) {
+                return {
+                    ...entity,
+                    math: cachedEntity.math,
+                    ...(cachedEntity.math_property != null ? { math_property: cachedEntity.math_property } : {}),
+                    ...(cachedEntity.math_group_type_index != null
+                        ? { math_group_type_index: cachedEntity.math_group_type_index }
+                        : {}),
+                    ...(cachedEntity.math_hogql != null ? { math_hogql: cachedEntity.math_hogql } : {}),
+                }
+            }
+            return entity
+        })
+    }
+
     if (isWebAnalyticsInsightQuery(query)) {
         return newCache
     }
@@ -516,6 +531,9 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties ? { properties: cache.properties } : {}),
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+        ...(cache.aggregation_group_type_index !== undefined
+            ? { aggregation_group_type_index: cache.aggregation_group_type_index }
+            : {}),
     }
 
     // series

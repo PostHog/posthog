@@ -11,6 +11,7 @@ import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery, Node } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    BaseMathType,
     ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
@@ -360,6 +361,92 @@ describe('insightNavLogic', () => {
                         trendsFilter: expect.objectContaining({
                             showTrendLines: true,
                         }),
+                    },
+                })
+            })
+
+            it('preserves series math when switching away from trends and back', async () => {
+                const trendsQueryWithUniqueUsers: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                        ],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithUniqueUsers)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [
+                            expect.objectContaining({
+                                math: BaseMathType.UniqueUsers,
+                            }),
+                        ],
+                    },
+                })
+            })
+
+            it('preserves series math when switching through multiple tabs', async () => {
+                const trendsQueryWithDAU: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                        ],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithDAU)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.LIFECYCLE)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [
+                            expect.objectContaining({
+                                math: BaseMathType.UniqueUsers,
+                            }),
+                        ],
                     },
                 })
             })
