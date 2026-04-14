@@ -92,13 +92,17 @@ function DeliveryTargetsConfig({
                                 onSlackIntegrationChange(newValue)
                             }}
                         />
-                        {slackIntegrationId && (
-                            <SlackChannelPicker
-                                value={slackChannelValue}
-                                onChange={(val) => onSlackChannelChange(val || '')}
-                                integration={integrations!.find((i) => i.id === slackIntegrationId)!}
-                            />
-                        )}
+                        {slackIntegrationId &&
+                            (() => {
+                                const selectedIntegration = integrations?.find((i) => i.id === slackIntegrationId)
+                                return selectedIntegration ? (
+                                    <SlackChannelPicker
+                                        value={slackChannelValue}
+                                        onChange={(val) => onSlackChannelChange(val || '')}
+                                        integration={selectedIntegration}
+                                    />
+                                ) : null
+                            })()}
                     </div>
                 )}
             </div>

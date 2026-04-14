@@ -103,9 +103,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                         return []
                     }
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`
+                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/?evaluation=${props.evaluationId}`
                     )
-                    return (response.results || []).filter((r: EvaluationReport) => r.evaluation === props.evaluationId)
+                    return response.results || []
                 },
                 createReport: async (params: {
                     evaluationId: string

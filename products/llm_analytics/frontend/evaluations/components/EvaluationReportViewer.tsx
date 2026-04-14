@@ -211,8 +211,6 @@ export function EvaluationReportViewer({
                 </div>
             )}
 
-            {!compact && content.title && <h3 className="font-semibold text-sm mb-2">{content.title}</h3>}
-
             {metrics && <MetricsCard metrics={metrics} />}
 
             {sections.length > 0 && (
