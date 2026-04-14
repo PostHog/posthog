@@ -877,7 +877,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         Updates source_model.job_inputs with CDC config.
         Returns a Response on error, None on success.
         """
-        import psycopg
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 
         management_mode = payload.get("cdc_management_mode", "posthog")
         slot_name = payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}"
@@ -901,23 +901,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import create_slot_and_publication
 
             try:
-                with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                    conn = psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=15,
+                with cdc_pg_connection(source_model) as conn:
+                    consistent_point = create_slot_and_publication(
+                        conn, slot_name, pub_name, source_config.schema, tables=[]
                     )
-                    try:
-                        # Create with empty table list — tables added per-schema
-                        consistent_point = create_slot_and_publication(
-                            conn, slot_name, pub_name, source_config.schema, tables=[]
-                        )
-                        job_inputs["cdc_consistent_point"] = consistent_point
-                    finally:
-                        conn.close()
+                    job_inputs["cdc_consistent_point"] = consistent_point
             except Exception as e:
                 source_model.delete()
                 logger.exception("Failed to create CDC slot and publication", error=str(e))
@@ -933,30 +921,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import publication_exists, slot_exists
 
             try:
-                with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                    conn = psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=15,
-                    )
-                    try:
-                        if not slot_exists(conn, slot_name):
-                            source_model.delete()
-                            return Response(
-                                status=status.HTTP_400_BAD_REQUEST,
-                                data={"message": f"Replication slot '{slot_name}' does not exist"},
-                            )
-                        if not publication_exists(conn, pub_name):
-                            source_model.delete()
-                            return Response(
-                                status=status.HTTP_400_BAD_REQUEST,
-                                data={"message": f"Publication '{pub_name}' does not exist"},
-                            )
-                    finally:
-                        conn.close()
+                with cdc_pg_connection(source_model) as conn:
+                    if not slot_exists(conn, slot_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Replication slot '{slot_name}' does not exist"},
+                        )
+                    if not publication_exists(conn, pub_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Publication '{pub_name}' does not exist"},
+                        )
             except Exception as e:
                 source_model.delete()
                 logger.exception("Failed to validate self-managed CDC slot", error=str(e))
