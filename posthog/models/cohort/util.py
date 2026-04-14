@@ -311,6 +311,8 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
         if not query_dict["select"]:
             query_dict["select"] = ["actor"]
 
+        # Intentionally strip search: the cohort should capture all persons matching
+        # the query, not just those matching an ad-hoc search in the persons modal.
         query_dict.pop("search", None)
 
         source = query_dict.get("source", {})
