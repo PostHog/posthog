@@ -9,52 +9,55 @@ import {
     TracingSpansTraceCreateParams,
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const TracingSpansQueryCreateSchema = TracingSpansQueryCreateBody
 
-const tracingSpansQueryCreate = (): ToolBase<typeof TracingSpansQueryCreateSchema, unknown> => ({
-    name: 'tracing-spans-query-create',
-    schema: TracingSpansQueryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TracingSpansQueryCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/environments/${projectId}/tracing/spans/query/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
-    },
-})
+const tracingSpansQueryCreate = (): ToolBase<typeof TracingSpansQueryCreateSchema, unknown> =>
+    withUiApp('trace-span-list', {
+        name: 'tracing-spans-query-create',
+        schema: TracingSpansQueryCreateSchema,
+        handler: async (context: Context, params: z.infer<typeof TracingSpansQueryCreateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<unknown>({
+                method: 'POST',
+                path: `/api/environments/${projectId}/tracing/spans/query/`,
+                body,
+            })
+            const filtered = pickResponseFields(result, ['results']) as typeof result
+            return filtered
+        },
+    })
 
 const TracingSpansTraceCreateSchema = TracingSpansTraceCreateParams.omit({ project_id: true }).extend(
     TracingSpansTraceCreateBody.shape
 )
 
-const tracingSpansTraceCreate = (): ToolBase<typeof TracingSpansTraceCreateSchema, unknown> => ({
-    name: 'tracing-spans-trace-create',
-    schema: TracingSpansTraceCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof TracingSpansTraceCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.dateRange !== undefined) {
-            body['dateRange'] = params.dateRange
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/environments/${projectId}/tracing/spans/trace/${params.trace_id}/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
-        return filtered
-    },
-})
+const tracingSpansTraceCreate = (): ToolBase<typeof TracingSpansTraceCreateSchema, unknown> =>
+    withUiApp('trace-span-list', {
+        name: 'tracing-spans-trace-create',
+        schema: TracingSpansTraceCreateSchema,
+        handler: async (context: Context, params: z.infer<typeof TracingSpansTraceCreateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.dateRange !== undefined) {
+                body['dateRange'] = params.dateRange
+            }
+            const result = await context.api.request<unknown>({
+                method: 'POST',
+                path: `/api/environments/${projectId}/tracing/spans/trace/${params.trace_id}/`,
+                body,
+            })
+            const filtered = pickResponseFields(result, ['results']) as typeof result
+            return filtered
+        },
+    })
 
 const TracingSpansServiceNamesRetrieveSchema = TracingSpansServiceNamesRetrieveQueryParams
 
