@@ -161,7 +161,9 @@ async def _poll_for_turn(
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
-            finished, last_message, full_log, total_lines = await sync_to_async(_check_logs)(task_run, skip_lines)
+            finished, last_message, full_log, total_lines, empty_end_turn = await sync_to_async(_check_logs)(
+                task_run, skip_lines
+            )
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -189,7 +191,19 @@ async def _poll_for_turn(
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         if finished and last_message:
             return last_message, full_log, total_lines, printed_lines
-
+        # Surface empty end_turn to the multi-turn session, so it can retry
+        # the prompt instead of us polling until MAX_POLL_SECONDS.
+        if empty_end_turn:
+            logger.exception(
+                "custom_prompt - poll_for_turn: empty end_turn detected (no agent_message), run=%s total_lines=%d",
+                task_run.id,
+                total_lines,
+            )
+            raise EmptyAgentTurnError(
+                f"Agent emitted end_turn with no agent_message for run={task_run.id}",
+                total_lines=total_lines,
+                printed_lines=printed_lines,
+            )
         skip_lines = total_lines
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
@@ -211,9 +225,12 @@ async def _poll_for_turn(
             final_message = None
             final_log = None
             final_lines = skip_lines
+            final_empty_end_turn = False
             for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
                 try:
-                    _, final_message, final_log, final_lines = await sync_to_async(_check_logs)(task_run, skip_lines)
+                    _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(_check_logs)(
+                        task_run, skip_lines
+                    )
                     break
                 except ObjectStorageError:
                     logger.warning(
@@ -228,8 +245,9 @@ async def _poll_for_turn(
             printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
             if final_message:
                 return final_message, final_log, final_lines, printed_lines
+            reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
             raise RuntimeError(
-                f"custom_prompt - poll_for_turn: TaskRun reached terminal status={refreshed.status} with no agent message"
+                f"custom_prompt - poll_for_turn: TaskRun reached terminal status={refreshed.status} — {reason}"
             )
 
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
