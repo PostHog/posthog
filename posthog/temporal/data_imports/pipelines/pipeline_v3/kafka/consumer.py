@@ -66,7 +66,7 @@ class KafkaConsumerService:
     def __init__(
         self,
         config: ConsumerConfig,
-        process_message: Callable[[Any], None],
+        process_message: Callable[..., None],
         kafka_hosts: Optional[list[str]] = None,
         kafka_security_protocol: Optional[str] = None,
     ):
@@ -270,7 +270,7 @@ class KafkaConsumerService:
             if msg_key is None:
                 # Can't track retries without identifiers — process directly
                 with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
-                    self._process_message(message)
+                    self._process_message(message, progress_callback=health_reporter)
                 MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
                 if health_reporter:
                     health_reporter()
@@ -361,7 +361,7 @@ class KafkaConsumerService:
         for attempt in range(self._config.max_retries):
             try:
                 with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
-                    self._process_message(message)
+                    self._process_message(message, progress_callback=health_reporter)
                 if health_reporter:
                     health_reporter()
                 return
