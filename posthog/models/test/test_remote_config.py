@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -455,6 +456,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         self.remote_config.sync()
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
+    @patch("posthog.models.remote_config.requests.post")
     def test_purges_cdn_cache_on_sync(self, mock_post):
         with self.settings(
             REMOTE_CONFIG_CDN_PURGE_ENDPOINT="https://api.cloudflare.com/client/v4/zones/MY_ZONE_ID/purge_cache",
