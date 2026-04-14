@@ -318,9 +318,10 @@ export const TaskRunDetailStatusEnumApi = {
  * * `local` - Local
  * `cloud` - Cloud
  */
-export type EnvironmentEnumApi = (typeof EnvironmentEnumApi)[keyof typeof EnvironmentEnumApi]
+export type TaskRunDetailEnvironmentEnumApi =
+    (typeof TaskRunDetailEnvironmentEnumApi)[keyof typeof TaskRunDetailEnvironmentEnumApi]
 
-export const EnvironmentEnumApi = {
+export const TaskRunDetailEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -360,7 +361,7 @@ export interface TaskRunDetailApi {
 
 * `local` - Local
 * `cloud` - Cloud */
-    environment?: EnvironmentEnumApi
+    environment?: TaskRunDetailEnvironmentEnumApi
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -410,6 +411,18 @@ export const TaskRunUpdateStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+/**
+ * * `local` - local
+ * `cloud` - cloud
+ */
+export type TaskRunUpdateEnvironmentEnumApi =
+    (typeof TaskRunUpdateEnvironmentEnumApi)[keyof typeof TaskRunUpdateEnvironmentEnumApi]
+
+export const TaskRunUpdateEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
 export interface PatchedTaskRunUpdateApi {
     /** Current execution status
 
@@ -439,6 +452,11 @@ export interface PatchedTaskRunUpdateApi {
      * @nullable
      */
     error_message?: string | null
+    /** Execution environment
+
+* `local` - local
+* `cloud` - cloud */
+    environment?: TaskRunUpdateEnvironmentEnumApi
 }
 
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }

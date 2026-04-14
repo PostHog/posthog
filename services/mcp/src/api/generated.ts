@@ -13973,18 +13973,6 @@ export namespace Schemas {
       hidden?: boolean | null;
     }
 
-    /**
-     * * `local` - Local
-    * `cloud` - Cloud
-     */
-    export type EnvironmentEnum = typeof EnvironmentEnum[keyof typeof EnvironmentEnum];
-
-
-    export const EnvironmentEnum = {
-      Local: 'local',
-      Cloud: 'cloud',
-    } as const;
-
     export interface ErrorResponse {
       /** Error message */
       error: string;
@@ -21917,6 +21905,18 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `local` - Local
+    * `cloud` - Cloud
+     */
+    export type TaskRunDetailEnvironmentEnum = typeof TaskRunDetailEnvironmentEnum[keyof typeof TaskRunDetailEnvironmentEnum];
+
+
+    export const TaskRunDetailEnvironmentEnum = {
+      Local: 'local',
+      Cloud: 'cloud',
+    } as const;
+
     export interface TaskRunArtifactResponse {
       /** Artifact file name */
       name: string;
@@ -21952,7 +21952,7 @@ export namespace Schemas {
 
     * `local` - Local
     * `cloud` - Cloud */
-      environment?: EnvironmentEnum;
+      environment?: TaskRunDetailEnvironmentEnum;
       /**
        * Presigned S3 URL for log access (valid for 1 hour).
        * @nullable
@@ -26060,6 +26060,18 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `local` - local
+    * `cloud` - cloud
+     */
+    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
+
+
+    export const TaskRunUpdateEnvironmentEnum = {
+      Local: 'local',
+      Cloud: 'cloud',
+    } as const;
+
     export interface PatchedTaskRunUpdate {
       /** Current execution status
 
@@ -26089,6 +26101,11 @@ export namespace Schemas {
        * @nullable
        */
       error_message?: string | null;
+      /** Execution environment
+
+    * `local` - local
+    * `cloud` - cloud */
+      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     export type PatchedTeamDefaultModifiers = {[key: string]: unknown};
