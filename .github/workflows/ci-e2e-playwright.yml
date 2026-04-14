@@ -484,9 +484,9 @@ jobs:
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
-            - name: Install VR CLI deps
+            - name: Install VR CLI
               if: always() && github.event.pull_request.head.repo.full_name == github.repository
-              run: cd products/visual_review/cli && npm ci
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
@@ -495,7 +495,7 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  RUN_ID=$(npx tsx products/visual_review/cli/src/index.ts run create \
+                  RUN_ID=$(vr run create \
                     --type playwright \
                     --baseline playwright/snapshots.yml \
                     --branch "${{ github.event.pull_request.head.ref || github.ref_name }}" \
@@ -510,7 +510,7 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  npx tsx products/visual_review/cli/src/index.ts run upload \
+                  vr run upload \
                     --run-id "${{ steps.vr-create.outputs.run_id }}" \
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
@@ -814,9 +814,9 @@ jobs:
                   done
 
             # Visual Review: complete the run (test job already uploaded snapshots)
-            - name: Install VR CLI deps
+            - name: Install VR CLI
               if: needs.playwright.outputs.vr_run_id != ''
-              run: cd products/visual_review/cli && npm ci
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
               if: needs.playwright.outputs.vr_run_id != ''
@@ -825,7 +825,7 @@ jobs:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
-                  npx tsx products/visual_review/cli/src/index.ts run complete \
+                  vr run complete \
                     --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
                     --baseline playwright/snapshots.yml \
                     $VR_AUTO_APPROVE \
