@@ -51,6 +51,7 @@ function ExportHeatmap(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: width ? `${width}px` : '100%',
+                minHeight: '100vh',
                 overflow: 'hidden',
             }}
         >
@@ -61,24 +62,24 @@ function ExportHeatmap(): JSX.Element {
                 exportToken={exportToken}
             />
             {exportedData.heatmap_context?.heatmap_type === 'screenshot' ? (
-                <>
-                    {isLoading ? null : (
-                        <img
-                            src={screenshotUrl ?? ''}
-                            alt="Heatmap"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: '100%', height: 'auto', display: 'block' }}
-                        />
-                    )}
-                </>
+                isLoading ? null : (
+                    <img
+                        src={screenshotUrl ?? ''}
+                        alt="Heatmap"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: '100%', height: 'auto', display: 'block' }}
+                    />
+                )
             ) : (
                 <iframe
                     id="heatmap-iframe"
+                    ref={null}
                     title="Heatmap export"
                     className="bg-white"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: '100%', height: '100vh', display: 'block' }}
                     src={exportedData.heatmap_url ?? ''}
+                    onLoad={() => {}}
                     // these two sandbox values are necessary so that the site and toolbar can run
                     // this is a very loose sandbox,
                     // but we specify it so that at least other capabilities are denied
