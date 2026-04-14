@@ -765,7 +765,7 @@ def full_logs_backup_schedule(context: dagster.ScheduleEvaluationContext):
             incremental=False,
             context=context,
             owner=JobOwners.TEAM_LOGS,
-            workload=Workload.DEFAULT,
+            workload=Workload.LOGS,
             node_role=NodeRole.LOGS,
         )
         if request:
@@ -785,7 +785,7 @@ def incremental_logs_backup_schedule(context: dagster.ScheduleEvaluationContext)
             incremental=True,
             context=context,
             owner=JobOwners.TEAM_LOGS,
-            workload=Workload.DEFAULT,
+            workload=Workload.LOGS,
             node_role=NodeRole.LOGS,
         )
         if request:
