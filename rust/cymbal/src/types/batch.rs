@@ -76,11 +76,11 @@ impl<T> Batch<T> {
         Ok(Batch(result))
     }
 
-    pub fn apply_func<Ctx, O, F, Fu, E>(
+    pub async fn apply_func<Ctx, O, F, Fu, E>(
         self,
         mut func: F,
         ctx: Ctx,
-    ) -> impl Future<Output = Result<Batch<O>, E>>
+    ) -> Result<Batch<O>, E>
     where
         Ctx: Clone + Send,
         F: FnMut(T, Ctx) -> Fu + 'static,
@@ -88,17 +88,12 @@ impl<T> Batch<T> {
         O: Send + 'static,
         E: Send + 'static,
     {
-        async move {
-            let concurrency_limit = BATCH_APPLY_CONCURRENCY.load(Ordering::Relaxed).max(1);
-            futures::stream::iter(self.0.into_iter().map(|item| {
-                let future = func(item, ctx.clone());
-                async move { future.await }
-            }))
+        let concurrency_limit = BATCH_APPLY_CONCURRENCY.load(Ordering::Relaxed).max(1);
+        futures::stream::iter(self.0.into_iter().map(|item| func(item, ctx.clone())))
             .buffered(concurrency_limit)
             .try_collect::<Vec<_>>()
             .await
             .map(Batch::from)
-        }
     }
 
     #[allow(clippy::manual_async_fn)]
