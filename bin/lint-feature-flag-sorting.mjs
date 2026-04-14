@@ -211,7 +211,7 @@ function main() {
     const errors = checkSorting(sections)
 
     if (errors.length === 0) {
-        console.log('✓ FEATURE_FLAGS are alphabetically sorted within each section')
+        console.info('✓ FEATURE_FLAGS are alphabetically sorted within each section')
         process.exit(0)
     }
 
@@ -227,7 +227,7 @@ function main() {
         const newContent = before + newBlock + after
 
         writeFileSync(CONSTANTS_PATH, newContent)
-        console.log('\n✓ FEATURE_FLAGS have been sorted. Please review the changes.')
+        console.info('\n✓ FEATURE_FLAGS have been sorted. Please review the changes.')
         process.exit(0)
     } else {
         console.error('Run with --fix to automatically sort the flags.')
