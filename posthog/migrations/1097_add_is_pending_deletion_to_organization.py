@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1095_create_group_clickhouse_team"),
+        ("posthog", "1096_alter_datadeletionrequest_events_and_more"),
     ]
 
     operations = [
