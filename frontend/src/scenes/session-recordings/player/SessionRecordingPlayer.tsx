@@ -8,6 +8,7 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
+import { PlayerSummaryDock } from './PlayerSummaryDock'
 import { PurePlayer } from './PurePlayer'
 import {
     SessionRecordingPlayerLogicProps,
@@ -93,7 +94,10 @@ function SessionRecordingPlayerInternal({
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+            <div className="flex flex-col flex-1 min-w-0 min-h-0">
+                <PurePlayer noMeta={noMeta} noBorder={noBorder} />
+                <PlayerSummaryDock />
+            </div>
             {withSidebar && <PlayerSidebar />}
         </div>
     )
