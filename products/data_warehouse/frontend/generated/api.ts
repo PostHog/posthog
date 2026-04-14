@@ -891,6 +891,29 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
 }
 
 /**
+ * Validate CDC prerequisites against a live Postgres connection.
+
+Used by the source wizard to surface ✅/❌ checks before source creation,
+and by the self-managed setup popup to verify user-created slot/publication.
+ */
+export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/check_cdc_prerequisites/`
+}
+
+export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
+    projectId: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
+/**
  * Create, Read, Update and Delete External data Sources.
  */
 export const getExternalDataSourcesConnectionsListUrl = (
