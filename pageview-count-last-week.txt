@@ -1,0 +1,3 @@
+Pageview count (last week): 4
+Window: date_from = -7d (queried on 2026-04-14T16:45:00Z)
+Event: $pageview
