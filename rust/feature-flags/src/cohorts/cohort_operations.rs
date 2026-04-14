@@ -67,7 +67,7 @@ impl Cohort {
         client: &PostgresReader,
         team_id: TeamId,
         ids: &[CohortId],
-    ) -> Result<Vec<Cohort>, FlagError> {
+    ) -> Result<Vec<Cohort>, CohortFetchError> {
         if ids.is_empty() {
             return Ok(vec![]);
         }
@@ -81,7 +81,7 @@ impl Cohort {
                         team_id,
                         e
                     );
-                    FlagError::DatabaseUnavailable
+                    CohortFetchError::DatabaseUnavailable
                 })?;
 
         let query = format!(
@@ -100,7 +100,7 @@ impl Cohort {
                     team_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {e}"))
+                CohortFetchError::QueryFailed(format!("Database query error: {e}"))
             })?;
 
         Ok(cohorts)

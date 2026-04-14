@@ -228,6 +228,7 @@ mod tests {
     use super::*;
     use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
     use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
+    use test_case::test_case;
 
     fn make_flag(id: i32, key: &str, active: bool, groups: Vec<FlagPropertyGroup>) -> FeatureFlag {
         FeatureFlag {
@@ -295,27 +296,16 @@ mod tests {
         assert_eq!(deps, HashSet::from([2]));
     }
 
-    #[test]
-    fn test_extract_deps_inactive_flag_returns_empty() {
-        let flag = make_flag(
-            1,
-            "flag_a",
-            false,
-            vec![group_with_properties(vec![flag_dep_property(2)])],
-        );
-        let deps = extract_direct_flag_dependency_ids(&flag);
-        assert!(deps.is_empty());
-    }
-
-    #[test]
-    fn test_extract_deps_deleted_flag_returns_empty() {
+    #[test_case(false, false ; "inactive flag")]
+    #[test_case(true, true ; "deleted flag")]
+    fn test_extract_deps_skipped_flag_returns_empty(active: bool, deleted: bool) {
         let mut flag = make_flag(
             1,
             "flag_a",
-            true,
+            active,
             vec![group_with_properties(vec![flag_dep_property(2)])],
         );
-        flag.deleted = true;
+        flag.deleted = deleted;
         let deps = extract_direct_flag_dependency_ids(&flag);
         assert!(deps.is_empty());
     }
@@ -342,14 +332,16 @@ mod tests {
         assert_eq!(ids, HashSet::from([42]));
     }
 
-    #[test]
-    fn test_extract_cohort_ids_ignores_inactive() {
-        let flag = make_flag(
+    #[test_case(false, false ; "inactive flag")]
+    #[test_case(true, true ; "deleted flag")]
+    fn test_extract_cohort_ids_ignores_skipped(active: bool, deleted: bool) {
+        let mut flag = make_flag(
             1,
             "flag_a",
-            false,
+            active,
             vec![group_with_properties(vec![cohort_property(42)])],
         );
+        flag.deleted = deleted;
         let ids = extract_cohort_ids_from_flag_filters(&[flag]);
         assert!(ids.is_empty());
     }
@@ -721,19 +713,6 @@ mod tests {
         // Cycle participants and their dependents are all removed from the graph
         assert!(meta.dependency_stages.is_empty());
         assert_eq!(meta.flags_with_missing_deps, vec![1, 2, 3, 4]);
-    }
-
-    #[test]
-    fn test_extract_cohort_ids_ignores_deleted() {
-        let mut flag = make_flag(
-            1,
-            "flag_a",
-            true,
-            vec![group_with_properties(vec![cohort_property(42)])],
-        );
-        flag.deleted = true;
-        let ids = extract_cohort_ids_from_flag_filters(&[flag]);
-        assert!(ids.is_empty());
     }
 
     #[test]
