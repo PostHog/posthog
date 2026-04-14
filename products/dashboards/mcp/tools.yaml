@@ -49,8 +49,7 @@ tools:
         list: true
         title: Get all dashboards
         description: >
-            Get all dashboards in the project with optional filtering by pinned status or search term. Returns name,
-            description, pinned status, tags, and creation metadata.
+            Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.
     dashboard-create:
         operation: dashboards_create
         enabled: true
@@ -63,8 +62,7 @@ tools:
         enrich_url: '{id}'
         title: Create dashboard
         description: >
-            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
-            from a template or duplicate an existing dashboard.
+            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
         response:
             exclude:
                 - effective_restriction_level
@@ -140,9 +138,7 @@ tools:
         enrich_url: '{id}'
         title: Get dashboard
         description: >
-            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and
-            layout information. Insight results are omitted to save context — use dashboard-insights-run to fetch
-            the actual data for each insight.
+            Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.
         response:
             exclude:
                 - effective_restriction_level
@@ -195,8 +191,7 @@ tools:
         enrich_url: '{id}'
         title: Update dashboard
         description: >
-            Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
-            restriction level.
+            Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
         response:
             exclude:
                 - effective_restriction_level
