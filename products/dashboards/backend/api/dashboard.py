@@ -280,7 +280,8 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 class InsightResultSerializer(InsightSerializer):
     """InsightSerializer restricted to identifiers + result only."""
 
-    class Meta(InsightSerializer.Meta):
+    class Meta:
+        model = Insight
         fields = [
             "id",
             "short_id",
@@ -290,13 +291,18 @@ class InsightResultSerializer(InsightSerializer):
         ]
         read_only_fields = fields
 
+    def to_representation(self, instance: Insight):
+        # Skip InsightSerializer.to_representation which references fields
+        # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer.
+        return serializers.ModelSerializer.to_representation(self, instance)
+
 
 class DashboardTileResultSerializer(DashboardTileSerializer):
     """DashboardTileSerializer restricted to tile id + insight result fields."""
 
     insight = InsightResultSerializer()
 
-    class Meta(DashboardTileSerializer.Meta):
+    class Meta:
         model = DashboardTile
         fields = ["id", "insight"]
         read_only_fields = ["id", "insight"]
@@ -1485,7 +1491,7 @@ class DashboardsViewSet(
                 ),
             ),
             OpenApiParameter(
-                "format",
+                "output_format",
                 OpenApiTypes.STR,
                 enum=["optimized", "json"],
                 description=(
@@ -1500,7 +1506,7 @@ class DashboardsViewSet(
     def run_insights(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Run all insights on a dashboard and return their results."""
         dashboard = self.get_object()
-        output_format = request.query_params.get("format", "optimized")
+        output_format = request.query_params.get("output_format", "optimized")
 
         context = self.get_serializer_context()
         context["dashboard"] = dashboard

@@ -8859,6 +8859,27 @@ export namespace Schemas {
       deleted?: boolean | null;
     }
 
+    /**
+     * InsightSerializer restricted to identifiers + result only.
+     */
+    export interface InsightResult {
+      readonly id: number;
+      readonly short_id: string;
+      /** @nullable */
+      readonly name: string | null;
+      /** @nullable */
+      readonly derived_name: string | null;
+      readonly result: unknown;
+    }
+
+    /**
+     * DashboardTileSerializer restricted to tile id + insight result fields.
+     */
+    export interface DashboardTileResult {
+      id?: number;
+      insight: InsightResult;
+    }
+
     export interface DataColorTheme {
       readonly id: number;
       /** @maxLength 100 */
@@ -30236,6 +30257,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RunInsightsResponse {
+      /** Results for each insight tile on the dashboard. */
+      results: DashboardTileResult[];
+    }
+
     /**
      * * `manual` - manual
     * `signal_report` - signal_report
@@ -31860,6 +31886,43 @@ export namespace Schemas {
     export const EnvironmentsDashboardsReorderTilesCreateFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
+    format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: EnvironmentsDashboardsRunInsightsRetrieveOutputFormat;
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
+    };
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = {
+      Json: 'json',
+      Optimized: 'optimized',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveRefresh = typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
     } as const;
 
     export type EnvironmentsDashboardsSnapshotCreateParams = {
@@ -34804,6 +34867,43 @@ export namespace Schemas {
     export const DashboardsReorderTilesCreateFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveParams = {
+    format?: DashboardsRunInsightsRetrieveFormat;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat;
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh;
+    };
+
+    export type DashboardsRunInsightsRetrieveFormat = typeof DashboardsRunInsightsRetrieveFormat[keyof typeof DashboardsRunInsightsRetrieveFormat];
+
+
+    export const DashboardsRunInsightsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveOutputFormat = typeof DashboardsRunInsightsRetrieveOutputFormat[keyof typeof DashboardsRunInsightsRetrieveOutputFormat];
+
+
+    export const DashboardsRunInsightsRetrieveOutputFormat = {
+      Json: 'json',
+      Optimized: 'optimized',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveRefresh = typeof DashboardsRunInsightsRetrieveRefresh[keyof typeof DashboardsRunInsightsRetrieveRefresh];
+
+
+    export const DashboardsRunInsightsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
     } as const;
 
     export type DashboardsSnapshotCreateParams = {

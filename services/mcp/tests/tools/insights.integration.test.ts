@@ -91,7 +91,7 @@ describe('Insights', { concurrent: false }, () => {
 
             const result = await queryTool.handler(context, {
                 insightId: String(insight.id),
-                format: 'optimized',
+                output_format: 'optimized',
             })
             const response = parseToolResponse(result)
 
@@ -107,7 +107,7 @@ describe('Insights', { concurrent: false }, () => {
 
             const result = await queryTool.handler(context, {
                 insightId: String(insight.id),
-                format: 'json',
+                output_format: 'json',
             })
             const response = parseToolResponse(result)
 
@@ -134,7 +134,7 @@ describe('Insights', { concurrent: false }, () => {
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'json',
+                    output_format: 'json',
                 })
                 const response = parseToolResponse(result)
 
@@ -152,7 +152,7 @@ describe('Insights', { concurrent: false }, () => {
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'optimized',
+                    output_format: 'optimized',
                 })
                 const response = parseToolResponse(result)
 
@@ -165,7 +165,7 @@ describe('Insights', { concurrent: false }, () => {
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'json',
+                    output_format: 'json',
                 })
                 const response = parseToolResponse(result)
 
@@ -180,7 +180,7 @@ describe('Insights', { concurrent: false }, () => {
 
                 const result = await queryTool.handler(context, {
                     insightId: String(insight.id),
-                    format: 'optimized',
+                    output_format: 'optimized',
                 })
                 const response = parseToolResponse(result)
 
