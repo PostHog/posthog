@@ -72,8 +72,13 @@ function ScrollArea({
     children,
     scrollShadows = true,
     hideScrollbars = false,
+    alwaysShowScrollbars = false,
     ...props
-}: ScrollAreaPrimitive.Root.Props & { scrollShadows?: boolean; hideScrollbars?: boolean }): React.ReactElement {
+}: ScrollAreaPrimitive.Root.Props & {
+    scrollShadows?: boolean
+    hideScrollbars?: boolean
+    alwaysShowScrollbars?: boolean
+}): React.ReactElement {
     return (
         <ScrollAreaPrimitive.Root
             data-slot="scroll-area"
@@ -91,8 +96,8 @@ function ScrollArea({
             </ScrollAreaPrimitive.Viewport>
             {!hideScrollbars && (
                 <>
-                    <ScrollBar orientation="horizontal" />
-                    <ScrollBar orientation="vertical" />
+                    <ScrollBar orientation="horizontal" alwaysVisible={alwaysShowScrollbars} />
+                    <ScrollBar orientation="vertical" alwaysVisible={alwaysShowScrollbars} />
                     <ScrollAreaPrimitive.Corner
                         data-slot="scroll-area-corner"
                         className="bg-transparent rounded-br-sm z-1"
@@ -106,8 +111,9 @@ function ScrollArea({
 function ScrollBar({
     className,
     orientation = 'vertical',
+    alwaysVisible = false,
     ...props
-}: ScrollAreaPrimitive.Scrollbar.Props): React.ReactElement {
+}: ScrollAreaPrimitive.Scrollbar.Props & { alwaysVisible?: boolean }): React.ReactElement {
     return (
         <ScrollAreaPrimitive.Scrollbar
             data-slot="scroll-area-scrollbar"
@@ -115,9 +121,11 @@ function ScrollBar({
             orientation={orientation}
             className={cn(
                 'group/scrollbar bg-input/50 flex touch-none p-px transition-colors select-none z-1 rounded-sm',
-                'data-[orientation=horizontal]:w-[calc(100%-0.625rem)] data-[orientation=horizontal]:h-2.5 data-[orientation=horizontal]:flex-row',
-                'data-[orientation=vertical]:h-[calc(100%-0.625rem)] data-[orientation=vertical]:w-2.5 data-[orientation=vertical]:flex-col',
-                'opacity-0 transition-opacity pointer-events-none data-[hovering]:opacity-100 data-[hovering]:delay-0 data-[hovering]:pointer-events-auto data-[scrolling]:opacity-100 data-[scrolling]:duration-0 data-[scrolling]:pointer-events-auto',
+                'data-[orientation=horizontal]:w-full data-[orientation=horizontal]:data-[has-overflow-y]:w-[calc(100%-0.625rem)] data-[orientation=horizontal]:h-2.5 data-[orientation=horizontal]:flex-row',
+                'data-[orientation=vertical]:h-full data-[orientation=vertical]:data-[has-overflow-x]:h-[calc(100%-0.625rem)] data-[orientation=vertical]:w-2.5 data-[orientation=vertical]:flex-col',
+                alwaysVisible
+                    ? 'opacity-100 pointer-events-auto'
+                    : 'opacity-0 transition-opacity pointer-events-none data-[hovering]:opacity-100 data-[hovering]:delay-0 data-[hovering]:pointer-events-auto data-[scrolling]:opacity-100 data-[scrolling]:duration-0 data-[scrolling]:pointer-events-auto',
                 className
             )}
             {...props}
