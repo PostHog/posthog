@@ -21,6 +21,7 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUS
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_item_summaries
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     AnalysisLevel,
+    ClusterAggregateMetrics,
     ClusterData,
     ClusteringParams,
     ClusterItem,
@@ -58,6 +59,7 @@ def emit_cluster_events(
     analysis_level: AnalysisLevel = "trace",
     job_id: str = "",
     job_name: str = "",
+    cluster_metrics: dict[int, ClusterAggregateMetrics] | None = None,
 ) -> list[ClusterData]:
     """Emit $ai_trace_clusters or $ai_generation_clusters event to ClickHouse.
 
@@ -124,6 +126,7 @@ def emit_cluster_events(
         coords_2d=coords_2d,
         centroid_coords_2d=centroid_coords_2d,
         item_timestamps=item_timestamps,
+        cluster_metrics=cluster_metrics or {},
     )
 
     # Build and emit event
@@ -165,6 +168,7 @@ def _build_cluster_data(
     coords_2d: np.ndarray,
     centroid_coords_2d: np.ndarray,
     item_timestamps: dict[str, str],
+    cluster_metrics: dict[int, ClusterAggregateMetrics] | None = None,
 ) -> list[ClusterData]:
     """Build cluster data structure with items and metadata.
 
@@ -241,6 +245,7 @@ def _build_cluster_data(
                 centroid=centroids[cluster_id],
                 centroid_x=float(centroid_coords_2d[cluster_id][0]),
                 centroid_y=float(centroid_coords_2d[cluster_id][1]),
+                metrics=(cluster_metrics or {}).get(cluster_id),
             )
         )
 
@@ -314,6 +319,7 @@ def _build_cluster_data(
                 centroid=[],  # No actual centroid for noise cluster
                 centroid_x=centroid_x,
                 centroid_y=centroid_y,
+                metrics=(cluster_metrics or {}).get(NOISE_CLUSTER_ID),
             )
         )
 

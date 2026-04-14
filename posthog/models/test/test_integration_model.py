@@ -823,12 +823,13 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient, success]
 
-        repos = GitHubIntegration(integration).list_repositories()
+        repos, has_more = GitHubIntegration(integration).list_repositories()
 
         assert repos == [
             {"id": 1, "name": "posthog", "full_name": "PostHog/posthog"},
             {"id": 2, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
         ]
+        assert has_more is False
         assert mock_get.call_count == 2
 
     @patch("posthog.models.integration.requests.get")
@@ -849,30 +850,26 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        repos = GitHubIntegration(integration).list_repositories()
+        repos, has_more = GitHubIntegration(integration).list_repositories()
 
         assert repos == []
+        assert has_more is False
         assert mock_get.call_count == 2
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
-    def test_list_all_repositories_paginates(self, mock_list):
+    def test_list_all_repositories_delegates_with_limit(self, mock_list):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
         )
 
-        page1 = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(100)]
-        page2 = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(100, 130)]
-        mock_list.side_effect = [page1, page2]
+        all_repos = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(130)]
+        mock_list.return_value = (all_repos, False)
 
         repos = GitHubIntegration(integration).list_all_repositories()
 
         assert len(repos) == 130
-        assert repos[0] == {"id": 0, "name": "repo-0", "full_name": "PostHog/repo-0"}
-        assert repos[-1] == {"id": 129, "name": "repo-129", "full_name": "PostHog/repo-129"}
-        assert mock_list.call_count == 2
-        mock_list.assert_any_call(page=1)
-        mock_list.assert_any_call(page=2)
+        mock_list.assert_called_once_with(limit=500, offset=0)
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_list_all_repositories_respects_max_repos(self, mock_list):
@@ -881,29 +878,13 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
 
-        page = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(100)]
-        mock_list.return_value = page
+        repos_50 = [{"id": i, "name": f"repo-{i}", "full_name": f"PostHog/repo-{i}"} for i in range(50)]
+        mock_list.return_value = (repos_50, True)
 
         repos = GitHubIntegration(integration).list_all_repositories(max_repos=50)
 
         assert len(repos) == 50
-        assert mock_list.call_count == 1
-
-    @patch("posthog.models.integration.GitHubIntegration.list_repositories")
-    def test_list_all_repositories_deduplicates(self, mock_list):
-        integration = self.create_integration(
-            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
-            {"access_token": "ACCESS_TOKEN"},
-        )
-
-        page1 = [{"id": 1, "name": "repo-1", "full_name": "PostHog/repo-1"}] * 100
-        page2 = [{"id": 1, "name": "repo-1", "full_name": "PostHog/repo-1"}]
-        mock_list.side_effect = [page1, page2]
-
-        repos = GitHubIntegration(integration).list_all_repositories()
-
-        assert len(repos) == 1
-        assert repos[0]["id"] == 1
+        mock_list.assert_called_once_with(limit=50, offset=0)
 
 
 class TestDatabricksIntegrationModel(BaseTest):

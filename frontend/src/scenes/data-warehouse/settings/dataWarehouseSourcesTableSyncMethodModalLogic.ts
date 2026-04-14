@@ -36,7 +36,7 @@ export const dataWarehouseSourcesTableSyncMethodModalLogic = kea<dataWarehouseSo
                     try {
                         return await api.externalDataSchemas.incremental_fields(schemaId)
                     } catch (e: any) {
-                        lemonToast.error(e?.message ?? e)
+                        lemonToast.error(e?.data?.message ?? e?.message ?? e)
                         throw e
                     }
                 },

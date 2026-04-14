@@ -13,7 +13,7 @@ import {
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveQueryParams,
 } from '@/generated/persons/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true })
@@ -34,7 +34,13 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/persons')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'uuid', 'name', 'distinct_ids', 'created_at', 'last_seen_at'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/persons')
     },
 })
 
@@ -49,7 +55,16 @@ const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUr
             method: 'GET',
             path: `/api/projects/${projectId}/persons/${params.id}/`,
         })
-        return await withPostHogUrl(context, result, `/persons/${result.id}`)
+        const filtered = pickResponseFields(result, [
+            'id',
+            'uuid',
+            'name',
+            'properties',
+            'distinct_ids',
+            'created_at',
+            'last_seen_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/persons/${filtered.id}`)
     },
 })
 

@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
 import { initKeaTests } from '../init'
 import { resetCapturedCharts } from './chartjs-mock'
@@ -56,9 +57,18 @@ export interface RenderInsightProps {
     showFilters?: boolean
     mocks?: SetupMocksOptions
     featureFlags?: Record<string, string | boolean>
+    context?: QueryContext<InsightVizNode>
 }
 
-function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; showFilters: boolean }): JSX.Element {
+function InsightWrapper({
+    query,
+    showFilters = false,
+    context,
+}: {
+    query: TrendsQuery
+    showFilters: boolean
+    context?: QueryContext<InsightVizNode>
+}): JSX.Element {
     const [vizQuery, setVizQuery] = useState<InsightVizNode>({
         kind: NodeKind.InsightVizNode,
         source: query,
@@ -72,11 +82,17 @@ function InsightWrapper({ query, showFilters = false }: { query: TrendsQuery; sh
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
 
-    return <InsightViz uniqueKey={INSIGHT_TEST_KEY} query={vizQuery} setQuery={setVizQuery} />
+    return <InsightViz uniqueKey={INSIGHT_TEST_KEY} query={vizQuery} setQuery={setVizQuery} context={context} />
 }
 
 export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof render> {
     setupTestEnvironment(props.mocks, props.featureFlags)
 
-    return render(<InsightWrapper query={props.query ?? buildTrendsQuery()} showFilters={props.showFilters ?? true} />)
+    return render(
+        <InsightWrapper
+            query={props.query ?? buildTrendsQuery()}
+            showFilters={props.showFilters ?? true}
+            context={props.context}
+        />
+    )
 }
