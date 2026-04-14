@@ -155,8 +155,15 @@ warn_step() {
   printf "  ${C_YELLOW}⚠${C_RESET} %s\n" "$label"
 }
 
+# ── Interactive mode detection ────────────────────────────────────
+# Skip all interactive prompts in non-interactive terminals or when running under PostHog Code (automated agent).
+_interactive=false
+if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
+  _interactive=true
+fi
+
 # ── Direnv first-time setup (interactive only) ─────────────────────
-if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
+if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then
@@ -174,7 +181,7 @@ fi
 if [[ "$(uname -s)" == "Darwin" ]] && command -v xcodebuild >/dev/null 2>&1 \
    && [[ "$(xcode-select -p 2>/dev/null)" == /Applications/Xcode*.app/* ]]; then
   if ! xcodebuild -license check >/dev/null 2>&1; then
-    if [[ -t 0 ]] && [[ ! -f "$FLOX_ENV_CACHE/.hush-xcode-license" ]]; then
+    if [[ "$_interactive" == true ]] && [[ ! -f "$FLOX_ENV_CACHE/.hush-xcode-license" ]]; then
       warn_step "Xcode license not accepted. Native builds may fail."
       read -p "$(echo -e "   Accept Xcode license now? (Y/n) ")" -n 1 -r
       echo
@@ -255,7 +262,7 @@ else
   echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
   echo ""
-  if [[ -t 0 ]]; then
+  if [[ "$_interactive" == true ]]; then
     read -n 1 -s -r -p "  Press any key to continue..."
     echo ""
   fi
@@ -300,7 +307,7 @@ _activation_time=$(( _activation_end - _activation_start ))
 echo -e "\n${C_DIM}Ready in ${_activation_time}s${C_RESET}"
 
 # ── Interactive welcome ─────────────────────────────────────────────
-if [[ -t 0 ]]; then
+if [[ "$_interactive" == true ]]; then
   quotes=(
     "At PostHog, we don't follow trends, we set them, like records."
     "Be bold, be fearless, and let's lead the way in tech innovation with beast mode."
