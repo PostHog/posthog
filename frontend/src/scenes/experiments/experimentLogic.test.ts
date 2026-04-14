@@ -1247,7 +1247,7 @@ describe('experimentLogic', () => {
                 })
             )
             // Should not send rollout_percentage — it's not editable in the distribution modal
-            const sentParams = api.update.mock.calls[0][1].parameters
+            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
             expect(sentParams).not.toHaveProperty('rollout_percentage')
         })
 
