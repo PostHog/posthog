@@ -7,7 +7,10 @@ import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
-from typing import Any, Literal, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
+
+if TYPE_CHECKING:
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 from django.conf import settings
 
@@ -40,6 +43,11 @@ SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def source_requires_ssl(source: ExternalDataSource) -> bool:
+    """Return whether this source must connect over SSL/TLS."""
+    return source.created_at >= SSL_REQUIRED_AFTER_DATE
+
+
 class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
@@ -69,6 +77,7 @@ def _connect_to_postgres(
     user: str,
     password: str,
     require_ssl: bool = False,
+    connect_timeout: int = 15,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -80,7 +89,7 @@ def _connect_to_postgres(
             user=user,
             password=password,
             sslmode=sslmode,
-            connect_timeout=15,
+            connect_timeout=connect_timeout,
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
