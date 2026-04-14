@@ -329,10 +329,8 @@ impl DateRangeExportSource {
         //
         // When the interval is shorter than interval_duration (e.g. a partial last interval),
         // we clamp end_for_query to start so the query never has end < start.
-        let end_for_query = std::cmp::max(
-            end - ChronoDuration::seconds(self.interval_duration),
-            start,
-        );
+        let end_for_query =
+            std::cmp::max(end - ChronoDuration::seconds(self.interval_duration), start);
 
         let mut request = self.client.get(&self.base_url).query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),
