@@ -1,4 +1,5 @@
 import {
+    isTileDateRangeStale,
     parseURLFilters,
     parseURLVariables,
     SEARCH_PARAM_FILTERS_KEY,
@@ -102,5 +103,41 @@ describe('snapshotDashboardFilterDates', () => {
         const a = snapshotDashboardFilterDates({ date_from: '-7d' }, 'UTC')
         const b = snapshotDashboardFilterDates({ date_from: '-7d' }, 'UTC')
         expect(a.date_from).toBe(b.date_from)
+    })
+})
+
+describe('isTileDateRangeStale', () => {
+    it('returns true when last_refresh is from a different calendar day', () => {
+        const yesterday = new Date(Date.now() - 86400000).toISOString()
+        expect(isTileDateRangeStale({ date_from: '-7d' }, yesterday, 'UTC')).toBe(true)
+    })
+
+    it('returns false when last_refresh is from today', () => {
+        const justNow = new Date().toISOString()
+        expect(isTileDateRangeStale({ date_from: '-7d' }, justNow, 'UTC')).toBe(false)
+    })
+
+    it('returns false for absolute date filters', () => {
+        const yesterday = new Date(Date.now() - 86400000).toISOString()
+        expect(isTileDateRangeStale({ date_from: '2024-01-15' }, yesterday, 'UTC')).toBe(false)
+    })
+
+    it('returns false for "all" date_from', () => {
+        const yesterday = new Date(Date.now() - 86400000).toISOString()
+        expect(isTileDateRangeStale({ date_from: 'all' }, yesterday, 'UTC')).toBe(false)
+    })
+
+    it('returns true when last_refresh is null', () => {
+        expect(isTileDateRangeStale({ date_from: '-7d' }, null, 'UTC')).toBe(true)
+    })
+
+    it('returns false when no date_from in filters', () => {
+        const yesterday = new Date(Date.now() - 86400000).toISOString()
+        expect(isTileDateRangeStale({}, yesterday, 'UTC')).toBe(false)
+    })
+
+    it('returns true when last_refresh is from two days ago', () => {
+        const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString()
+        expect(isTileDateRangeStale({ date_from: '-7d' }, twoDaysAgo, 'UTC')).toBe(true)
     })
 })

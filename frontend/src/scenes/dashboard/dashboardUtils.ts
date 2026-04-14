@@ -3,6 +3,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { dateStringToDayJs, isDate, objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -416,4 +417,50 @@ export function snapshotDashboardFilterDates(filters: DashboardFilter, timezone:
     }
 
     return snapshotted
+}
+
+/**
+ * Check whether a cached tile's data is date-stale — i.e. its `last_refresh` is old enough
+ * that relative date filters (e.g. "-7d") would now resolve to a different calendar day.
+ *
+ * The normal cache staleness check (`cache_target_age`) only considers how old the cache is
+ * relative to the query interval (e.g. 6 hours for daily). But for dashboards with relative
+ * date filters, a cache from 6 hours ago can still show data starting from a different day
+ * than "now" would produce — causing tiles to briefly display mismatched date ranges.
+ *
+ * Returns true if the tile should be refreshed because the date range has shifted.
+ */
+export function isTileDateRangeStale(
+    filters: DashboardFilter,
+    tileLastRefresh: string | null | undefined,
+    timezone: string
+): boolean {
+    // Only relevant when date_from is a relative date string
+    if (!filters.date_from || isDate.test(filters.date_from) || filters.date_from === 'all') {
+        return false
+    }
+
+    if (!tileLastRefresh) {
+        return true // No last_refresh means the tile has never been computed
+    }
+
+    // Resolve what date_from meant at the time the tile was last refreshed vs now.
+    // If they land on different calendar days, the tile's data is showing a shifted range.
+    const now = dayjs().tz(timezone)
+    const lastRefreshTime = dayjs(tileLastRefresh).tz(timezone)
+
+    const currentDateFrom = dateStringToDayJs(filters.date_from, timezone)
+    if (!currentDateFrom) {
+        return false
+    }
+
+    // Re-resolve the same relative date string but using the tile's last_refresh time as "now".
+    // dateStringToDayJs uses dayjs().tz(timezone).startOf('day') as the offset,
+    // so we compare by checking if the last_refresh day differs from today's day — which would
+    // cause the resolved date_from to shift.
+    const lastRefreshDay = lastRefreshTime.startOf('day')
+    const currentDay = now.startOf('day')
+
+    // If last_refresh is from a different calendar day, relative dates will resolve differently
+    return !lastRefreshDay.isSame(currentDay, 'day')
 }

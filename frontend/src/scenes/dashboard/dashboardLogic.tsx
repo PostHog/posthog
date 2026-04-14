@@ -102,6 +102,7 @@ import {
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
+    isTileDateRangeStale,
     runWithLimit,
     snapshotDashboardFilterDates,
 } from './dashboardUtils'
@@ -2068,7 +2069,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         forceRefresh ||
                         !isInitialLoadOrUpdate ||
                         !t.insight.cache_target_age ||
-                        dayjs(t.insight.cache_target_age).isBefore(dayjs())
+                        dayjs(t.insight.cache_target_age).isBefore(dayjs()) ||
+                        // Also refresh tiles whose cached data has a shifted date range
+                        // due to relative dates resolving differently since the tile
+                        // was last computed (e.g. tile cached yesterday shows "-7d" as
+                        // starting 8 days ago instead of 7)
+                        isTileDateRangeStale(values.effectiveRefreshFilters, t.insight.last_refresh, values.timezone)
                 )
 
             const tilesStaleCount = sortedTilesToRefresh.length
