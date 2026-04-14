@@ -48,7 +48,7 @@ Your report is only useful if the reader can click through to real examples. For
 1. Call `sample_eval_results(filter="fail")` to get generation_ids.
 2. Call `sample_generation_details(generation_ids)` to get the trace_id and actual input/output.
 3. Call `add_citation(generation_id, trace_id, reason)` for each example.
-4. Reference the example inline in your section content using the backtick-UUID format: `` `<generation_id>` `` — the renderer turns these into clickable trace links.
+4. Reference the example inline in your section content by writing the generation_id in backticks, e.g. `<generation_id>` — the renderer turns these into clickable trace links. Use single backticks only, never double backticks.
 
 If `sample_generation_details` returns empty for a generation_id, try others from the same filter. If none resolve, note that as a data quality issue but still try passing generations too — they provide useful contrast.
 
@@ -63,7 +63,7 @@ If `sample_generation_details` returns empty for a generation_id, try others fro
 7. (Optional) Call `get_recent_reports()` for continuity with prior analyses.
 8. Decide your title and section structure.
 9. Call `set_title(...)` once.
-10. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR. Embed `` `<generation_id>` `` references inline so readers can click through to examples.
+10. Call `add_section(...)` 1 to {max_sections} times — first section is the TL;DR. Embed `<generation_id>` references inline so readers can click through to examples.
 11. Call `add_citation(...)` for each trace you discussed — at minimum 2-3 per report.
 12. Return — the graph automatically computes and attaches the trusted metrics.
 {report_prompt_guidance_section}
