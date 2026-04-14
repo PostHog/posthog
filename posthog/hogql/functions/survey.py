@@ -163,7 +163,7 @@ def unique_survey_submissions_filter(node: ast.Call, args: list[ast.Expr], team_
     Args:
         node: The AST Call node for uniqueSurveySubmissionsFilter
         args: The function arguments
-        team_id: The team ID for filtering
+        team_id: The team ID from the outer query context
 
     Returns:
         ast.Expr representing the unique survey submissions filter
@@ -176,40 +176,43 @@ def unique_survey_submissions_filter(node: ast.Call, args: list[ast.Expr], team_
     start_timestamp_arg = args[1] if len(args) > 1 else None
     end_timestamp_arg = args[2] if len(args) > 2 else None
 
-    # Build the subquery using parse_expr
-    # uuid IN (SELECT argMax(uuid, timestamp) FROM events WHERE event = 'survey sent' AND ... GROUP BY ...)
-    submission_id_expr = "properties.`$survey_submission_id`"
-    grouping_key = f"if(coalesce({submission_id_expr}, '') = '', toString(uuid), {submission_id_expr})"
-
-    team_filter = f" AND team_id = {team_id}" if team_id is not None else ""
-    date_filter = ""
+    # The subquery inherits the outer team filter from HogQL's normal events resolution,
+    # so we only need to describe the survey/datetime predicates here.
     placeholders: dict[str, ast.Expr] = {"survey_id": ast.Constant(value=survey_id)}
+    where_expr = parse_expr(
+        "event = 'survey sent' AND properties.$survey_id = {survey_id}",
+        placeholders=placeholders,
+    )
 
     if start_timestamp_arg is not None:
         normalized_start_timestamp_arg = _normalize_timestamp_constant(start_timestamp_arg)
         if normalized_start_timestamp_arg is None:
             raise QueryError("uniqueSurveySubmissionsFilter second argument must be a constant")
-        date_filter += " AND timestamp >= {start_timestamp}"
         placeholders["start_timestamp"] = normalized_start_timestamp_arg
+        where_expr = parse_expr(
+            "{where} AND timestamp >= {start_timestamp}",
+            placeholders={"where": where_expr, "start_timestamp": normalized_start_timestamp_arg},
+        )
 
     if end_timestamp_arg is not None:
         normalized_end_timestamp_arg = _normalize_timestamp_constant(end_timestamp_arg)
         if normalized_end_timestamp_arg is None:
             raise QueryError("uniqueSurveySubmissionsFilter third argument must be a constant")
-        date_filter += " AND timestamp <= {end_timestamp}"
         placeholders["end_timestamp"] = normalized_end_timestamp_arg
+        where_expr = parse_expr(
+            "{where} AND timestamp <= {end_timestamp}",
+            placeholders={"where": where_expr, "end_timestamp": normalized_end_timestamp_arg},
+        )
 
-    hogql = f"""uuid IN (
-        SELECT argMax(uuid, timestamp)
-        FROM events
-        WHERE event = 'survey sent'
-          AND properties.`$survey_id` = {{survey_id}}
-          {team_filter}
-          {date_filter}
-        GROUP BY {grouping_key}
-    )"""
+    grouping_key = parse_expr(
+        "if(coalesce(properties.$survey_submission_id, '') = '', toString(uuid), properties.$survey_submission_id)"
+    )
 
-    return parse_expr(hogql, placeholders=placeholders, start=None)
+    return parse_expr(
+        "uuid IN (SELECT argMax(uuid, timestamp) FROM events WHERE {where} GROUP BY {grouping_key})",
+        placeholders={"where": where_expr, "grouping_key": grouping_key},
+        start=None,
+    )
 
 
 def _normalize_timestamp_constant(timestamp_arg: ast.Expr) -> ast.Constant | None:
