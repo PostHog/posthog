@@ -1089,9 +1089,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 setDates: (state, { date_from, date_to, explicitDate }) => ({
                     ...state,
-                    date_from,
-                    date_to,
-                    explicitDate,
+                    date_from: date_from ?? undefined,
+                    date_to: date_to ?? undefined,
+                    explicitDate: explicitDate || undefined,
                 }),
                 setProperties: (state, { properties }) => ({
                     ...state,
