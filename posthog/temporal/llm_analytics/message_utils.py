@@ -70,7 +70,7 @@ def _extract_content_text(content: Union[str, list, dict, None]) -> str:
         for block in content:
             if isinstance(block, dict):
                 if "text" in block:
-                    text_parts.append(block["text"])
+                    text_parts.append(str(block["text"]))
                 elif "content" in block:
                     text_parts.append(str(block["content"]))
                 else:
