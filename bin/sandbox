@@ -1252,7 +1252,9 @@ def cmd_create(branch: str, base_branch: str = "master", no_attach: bool = False
 
     # Everything up to registry.allocate() is side-effect-free on the sandbox
     # side — abort here costs nothing to clean up.
-    _fetch_origin()
+    is_cloud = bool(os.environ.get("SANDBOX_WORKSPACE_MOUNT"))
+    if not is_cloud:
+        _fetch_origin()
     branch_sha, base_sha, origin_branch_sha, branch_ref = _resolve_branch_for_sandbox(branch, base_branch)
     _warn_if_host_dirty(branch)
     _check_macos_ssh_agent_launchd()
@@ -1301,9 +1303,17 @@ def cmd_create(branch: str, base_branch: str = "master", no_attach: bool = False
         # From here down anything that fails leaves partial state (workspace
         # volume, compose project, registry entry), so wrap in rollback.
         try:
-            volume = workspace_volume_name(project)
-            info(f"Populating workspace volume {volume} with branch {branch}...")
-            _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha, branch_ref)
+            if is_cloud:
+                # Cloud: host checkout is bind-mounted directly as /workspace.
+                # Just fix up the git remote (clone used HTTPS, we need SSH for
+                # pushing) and set the sandbox start ref for unpushed detection.
+                info("Using host checkout as workspace (bind mount)...")
+                run(["git", "remote", "set-url", "origin", SANDBOX_ORIGIN_URL], capture=True, check=False)
+                run(["git", "update-ref", "refs/sandbox/start", "HEAD"], capture=True, check=False)
+            else:
+                volume = workspace_volume_name(project)
+                info(f"Populating workspace volume {volume} with branch {branch}...")
+                _populate_workspace_volume(volume, branch, branch_sha, base_branch, base_sha, origin_branch_sha, branch_ref)
 
             profiles = resolve_docker_profiles(intents)
             if profiles:

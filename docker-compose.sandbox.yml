@@ -147,8 +147,11 @@ services:
             - '${SANDBOX_SSH_PORT:-50001}:2222'
         volumes:
             # Per-sandbox workspace — populated by bin/sandbox before `compose up`.
-            # Destroyed with `sandbox rm`, so unpushed commits die with it.
-            - workspace:/workspace
+            # Local: defaults to the named volume "workspace" defined below.
+            # Cloud: cloud-init exports SANDBOX_WORKSPACE_MOUNT=/mnt/nvme/posthog
+            #        to bind-mount the host checkout directly, skipping the 60s
+            #        workspace volume population.
+            - ${SANDBOX_WORKSPACE_MOUNT:-workspace}:/workspace
             - ${SANDBOX_CLAUDE_AUTH}:/tmp/claude-auth:ro
             - ${SANDBOX_CLAUDE_JSON:-/dev/null}:/tmp/claude-auth.json:ro
             - ${SANDBOX_HOST_GITCONFIG:-/dev/null}:/tmp/host-gitconfig:ro
