@@ -323,7 +323,7 @@ impl HyperCacheReader {
         // separately so callers (e.g., negative cache) don't tombstone keys
         // that may exist once the backing store recovers.
         let mut s3_confirmed_miss = false;
-        let mut last_infra_error: Option<HyperCacheError> = None;
+        let mut infra_error: Option<HyperCacheError> = None;
 
         // Try Redis first
         match timeout(
@@ -367,7 +367,7 @@ impl HyperCacheReader {
                     error = %e,
                     "HyperCache Redis infrastructure error, trying S3"
                 );
-                last_infra_error = Some(e);
+                infra_error = Some(e);
             }
             Err(_) => {
                 debug!(
@@ -383,7 +383,7 @@ impl HyperCacheReader {
                     ],
                     1,
                 );
-                last_infra_error = Some(HyperCacheError::Timeout("redis timeout".to_string()));
+                infra_error = Some(HyperCacheError::Timeout("redis timeout".to_string()));
             }
         }
 
@@ -420,8 +420,8 @@ impl HyperCacheReader {
                     error = %e,
                     "HyperCache S3 error"
                 );
-                if last_infra_error.is_none() {
-                    last_infra_error = Some(e);
+                if infra_error.is_none() {
+                    infra_error = Some(e);
                 }
             }
             Err(_) => {
@@ -429,8 +429,8 @@ impl HyperCacheReader {
                     cache_key = %s3_cache_key,
                     "HyperCache S3 timeout"
                 );
-                if last_infra_error.is_none() {
-                    last_infra_error = Some(HyperCacheError::Timeout("s3 timeout".to_string()));
+                if infra_error.is_none() {
+                    infra_error = Some(HyperCacheError::Timeout("s3 timeout".to_string()));
                 }
             }
         }
@@ -452,7 +452,7 @@ impl HyperCacheReader {
                 1,
             );
             Err(HyperCacheError::CacheMiss)
-        } else if let Some(e) = last_infra_error {
+        } else if let Some(e) = infra_error {
             debug!(
                 redis_key = %redis_cache_key,
                 s3_key = %s3_cache_key,
@@ -471,7 +471,7 @@ impl HyperCacheReader {
             );
             Err(e)
         } else {
-            // Neither s3_confirmed_miss nor last_infra_error was set. This
+            // Neither s3_confirmed_miss nor infra_error was set. This
             // should not happen — emit a tombstone metric so we notice.
             // Return a Timeout rather than CacheMiss so callers don't
             // tombstone the key in a negative cache.
@@ -488,7 +488,7 @@ impl HyperCacheReader {
                 1,
             );
             Err(HyperCacheError::Timeout(
-                "unexpected: no tier set confirmed_miss or infra_error".to_string(),
+                "unexpected: no tier set s3_confirmed_miss or infra_error".to_string(),
             ))
         }
     }
