@@ -50,6 +50,12 @@ export enum MarketingAnalyticsTab {
     INTEGRATION_HEALTH = 'integration-health',
 }
 
+const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
+    MarketingAnalyticsDrillDownLevel.Medium,
+    MarketingAnalyticsDrillDownLevel.Content,
+    MarketingAnalyticsDrillDownLevel.Term,
+])
+
 export enum MarketingSourceStatus {
     Warning = 'Warning',
     Error = 'Error',
@@ -410,19 +416,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
-                // Base drill-down flag gates all levels except Campaign (the released default).
                 if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
                     return MarketingAnalyticsDrillDownLevel.Campaign
                 }
-                // Extended drill-down flag gates levels added after the v1 release (UTM and beyond).
-                // Without it, persisted/url-loaded extended levels fall back to Campaign.
-                const extendedLevels: MarketingAnalyticsDrillDownLevel[] = [
-                    MarketingAnalyticsDrillDownLevel.Medium,
-                    MarketingAnalyticsDrillDownLevel.Content,
-                    MarketingAnalyticsDrillDownLevel.Term,
-                ]
                 if (
-                    extendedLevels.includes(level) &&
+                    EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
                     !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
                 ) {
                     return MarketingAnalyticsDrillDownLevel.Campaign

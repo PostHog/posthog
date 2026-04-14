@@ -109,8 +109,6 @@ class ConversionGoalsAggregator:
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
-            # At channel/source/utm levels, the individual processor queries already compute
-            # the grouping value into campaign_field. Just group by that.
             final_select: list[ast.Expr] = [
                 ast.Alias(alias=self.config.campaign_field, expr=campaign_field_expr),
                 ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
@@ -354,17 +352,8 @@ class ConversionGoalsAggregator:
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
-            # At channel/source/utm levels both CTEs store the grouping value in campaign_field.
-            # group_by_fields[0] differs per level, but the unified conversion CTE always
-            # writes the value into campaign_field, so we must reference that.
             campaign_field = self.config.campaign_field
-            # Channel: "Unknown" matches DefaultChannelTypes.UNKNOWN — a real bucket from
-            # PostHog's channel classifier (not just a fallback for missing data). Using the same
-            # word keeps our fallback consistent with the classifier's own vocabulary.
-            # Source: organic_source ("organic") — semantically "not from a tracked source".
-            # Medium/Content/Term: "(none)" because these are raw UTM fields with no classifier;
-            # an empty value precisely means the UTM was not set on the event. Matches PostHog
-            # Web Analytics' BREAKDOWN_NULL_DISPLAY convention.
+            # "Unknown" = DefaultChannelTypes.UNKNOWN; "(none)" = BREAKDOWN_NULL_DISPLAY for UTM fields.
             fallback_map = {
                 MarketingAnalyticsDrillDownLevel.CHANNEL: "Unknown",
                 MarketingAnalyticsDrillDownLevel.SOURCE: self.config.organic_source,

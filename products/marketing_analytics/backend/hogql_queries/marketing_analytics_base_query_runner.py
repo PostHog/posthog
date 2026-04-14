@@ -123,8 +123,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 MarketingAnalyticsDrillDownLevel.CONTENT,
                 MarketingAnalyticsDrillDownLevel.TERM,
             ):
-                # UTM-only levels: no platform data available at these granularities.
-                # Set all grouping fields to empty so the CTE produces a single empty group.
+                # No platform data at UTM granularity — single empty group for the FULL OUTER JOIN.
                 select_columns.extend(
                     [
                         ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),

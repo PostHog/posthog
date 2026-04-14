@@ -157,7 +157,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
-            # Single grouping column levels have a single join condition
             join_condition: ast.Expr = ast.CompareOperation(
                 left=ast.Field(chain=["current_period", campaign_alias]),
                 op=ast.CompareOperationOp.Eq,
@@ -318,8 +317,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 MarketingAnalyticsDrillDownLevel.CONTENT,
                 MarketingAnalyticsDrillDownLevel.TERM,
             ):
-                # At single-grouping levels, FULL OUTER JOIN on campaign_name (holds the grouping value)
-                # so rows with only conversions also appear
                 join_type = "FULL OUTER JOIN"
                 join_constraint = ast.JoinConstraint(
                     expr=ast.CompareOperation(
