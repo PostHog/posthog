@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Breadcrumb } from '~/types'
 
 import {
-    visualReviewReposList,
+    visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
@@ -69,12 +69,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as RepoApi | null,
             {
                 loadRepo: async () => {
-                    const response = await visualReviewReposList(String(values.currentProjectId))
                     const run = values.run
-                    if (run) {
-                        return response.results.find((r) => r.id === run.repo_id) || response.results[0] || null
+                    if (!run) {
+                        return null
                     }
-                    return response.results[0] || null
+                    return visualReviewReposRetrieve(String(values.currentProjectId), run.repo_id)
                 },
             },
         ],
