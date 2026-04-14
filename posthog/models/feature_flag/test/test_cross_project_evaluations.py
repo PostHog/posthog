@@ -43,6 +43,11 @@ class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
         assert available is True
         assert counts == {self.team.id: 2, other_team.id: 1}
 
+    def test_returns_empty_dict_when_no_team_ids(self):
+        counts, available = get_evaluations_7d_by_team("any_flag", [])
+        assert available is True
+        assert counts == {}
+
     def test_returns_available_false_when_clickhouse_fails(self):
         with patch(
             "posthog.models.feature_flag.cross_project_evaluations.sync_execute",
