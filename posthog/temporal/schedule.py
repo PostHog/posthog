@@ -53,6 +53,7 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.error_tracking.backend.temporal.schedule import create_recommendations_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -483,6 +484,7 @@ schedules = [
     create_health_check_schedules,
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
+    create_recommendations_schedule,
 ]
 
 if settings.EE_AVAILABLE:
