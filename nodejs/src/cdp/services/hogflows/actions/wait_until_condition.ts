@@ -200,13 +200,10 @@ export class WaitUntilConditionHandler implements ActionHandler {
 
 /**
  * A condition is only considered configured if its filters contain actual
- * filter content: non-empty property, event, or action filters.
- *
- * Note: we deliberately do NOT check for compiled bytecode. The Django
- * serializer compiles even empty filters (`{}`) into bytecode, and
- * `filterFunctionInstrumented` has a "bytecode-only = match all" shortcut,
- * which would cause the matched path to be taken on first visit for any
- * workflow that touched the condition UI (even without entering any filter).
+ * content: non-empty property filters, event filters, action filters, or
+ * compiled bytecode. An empty `{}` or null should NOT be treated as a
+ * configured condition, otherwise the empty-filter evaluation can match
+ * anything and take the matched path on first visit.
  */
 function hasConfiguredCondition(filters: any): boolean {
     if (!filters || typeof filters !== 'object') {
@@ -215,7 +212,8 @@ function hasConfiguredCondition(filters: any): boolean {
     const hasProperties = Array.isArray(filters.properties) && filters.properties.length > 0
     const hasEvents = Array.isArray(filters.events) && filters.events.length > 0
     const hasActions = Array.isArray(filters.actions) && filters.actions.length > 0
-    return hasProperties || hasEvents || hasActions
+    const hasBytecode = Array.isArray(filters.bytecode) && filters.bytecode.length > 0
+    return hasProperties || hasEvents || hasActions || hasBytecode
 }
 
 /**
