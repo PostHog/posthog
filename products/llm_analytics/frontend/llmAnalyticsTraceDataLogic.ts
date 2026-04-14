@@ -430,7 +430,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     subscriptions(({ actions, props, values }) => ({
         enrichedTree: (enrichedTree: EnrichedTraceTreeNode[]) => {
             // On initial load with a deep-linked event, scroll to the bottom to show the latest message
-            if (enrichedTree.length > 0 && values.effectiveEventId && !values.hasScrolledToEvent) {
+            if (enrichedTree.length > 0 && values.eventId && !values.hasScrolledToEvent) {
                 actions.setHasScrolledToEvent()
                 // rAF assumes conversation DOM is committed in the same render as the tree.
                 // If conversation content ever loads async, this may scroll slightly short.
