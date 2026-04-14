@@ -2,13 +2,13 @@ import './SupportEditor.scss'
 
 import { JSONContent } from '@tiptap/core'
 import { EditorContent } from '@tiptap/react'
-import { useCallback, useState } from 'react'
+import { useMemo } from 'react'
 
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { cn } from 'lib/utils/css-classes'
 
-import { ImageLightbox } from './ImageLightbox'
 import { SUPPORT_EXTENSIONS } from './SupportEditor'
+import { useImageLightbox } from './useImageLightbox'
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
     type: 'doc',
@@ -29,21 +29,17 @@ export interface SupportRichContentPreviewProps {
  * Preview component for rich content (tiptap JSON) with image support.
  * Renders in read-only mode with proper image styling.
  */
+const editorImageFilter = (el: HTMLImageElement): boolean => el.classList.contains('SupportEditor__image')
+
 export function SupportRichContentPreview({ content, className }: SupportRichContentPreviewProps): JSX.Element {
-    const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+    const filter = useMemo(() => editorImageFilter, [])
+    const { handleClick, lightbox } = useImageLightbox(filter)
 
     const editor = useRichContentEditor({
         extensions: [...SUPPORT_EXTENSIONS],
         disabled: true,
         initialContent: content ?? DEFAULT_INITIAL_CONTENT,
     })
-
-    const handleClick = useCallback((e: React.MouseEvent) => {
-        const target = e.target as HTMLElement
-        if (target.tagName === 'IMG' && target.classList.contains('SupportEditor__image')) {
-            setLightboxSrc((target as HTMLImageElement).src)
-        }
-    }, [])
 
     return (
         <>
@@ -52,7 +48,7 @@ export function SupportRichContentPreview({ content, className }: SupportRichCon
                 className={cn('SupportRichContentPreview [&_.ProseMirror]:outline-none', className)}
                 onClick={handleClick}
             />
-            {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+            {lightbox}
         </>
     )
 }

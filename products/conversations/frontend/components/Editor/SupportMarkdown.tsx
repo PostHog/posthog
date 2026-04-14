@@ -1,11 +1,10 @@
 import './SupportMarkdown.scss'
 
 import clsx from 'clsx'
-import { useCallback, useState } from 'react'
 
 import { LemonMarkdown, LemonMarkdownProps } from 'lib/lemon-ui/LemonMarkdown'
 
-import { ImageLightbox } from './ImageLightbox'
+import { useImageLightbox } from './useImageLightbox'
 
 export interface SupportMarkdownProps extends LemonMarkdownProps {}
 
@@ -14,14 +13,7 @@ export interface SupportMarkdownProps extends LemonMarkdownProps {}
  * Wraps LemonMarkdown with support-specific styling.
  */
 export function SupportMarkdown({ className, ...props }: SupportMarkdownProps): JSX.Element {
-    const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
-
-    const handleClick = useCallback((e: React.MouseEvent) => {
-        const target = e.target as HTMLElement
-        if (target.tagName === 'IMG') {
-            setLightboxSrc((target as HTMLImageElement).src)
-        }
-    }, [])
+    const { handleClick, lightbox } = useImageLightbox()
 
     return (
         <>
@@ -29,7 +21,7 @@ export function SupportMarkdown({ className, ...props }: SupportMarkdownProps): 
             <div onClick={handleClick}>
                 <LemonMarkdown {...props} className={clsx('SupportMarkdown', className)} />
             </div>
-            {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+            {lightbox}
         </>
     )
 }

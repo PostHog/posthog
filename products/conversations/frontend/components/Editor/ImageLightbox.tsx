@@ -34,7 +34,6 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps): JSX.El
                 src={src}
                 alt={alt || 'Image preview'}
                 className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-xl cursor-zoom-out"
-                onClick={onClose}
             />
         </div>,
         document.body
