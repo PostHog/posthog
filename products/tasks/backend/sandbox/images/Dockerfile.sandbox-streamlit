@@ -42,6 +42,7 @@ RUN mkdir -p /home/streamlit/.streamlit && \
     printf '[server]\nport = 8501\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n\n[client]\ntoolbarMode = "minimal"\nshowSidebarNavigation = false\n\n[browser]\ngatherUsageStats = false\n\n[theme]\nbase = "light"\n' > /home/streamlit/.streamlit/config.toml && \
     chown -R streamlit:streamlit /home/streamlit/.streamlit
 
+# cache-bust v2: auth proxy now enforces scope check (streamlit:iframe vs :bridge)
 COPY products/tasks/backend/sandbox/images/streamlit_auth_proxy.py /usr/local/bin/streamlit_auth_proxy.py
 
 # In-sandbox shim. Renamed from `posthog` to `posthog_apps` so it does NOT

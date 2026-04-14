@@ -9,8 +9,10 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers, status, viewsets
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -201,11 +203,47 @@ class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
         return updated_app
 
 
+# -- Permissions --
+
+
+class StreamlitAppsAccessPermission(BasePermission):
+    """Gate the whole streamlit_apps API behind the `streamlit-apps` PostHog
+    feature flag so unreleased functionality is hidden from any user who is
+    not explicitly on the rollout.
+
+    Evaluated against the user's distinct_id with the org as a group so we
+    can roll out per-user or per-org as needed. Returns False (→ 403 via
+    DRF) rather than raising NotFound: 403 matches the behavior of
+    APIScopePermission / TeamMemberAccessPermission on the same viewset,
+    and the scene-level NotFound gate on the frontend is what hides
+    *existence* from the UI side.
+    """
+
+    message = "Streamlit apps is not available."
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        org_id = str(view.organization.id)
+        return bool(
+            posthoganalytics.feature_enabled(
+                "streamlit-apps",
+                user.distinct_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+
+
 # -- ViewSet --
 
 
 class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "streamlit_app"
+    permission_classes = [StreamlitAppsAccessPermission]
     queryset = StreamlitApp.objects.all()
     lookup_field = "short_id"
 

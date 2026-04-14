@@ -16,11 +16,16 @@ from products.tasks.backend.sandbox.images import streamlit_auth_proxy
 
 
 def _make_introspection_response(**overrides):
-    """Default 200 + active introspection payload with expected fields."""
+    """Default 200 + active introspection payload with expected fields.
+
+    The default scope includes `streamlit:iframe` so existing "accept" tests
+    don't need to opt in to the scope check. Tests that exercise wrong-scope
+    rejection pass their own `scope=` override.
+    """
     data = {
         "active": True,
         "token_type": "access_token",
-        "scope": "query:read",
+        "scope": "query:read streamlit:iframe",
         "scoped_teams": [42],
         "client_id": "posthog-streamlit-apps-first-party",
         "exp": 99999999999,
@@ -128,6 +133,7 @@ class TestIntrospectTokenSecurity:
             "valid-token",
             team_id=42,
             expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
         )
 
         assert result is not None
@@ -152,6 +158,7 @@ class TestIntrospectTokenSecurity:
             "cross-app-token",
             team_id=42,
             expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
         )
 
         assert result is None
@@ -175,6 +182,7 @@ class TestIntrospectTokenSecurity:
             "missing-client-id-token",
             team_id=42,
             expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
         )
 
         assert result is None
@@ -194,6 +202,7 @@ class TestIntrospectTokenSecurity:
             "cross-team-token",
             team_id=42,
             expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
         )
 
         assert result is None
@@ -210,6 +219,7 @@ class TestIntrospectTokenSecurity:
             "inactive-token",
             team_id=42,
             expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
         )
 
         assert result is None
@@ -223,6 +233,61 @@ class TestIntrospectTokenSecurity:
             "upstream-500-token",
             team_id=42,
             expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_rejects_token_with_bridge_scope_on_iframe_path(self):
+        """A first-party OAuth token from the streamlit app with matching team
+        and client_id but carrying the BRIDGE scope (`streamlit:bridge`) must
+        be rejected on the iframe path. The B.2.5 scope split is meaningless
+        unless the proxy enforces it — without this check, a leaked bridge
+        token would unlock the iframe even though it was minted for the
+        sandbox→PostHog backchannel hop.
+        """
+        session = _make_fake_session(
+            status=200,
+            body=_make_introspection_response(
+                scope="query:read streamlit:bridge",
+                scoped_teams=[42],
+                client_id="posthog-streamlit-apps-first-party",
+            ),
+        )
+
+        result = await streamlit_auth_proxy._introspect_token(
+            session,
+            "bridge-scope-token",
+            team_id=42,
+            expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_rejects_token_with_only_query_read_scope(self):
+        """Defensive: a token with just `query:read` (no streamlit:iframe /
+        streamlit:bridge qualifier at all) must also be rejected on the
+        iframe path. This catches pre-scope-split tokens and any third-party
+        query:read token that happens to pass the client_id + team checks.
+        """
+        session = _make_fake_session(
+            status=200,
+            body=_make_introspection_response(
+                scope="query:read",
+                scoped_teams=[42],
+                client_id="posthog-streamlit-apps-first-party",
+            ),
+        )
+
+        result = await streamlit_auth_proxy._introspect_token(
+            session,
+            "plain-query-read-token",
+            team_id=42,
+            expected_client_id="posthog-streamlit-apps-first-party",
+            expected_scope_component="streamlit:iframe",
         )
 
         assert result is None

@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -41,6 +43,10 @@ const MEMORY_OPTIONS = [
 ]
 
 export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
+    // FEATURE_FLAGS.STREAMLIT_APPS gate — remove when released.
+    // Backend enforces the same flag via StreamlitAppsAccessPermission; this
+    // gate is UX-only (clean NotFound vs a broken scene on direct URL navigation).
+    const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
     const shortId = (props.id as string) || 'new'
     const {
         streamlitApp,
@@ -63,6 +69,10 @@ export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
         saveApp,
         deleteApp,
     } = useActions(streamlitAppEditLogic({ shortId }))
+
+    if (!streamlitAppsFeatureFlagEnabled) {
+        return <NotFound object="page" />
+    }
 
     const isNew = shortId === 'new'
 

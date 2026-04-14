@@ -3670,6 +3670,7 @@ class ProductKey(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
+    STREAMLIT_APPS = "streamlit_apps"
     SUBSCRIPTIONS = "subscriptions"
     SURVEYS = "surveys"
     TASKS = "tasks"

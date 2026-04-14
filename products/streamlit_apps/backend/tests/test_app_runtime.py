@@ -513,21 +513,51 @@ class TestSyncSandboxStatus(BaseTest):
 
         app = StreamlitApp.objects.create(team=self.team, name="T")
         version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        # Backdate started_at past the startup budget: started_at is the
+        # reference _sync_sandbox_status uses for the STARTING age check,
+        # and start_app stamps it on every new attempt.
         sandbox_record = StreamlitAppSandbox.objects.create(
             app=app,
             version=version,
             sandbox_id="",
             status=StreamlitAppSandbox.Status.STARTING,
+            started_at=timezone.now() - timedelta(seconds=STARTING_TIMEOUT_SECONDS + 10),
         )
-        # Backdate created_at past the startup budget.
-        StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
-            created_at=timezone.now() - timedelta(seconds=STARTING_TIMEOUT_SECONDS + 10)
-        )
-        sandbox_record.refresh_from_db()
 
         result = _sync_sandbox_status(sandbox_record)
         assert result.status == StreamlitAppSandbox.Status.ERROR
         assert "timed out" in result.last_error.lower()
+
+    def test_sync_does_not_time_out_starting_record_with_stale_created_at(self):
+        """Regression: the OneToOne sandbox row is reused across lifecycles,
+        so created_at quickly becomes ancient. A STARTING record whose
+        created_at is hours old but whose started_at reflects a recent
+        attempt must NOT be marked as timed out — the age check uses
+        started_at which tracks this particular attempt.
+        """
+        from products.streamlit_apps.backend.services.app_runtime import STARTING_TIMEOUT_SECONDS, _sync_sandbox_status
+
+        app = StreamlitApp.objects.create(team=self.team, name="T")
+        version = StreamlitAppVersion.objects.create(app=app, version_number=1, zip_file="a.zip", zip_hash="a")
+        now = timezone.now()
+        sandbox_record = StreamlitAppSandbox.objects.create(
+            app=app,
+            version=version,
+            sandbox_id="sb-recent",
+            status=StreamlitAppSandbox.Status.STARTING,
+            started_at=now - timedelta(seconds=10),
+        )
+        # Push created_at way into the past to simulate a row reused
+        # across multiple sandbox lifecycles.
+        StreamlitAppSandbox.objects.filter(id=sandbox_record.id).update(
+            created_at=now - timedelta(seconds=STARTING_TIMEOUT_SECONDS + 3600)
+        )
+        sandbox_record.refresh_from_db()
+
+        result = _sync_sandbox_status(sandbox_record)
+
+        assert result.status == StreamlitAppSandbox.Status.STARTING
+        assert result.last_error == ""
 
 
 class TestBuildSandboxConfig(BaseTest):

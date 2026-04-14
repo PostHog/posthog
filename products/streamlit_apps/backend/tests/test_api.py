@@ -30,7 +30,42 @@ ZIP_WITH_REQUIREMENTS = _make_zip(
 )
 
 
-class TestStreamlitAppAPI(APIBaseTest):
+class _StreamlitAppsFlagMixin:
+    """Shared test setup that mocks the `streamlit-apps` feature flag.
+
+    StreamlitAppsAccessPermission hides the whole viewset behind the flag,
+    so every test class that talks to the viewset needs to opt in. Default
+    every test to "flag enabled" so the existing assertions keep working;
+    the one flag-gating test flips it back off explicitly.
+    """
+
+    def setUp(self):
+        super().setUp()  # type: ignore[misc]
+        self._set_streamlit_apps_flag(True)
+
+    def tearDown(self):
+        if hasattr(self, "_flag_patcher"):
+            self._flag_patcher.stop()
+        super().tearDown()  # type: ignore[misc]
+
+    def _set_streamlit_apps_flag(self, enabled: bool) -> None:
+        if hasattr(self, "_flag_patcher"):
+            self._flag_patcher.stop()
+        self._flag_patcher = patch("posthoganalytics.feature_enabled")
+        mock = self._flag_patcher.start()
+
+        def check_flag(flag_name, *_args, **_kwargs):
+            # Match ONLY the streamlit-apps flag: returning True for all flag
+            # names would spuriously enable unrelated flags that other code
+            # in the stack evaluates during the same request.
+            if flag_name == "streamlit-apps":
+                return enabled
+            return False
+
+        mock.side_effect = check_flag
+
+
+class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
     # The viewset is now registered under both /environments/ and /projects/
     # via register_grandfathered_environment_nested_viewset. Tests use the
     # legacy /projects/ path because it still works and exercises the same
@@ -97,6 +132,14 @@ class TestStreamlitAppAPI(APIBaseTest):
         response = self.client.get(self._url())
         result = response.json()["results"][0]
         assert result["status"] == "running"
+
+    def test_list_returns_403_when_feature_flag_disabled(self):
+        # StreamlitAppsAccessPermission hides the whole viewset behind the
+        # `streamlit-apps` PostHog flag; when the flag is off, even listing
+        # should 403 regardless of team membership.
+        self._set_streamlit_apps_flag(False)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_list_stopped_status_when_no_sandbox(self):
         self._create_app()
@@ -183,7 +226,7 @@ class TestStreamlitAppAPI(APIBaseTest):
         assert len(response.json()["results"]) == 0
 
 
-class TestStreamlitAppVersionAPI(APIBaseTest):
+class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
     def _url(self, short_id: str, suffix: str = "") -> str:
         base = f"/api/environments/{self.team.id}/streamlit_apps/{short_id}"
         if suffix:
@@ -328,7 +371,7 @@ class TestStreamlitAppVersionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-class TestStreamlitAppSandboxControlAPI(APIBaseTest):
+class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
     def _url(self, short_id: str, suffix: str = "") -> str:
         base = f"/api/environments/{self.team.id}/streamlit_apps/{short_id}"
         if suffix:

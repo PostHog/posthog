@@ -92,9 +92,12 @@ class StreamlitAppSandbox(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     last_activity_at = models.DateTimeField(null=True, blank=True)
 
-    # The sandbox row's own creation time — used by _sync_sandbox_status to
-    # decide when a STARTING record has timed out, instead of relying on
-    # app.updated_at (which moves whenever any field on the app changes).
+    # Row creation timestamp. Historically tried to double as the "this
+    # start attempt began" reference for _sync_sandbox_status's timeout
+    # check, but that's wrong: the row is reused in place across lifecycles
+    # via update_or_create, so created_at drifts hours into the past for any
+    # app that has been sandboxed before. Use started_at for the timeout
+    # reference — it gets refreshed on every new start attempt.
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:

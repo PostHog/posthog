@@ -361,6 +361,7 @@ async def _introspect_token(
     *,
     team_id: int,
     expected_client_id: str,
+    expected_scope_component: str,
 ) -> dict | None:
     """Validate an OAuth token via PostHog's introspection endpoint, with caching.
 
@@ -373,6 +374,9 @@ async def _introspect_token(
       - application client_id does not match expected_client_id (cross-application
         token rejection — tokens minted against any other first-party OAuth app
         must not unlock this sandbox even if they share team scope)
+      - token scope does not contain expected_scope_component (e.g. the iframe
+        path requires `streamlit:iframe` — a bridge-scoped token minted for the
+        sandbox→PostHog backchannel must not unlock the iframe, and vice versa)
 
     A circuit breaker fast-fails all requests after a few consecutive upstream
     failures so we don't pile load on a degraded PostHog API; the breaker
@@ -453,6 +457,22 @@ async def _introspect_token(
                 )
                 _record_introspection_success()
                 return None
+            # Per-purpose scope binding: the iframe path requires the token's
+            # scope to include `streamlit:iframe`. Without this check, a bridge
+            # token (minted for the sandbox→PostHog backchannel hop and
+            # carrying `streamlit:bridge`) that leaked from proxy memory or
+            # /run/bridge_token would unlock the iframe even though it was
+            # issued for an entirely different purpose. The B.2.5 scope split
+            # is meaningless unless both endpoints enforce their own scope.
+            scope_parts = set((data.get("scope") or "").split())
+            if expected_scope_component not in scope_parts:
+                log.warning(
+                    "introspect: token scope mismatch expected=%s got=%s",
+                    expected_scope_component,
+                    data.get("scope"),
+                )
+                _record_introspection_success()
+                return None
             _evict_introspection_cache_if_full()
             _introspection_cache[token_hash] = (data, now + INTROSPECTION_CACHE_TTL)
             _record_introspection_success()
@@ -521,6 +541,7 @@ async def proxy_handler(request: web.Request) -> web.StreamResponse:
         token,
         team_id=request.app["posthog_team_id"],
         expected_client_id=request.app["posthog_streamlit_client_id"],
+        expected_scope_component="streamlit:iframe",
     )
     if not introspection:
         return web.Response(status=403, text="Invalid or expired token")

@@ -325,10 +325,16 @@ def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSan
         return sandbox_record
 
     # Expire stale STARTING records (Celery task crashed before completion, or
-    # startup genuinely ran past the budget). Use the sandbox row's own
-    # created_at — app.updated_at moves whenever any field on the app changes.
+    # startup genuinely ran past the budget). Prefer started_at, which
+    # start_app refreshes on every new attempt, over created_at: the row is
+    # reused in place across lifecycles via update_or_create, so created_at
+    # drifts hours into the past for any app that has been sandboxed before
+    # and would flip every first status poll straight to ERROR. Fall back to
+    # created_at only for legacy rows that somehow reached STARTING without
+    # started_at being set.
     if sandbox_record.status == StreamlitAppSandbox.Status.STARTING:
-        age = (timezone.now() - sandbox_record.created_at).total_seconds()
+        reference = sandbox_record.started_at or sandbox_record.created_at
+        age = (timezone.now() - reference).total_seconds()
         if age > STARTING_TIMEOUT_SECONDS:
             sandbox_record.status = StreamlitAppSandbox.Status.ERROR
             sandbox_record.last_error = "Startup timed out"
@@ -392,6 +398,15 @@ class AppRuntimeService:
                         "sandbox_id": "",
                         "status": StreamlitAppSandbox.Status.STARTING,
                         "last_error": "",
+                        # Stamp "this attempt began now" so _sync_sandbox_status
+                        # has a fresh reference for the STARTING timeout check.
+                        # The row is reused across lifecycles via update_or_create,
+                        # so created_at drifts hours into the past and can't serve
+                        # that role. started_at is safe to repurpose: the only
+                        # other reader (tasks.reset_streamlit_app_restart_count_if_stable)
+                        # touches it exclusively when status=RUNNING, and the
+                        # RUNNING transition below overwrites it again.
+                        "started_at": timezone.now(),
                     },
                 )
             except IntegrityError:

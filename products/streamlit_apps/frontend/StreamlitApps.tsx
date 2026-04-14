@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { IconEllipsis, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -95,7 +97,15 @@ function AppCard({ app }: { app: StreamlitAppMinimalType }): JSX.Element {
 }
 
 export function StreamlitApps(): JSX.Element {
+    // FEATURE_FLAGS.STREAMLIT_APPS gate — remove when released.
+    // Backend enforces the same flag via StreamlitAppsAccessPermission; this
+    // gate is UX-only (clean NotFound vs a broken scene on direct URL navigation).
+    const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
     const { streamlitApps, streamlitAppsLoading } = useValues(streamlitAppsLogic)
+
+    if (!streamlitAppsFeatureFlagEnabled) {
+        return <NotFound object="page" />
+    }
 
     return (
         <div>
