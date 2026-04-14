@@ -9,7 +9,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import F
+from django.db.models import F, Prefetch
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -195,8 +195,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Prefetch runs to avoid N+1 queries when fetching latest_run
-        qs = qs.prefetch_related("runs")
+        # Prefetch runs deferring the large `state` blob, and select_related to avoid N+1 on created_by/team
+        latest_runs_qs = TaskRun.objects.order_by("-created_at").defer("state")
+        qs = qs.select_related("created_by", "team").prefetch_related(Prefetch("runs", queryset=latest_runs_qs))
 
         return qs
 
