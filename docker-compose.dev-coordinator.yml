@@ -6,6 +6,25 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+# Dev multi-node stack. Bring up with `bin/ch-stack-up` (project name
+# `posthog-multinode`). This file exposes:
+#   - clickhouse          on localhost:9000 / 8123  (main data, shard 01)
+#   - clickhouse-coordinator on localhost:9001     (shard 02)
+#   - clickhouse-logs     on localhost:9002         (logs role)
+#   - keeper              on localhost:9181
+#   - kafka               on localhost:9092
+#
+# App services (web, worker, plugins) run on the host via `./bin/start`,
+# not in this compose file. To route Workload.LOGS traffic to the
+# `clickhouse-logs` container, export on the host before `./bin/start`:
+#
+#   export CLICKHOUSE_LOGS_HOST=localhost
+#   export CLICKHOUSE_LOGS_PORT=9002
+#   export CLICKHOUSE_LOGS_CLUSTER_HOST=localhost
+#   export CLICKHOUSE_LOGS_CLUSTER_PORT=9002
+#
+# Without these, Workload.LOGS falls through to the main clickhouse node.
+#
 
 services:
     proxy:

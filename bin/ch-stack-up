@@ -18,7 +18,11 @@ cd "$(dirname "$0")/.."
 # docker-compose.base.yml. Combining with dev.yml pulls in unrelated
 # services (`proxy → capture`, `web → worker`) that fail to validate
 # unless you're booting the full single-node dev stack.
+#
+# Use a dedicated project name so containers and volumes don't collide
+# with the default `posthog` project used by docker-compose.dev.yml.
 docker compose \
+    -p posthog-multinode \
     -f docker-compose.dev-coordinator.yml \
     up -d \
     clickhouse clickhouse-coordinator clickhouse-logs keeper kafka

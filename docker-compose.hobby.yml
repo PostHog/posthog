@@ -62,6 +62,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: keeper
+        logging: *default-logging
         # Hobby clones posthog into ./posthog/ subdir, so the base's
         # ./docker/clickhouse/keeper_config.xml path doesn't resolve.
         # Override with the hobby-relative path + add persistent volumes.
@@ -74,6 +75,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: kafka
+        logging: *default-logging
         environment:
             KAFKA_LOG_RETENTION_MS: 3600000
             KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000

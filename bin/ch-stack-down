@@ -7,5 +7,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 docker compose \
+    -p posthog-multinode \
     -f docker-compose.dev-coordinator.yml \
     down -v
