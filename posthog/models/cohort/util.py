@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -302,8 +303,6 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
     be available or are needlessly expensive) and search terms (the cohort
     should include all matching persons, not just those matching a search).
     """
-    import copy
-
     query_dict = copy.deepcopy(query_dict)
 
     if query_dict.get("kind") == "ActorsQuery":
