@@ -287,6 +287,65 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response(self._serialize_precomputation_team(team, enabled))
 
+    @action(detail=False, methods=["GET"], url_path="slowest_queries")
+    def slowest_queries(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view slowest queries.")
+
+        hours = int(request.query_params.get("hours", 1))
+        hours = max(1, min(hours, 168))  # clamp to 1h–7d
+
+        response = sync_execute(
+            """
+            SELECT
+                query_id,
+                query,
+                query_start_time,
+                query_duration_ms,
+                exception,
+                toInt8(type) AS status,
+                JSONExtractInt(log_comment, 'team_id') AS team_id,
+                JSONExtractString(log_comment, 'query_type') AS query_type,
+                JSONExtractString(log_comment, 'experiment_name') AS experiment_name,
+                JSONExtractString(log_comment, 'experiment_metric_name') AS experiment_metric_name,
+                JSONExtractString(log_comment, 'experiment_execution_path') AS experiment_execution_path
+            FROM clusterAllReplicas(%(cluster)s, system, query_log)
+            WHERE
+                event_time > now() - INTERVAL %(hours)s HOUR
+                AND JSONExtractString(log_comment, 'product') = 'experiments'
+                AND type = 2
+                AND is_initial_query
+                AND query NOT LIKE %(not_query)s
+            ORDER BY query_duration_ms DESC
+            LIMIT 100
+            SETTINGS skip_unavailable_shards=1
+            """,
+            {
+                "cluster": CLICKHOUSE_CLUSTER,
+                "hours": hours,
+                "not_query": "%request:_api_debug_ch_queries_%",
+            },
+        )
+
+        return Response(
+            [
+                {
+                    "query_id": row[0],
+                    "query": row[1],
+                    "timestamp": row[2],
+                    "execution_time": row[3],
+                    "exception": row[4],
+                    "status": row[5],
+                    "team_id": row[6],
+                    "query_type": row[7],
+                    "experiment_name": row[8],
+                    "experiment_metric_name": row[9],
+                    "experiment_execution_path": row[10],
+                }
+                for row in response
+            ]
+        )
+
     @action(detail=False, methods=["POST"])
     def profile(self, request):
         if not request.user.is_staff:
