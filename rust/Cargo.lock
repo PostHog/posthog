@@ -1779,6 +1779,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-metrics",
  "envconfig",
+ "flate2",
  "health",
  "hex",
  "jsonwebtoken",
@@ -1793,6 +1794,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
+ "tower 0.4.13",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -4428,6 +4430,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "hypercache-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-config",
+ "aws-sdk-s3",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-continuous-profiling",
+ "common-hypercache",
+ "common-metrics",
+ "common-redis",
+ "envconfig",
+ "health",
+ "http-body-util",
+ "opentelemetry 0.22.0",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk 0.22.1",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde-pickle",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "hyperlocal"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6592,14 +6628,18 @@ dependencies = [
  "async-trait",
  "axum 0.7.9",
  "common-alloc",
+ "common-kafka",
  "common-metrics",
  "dashmap 6.1.0",
  "envconfig",
  "foyer",
+ "health",
  "lifecycle",
  "metrics",
  "personhog-coordination",
  "personhog-proto",
+ "prost 0.13.5",
+ "rdkafka",
  "serde_json",
  "tokio",
  "tokio-stream",

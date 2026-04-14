@@ -20,6 +20,7 @@ from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_a
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    compute_cluster_aggregates_activity,
     emit_cluster_events_activity,
     generate_cluster_labels_activity,
     perform_clustering_compute_activity,
@@ -83,6 +84,7 @@ ACTIVITIES = [
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
+    compute_cluster_aggregates_activity,
     emit_cluster_events_activity,
     # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
     classify_sentiment_activity,

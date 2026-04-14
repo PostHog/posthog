@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
 use metrics::counter;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
@@ -7,23 +8,34 @@ use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
 use personhog_proto::personhog::types::v1::{
     GetPersonResponse, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
+use rdkafka::producer::FutureProducer;
+use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
+use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 
 pub struct PersonHogLeaderService {
     cache: Arc<PartitionedCache>,
     /// Per-key locks to serialize concurrent updates for the same person.
-    /// Prevents lost updates from concurrent get → compute → put sequences.
+    /// Prevents lost updates from concurrent get -> compute -> produce -> put sequences.
     update_locks: DashMap<PersonCacheKey, Arc<Mutex<()>>>,
+    producer: FutureProducer<KafkaContext>,
+    changelog_topic: String,
 }
 
 impl PersonHogLeaderService {
-    pub fn new(cache: Arc<PartitionedCache>) -> Self {
+    pub fn new(
+        cache: Arc<PartitionedCache>,
+        producer: FutureProducer<KafkaContext>,
+        changelog_topic: String,
+    ) -> Self {
         Self {
             cache,
             update_locks: DashMap::new(),
+            producer,
+            changelog_topic,
         }
     }
 }
@@ -112,14 +124,14 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
 
         // Per-key lock serializes concurrent updates for the same person,
-        // preventing lost updates from concurrent get → compute → put sequences.
+        // preventing lost updates from concurrent get -> compute -> produce -> put sequences.
         let mutex = self
             .update_locks
             .entry(cache_key.clone())
             .or_default()
             .value()
             .clone();
-        let _guard = mutex.lock().expect("update lock poisoned");
+        let _guard = mutex.lock().await;
 
         let person = lookup_person(&self.cache, req.partition, &cache_key)?;
 
@@ -164,8 +176,24 @@ impl PersonHogLeader for PersonHogLeaderService {
             is_identified: person.is_identified,
         };
         let proto = cached_person_to_proto(&updated_person);
-        self.cache.put(req.partition, cache_key, updated_person);
 
+        // Produce to Kafka first, then update the cache on success.
+        // Readers only ever see durably committed state.
+        if let Err(e) =
+            produce_person_changelog(&self.producer, &self.changelog_topic, &proto).await
+        {
+            tracing::error!(
+                team_id = cache_key.team_id,
+                person_id = cache_key.person_id,
+                error = %e,
+                "failed to produce person state changelog"
+            );
+            return Err(Status::internal(format!(
+                "failed to durably store person state: {e}"
+            )));
+        }
+
+        self.cache.put(req.partition, cache_key, updated_person);
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {

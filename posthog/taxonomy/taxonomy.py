@@ -2662,6 +2662,10 @@ IGNORED_EVENT_NAMES: list[str] = [
     if defn.get("system") or defn.get("ignored_in_assistant")
 ]
 
+# Core PostHog events, derived from the taxonomy. Used to determine which events
+# are treated as verified in the Data Management UI and included in typed code generation.
+CORE_EVENTS: list[str] = [name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}) if name != "All events"]
+
 WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     name
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
