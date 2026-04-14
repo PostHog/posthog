@@ -77,6 +77,7 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/metrics.py'
                         - 'posthog/person_db_router.py'
+                        - 'posthog/products.py'
                         - 'posthog/redis.py'
                         - 'posthog/utils.py'
                         # ee modules imported by DAGs
@@ -84,7 +85,10 @@ jobs:
                         - 'ee/clickhouse/materialized_columns/**'
                         - 'ee/hogai/eval/**'
                         # products backend modules imported by DAGs (non-dags paths)
+                        - 'products/data_warehouse/backend/**'
+                        - 'products/error_tracking/backend/**'
                         - 'products/event_definitions/backend/**'
+                        - 'products/growth/backend/**'
                         - 'products/llm_analytics/backend/**'
                         # Dependency and config changes
                         - 'pyproject.toml'
