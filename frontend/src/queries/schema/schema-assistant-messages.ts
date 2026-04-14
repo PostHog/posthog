@@ -157,7 +157,7 @@ export interface MultiQuestionFormQuestion {
     type?: MultiQuestionFormQuestionType
     /** Available answer options (required for select and multi_select) */
     options?: MultiQuestionFormQuestionOption[]
-    /** Whether to show a "Type your answer" option (default: true). Only used for select type. */
+    /** Whether to show a "Type your answer" option (default: true). Used for select and multi_select types. */
     allow_custom_answer?: boolean
     /** Fields for multi_field type questions, grouped with a shared submit button */
     fields?: MultiQuestionFormField[]

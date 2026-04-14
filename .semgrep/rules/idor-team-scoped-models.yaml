@@ -123,6 +123,9 @@ rules:
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |FileSystem
+                              |GitHubSyncConfig
+                              |GitHubSyncPlan
+                              |GitHubSyncedModel
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
@@ -183,6 +186,7 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |TicketView
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -311,6 +315,9 @@ rules:
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |FileSystem
+                        |GitHubSyncConfig
+                        |GitHubSyncPlan
+                        |GitHubSyncedModel
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
@@ -368,6 +375,7 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |TicketView
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview

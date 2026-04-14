@@ -187,6 +187,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
+    [Scene.QueryPerformance]: { instanceLevel: true, name: 'Query performance' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -423,6 +424,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
         iconType: 'persons',
+    },
+    [Scene.AccountSocialConnected]: {
+        name: 'Account connected',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
@@ -923,6 +930,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webScriptsNew()]: [Scene.DataPipelinesNew, 'webScriptsNew'],
     [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
@@ -932,6 +940,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],

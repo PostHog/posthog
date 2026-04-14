@@ -37,6 +37,7 @@ from ee.models.assistant import Conversation
 
 class EvalInput(TypedDict):
     input: str
+    mock_key: str
 
 
 EXPERIMENT_SUMMARY_ACCURACY_PROMPT = """
@@ -125,7 +126,7 @@ def _extract_summary_result(state: AssistantState) -> dict[str, Any]:
     return result
 
 
-MOCK_SUMMARY_CONTEXT = MaxExperimentSummaryContext(
+MOCK_BAYESIAN_SIGNIFICANT = MaxExperimentSummaryContext(
     experiment_id=0,  # replaced at runtime
     experiment_name="Checkout Redesign Test",
     description="Testing whether a simplified one-page checkout increases purchase conversion",
@@ -158,24 +159,75 @@ MOCK_SUMMARY_CONTEXT = MaxExperimentSummaryContext(
 )
 
 
+# Non-significant Bayesian case: test variant slightly leads on chance-to-win,
+# but credible intervals cross zero and neither variant is flagged significant.
+# Exercises the scorer's "do not declare a winner when not significant" rule.
+MOCK_BAYESIAN_NON_SIGNIFICANT = MaxExperimentSummaryContext(
+    experiment_id=0,  # replaced at runtime
+    experiment_name="Homepage Hero Copy Test",
+    description="Testing whether new hero copy increases signup conversion",
+    variants=["control", "test"],
+    exposures={"control": 2103.0, "test": 2089.0},
+    primary_metrics_results=[
+        MaxExperimentMetricResult(
+            name="1. Signup conversion",
+            goal=Goal.INCREASE,
+            variant_results=[
+                MaxExperimentVariantResultBayesian(
+                    key="control",
+                    chance_to_win=0.46,
+                    credible_interval=[-0.018, 0.014],
+                    delta=-0.002,
+                    significant=False,
+                ),
+                MaxExperimentVariantResultBayesian(
+                    key="test",
+                    chance_to_win=0.54,
+                    credible_interval=[-0.014, 0.018],
+                    delta=0.002,
+                    significant=False,
+                ),
+            ],
+        ),
+    ],
+    secondary_metrics_results=[],
+    stats_method=ExperimentStatsMethod.BAYESIAN,
+)
+
+
+MOCK_CONTEXTS: dict[str, MaxExperimentSummaryContext] = {
+    "bayesian_significant": MOCK_BAYESIAN_SIGNIFICANT,
+    "bayesian_non_significant": MOCK_BAYESIAN_NON_SIGNIFICANT,
+}
+
+
 @pytest.fixture
 def experiment_with_mock_data(demo_org_team_user):
-    """Create an experiment and patch the data service to return known results."""
+    """Create an experiment matching a mock context template and return both."""
     _, team, user = demo_org_team_user
 
-    async def setup():
+    async def setup(mock_template: MaxExperimentSummaryContext):
         unique_suffix = uuid.uuid4().hex[:6]
+        # Distribute rollout percentages evenly across variants, putting any
+        # remainder on the first variant so the total is exactly 100.
+        num_variants = len(mock_template.variants)
+        base_pct = 100 // num_variants
+        remainder = 100 - (base_pct * num_variants)
         flag = await FeatureFlag.objects.acreate(
             team=team,
             created_by=user,
-            key=f"eval-checkout-redesign-{unique_suffix}",
-            name="Checkout Redesign Flag",
+            key=f"eval-experiment-{unique_suffix}",
+            name=f"{mock_template.experiment_name} Flag",
             filters={
                 "groups": [{"properties": [], "rollout_percentage": 100}],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        {
+                            "key": variant,
+                            "name": variant.title(),
+                            "rollout_percentage": base_pct + (remainder if i == 0 else 0),
+                        }
+                        for i, variant in enumerate(mock_template.variants)
                     ]
                 },
             },
@@ -183,23 +235,24 @@ def experiment_with_mock_data(demo_org_team_user):
 
         now = datetime.now(tz=ZoneInfo("UTC"))
         experiment = await Experiment.objects.acreate(
-            name="Checkout Redesign Test",
+            name=mock_template.experiment_name,
             team=team,
             created_by=user,
             feature_flag=flag,
-            description="Testing whether a simplified one-page checkout increases purchase conversion",
+            description=mock_template.description or "",
             start_date=now - timedelta(days=14),
             metrics=[
                 {
                     "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "purchase_completed"}],
-                    "name": "Purchase conversion",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "name": metric.name,
                 }
+                for metric in mock_template.primary_metrics_results
             ],
             metrics_secondary=[],
         )
 
-        mock_context = MOCK_SUMMARY_CONTEXT.model_copy(update={"experiment_id": experiment.id})
+        mock_context = mock_template.model_copy(update={"experiment_id": experiment.id})
         return experiment, mock_context
 
     return setup
@@ -218,7 +271,8 @@ def call_agent_for_summary(demo_org_team_user, experiment_with_mock_data):
     )
 
     async def callable(input: EvalInput) -> dict:
-        experiment, mock_context = await experiment_with_mock_data()
+        mock_template = MOCK_CONTEXTS[input["mock_key"]]
+        experiment, mock_context = await experiment_with_mock_data(mock_template)
 
         conversation = await Conversation.objects.acreate(team=team, user=user)
         initial_state = AssistantState(
@@ -257,8 +311,16 @@ async def eval_experiment_summary(call_agent_for_summary, pytestconfig):
             EvalCase(
                 input=EvalInput(
                     input="Summarize experiment {experiment_id}. What do the results show?",
+                    mock_key="bayesian_significant",
                 ),
-                metadata={"test_type": "bayesian_summary_accuracy"},
+                metadata={"test_type": "bayesian_significant"},
+            ),
+            EvalCase(
+                input=EvalInput(
+                    input="Summarize experiment {experiment_id}. What do the results show?",
+                    mock_key="bayesian_non_significant",
+                ),
+                metadata={"test_type": "bayesian_non_significant"},
             ),
         ],
         pytestconfig=pytestconfig,

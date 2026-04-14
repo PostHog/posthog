@@ -16,6 +16,10 @@ export const NotebookDefaultBlockOnEnter = Extension.create({
                 const { $from: $before } = this.editor.state.selection
                 const atStart = $before.parentOffset === 0
 
+                if (this.editor.isActive('listItem') || this.editor.isActive('taskItem')) {
+                    return false
+                }
+
                 const handled = this.editor.commands.first(({ commands }) => [
                     () => commands.newlineInCode(),
                     () => commands.createParagraphNear(),
