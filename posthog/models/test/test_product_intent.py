@@ -9,13 +9,17 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
+from products.llm_analytics.backend.models.datasets import Dataset
+from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.surveys.backend.models import Survey
 
 
@@ -716,3 +720,146 @@ class TestProductIntent(BaseTest):
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
         assert user_product_lists.get().reason == UserProductList.Reason.PRODUCT_INTENT
+
+    def _make_web_analytics_intent(self, contexts: dict) -> ProductIntent:
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.WEB_ANALYTICS).delete()
+        return ProductIntent.objects.create(
+            team=self.team,
+            product_type=ProductKey.WEB_ANALYTICS,
+            contexts=contexts,
+        )
+
+    def test_has_activated_web_analytics_with_authorized_domain_and_enough_interactions(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        intent = self._make_web_analytics_intent({"web_analytics_insight": 2, "web_analytics_errors": 1})
+
+        assert intent.has_activated_web_analytics() is True
+
+    def test_has_activated_web_analytics_counts_across_multiple_contexts(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        intent = self._make_web_analytics_intent(
+            {
+                "web_analytics_insight": 1,
+                "web_analytics_errors": 1,
+                "web_analytics_frustrating_pages": 1,
+            }
+        )
+
+        assert intent.has_activated_web_analytics() is True
+
+    def test_has_not_activated_web_analytics_without_authorized_domain(self):
+        self.team.app_urls = []
+        self.team.save()
+        intent = self._make_web_analytics_intent({"web_analytics_insight": 5})
+
+        assert intent.has_activated_web_analytics() is False
+
+    def test_has_not_activated_web_analytics_with_only_null_authorized_domains(self):
+        self.team.app_urls = [None]
+        self.team.save()
+        intent = self._make_web_analytics_intent({"web_analytics_insight": 5})
+
+        assert intent.has_activated_web_analytics() is False
+
+    def test_has_not_activated_web_analytics_without_enough_interactions(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        intent = self._make_web_analytics_intent({"web_analytics_insight": 2})
+
+        assert intent.has_activated_web_analytics() is False
+
+    def test_has_not_activated_web_analytics_without_intent(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.WEB_ANALYTICS).delete()
+
+        assert self.product_intent.has_activated_web_analytics() is False
+
+    def _make_ai_generation_event_definition(self) -> EventDefinition:
+        return EventDefinition.objects.create(team=self.team, name="$ai_generation")
+
+    def _make_llm_evaluation(self, enabled: bool) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=enabled,
+        )
+
+    def test_has_activated_llm_analytics_with_ingestion_and_dataset(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        self._make_ai_generation_event_definition()
+        Dataset.objects.create(team=self.team, name="Test dataset")
+
+        assert self.product_intent.has_activated_llm_analytics() is True
+
+    def test_has_activated_llm_analytics_with_ingestion_and_enabled_evaluation(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        self._make_ai_generation_event_definition()
+        self._make_llm_evaluation(enabled=True)
+
+        assert self.product_intent.has_activated_llm_analytics() is True
+
+    def test_has_not_activated_llm_analytics_without_ingestion(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        Dataset.objects.create(team=self.team, name="Test dataset")
+
+        assert self.product_intent.has_activated_llm_analytics() is False
+
+    def test_has_not_activated_llm_analytics_with_ingestion_but_no_dataset_or_evaluation(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        self._make_ai_generation_event_definition()
+
+        assert self.product_intent.has_activated_llm_analytics() is False
+
+    def test_has_not_activated_llm_analytics_with_disabled_evaluation_only(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        self._make_ai_generation_event_definition()
+        self._make_llm_evaluation(enabled=False)
+
+        assert self.product_intent.has_activated_llm_analytics() is False
+
+    def test_has_not_activated_llm_analytics_with_soft_deleted_dataset_only(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        self._make_ai_generation_event_definition()
+        Dataset.objects.create(team=self.team, name="Test dataset", deleted=True)
+
+        assert self.product_intent.has_activated_llm_analytics() is False
+
+    def test_has_activated_workflows_with_active_workflow(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.ACTIVE)
+
+        assert self.product_intent.has_activated_workflows() is True
+
+    def test_has_not_activated_workflows_with_draft_workflow_only(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.DRAFT)
+
+        assert self.product_intent.has_activated_workflows() is False
+
+    def test_has_not_activated_workflows_with_archived_workflow_only(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.ARCHIVED)
+
+        assert self.product_intent.has_activated_workflows() is False
+
+    def test_has_not_activated_workflows_without_any_workflows(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+
+        assert self.product_intent.has_activated_workflows() is False
