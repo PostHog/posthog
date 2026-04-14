@@ -291,7 +291,7 @@ class TestProcessBatchPersistentRetry:
     def test_pre_increments_before_processing(self, mock_get, mock_inc, mock_clear):
         call_order: list[str] = []
 
-        def track_process(msg):
+        def track_process(msg, **kwargs):
             call_order.append("process")
 
         def _increment_side_effect(*a: Any) -> RetryInfo:
@@ -326,7 +326,7 @@ class TestProcessBatchPersistentRetry:
     def test_multiple_messages_first_fails_second_not_attempted(self, mock_get, mock_inc, mock_clear):
         call_count = 0
 
-        def process_fn(msg):
+        def process_fn(msg, **kwargs):
             nonlocal call_count
             call_count += 1
             if msg["batch_index"] == 0:

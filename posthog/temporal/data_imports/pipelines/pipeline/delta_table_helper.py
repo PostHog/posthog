@@ -179,6 +179,7 @@ class DeltaTableHelper:
         write_type: Literal["incremental", "full_refresh", "append"],
         should_overwrite_table: bool,
         primary_keys: Sequence[Any] | None,
+        progress_callback: Any | None = None,
     ) -> deltalake.DeltaTable:
         delta_table = await self.get_delta_table()
 
@@ -243,6 +244,9 @@ class DeltaTableHelper:
                     merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate)
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+
+                    if progress_callback:
+                        progress_callback()
             else:
 
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
