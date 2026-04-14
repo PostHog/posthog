@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
-import { dateStringToDayJs, isDate, objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { isDate, objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -376,11 +376,9 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         return acc
     }, {} as DashboardFilter)
 
-    // Strip null values and default-false explicitDate so the serialized
-    // output is stable across code paths. Without this, switching date filters
-    // can produce {date_from: "-7d", date_to: null, explicitDate: false}
-    // instead of just {date_from: "-7d"}, leading to different JSON payloads
-    // sent to the backend and potentially different cache key lookups.
+    // Strip nulls and default-false explicitDate so the serialized output matches
+    // the persisted shape — otherwise the same logical filter produces different
+    // filters_override JSON depending on code path, and can miss the cache entry.
     const cleaned: Record<string, any> = {}
     for (const [key, value] of Object.entries(combined)) {
         if (value === null || value === undefined) {
@@ -394,48 +392,21 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
     return cleaned as DashboardFilter
 }
 
-/**
- * Check whether a cached tile's data is date-stale — i.e. its `last_refresh` is old enough
- * that relative date filters (e.g. "-7d") would now resolve to a different calendar day.
- *
- * The normal cache staleness check (`cache_target_age`) only considers how old the cache is
- * relative to the query interval (e.g. 6 hours for daily). But for dashboards with relative
- * date filters, a cache from 6 hours ago can still show data starting from a different day
- * than "now" would produce — causing tiles to briefly display mismatched date ranges.
- *
- * Returns true if the tile should be refreshed because the date range has shifted.
- */
+// Relative date filters (e.g. "-7d") resolve against "now", so a tile cached yesterday
+// holds data for a date range that has since shifted. cache_target_age doesn't catch
+// this — a 6h-old cache is still "fresh" even if those 6h crossed midnight.
 export function isTileDateRangeStale(
     filters: DashboardFilter,
     tileLastRefresh: string | null | undefined,
     timezone: string
 ): boolean {
-    // Only relevant when date_from is a relative date string
     if (!filters.date_from || isDate.test(filters.date_from) || filters.date_from === 'all') {
         return false
     }
-
     if (!tileLastRefresh) {
-        return true // No last_refresh means the tile has never been computed
+        return true
     }
-
-    // Resolve what date_from meant at the time the tile was last refreshed vs now.
-    // If they land on different calendar days, the tile's data is showing a shifted range.
-    const now = dayjs().tz(timezone)
-    const lastRefreshTime = dayjs(tileLastRefresh).tz(timezone)
-
-    const currentDateFrom = dateStringToDayJs(filters.date_from, timezone)
-    if (!currentDateFrom) {
-        return false
-    }
-
-    // Re-resolve the same relative date string but using the tile's last_refresh time as "now".
-    // dateStringToDayJs uses dayjs().tz(timezone).startOf('day') as the offset,
-    // so we compare by checking if the last_refresh day differs from today's day — which would
-    // cause the resolved date_from to shift.
-    const lastRefreshDay = lastRefreshTime.startOf('day')
-    const currentDay = now.startOf('day')
-
-    // If last_refresh is from a different calendar day, relative dates will resolve differently
-    return !lastRefreshDay.isSame(currentDay, 'day')
+    const today = dayjs().tz(timezone).startOf('day')
+    const lastRefreshDay = dayjs(tileLastRefresh).tz(timezone).startOf('day')
+    return !lastRefreshDay.isSame(today, 'day')
 }
