@@ -1,6 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
-import { IconCheck, IconRefresh, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
@@ -13,8 +13,7 @@ export function CrossSellRecommendationCard({
     recommendation: CrossSellRecommendationRun
     dismissed?: boolean
 }): JSX.Element | null {
-    const { recommendationsLoading } = useValues(recommendationsTabLogic)
-    const { refreshRecommendations, dismissRecommendation, restoreRecommendation } = useActions(recommendationsTabLogic)
+    const { dismissRecommendation, restoreRecommendation } = useActions(recommendationsTabLogic)
     const products = recommendation.meta.products ?? []
 
     if (products.length === 0) {
@@ -54,22 +53,13 @@ export function CrossSellRecommendationCard({
                             Restore
                         </LemonButton>
                     ) : (
-                        <>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                icon={<IconRefresh />}
-                                loading={recommendationsLoading}
-                                onClick={refreshRecommendations}
-                            />
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                icon={<IconX />}
-                                onClick={() => dismissRecommendation(recommendation.type)}
-                                tooltip="Dismiss this recommendation"
-                            />
-                        </>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            icon={<IconX />}
+                            onClick={() => dismissRecommendation(recommendation.type)}
+                            tooltip="Dismiss this recommendation"
+                        />
                     )}
                 </div>
             </div>

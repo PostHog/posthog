@@ -24,6 +24,5 @@ export type CrossSellRecommendationRun = ErrorTrackingRecommendationRun<CrossSel
 
 export interface ErrorTrackingRecommendationSettingsResponse {
     id: string
-    enabled: boolean
     ignored_recommendation_types: ErrorTrackingRecommendationType[]
 }

@@ -3889,10 +3889,6 @@ const api = {
             return await new ApiRequest().errorTrackingRecommendations().get()
         },
 
-        async refreshRecommendations(): Promise<{ results: ErrorTrackingRecommendationRun[] }> {
-            return await new ApiRequest().errorTrackingRecommendations().withAction('refresh').create()
-        },
-
         async getRecommendationSettings(): Promise<ErrorTrackingRecommendationSettingsResponse> {
             return await new ApiRequest().errorTrackingRecommendationSettings().get()
         },
