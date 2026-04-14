@@ -11,11 +11,11 @@ import deltalake as deltalake
 import pyarrow.compute as pc
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_lru_cache_async, normalize_column_name
 
@@ -105,7 +105,7 @@ class DeltaTableHelper:
         }
 
     async def _get_delta_table_uri(self) -> str:
-        normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
+        normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
         return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
 
