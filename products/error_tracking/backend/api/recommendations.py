@@ -65,18 +65,6 @@ class ErrorTrackingRecommendationViewSet(
         return super().list(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])
-    def refresh(self, request: Request, *args, **kwargs) -> Response:
-        recommendation = self.get_object()
-        module = REGISTRY.get(recommendation.type)
-        if not module:
-            return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
-        now = timezone.now()
-        recommendation.meta = module.compute(self.team)
-        recommendation.computed_at = now
-        recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
-        return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=["post"])
     def dismiss(self, request: Request, *args, **kwargs) -> Response:
         recommendation = self.get_object()
         recommendation.dismissed_at = timezone.now()
