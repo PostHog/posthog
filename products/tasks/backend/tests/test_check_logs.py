@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from products.tasks.backend.services.custom_prompt_runner import _check_logs
+from products.tasks.backend.services.custom_prompt_runner import _check_logs, _stream_new_lines
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -98,3 +98,20 @@ class TestCheckLogs:
         assert finished is False
         assert text is None
         assert empty_end_turn is True
+
+
+class TestStreamNewLinesMonotonic:
+    def test_no_duplicate_output_after_s3_regression_then_recovery(self):
+        """Across three polls the user must see each line exactly once, even if S3
+        eventual-consistency briefly served a shorter snapshot between polls.
+        Without the cursor clamp, poll 3 would re-emit lines already streamed in poll 1.
+        """
+        captured: list[str] = []
+        # Poll 1: 5 lines visible, all streamed.
+        cursor = _stream_new_lines("a\nb\nc\nd\ne", printed_lines=0, output_fn=captured.append, verbose=True)
+        assert captured == ["a", "b", "c", "d", "e"]
+        # Poll 2: S3 regressed to 3 lines. Cursor must stay at 5 so poll 3 doesn't re-stream.
+        cursor = _stream_new_lines("a\nb\nc", printed_lines=cursor, output_fn=captured.append, verbose=True)
+        # Poll 3: S3 grew to 7 lines. Only the two genuinely new ones should stream.
+        _stream_new_lines("a\nb\nc\nd\ne\nf\ng", printed_lines=cursor, output_fn=captured.append, verbose=True)
+        assert captured == ["a", "b", "c", "d", "e", "f", "g"]

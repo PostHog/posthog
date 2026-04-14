@@ -204,7 +204,9 @@ async def _poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
-        skip_lines = total_lines
+        # Keep the cursor monotonic — S3 eventual-consistency can briefly return
+        # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
+        skip_lines = max(skip_lines, total_lines)
         refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
@@ -260,8 +262,9 @@ def _stream_new_lines(
     if not full_log:
         return printed_lines
     lines = full_log.strip().split("\n")
+    # Clamp to keep the cursor monotonic against S3 eventually-consistent reads
     if output_fn is None:
-        return len(lines)
+        return max(printed_lines, len(lines))
     for line in lines[printed_lines:]:
         line = line.strip()
         if not line:
@@ -283,7 +286,7 @@ def _stream_new_lines(
         text = _extract_text(update)
         if text:
             output_fn(text)
-    return len(lines)
+    return max(printed_lines, len(lines))
 
 
 def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool]:
