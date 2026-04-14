@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
@@ -268,50 +269,28 @@ class TestTaggersApi(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_validation_rejects_empty_tags(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Test",
-                "tagger_config": _make_tagger_config(tags=[]),
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_validation_rejects_duplicate_tag_names(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Test",
-                "tagger_config": _make_tagger_config(
-                    tags=[
+    @parameterized.expand(
+        [
+            ("empty_tags", {"tags": []}),
+            (
+                "duplicate_tag_names",
+                {
+                    "tags": [
                         {"name": "billing", "description": ""},
                         {"name": "billing", "description": ""},
                     ]
-                ),
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_validation_rejects_min_tags_greater_than_max_tags(self):
+                },
+            ),
+            ("min_tags_greater_than_max_tags", {"min_tags": 5, "max_tags": 2}),
+            ("max_tags_greater_than_tag_count", {"max_tags": 10}),
+        ]
+    )
+    def test_validation_rejects_invalid_tagger_config(self, _name: str, config_overrides: dict):
         response = self.client.post(
             f"/api/environments/{self.team.id}/taggers/",
             {
                 "name": "Test",
-                "tagger_config": _make_tagger_config(min_tags=5, max_tags=2),
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_validation_rejects_max_tags_greater_than_tag_count(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/taggers/",
-            {
-                "name": "Test",
-                "tagger_config": _make_tagger_config(max_tags=10),
+                "tagger_config": _make_tagger_config(**config_overrides),
             },
             format="json",
         )

@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -157,27 +158,34 @@ class TaggerSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
 
         model_config_data = validated_data.pop("model_configuration", None)
-        if model_config_data:
-            validated_data["model_configuration"] = self._create_or_update_model_configuration(
-                model_config_data, team.id
-            )
 
-        return super().create(validated_data)
+        # Wrap in a transaction so the model_configuration row and the tagger row
+        # land together — otherwise a Hog bytecode compile error on the tagger save
+        # would leave an orphaned LLMModelConfiguration row behind.
+        with transaction.atomic():
+            if model_config_data:
+                validated_data["model_configuration"] = self._create_or_update_model_configuration(
+                    model_config_data, team.id
+                )
+            return super().create(validated_data)
 
     def update(self, instance: Tagger, validated_data: dict) -> Tagger:
         model_config_data = validated_data.pop("model_configuration", None)
 
-        if model_config_data is not None:
-            if instance.model_configuration:
-                old_config = instance.model_configuration
-                instance.model_configuration = None
-                old_config.delete()
+        # Transaction wraps the delete-then-create-then-save sequence so a failed
+        # tagger save rolls back the model_configuration swap.
+        with transaction.atomic():
+            if model_config_data is not None:
+                if instance.model_configuration:
+                    old_config = instance.model_configuration
+                    instance.model_configuration = None
+                    old_config.delete()
 
-            validated_data["model_configuration"] = self._create_or_update_model_configuration(
-                model_config_data, instance.team_id
-            )
+                validated_data["model_configuration"] = self._create_or_update_model_configuration(
+                    model_config_data, instance.team_id
+                )
 
-        return super().update(instance, validated_data)
+            return super().update(instance, validated_data)
 
 
 class TaggerFilter(django_filters.FilterSet):
@@ -326,7 +334,6 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
         from posthog.cdp.validation import compile_hog
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-        from posthog.models.team import Team
         from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
         from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
         from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
@@ -342,13 +349,13 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
         try:
             bytecode = compile_hog(source, "destination")
-        except serializers.ValidationError as e:
-            return Response({"error": f"Compilation error: {e.detail}"}, status=400)
+        except (ValueError, SyntaxError) as e:
+            return Response({"error": f"Compilation error: {e}"}, status=400)
         except Exception:
             logger.exception("Unexpected error compiling Hog source")
             return Response({"error": "Compilation failed due to an unexpected error"}, status=400)
 
-        team = Team.objects.get(id=self.team_id)
+        team = self.team
 
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -424,7 +431,14 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         return Response({"results": results})
 
 
+class TestHogTaggerTagSerializer(serializers.Serializer):
+    # Enforce the same {name, description?} shape as TagDefinitionSerializer so a payload
+    # like {"tags": [{}]} is rejected with a 400 instead of blowing up on KeyError downstream.
+    name = serializers.CharField(max_length=100)
+    description = serializers.CharField(max_length=500, required=False, default="", allow_blank=True)
+
+
 class TestHogTaggerRequestSerializer(serializers.Serializer):
     source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
     sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
-    tags = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+    tags = TestHogTaggerTagSerializer(many=True, required=False, default=list)
