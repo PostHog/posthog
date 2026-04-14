@@ -18,10 +18,12 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeDateLoader,
     _build_count_query,
     _build_query,
+    _get_estimated_row_count_for_partitioned_table,
     _get_primary_keys,
     _get_sslmode,
     _get_table,
     _has_duplicate_primary_keys,
+    _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
     filter_postgres_incremental_fields,
@@ -296,6 +298,113 @@ class TestBuildCountQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" not in rendered
         assert "FROM (" not in rendered
+
+
+class TestIsPartitionedTable:
+    @pytest.mark.django_db
+    def test_partitioned_table_returns_true(self):
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_detect_partitioned (
+                    id INTEGER,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_detect_partitioned_2026
+                PARTITION OF test_detect_partitioned
+                FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')
+            """)
+            assert _is_partitioned_table(cast(Any, dj_cursor), "public", "test_detect_partitioned") is True
+
+    @pytest.mark.django_db
+    def test_regular_table_returns_false(self):
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_detect_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            assert _is_partitioned_table(cast(Any, dj_cursor), "public", "test_detect_regular") is False
+
+    @pytest.mark.django_db
+    def test_nonexistent_table_returns_false(self):
+        with django_connection.cursor() as dj_cursor:
+            assert _is_partitioned_table(cast(Any, dj_cursor), "public", "does_not_exist_xyz") is False
+
+
+class TestGetEstimatedRowCountForPartitionedTable:
+    @pytest.mark.django_db
+    def test_returns_estimate_for_partitioned_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partitioned (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partitioned_q1
+                PARTITION OF test_est_count_partitioned
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partitioned_q2
+                PARTITION OF test_est_count_partitioned
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_est_count_partitioned (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            dj_cursor.execute("ANALYZE test_est_count_partitioned")
+
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_partitioned", logger
+            )
+            assert result is not None
+            # reltuples is approximate; 200 rows should be close
+            assert 150 <= result <= 250
+
+    @pytest.mark.django_db
+    def test_returns_none_for_non_partitioned_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_est_count_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            dj_cursor.execute("INSERT INTO test_est_count_regular (data) SELECT 'x' FROM generate_series(1, 50)")
+            dj_cursor.execute("ANALYZE test_est_count_regular")
+
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_regular", logger
+            )
+            # No child partitions → SUM is NULL → COALESCE returns -1 → function returns None
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_returns_zero_for_empty_partitioned_table(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_empty (
+                    id INTEGER,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_empty_p1
+                PARTITION OF test_est_count_empty
+                FOR VALUES FROM ('2026-01-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("ANALYZE test_est_count_empty")
+
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_empty", logger
+            )
+            assert result == 0
 
 
 class TestPostgreSQLColumnToArrowField:

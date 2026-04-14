@@ -533,6 +533,57 @@ def _build_count_query(
     )
 
 
+def _is_partitioned_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> bool:
+    """Check if a table is a partitioned (parent) table via pg_partitioned_table."""
+    cursor.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_partitioned_table pt
+            JOIN pg_class c ON c.oid = pt.partrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = %(schema)s AND c.relname = %(table)s
+        )
+        """,
+        {"schema": schema, "table": table_name},
+    )
+    row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def _get_estimated_row_count_for_partitioned_table(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> int | None:
+    """Get approximate row count for a partitioned table by summing pg_class.reltuples across child partitions.
+
+    Returns None if the estimate is unavailable (e.g. ANALYZE never ran), so the
+    caller can fall back to an exact COUNT(*).
+    """
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(c.reltuples), -1)::bigint
+        FROM pg_inherits i
+        JOIN pg_class c ON c.oid = i.inhrelid
+        WHERE i.inhparent = (
+            SELECT c2.oid
+            FROM pg_class c2
+            JOIN pg_namespace n ON n.oid = c2.relnamespace
+            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
+        )
+        """,
+        {"schema": schema, "table": table_name},
+    )
+    row = cursor.fetchone()
+
+    if row is None or row[0] is None or row[0] < 0:
+        logger.debug("_get_estimated_row_count_for_partitioned_table: no estimate available, returning None")
+        return None
+
+    estimate = int(row[0])
+    logger.debug(f"_get_estimated_row_count_for_partitioned_table: estimated {estimate} rows")
+    return estimate
+
+
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
@@ -1053,7 +1104,21 @@ def postgres_source(
                     else:
                         chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
-                    rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                    # For partitioned tables on initial load (no real cursor yet),
+                    # use pg_class.reltuples estimate to avoid scanning all partitions.
+                    is_initial_load = should_use_incremental_field and db_incremental_field_last_value is None
+                    rows_to_sync: int | None = None
+                    if is_initial_load:
+                        try:
+                            if _is_partitioned_table(cursor, schema, table_name):
+                                logger.debug("Partitioned table detected, using estimated row count")
+                                rows_to_sync = _get_estimated_row_count_for_partitioned_table(
+                                    cursor, schema, table_name, logger
+                                )
+                        except Exception as e:
+                            logger.debug(f"Partition detection failed, falling back to exact count: {e}")
+                    if rows_to_sync is None:
+                        rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
                     logger.debug("Getting partition settings...")
                     partition_settings = (
                         _get_partition_settings(cursor, schema, table_name, logger)
