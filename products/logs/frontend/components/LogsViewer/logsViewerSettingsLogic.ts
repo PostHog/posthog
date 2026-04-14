@@ -13,7 +13,6 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
 
         // Display options
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
-        /** No toolbar UI; kept persisted so list + FAB behavior stays stable for existing users */
         setPrettifyJson: (prettifyJson: boolean) => ({ prettifyJson }),
     }),
 
@@ -50,9 +49,6 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
         },
         setWrapBody: ({ wrapBody }) => {
             posthog.capture('logs setting changed', { setting: 'wrap_body', value: wrapBody })
-        },
-        setPrettifyJson: ({ prettifyJson }) => {
-            posthog.capture('logs setting changed', { setting: 'prettify_json', value: prettifyJson })
         },
     })),
 ])
