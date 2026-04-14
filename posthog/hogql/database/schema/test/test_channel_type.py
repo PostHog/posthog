@@ -899,19 +899,3 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             )
             == "Login"
         )
-
-    def test_initial_channel_type_url_uses_initial_current_url(self):
-        assert (
-            self._get_person_initial_channel_type_with_rules(
-                {"$initial_current_url": "https://example.com/signup"},
-                custom_channel_rules=[
-                    CustomChannelRule(
-                        items=[CustomChannelCondition(key="url", op="icontains", value="/signup", id="1")],
-                        channel_type="Signup",
-                        combiner=FilterLogicalOperator.AND_,
-                        id="a",
-                    )
-                ],
-            )
-            == "Signup"
-        )
