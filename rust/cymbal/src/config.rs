@@ -11,6 +11,7 @@ use tracing::{info, warn};
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
+pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -117,6 +118,11 @@ pub struct Config {
     #[envconfig(default = "15")]
     pub context_line_count: usize,
 
+    // Maximum number of in-flight futures while processing a Batch with apply_func.
+    // This bounds nested fanout across events -> exceptions -> frames.
+    #[envconfig(default = "64")]
+    pub batch_apply_concurrency: usize,
+
     #[envconfig(default = "1000")]
     pub max_events_per_batch: usize,
 
@@ -210,6 +216,7 @@ impl Config {
 
 pub fn init_global_state(config: &Config) {
     FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
+    BATCH_APPLY_CONCURRENCY.store(config.batch_apply_concurrency.max(1), Ordering::Relaxed);
 }
 
 fn default_maxmind_db_path() -> PathBuf {
