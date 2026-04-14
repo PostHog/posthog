@@ -69,7 +69,7 @@ snapshots:
     components-cards-insight-card--access-control-manager-access--light:
         hash: v1.k794b7964.12fcf13ef74399eb105e5a61353ec004c6c03fe0d71abb46d211d6e8a48a9fca.k6UuLRgw78dGQrChHxT44BRByHcvjzSIxm3ybn6yxYE
     components-cards-insight-card--access-control-mixed-permissions--dark:
-        hash: v1.k794b7964.b6041b00514936afac1013766f9717d27b5a1cebe831609ddf5b09b78e995f00.Pp7QB8m6HcIfKKJlpcQLwvSqHR07UPopFmtRR1EWn_Q
+        hash: v1.k794b7964.22750e58c1313e67891854c5132c8e84635a6b7fb6bc80447905c3f45aceab89.NYggjvQWDx0pVjpD4BUhXbawLkWdgMfIW-rWs_h8yvs
     components-cards-insight-card--access-control-mixed-permissions--light:
         hash: v1.k794b7964.98a2cff38ea20a81c3aabcb9281881c37a7b5318014264cdbf91b21712d3074a.LtCf7xj9IX6uInfN-spFejR1T9Qej1Y9khkVnltSLVA
     components-cards-insight-card--access-control-no-access--dark:
@@ -983,7 +983,7 @@ snapshots:
     components-tz-label--with-more-than-one--light:
         hash: v1.k794b7964.eb6c920c0eed0ad217d48efd2fcc25792b567e576b92600e89a06490d7e47365.JlmFQTNBZHp82P-B2gInFlFg-we7jfSULlesHhXa00o
     components-verticalnesteddnd--base--dark:
-        hash: v1.k794b7964.a1aebeefcee106ca567de544d3bdb3aea80582eb00afc37cf0cb4d5db5d088db.xc0QxV0wSckexbnriX-z2oEwsR4A5Yva7RhN5JUDnrc
+        hash: v1.k794b7964.ec79c434bdd0a29af24dbee3162d74ac2ac927b1431b29eef0246ef0cd9b5820.BUKk_-UGOgJ-1jJ1Yw5FnL1_yp3UP0y5G7wizjZ2aaE
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.253572e7c878adb761595b38b07c93ba529e1bf165d0e67fe79550ef784dcf5d.um0bjxs1ERf6_rMKphvKrO7fE5D7cV_HaikHm5fGsM8
     components-view-replay-button--custom-label--dark:
@@ -1277,7 +1277,7 @@ snapshots:
     filters-cohort-filters-fields-person-properties--basic--dark:
         hash: v1.k794b7964.50c646c0629a319d2f63daac4899baa08fbf9d4b49b407922dcf4255bad52ac0.odlNPrhty1hc0YSzLrAjh3mYRgki2JCH4agJM1s7gKI
     filters-cohort-filters-fields-person-properties--basic--light:
-        hash: v1.k794b7964.699b926183fb6061427cc3fbfe0a85004c069fd8d06d13a98f3ec936cf0dda35.7KoDmb_0P9B02wJlFJ_N0eAFIaCNGfAUSagNfThmgZw
+        hash: v1.k794b7964.a9b6cacfeb09b93007efc9599b2c8507f100ef0739a8b6d5caf9b3672987fb83.mJU5rLKv-5LUp7txTjGT57O-8mu255E3ivNRpTtbjXQ
     filters-cohort-filters-fields-select--actors-selector--dark:
         hash: v1.k794b7964.3530b102fa3f57538ca42c729362c16d6499ed0bec4098c68302e8bb92188832.vbC3T3OgEIco_lLW9ivoECZ4Pj0ektyVOr_vxNO3guE
     filters-cohort-filters-fields-select--actors-selector--light:
