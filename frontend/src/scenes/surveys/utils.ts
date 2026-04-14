@@ -852,7 +852,9 @@ function getTeamTimezone(): string {
     return getAppContext()?.current_team?.timezone || 'UTC'
 }
 
-export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at' | 'start_date'>): string {
+export function getSurveyStartDateForQuery(
+    survey: Pick<Survey, 'created_at'> & Partial<Pick<Survey, 'start_date'>>
+): string {
     const tz = getTeamTimezone()
     return dayjs
         .tz(survey.start_date ?? survey.created_at, tz)

@@ -1277,9 +1277,14 @@ describe('createAnswerFilterHogQLExpression', () => {
 })
 
 describe('timezone handling in survey date queries', () => {
-    const createMockSurvey = (createdAt: string, endDate?: string): Pick<Survey, 'created_at' | 'end_date'> => ({
+    const createMockSurvey = (
+        createdAt: string,
+        endDate?: string,
+        startDate?: string
+    ): Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>> => ({
         created_at: createdAt,
         end_date: endDate || null,
+        start_date: startDate,
     })
 
     afterEach(() => {
