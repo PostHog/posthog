@@ -573,11 +573,17 @@ def _get_estimated_row_count_for_partitioned_table(
     Returns None if neither source has data (no child partitions found), so the
     caller can fall back to an exact COUNT(*).
     """
+    # pg_class.reltuples = -1 means the partition has never been ANALYZEd.
+    # Summing a mix of analyzed (>=0) and unanalyzed (-1) partitions produces
+    # an under-count, so we track unanalyzed partitions separately and only
+    # trust reltuples_sum when every partition has been analyzed.
     cursor.execute(
         """
         SELECT
-            COALESCE(SUM(c.reltuples), -1)::bigint,
-            COALESCE(SUM(s.n_live_tup), 0)::bigint
+            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
+            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
+            COALESCE(SUM(s.n_live_tup), 0)::bigint,
+            COUNT(*)::bigint
         FROM pg_inherits i
         JOIN pg_class c ON c.oid = i.inhrelid
         LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
@@ -596,25 +602,38 @@ def _get_estimated_row_count_for_partitioned_table(
         logger.debug("_get_estimated_row_count_for_partitioned_table: no result, returning None")
         return None
 
-    reltuples_sum, n_live_tup_sum = int(row[0]), int(row[1])
+    reltuples_sum, unanalyzed_count, n_live_tup_sum, partition_count = (
+        int(row[0]),
+        int(row[1]),
+        int(row[2]),
+        int(row[3]),
+    )
 
-    # reltuples is most accurate (set by ANALYZE)
-    if reltuples_sum > 0:
+    if partition_count == 0:
+        logger.debug("_get_estimated_row_count_for_partitioned_table: no child partitions, returning None")
+        return None
+
+    # reltuples is most accurate (set by ANALYZE), but only trustworthy when
+    # every partition has been analyzed — otherwise the sum under-counts.
+    if unanalyzed_count == 0 and reltuples_sum > 0:
         logger.debug(f"_get_estimated_row_count_for_partitioned_table: reltuples estimate = {reltuples_sum}")
         return reltuples_sum
 
-    # ANALYZE never ran — fall back to stats collector count
+    # reltuples unreliable (unanalyzed partitions present) — fall back to
+    # stats collector count, which is maintained incrementally.
     if n_live_tup_sum > 0:
         logger.debug(
-            f"_get_estimated_row_count_for_partitioned_table: reltuples unavailable, n_live_tup estimate = {n_live_tup_sum}"
+            f"_get_estimated_row_count_for_partitioned_table: reltuples unreliable "
+            f"(unanalyzed_partitions={unanalyzed_count}/{partition_count}), "
+            f"n_live_tup estimate = {n_live_tup_sum}"
         )
         return n_live_tup_sum
 
-    # Both sources report 0 or are unavailable — fall back to exact COUNT(*)
-    # which is fast on empty/small tables and correct if stats are stale.
+    # Both sources unreliable — caller will fall back to exact COUNT(*).
     logger.debug(
         f"_get_estimated_row_count_for_partitioned_table: no reliable estimate "
-        f"(reltuples={reltuples_sum}, n_live_tup={n_live_tup_sum}), returning None"
+        f"(reltuples={reltuples_sum}, unanalyzed={unanalyzed_count}/{partition_count}, "
+        f"n_live_tup={n_live_tup_sum}), returning None"
     )
     return None
 

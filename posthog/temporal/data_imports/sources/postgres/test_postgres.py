@@ -377,7 +377,49 @@ class TestGetEstimatedRowCountForPartitionedTable:
             result = _get_estimated_row_count_for_partitioned_table(
                 cast(Any, dj_cursor), "public", "test_est_count_regular", logger
             )
-            # No child partitions → SUM is NULL → COALESCE returns -1 → function returns None
+            # No child partitions → partition_count == 0 → function returns None
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_returns_none_when_partitions_partially_analyzed(self):
+        """Mixed analyzed + unanalyzed partitions must not sum reltuples naively.
+
+        reltuples = -1 on never-analyzed partitions would under-count if summed.
+        We require all partitions analyzed before trusting reltuples.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partial (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partial_q1
+                PARTITION OF test_est_count_partial
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_est_count_partial_q2
+                PARTITION OF test_est_count_partial
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_est_count_partial (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            # Analyze only the first partition — second remains reltuples=-1.
+            dj_cursor.execute("ANALYZE test_est_count_partial_q1")
+
+            # reltuples unreliable; n_live_tup is 0 inside test transaction →
+            # function returns None, forcing exact COUNT(*) fallback.
+            result = _get_estimated_row_count_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_est_count_partial", logger
+            )
             assert result is None
 
     @pytest.mark.django_db
