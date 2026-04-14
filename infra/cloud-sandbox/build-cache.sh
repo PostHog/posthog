@@ -123,8 +123,8 @@ mkdir -p "$ARCHIVE_DIR"
 # posthog main is up), so pulling cargo-target off the critical boot
 # path saves its extract time wholesale.
 # Can't use --exclude=overlay2 because it also strips image/overlay2/.
-(cd /var/lib/docker && ls -1 | grep -v '^overlay2$' | tar cf - -T - \
-    --exclude='volumes/sandbox-cargo-target') \
+(cd /var/lib/docker && ls -1 | grep -v '^overlay2$' | tar cf - \
+    --exclude='volumes/sandbox-cargo-target' -T -) \
     | zstd -T0 -3 > "$ARCHIVE_DIR/base.tar.zst" &
 BASE_PID=$!
 
