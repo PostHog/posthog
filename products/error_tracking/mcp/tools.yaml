@@ -243,7 +243,17 @@ tools:
         enabled: false
     error-tracking-suppression-rules-list:
         operation: error_tracking_suppression_rules_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking suppression rules
+        description: >
+            List error tracking suppression rules for the current project. Returns rules in evaluation order with
+            their filters, sampling rate, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-suppression-rules-create:
         operation: error_tracking_suppression_rules_create
         enabled: false

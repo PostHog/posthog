@@ -280,6 +280,21 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('suppression-rules list tool', () => {
+        const suppressionRulesListTool = GENERATED_TOOLS['error-tracking-suppression-rules-list']!()
+
+        it('should list suppression rules', async () => {
+            const result = (await suppressionRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
     describe('update-issue-status tool', () => {
         const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 
