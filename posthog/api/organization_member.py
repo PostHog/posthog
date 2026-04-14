@@ -78,15 +78,11 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )
-        level_changed = False
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_update(updated_membership, cast(Any, value))
-                level_changed = True
+                requesting_membership.validate_update(updated_membership, value)
             setattr(updated_membership, attr, value)
         updated_membership.save()
-        if level_changed:
-            self.context["request"].user.update_billing_organization_users(updated_membership.organization)
         return updated_membership
 
 

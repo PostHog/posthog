@@ -436,7 +436,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     },
                 )
 
-        self.update_billing_organization_users(organization)
         return membership
 
     @property
@@ -464,7 +463,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
-        self.update_billing_organization_users(organization)
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         from ee.billing.billing_manager import BillingManager  # avoid circular import
