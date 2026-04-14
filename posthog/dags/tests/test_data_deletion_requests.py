@@ -547,48 +547,72 @@ def test_full_job_property_removal_subfield_only(
     assert request.status == RequestStatus.COMPLETED
 
 
-MAT_COL_NAME = "mat_test_ddr_prop"
-MAT_COL_PROP = "test_ddr_prop"
-MAT_COL_COMMENT = f"column_materializer::properties::{MAT_COL_PROP}"
+def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
+    """Add DEFAULT materialized columns to events tables for testing.
 
-
-def _add_default_mat_column(client: Client) -> None:
-    """Add a DEFAULT materialized column to sharded_events for testing."""
+    Each entry is (col_name, prop_name, col_type).
+    """
     from django.conf import settings
 
     db = settings.CLICKHOUSE_DATABASE
-    client.execute(
-        f"ALTER TABLE {db}.sharded_events "
-        f"ADD COLUMN IF NOT EXISTS `{MAT_COL_NAME}` String "
-        f"DEFAULT JSONExtractRaw(properties, '{MAT_COL_PROP}') "
-    )
-    client.execute(
-        f"ALTER TABLE {db}.events "
-        f"ADD COLUMN IF NOT EXISTS `{MAT_COL_NAME}` String "
-        f"DEFAULT JSONExtractRaw(properties, '{MAT_COL_PROP}') "
-        f"COMMENT '{MAT_COL_COMMENT}'"
-    )
+    for col_name, prop_name, col_type in col_defs:
+        comment = f"column_materializer::properties::{prop_name}"
+        for table in ("sharded_events", "events"):
+            kw = f"COMMENT '{comment}'" if table == "events" else ""
+            client.execute(
+                f"ALTER TABLE {db}.{table} "
+                f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+                f"DEFAULT JSONExtractRaw(properties, '{prop_name}') "
+                f"{kw}"
+            )
 
 
-def _drop_default_mat_column(client: Client) -> None:
+def _drop_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
     from django.conf import settings
 
     db = settings.CLICKHOUSE_DATABASE
-    client.execute(f"ALTER TABLE {db}.sharded_events DROP COLUMN IF EXISTS `{MAT_COL_NAME}`")
-    client.execute(f"ALTER TABLE {db}.events DROP COLUMN IF EXISTS `{MAT_COL_NAME}`")
+    for col_name, _prop, _typ in col_defs:
+        for table in ("sharded_events", "events"):
+            client.execute(f"ALTER TABLE {db}.{table} DROP COLUMN IF EXISTS `{col_name}`")
 
 
 @pytest.mark.django_db
-def test_full_job_property_removal_clears_materialized_columns(cluster: ClickhouseCluster):
-    # Set up a DEFAULT materialized column (mirrors production schema)
-    cluster.any_host(_add_default_mat_column).result()
+@pytest.mark.parametrize(
+    "col_defs, properties_to_delete, expected_empty_cols",
+    [
+        pytest.param(
+            [("mat_test_single", "test_single", "String")],
+            ["test_single"],
+            ["mat_test_single"],
+            id="single_property",
+        ),
+        pytest.param(
+            [
+                ("mat_test_a", "test_a", "String"),
+                ("mat_test_b", "test_b", "Nullable(String)"),
+            ],
+            ["test_a", "test_b"],
+            ["mat_test_a", "mat_test_b"],
+            id="multiple_properties_mixed_nullable",
+        ),
+    ],
+)
+def test_full_job_property_removal_clears_materialized_columns(
+    cluster: ClickhouseCluster,
+    col_defs: list[tuple[str, str, str]],
+    properties_to_delete: list[str],
+    expected_empty_cols: list[str],
+):
+    cluster.any_host(partial(_add_default_mat_columns, col_defs)).result()
 
     try:
         now = datetime.now()
         start_time = now - timedelta(days=7)
         end_time = now + timedelta(minutes=1)
 
-        props_with_target = json.dumps({MAT_COL_PROP: "secret_value", "keep": "yes"})
+        target_props = {prop: "secret" for _, prop, _ in col_defs}
+        target_props["keep"] = "yes"
+        props_with_target = json.dumps(target_props)
         props_without_target = json.dumps({"keep": "yes", "other": "value"})
 
         target_events = [
@@ -600,17 +624,16 @@ def test_full_job_property_removal_clears_materialized_columns(cluster: Clickhou
 
         cluster.any_host(partial(_insert_events_with_properties, target_events + control_events)).result()
 
-        # Precondition: DEFAULT mat column has values for target events
-        mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", MAT_COL_NAME)).result()
-        assert any(v and "secret_value" in v for v in mat_values), (
-            f"expected secret_value in mat column, got {set(mat_values)}"
-        )
+        # Precondition: DEFAULT mat columns have values
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            assert any(v and "secret" in v for v in mat_values), f"expected secret in {col_name}, got {set(mat_values)}"
 
         request = DataDeletionRequest.objects.create(
             team_id=PROP_TEAM_ID,
             request_type=RequestType.PROPERTY_REMOVAL,
             events=["$pageview"],
-            properties=[MAT_COL_PROP],
+            properties=properties_to_delete,
             start_time=start_time,
             end_time=end_time,
             status=RequestStatus.APPROVED,
@@ -628,20 +651,21 @@ def test_full_job_property_removal_clears_materialized_columns(cluster: Clickhou
         )
         assert result.success
 
-        # All events still present
         assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 30
 
-        # Property removed from properties JSON
         all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
         for props in all_props:
-            assert MAT_COL_PROP not in props, f"{MAT_COL_PROP} should be removed, got {props}"
+            for prop in properties_to_delete:
+                assert prop not in props, f"{prop} should be removed, got {props}"
             assert "keep" in props, f"keep should be preserved, got {props}"
 
-        # DEFAULT materialized column also cleared
-        mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", MAT_COL_NAME)).result()
-        assert all(v == "" for v in mat_values), f"{MAT_COL_NAME} should be empty, got {set(mat_values)}"
+        # DEFAULT materialized columns cleared
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            non_empty = [v for v in mat_values if v and v not in ("", None)]
+            assert not non_empty, f"{col_name} should be empty, got non-empty values: {set(non_empty)}"
 
         request.refresh_from_db()
         assert request.status == RequestStatus.COMPLETED
     finally:
-        cluster.any_host(_drop_default_mat_column).result()
+        cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()

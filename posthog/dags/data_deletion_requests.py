@@ -340,8 +340,9 @@ def prepare_and_insert_modified_events(
         copied = client.execute(f"SELECT count() FROM {db}.{temp}")[0][0]
 
         # 3. Mutate properties and reset affected DEFAULT materialized columns.
-        # Queried per-shard to handle schema drift across shards.
-        affected_mat_cols = _get_affected_mat_columns(client, source, keys)
+        # Query the distributed table (events) for column comments — sharded_events
+        # may not carry them. Queried per-shard to handle schema drift.
+        affected_mat_cols = _get_affected_mat_columns(client, "events", keys)
 
         update_parts = [
             "properties = JSONDropKeys(%(keys)s)(properties)",
