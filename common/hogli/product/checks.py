@@ -41,23 +41,33 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
-    """Check if a product has a TODO legacy leak [[interfaces]] block in tach.toml.
+    """Check if a product has legacy interface leak blocks in tach.toml.
 
     These are products where core (posthog/ee) still imports internals directly,
     so they can't safely be tested in isolation via contract-check.
 
-    Legacy leak blocks have a from = ["products.<name>"] and are preceded by
-    a TODO comment in the interfaces section.
+    Detected structurally: an [[interfaces]] block that exposes non-facade paths
+    (anything other than backend.facade or backend.presentation) and references
+    this specific module in its from = [...] field.
     """
     import re
 
-    todo_idx = tach_content.find("# TODO: legacy leaks")
-    if todo_idx == -1:
-        return False
-    leak_section = tach_content[todo_idx:]
-    # Match the exact module path in a from = [...] field to avoid substring
-    # false positives (e.g. products.mcp matching products.mcp_store).
-    return bool(re.search(rf'from\s*=\s*\["{re.escape(module_path)}"\]', leak_section))
+    # Find all [[interfaces]] blocks and check if any expose non-facade paths
+    # for this specific module.
+    for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
+        block = match.group(1)
+        # Check if this block references our module in from = [...]
+        if not re.search(rf'from\s*=\s*\[\s*"{re.escape(module_path)}"\s*,?\s*\]', block):
+            continue
+        # Check if any expose pattern is NOT facade or presentation
+        expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
+        if not expose_match:
+            continue
+        patterns = re.findall(r'"(.*?)"', expose_match.group(1))
+        for pattern in patterns:
+            if not pattern.startswith("backend\\.facade") and not pattern.startswith("backend\\.presentation"):
+                return True
+    return False
 
 
 def get_tach_block(tach_content: str, module_path: str) -> str:

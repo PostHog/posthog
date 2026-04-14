@@ -463,6 +463,7 @@ depends_on = [
 ]
 layer = "modules"
 
+# Facade + views: the canonical public surface for all isolated products.
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
@@ -471,6 +472,11 @@ expose = [
 from = [
     "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
 ]
+
+# Legacy leaks — core (posthog/ee) imports these internals directly.
+# Each block below should shrink as imports migrate to the facade.
+# These products have had backend:contract-check removed from package.json
+# so CI treats them as non-isolated until the leaks are cleaned up.
 
 [[interfaces]]
 expose = [
