@@ -48,6 +48,8 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingRecommendationRunViewSet,
+    ErrorTrackingRecommendationSettingsViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
@@ -937,6 +939,20 @@ environments_router.register(
     r"error_tracking/suppression_rules",
     ErrorTrackingSuppressionRuleViewSet,
     "environment_error_tracking_suppression_rule",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/recommendations",
+    ErrorTrackingRecommendationRunViewSet,
+    "environment_error_tracking_recommendation",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/recommendation_settings",
+    ErrorTrackingRecommendationSettingsViewSet,
+    "environment_error_tracking_recommendation_settings",
     ["team_id"],
 )
 
