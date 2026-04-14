@@ -71,8 +71,9 @@ function ScrollArea({
     className,
     children,
     scrollShadows = true,
+    hideScrollbars = false,
     ...props
-}: ScrollAreaPrimitive.Root.Props & { scrollShadows?: boolean }): React.ReactElement {
+}: ScrollAreaPrimitive.Root.Props & { scrollShadows?: boolean; hideScrollbars?: boolean }): React.ReactElement {
     return (
         <ScrollAreaPrimitive.Root
             data-slot="scroll-area"
@@ -88,12 +89,16 @@ function ScrollArea({
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>
-            <ScrollBar orientation="horizontal" />
-            <ScrollBar orientation="vertical" />
-            <ScrollAreaPrimitive.Corner
-                data-slot="scroll-area-corner"
-                className="bg-transparent rounded-br-sm z-1"
-            />
+            {!hideScrollbars && (
+                <>
+                    <ScrollBar orientation="horizontal" />
+                    <ScrollBar orientation="vertical" />
+                    <ScrollAreaPrimitive.Corner
+                        data-slot="scroll-area-corner"
+                        className="bg-transparent rounded-br-sm z-1"
+                    />
+                </>
+            )}
         </ScrollAreaPrimitive.Root>
     )
 }

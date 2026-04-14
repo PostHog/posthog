@@ -27,9 +27,26 @@ export const Default: Story = {
     ),
 } satisfies Story
 
-export const Horizontal: Story = {
+export const AllDirections: Story = {
     render: () => (
         <ScrollArea className="h-80 w-80 max-w-[calc(100vw-8rem)]">
+            <ul className="m-0 grid list-none grid-cols-[repeat(10,6.25rem)] grid-rows-[repeat(10,6.25rem)] gap-3 p-0">
+                {Array.from({ length: 100 }, (_, i) => (
+                    <li
+                        key={i}
+                        className="flex items-center justify-center rounded-lg bg-muted text-sm font-bold text-gray-600 dark:text-gray-400"
+                    >
+                        {i + 1}
+                    </li>
+                ))}
+            </ul>
+        </ScrollArea>
+    ),
+} satisfies Story
+
+export const HideScrollbarsAllDirections: Story = {
+    render: () => (
+        <ScrollArea hideScrollbars className="h-80 w-80 max-w-[calc(100vw-8rem)]">
             <ul className="m-0 grid list-none grid-cols-[repeat(10,6.25rem)] grid-rows-[repeat(10,6.25rem)] gap-3 p-0">
                 {Array.from({ length: 100 }, (_, i) => (
                     <li
