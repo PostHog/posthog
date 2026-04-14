@@ -1,0 +1,4 @@
+Pageview count for last week: 4
+Window start (inclusive): 2026-04-07T00:00:00Z
+Window end (exclusive): 2026-04-14T00:00:00Z
+Generated at: 2026-04-14T11:45:00.310Z
