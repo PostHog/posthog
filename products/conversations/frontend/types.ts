@@ -1,3 +1,5 @@
+import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+
 import type { TicketAssignee } from './components/Assignee'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
@@ -17,6 +19,28 @@ export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
+
+export interface TicketViewFilters {
+    status?: TicketStatus[]
+    priority?: TicketPriority[]
+    channel?: TicketChannel | 'all'
+    sla?: TicketSlaState | 'all'
+    assignee?: AssigneeFilterValue
+    tags?: string[]
+    dateFrom?: string | null
+    dateTo?: string | null
+    sorting?: Sorting | null
+    search?: string
+}
+
+export interface SavedTicketView {
+    id: string
+    short_id: string
+    name: string
+    filters: TicketViewFilters
+    created_at: string
+    created_by: { id: number; first_name?: string; email?: string } | null
+}
 
 export interface UserBasic {
     id: number
@@ -69,6 +93,7 @@ export interface Ticket {
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null
+    cc_participants?: string[]
     person?: TicketPerson | null
     tags?: string[]
 }

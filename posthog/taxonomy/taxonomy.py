@@ -451,6 +451,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "ignored_in_assistant": True,
         },
+        "$go_version": {
+            "label": "Go version",
+            "description": "The Go version that was used to capture the event.",
+            "examples": ["go1.23.0"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "label": "Replay internal buffer length",
             "description": "Useful for debugging. The internal buffer length for replay.",
@@ -1101,6 +1108,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "OS version",
             "description": "The Operating System version.",
             "examples": ["15.5"],
+        },
+        "$os_distro": {
+            "label": "OS distro",
+            "description": "The distribution name in case of Linux.",
+            "examples": ["Ubuntu", "Debian", "Fedora"],
         },
         "$timezone": {
             "label": "Timezone",
@@ -2649,6 +2661,10 @@ IGNORED_EVENT_NAMES: list[str] = [
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if defn.get("system") or defn.get("ignored_in_assistant")
 ]
+
+# Core PostHog events, derived from the taxonomy. Used to determine which events
+# are treated as verified in the Data Management UI and included in typed code generation.
+CORE_EVENTS: list[str] = [name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}) if name != "All events"]
 
 WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     name

@@ -40,6 +40,9 @@ pub struct Config {
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
     pub issue_overrides_topic: String,
 
+    #[envconfig(default = "clickhouse_error_tracking_fingerprint_issue_state")]
+    pub fingerprint_issue_state_topic: String,
+
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
 
@@ -119,6 +122,9 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
+
+    #[envconfig(default = "60000")]
+    pub process_slow_log_threshold_ms: u64,
 
     #[envconfig(default = "300")]
     pub team_cache_ttl_secs: u64,

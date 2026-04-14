@@ -72,8 +72,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         # Organization and team records are now deleted asynchronously by the task
         # so we can't assert they're gone immediately - verify task was called instead
 
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             event="organization deleted",
+            distinct_id=self.user.distinct_id,
+            properties=organization_props,
+            groups={"instance": ANY, "organization": str(organization.id)},
+        )
+        mock_capture.assert_any_call(
+            event="organization deletion initiated",
             distinct_id=self.user.distinct_id,
             properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
@@ -86,8 +92,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             project_names=[team.name],
         )
 
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
     @patch("posthoganalytics.capture")
-    def test_delete_last_organization(self, mock_capture):
+    def test_delete_last_organization(self, mock_capture, mock_delete_task):
         org_id = self.organization.id
         organization_props = self.organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
@@ -102,16 +109,14 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             204,
             "Did not successfully delete last organization on the instance",
         )
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
-        self.assertFalse(Organization.objects.exists())
+        # Org stays but is marked as pending deletion
+        self.assertTrue(Organization.objects.filter(id=org_id).exists())
+        org = Organization.objects.get(id=org_id)
+        self.assertTrue(org.is_pending_deletion)
 
+        # Trying to delete again returns 400
         response_bis = self.client.delete(f"/api/organizations/{org_id}")
-
-        self.assertEqual(
-            response_bis.status_code,
-            404,
-            "Did not return a 404 on trying to delete a nonexistent org",
-        )
+        self.assertEqual(response_bis.status_code, 400)
 
         mock_capture.assert_has_calls(
             [
@@ -154,22 +159,20 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertEqual(response.status_code, 403, potential_err_message)
             self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
 
-    def test_delete_organization_owning(self):
+    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    def test_delete_organization_owning(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
-        membership_ids = OrganizationMembership.objects.filter(organization=self.organization).values_list(
-            "id", flat=True
-        )
 
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
 
-        potential_err_message = f"Somehow did not delete the org as the owner"
+        potential_err_message = "Somehow did not delete the org as the owner"
         self.assertEqual(response.status_code, 204, potential_err_message)
-        self.assertFalse(
-            Organization.objects.filter(id=self.organization.id).exists(),
-            potential_err_message,
-        )
-        self.assertFalse(OrganizationMembership.objects.filter(id__in=membership_ids).exists())
+        # Org is now marked as pending deletion, not immediately deleted
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
+        # Memberships are preserved so users can still switch orgs
+        self.assertTrue(OrganizationMembership.objects.filter(organization=self.organization).exists())
         self.assertTrue(User.objects.filter(id=self.user.pk).exists())
 
     def test_no_delete_organization_not_belonging_to(self):

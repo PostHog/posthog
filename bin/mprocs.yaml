@@ -167,6 +167,13 @@ procs:
         capability: flag_evaluation
         ready_pattern: 'listening on *'
 
+    hypercache-server:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service hypercache-server
+        capability: hypercache
+        ready_pattern: 'listening on *'
+
     livestream:
         shell: |-
             bin/wait-for-docker redis-cluster && \
@@ -219,6 +226,13 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service personhog-router
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
+    personhog-leader:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-leader
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 

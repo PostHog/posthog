@@ -8,15 +8,32 @@ use tracing::warn;
 use crate::api::CaptureError;
 use crate::payload::decompression::decompress_gzip_to_bytes;
 
-/// Patch empty `{}` objects in OTEL JSON that should be `null` for proper deserialization.
-/// See https://github.com/open-telemetry/opentelemetry-rust/issues/1253
+/// Patch OTEL JSON AnyValue objects for proper deserialization into protobuf-derived Rust types.
+///
+/// Handles two cases:
+/// 1. Empty `{}` objects under `"value"` keys become `null` (opentelemetry-rust#1253).
+/// 2. Null-valued scalar fields (e.g. `{"doubleValue": null}`) are removed. In protobuf-JSON
+///    encoding a missing key is equivalent to an unset scalar, but serde rejects null for
+///    non-optional f64/i64/bool/String fields.
 fn patch_otel_json(v: &mut Value) {
     match v {
         Value::Object(map) => {
             if let Some(inner) = map.get_mut("value") {
-                if inner.is_object() && inner.as_object().map(|obj| obj.is_empty()).unwrap_or(false)
-                {
-                    *inner = Value::Null;
+                if let Some(obj) = inner.as_object_mut() {
+                    for field in &[
+                        "doubleValue",
+                        "intValue",
+                        "stringValue",
+                        "boolValue",
+                        "bytesValue",
+                    ] {
+                        if matches!(obj.get(*field), Some(Value::Null)) {
+                            obj.remove(*field);
+                        }
+                    }
+                    if obj.is_empty() {
+                        *inner = Value::Null;
+                    }
                 }
             }
             for (_, val) in map.iter_mut() {
@@ -235,5 +252,47 @@ mod tests {
             v["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"][0]["value"],
             Value::Null
         );
+    }
+
+    #[test]
+    fn test_patch_otel_json_null_scalar_attrs() {
+        for field in &[
+            "doubleValue",
+            "intValue",
+            "stringValue",
+            "boolValue",
+            "bytesValue",
+        ] {
+            let mut v = serde_json::json!({"value": {}});
+            v["value"]
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_string(), Value::Null);
+            patch_otel_json(&mut v);
+            assert_eq!(
+                v["value"],
+                Value::Null,
+                "field `{field}` with null should be stripped"
+            );
+        }
+
+        // Non-null scalar must be preserved.
+        let mut v = serde_json::json!({"value": {"stringValue": "gpt-4"}});
+        patch_otel_json(&mut v);
+        assert_eq!(v["value"]["stringValue"], "gpt-4");
+    }
+
+    #[test]
+    fn test_parse_json_with_null_double_attr() {
+        let json = r#"{"resourceSpans":[{"scopeSpans":[{"spans":[{
+            "traceId":"","spanId":"",
+            "attributes":[{"key":"cost","value":{"doubleValue":null}}]
+        }]}]}]}"#;
+        let body = Bytes::from(json);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let parsed = parse_request(&body, &headers, 4 * 1024 * 1024).unwrap();
+        assert_eq!(parsed.resource_spans.len(), 1);
     }
 }

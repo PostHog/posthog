@@ -215,6 +215,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)

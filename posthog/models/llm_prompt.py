@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 from django.db import models, transaction
 from django.db.models import Count, DateTimeField, IntegerField, OuterRef, QuerySet, Subquery, UUIDField
 from django.db.models.signals import post_delete, post_save
@@ -6,6 +9,15 @@ from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import UUIDModel
+
+
+def normalize_prompt_to_string(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return ""
 
 
 class LLMPrompt(UUIDModel):

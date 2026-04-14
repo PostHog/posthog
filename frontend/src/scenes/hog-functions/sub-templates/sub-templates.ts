@@ -8,7 +8,6 @@ import {
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
-    SurveyEventProperties,
 } from '~/types'
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
@@ -25,14 +24,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
                 {
                     id: SurveyEventName.SENT,
                     type: 'events',
-                    properties: [
-                        {
-                            key: SurveyEventProperties.SURVEY_RESPONSE,
-                            type: PropertyFilterType.Event,
-                            value: 'is_set',
-                            operator: PropertyOperator.IsSet,
-                        },
-                    ],
                 },
             ],
         },
@@ -48,6 +39,27 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+    },
+    'feature-flag-change': {
+        sub_template_id: 'feature-flag-change',
+        type: 'internal_destination',
+        context_id: 'activity-log',
+        filters: {
+            events: [
+                {
+                    id: '$activity_log_entry_created',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: 'scope',
+                            type: PropertyFilterType.Event,
+                            value: ['FeatureFlag'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ],
+        },
     },
     'discussion-mention': {
         sub_template_id: 'discussion-mention',
@@ -72,7 +84,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'error-tracking',
         filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
-        flag: FEATURE_FLAGS.ERROR_TRACKING_SPIKE_ALERTING,
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
@@ -286,6 +297,73 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: '*{person.name}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}',
+                },
+            },
+        },
+    ],
+    'feature-flag-change': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-change'],
+            template_id: 'template-webhook',
+            name: 'Notify webhook for feature flag changes',
+            description: 'Send a webhook when a feature flag is changed',
+            inputs: {
+                content: {
+                    value: '**{person.name}** {event.properties.activity} feature flag `{event.properties.item_id}`',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-change'],
+            template_id: 'template-discord',
+            name: 'Notify Discord for feature flag changes',
+            description: 'Posts a message to Discord when a feature flag is changed',
+            inputs: {
+                content: {
+                    value: '**{person.name}** {event.properties.activity} feature flag `{event.properties.item_id}`',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-change'],
+            template_id: 'template-microsoft-teams',
+            name: 'Notify Microsoft Teams for feature flag changes',
+            description: 'Posts a message to Microsoft Teams when a feature flag is changed',
+            inputs: {
+                content: {
+                    value: '**{person.name}** {event.properties.activity} feature flag `{event.properties.item_id}`',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['feature-flag-change'],
+            template_id: 'template-slack',
+            name: 'Notify Slack for feature flag changes',
+            description: 'Posts a message to Slack when a feature flag is changed',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            text: {
+                                text: '*{person.name}* {event.properties.activity} feature flag `{event.properties.item_id}`',
+                                type: 'mrkdwn',
+                            },
+                            type: 'section',
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/feature_flags/{event.properties.item_id}',
+                                    text: { text: 'View feature flag', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: '*{person.name}* {event.properties.activity} feature flag `{event.properties.item_id}`',
                 },
             },
         },
