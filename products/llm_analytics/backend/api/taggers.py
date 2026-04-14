@@ -11,6 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
@@ -222,7 +223,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
         return queryset
 
-    def perform_create(self, serializer: TaggerSerializer) -> None:
+    def perform_create(self, serializer: BaseSerializer) -> None:
         instance = serializer.save()
 
         conditions = instance.conditions or []
@@ -246,9 +247,10 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             request=self.request,
         )
 
-    def perform_update(self, serializer: TaggerSerializer) -> None:
-        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
-        old_enabled_value = serializer.instance.enabled
+    def perform_update(self, serializer: BaseSerializer) -> None:
+        instance_before: Tagger = serializer.instance  # type: ignore[assignment]
+        is_deletion = serializer.validated_data.get("deleted") is True and not instance_before.deleted
+        old_enabled_value = instance_before.enabled
 
         changed_fields: list[str] = []
         for field in ["name", "description", "enabled", "tagger_config", "conditions", "deleted"]:
