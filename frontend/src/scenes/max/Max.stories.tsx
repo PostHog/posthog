@@ -2561,6 +2561,14 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
                 allow_custom_answer: false,
             },
             {
+                id: 'focus_areas',
+                question: 'Which areas should I cover?',
+                title: 'Focus',
+                type: 'multi_select',
+                options: [{ value: 'Acquisition' }, { value: 'Engagement' }, { value: 'Retention' }],
+                allow_custom_answer: false,
+            },
+            {
                 id: 'timeline',
                 question: 'What is your timeline?',
                 title: 'Timeline',

@@ -1630,6 +1630,17 @@ export const usersDestroy = async (uuid: string, options?: RequestInit): Promise
     })
 }
 
+export const getUsersGithubLoginRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/github_login/`
+}
+
+export const usersGithubLoginRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersGithubLoginRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getUsersHedgehogConfigRetrieveUrl = (uuid: string) => {
     return `/api/users/${uuid}/hedgehog_config/`
 }

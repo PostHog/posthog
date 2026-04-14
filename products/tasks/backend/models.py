@@ -756,6 +756,11 @@ class SandboxEnvironment(UUIDModel):
         help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
     )
 
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
