@@ -32,5 +32,5 @@ class DisallowUnsupportedDataWarehouseSettings:
             settings = " and ".join(unsupported_settings)
             verb = "is" if unsupported_settings == ["sampling"] else "are"
             raise ValidationError(
-                f"{settings.capitalize()} {verb} not supported for lifecycle insights with a data warehouse series."
+                f"{settings.capitalize()} {verb} not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series."
             )
