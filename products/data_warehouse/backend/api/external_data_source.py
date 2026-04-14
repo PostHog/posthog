@@ -391,6 +391,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 # Normalize 'type' (legacy) -> 'selection'
                 if "type" in auth and "selection" not in auth:
                     auth["selection"] = auth.pop("type")
+            # Backfill require_tls default for sources created before the toggle existed
+            if "require_tls" not in tunnel:
+                tunnel["require_tls"] = {"enabled": True}
 
         representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
         return representation
