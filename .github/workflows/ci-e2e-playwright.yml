@@ -494,13 +494,16 @@ jobs:
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
               run: |
                   RUN_ID=$(vr run create \
                     --type playwright \
                     --baseline playwright/snapshots.yml \
-                    --branch "${{ github.event.pull_request.head.ref || github.ref_name }}" \
-                    --commit "${{ github.event.pull_request.head.sha || github.sha }}" \
-                    --pr "${{ github.event.pull_request.number }}" \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
