@@ -61,10 +61,6 @@ pub async fn build_flags_cache(
 }
 
 /// Yields all property filters from an active, non-deleted flag's filter groups.
-///
-/// Only scans `groups` — `super_groups` are early-access enrollment gates
-/// using person properties, and `holdout` uses a different schema with no
-/// property filters.
 fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
     let groups = if flag.active && !flag.deleted {
         flag.filters.groups.as_slice()
@@ -113,7 +109,7 @@ pub fn compute_flag_dependencies(flags: &[FeatureFlag]) -> Result<EvaluationMeta
     let mut edges: HashMap<FeatureFlagId, HashSet<FeatureFlagId>> =
         HashMap::with_capacity(nodes.len());
     for node in &nodes {
-        // FlagNode::extract_dependencies is infallible (always returns Ok),
+        // FlagNode::extract_dependencies always returns Ok,
         // so unwrap_or_default is safe here.
         edges.insert(
             node.get_id(),
@@ -176,7 +172,7 @@ async fn load_cohorts_with_deps(
     seed_ids: HashSet<CohortId>,
 ) -> Result<Vec<Cohort>, FlagError> {
     let mut all_ids = seed_ids.clone();
-    let mut ids_to_load = seed_ids;
+    let mut ids_to_load: Vec<CohortId> = seed_ids.into_iter().collect();
     let mut loaded: HashMap<CohortId, Cohort> = HashMap::new();
     let mut depth = 0;
 
@@ -193,10 +189,9 @@ async fn load_cohorts_with_deps(
         }
         depth += 1;
 
-        let ids_vec: Vec<CohortId> = ids_to_load.iter().copied().collect();
-        let newly_loaded = Cohort::list_by_ids_from_pg(&pg_reader, team_id, &ids_vec).await?;
+        let newly_loaded = Cohort::list_by_ids_from_pg(&pg_reader, team_id, &ids_to_load).await?;
 
-        let mut ids_to_load_next: HashSet<CohortId> = HashSet::new();
+        let mut ids_to_load_next: Vec<CohortId> = Vec::new();
         for cohort in newly_loaded {
             let cohort_id = cohort.id;
             match cohort.extract_dependencies() {
@@ -204,7 +199,7 @@ async fn load_cohorts_with_deps(
                     for dep_id in dep_ids {
                         if !all_ids.contains(&dep_id) {
                             all_ids.insert(dep_id);
-                            ids_to_load_next.insert(dep_id);
+                            ids_to_load_next.push(dep_id);
                         }
                     }
                 }
