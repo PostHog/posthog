@@ -265,7 +265,7 @@ def _forward_comment_to_task(
         logger.debug("github_comment_webhook_no_task_run", pr_url=pr_url)
         return
     user: User = task_run.task.created_by
-    org_id = user.organization_id
+    org_id = user.current_organization_id
     if not posthoganalytics.feature_enabled(
         "github_comment_auto_resume",
         user.distinct_id,
