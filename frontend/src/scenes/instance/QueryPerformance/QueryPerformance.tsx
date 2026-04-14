@@ -152,7 +152,7 @@ export function QueryPerformance(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="overflow-y-auto pb-8">
+        <SceneContent className="mt-4">
             <SceneTitleSection
                 name="Query performance"
                 description="Internal tooling for monitoring and managing query performance across all projects."
@@ -189,6 +189,7 @@ export function QueryPerformance(): JSX.Element {
                 loading={slowestQueriesLoading}
                 emptyState="No experiment queries found in this time range"
                 pagination={{ pageSize: 20 }}
+                className="overflow-visible!"
                 expandable={{
                     expandedRowRender: function ExpandedQuery(item) {
                         return (
