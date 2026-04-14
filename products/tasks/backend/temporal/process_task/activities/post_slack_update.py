@@ -73,7 +73,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, task_url)
+            handler.post_or_update_progress(stage, task_url, repository=task_run.task.repository)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 

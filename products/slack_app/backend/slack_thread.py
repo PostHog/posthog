@@ -118,9 +118,11 @@ class SlackThreadHandler:
         self,
         stage: str,
         task_url: str | None = None,
+        repository: str | None = None,
     ) -> None:
         """Post a new progress message or update the existing one."""
-        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
+        repo_line = f"\nRepo: {repository}" if repository else ""
+        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:{repo_line}\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]

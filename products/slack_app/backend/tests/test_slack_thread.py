@@ -30,6 +30,25 @@ class TestSlackThreadHandler(TestCase):
         assert len(actions) == 1
         assert actions[0]["text"]["text"] == "View agent logs"
 
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_progress_message_includes_repository(self, mock_get_client, _mock_find_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+        )
+        handler = SlackThreadHandler(context)
+
+        handler.post_or_update_progress("In progress...", repository="posthog/posthog-js")
+
+        mock_client.chat_postMessage.assert_called_once()
+        text = mock_client.chat_postMessage.call_args.kwargs["text"]
+        assert "Repo: posthog/posthog-js" in text
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value="1234.9999")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_delete_progress_deletes_message(self, mock_get_client, _mock_find_progress):

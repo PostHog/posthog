@@ -94,12 +94,14 @@ class TestPostSlackUpdate(TestCase):
             mock_task_run_class.Status.IN_PROGRESS,
             stage="Cloning repository",
         )
+        mock_run.task.repository = "posthog/posthog"
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_post_progress.assert_called_once()
         assert mock_post_progress.call_args[0][0] == "Cloning repository"
+        assert mock_post_progress.call_args.kwargs["repository"] == "posthog/posthog"
 
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
