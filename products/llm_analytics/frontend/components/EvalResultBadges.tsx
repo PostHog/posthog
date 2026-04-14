@@ -16,8 +16,9 @@ interface EvalSummary {
 }
 
 function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
+    const sorted = [...runs].sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())
     const byEvalId = new Map<string, EvalSummary>()
-    for (const run of runs) {
+    for (const run of sorted) {
         const existing = byEvalId.get(run.evaluation_id)
         if (existing) {
             existing.runCount++
