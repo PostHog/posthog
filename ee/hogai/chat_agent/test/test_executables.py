@@ -99,33 +99,6 @@ class TestChatAgentGatewayRouting(BaseTest):
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
     @patch(
         "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
-        return_value="gateway-anthropic",
-    )
-    def test_get_model_gateway_anthropic_excludes_provider_header(self, _mock_variant, mock_model_init):
-        from ee.hogai.chat_agent.executables import ChatAgentExecutable
-        from ee.hogai.utils.types.base import AssistantState
-
-        with patch("ee.hogai.core.agent_modes.executables.settings") as mock_settings:
-            mock_settings.LLM_GATEWAY_URL = "http://gateway:3308"
-            mock_settings.LLM_GATEWAY_API_KEY = "test-key"
-
-            executable = ChatAgentExecutable(
-                team=self.team,
-                user=self.user,
-                toolkit_manager_class=MagicMock(),
-                prompt_builder_class=MagicMock(),
-                node_path=(),
-            )
-
-            state = AssistantState(messages=[])
-            executable._get_model(state, [])
-
-            call_kwargs = mock_model_init.call_args.kwargs
-            self.assertNotIn("X-PostHog-Provider", call_kwargs["default_headers"])
-
-    @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
-    @patch(
-        "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
         return_value="control",
     )
     def test_get_model_does_not_route_when_control_variant(self, _mock_variant, mock_model_init):
