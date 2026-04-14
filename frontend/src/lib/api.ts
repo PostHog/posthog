@@ -216,6 +216,7 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type { ErrorTrackingRecommendationRun } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
@@ -1317,6 +1318,10 @@ export class ApiRequest {
 
     public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_events')
+    }
+
+    public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('recommendations')
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -3871,6 +3876,14 @@ const api = {
 
         async rules(ruleType: ErrorTrackingRuleType): Promise<{ results: ErrorTrackingRule[] }> {
             return await new ApiRequest().errorTrackingRules(ruleType).get()
+        },
+
+        async listRecommendations(): Promise<{ results: ErrorTrackingRecommendationRun[] }> {
+            return await new ApiRequest().errorTrackingRecommendations().get()
+        },
+
+        async refreshRecommendations(): Promise<{ results: ErrorTrackingRecommendationRun[] }> {
+            return await new ApiRequest().errorTrackingRecommendations().withAction('refresh').create()
         },
 
         async createRule(
