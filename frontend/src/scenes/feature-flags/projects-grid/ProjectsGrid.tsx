@@ -96,11 +96,13 @@ export function ProjectsGrid(): JSX.Element {
         return <LemonSkeleton className="h-40" />
     }
 
+    const columnWidth = `${100 / (visibleColumns.length + 1)}%`
+
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
             title: 'Flag',
             key: 'flag',
-            width: '22%',
+            width: columnWidth,
             render: (_, flag) => (
                 <LemonTableLink
                     to={urls.featureFlag(flag.id as number)}
@@ -119,6 +121,7 @@ export function ProjectsGrid(): JSX.Element {
                 </span>
             ),
             key: `project-${teamId}`,
+            width: columnWidth,
             render: (_: unknown, flag: FeatureFlagType) => (
                 <ProjectsGridCell
                     state={cellStateFor(
@@ -147,6 +150,7 @@ export function ProjectsGrid(): JSX.Element {
                 loading={flagsPageLoading && flags.length === 0}
                 emptyState="No flags match your search."
                 data-attr="projects-grid-table"
+                className="[&_table]:table-fixed"
             />
             {flagsPageLoading && flags.length > 0 && <LemonSkeleton className="h-8 my-2" />}
             <div ref={sentinelRef} className="h-1" />
