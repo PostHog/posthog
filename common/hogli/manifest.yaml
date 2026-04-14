@@ -404,7 +404,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
+        description: Run NGINX Unit application server
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
