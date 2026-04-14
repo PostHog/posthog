@@ -188,9 +188,11 @@ async fn load_cohorts_with_deps(
 
     while !ids_to_load.is_empty() {
         if depth >= MAX_COHORT_DEPENDENCY_DEPTH {
+            let sample: Vec<_> = ids_to_load.iter().take(10).copied().collect();
             tracing::warn!(
                 depth,
-                remaining_ids = ?ids_to_load,
+                remaining_count = ids_to_load.len(),
+                remaining_sample = ?sample,
                 "Cohort dependency depth limit reached"
             );
             break;
