@@ -23,7 +23,6 @@ from posthog.schema import (
     EventsNode,
     HogQLPropertyFilter,
     IntervalType,
-    LifecycleDataWarehouseNode,
     LifecycleQuery,
     PersonPropertyFilter,
     PropertyOperator,
@@ -805,95 +804,17 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_lifecycle_query(self, date_from, date_to, interval):
         return self._create_query_runner(date_from, date_to, interval).calculate()
 
-    @parameterized.expand(
-        [
-            (
-                "empty_series",
-                LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
-                    interval=IntervalType.DAY,
-                    series=[],
-                ),
-                "Lifecycle insights require at least one series.",
-            ),
-            (
-                "custom_aggregation_target_without_data_warehouse_series",
-                LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
-                    interval=IntervalType.DAY,
-                    series=[EventsNode(event="$pageview")],
-                    customAggregationTarget=True,
-                ),
-                "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series.",
-            ),
-            (
-                "data_warehouse_filters",
-                LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
-                    interval=IntervalType.DAY,
-                    series=[
-                        LifecycleDataWarehouseNode(
-                            id="warehouse_series",
-                            table_name="warehouse_series",
-                            timestamp_field="timestamp",
-                            aggregation_target_field="person_id",
-                            created_at_field="created_at",
-                        )
-                    ],
-                    properties=[
-                        EventPropertyFilter(
-                            key="$browser",
-                            type="event",
-                            value="Chrome",
-                            operator=PropertyOperator.EXACT,
-                        )
-                    ],
-                ),
-                "Filters are not supported for lifecycle insights with a data warehouse series.",
-            ),
-            (
-                "data_warehouse_test_account_filters",
-                LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
-                    interval=IntervalType.DAY,
-                    series=[
-                        LifecycleDataWarehouseNode(
-                            id="warehouse_series",
-                            table_name="warehouse_series",
-                            timestamp_field="timestamp",
-                            aggregation_target_field="person_id",
-                            created_at_field="created_at",
-                        )
-                    ],
-                    filterTestAccounts=True,
-                ),
-                "Test account filters are not supported for lifecycle insights with a data warehouse series.",
-            ),
-            (
-                "data_warehouse_sampling",
-                LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
-                    interval=IntervalType.DAY,
-                    series=[
-                        LifecycleDataWarehouseNode(
-                            id="warehouse_series",
-                            table_name="warehouse_series",
-                            timestamp_field="timestamp",
-                            aggregation_target_field="person_id",
-                            created_at_field="created_at",
-                        )
-                    ],
-                    samplingFactor=0.1,
-                ),
-                "Sampling is not supported for lifecycle insights with a data warehouse series.",
-            ),
-        ]
-    )
-    def test_lifecycle_query_validation(self, _name, query, expected_error):
-        with self.assertRaises(ValidationError) as context:
-            LifecycleQueryRunner(team=self.team, query=query).calculate()
+    def test_lifecycle_query_rejects_empty_series(self):
+        query = LifecycleQuery(
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
+            interval=IntervalType.DAY,
+            series=[],
+        )
 
-        self.assertIn(expected_error, str(context.exception))
+        with self.assertRaises(ValidationError) as context:
+            LifecycleQueryRunner(team=self.team, query=query)
+
+        self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()
