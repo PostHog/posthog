@@ -1,6 +1,6 @@
 from typing import Any
 
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets

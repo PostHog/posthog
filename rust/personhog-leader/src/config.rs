@@ -1,9 +1,10 @@
+use std::net::SocketAddr;
 use std::time::Duration;
 
+use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
-use std::net::SocketAddr;
 
-#[derive(Envconfig, Clone, Debug)]
+#[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50053")]
     pub grpc_address: SocketAddr,
@@ -14,6 +15,13 @@ pub struct Config {
 
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
+
+    // ── Kafka durability ─────────────────────────────────────────
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
+
+    #[envconfig(default = "personhog_updates")]
+    pub kafka_person_state_topic: String,
 
     // ── etcd coordination ────────────────────────────────────────
     #[envconfig(default = "http://localhost:2379")]

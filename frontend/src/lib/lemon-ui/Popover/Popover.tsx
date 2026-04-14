@@ -252,24 +252,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         setShouldRenderPortal(false)
     }, [extraFloatingRef]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    // Chromium holds C++ persistent roots to detached DOM trees containing <input> elements
-    // (via internal ShadowRoot tracking). We can't prevent the browser from retaining the
-    // reference, but we can minimise what gets retained by gutting the portal content after
-    // the exit animation completes. The +100ms buffer accounts for React 18's batched state
-    // processing after CSSTransition's exit timeout fires.
-    //
-    // shouldRenderPortal is intentionally omitted from deps — including it would cause the
-    // effect to re-run (and cancel the timer) when onExited sets it to false.
     useEffect(() => {
-        if (!visible && shouldRenderPortal && floatingRef.current) {
-            const el = floatingRef.current
-            const animationDurationWithBuffer = delayMs + 100
-            const timer = setTimeout(() => {
-                el.innerHTML = ''
-            }, animationDurationWithBuffer)
-            return () => clearTimeout(timer)
+        return () => {
+            floatingRef.current = null
+            if (extraFloatingRef) {
+                extraFloatingRef.current = null
+            }
         }
-    }, [visible, delayMs]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {

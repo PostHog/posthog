@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDropdown,
+    LemonInput,
     LemonInputSelect,
     LemonTable,
     LemonTableColumns,
@@ -269,6 +270,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 export function SupportTicketsTableFilters(): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
+        searchQuery,
         statusFilter,
         priorityFilter,
         channelFilter,
@@ -280,6 +282,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         ticketsLoading,
     } = useValues(logic)
     const {
+        setSearchQuery,
         setStatusFilter,
         setPriorityFilter,
         setChannelFilter,
@@ -294,6 +297,14 @@ export function SupportTicketsTableFilters(): JSX.Element {
     return (
         <div className="flex flex-wrap gap-3 items-center justify-between">
             <div className="flex flex-wrap gap-3 items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search by ticket #, name, email, or message..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                    className="min-w-64"
+                />
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}

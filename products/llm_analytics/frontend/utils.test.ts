@@ -425,6 +425,214 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
+        it('handles Vercel AI SDK reasoning with text field', () => {
+            const message = {
+                type: 'reasoning',
+                text: 'Let me think about this step by step.',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: 'Let me think about this step by step.',
+                },
+            ])
+        })
+
+        it.each([
+            [
+                'string arguments (posthog-node format)',
+                {
+                    type: 'tool-call',
+                    id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                    function: { name: 'queryModel', arguments: '{"query": "relevant data"}' },
+                },
+                'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                'queryModel',
+                { query: 'relevant data' },
+            ],
+            [
+                'object arguments (posthog-node format)',
+                {
+                    type: 'tool-call',
+                    id: 'call_123',
+                    function: { name: 'get_weather', arguments: { location: 'NYC' } },
+                },
+                'call_123',
+                'get_weather',
+                { location: 'NYC' },
+            ],
+            [
+                'native Vercel SDK format (toolName/input/toolCallId)',
+                { type: 'tool-call', toolCallId: 'tc_native_123', toolName: 'get_weather', input: { location: 'NYC' } },
+                'tc_native_123',
+                'get_weather',
+                { location: 'NYC' },
+            ],
+        ])('handles Vercel AI SDK tool-call with %s', (_label, message, expectedId, expectedName, expectedArgs) => {
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: expectedId,
+                            function: { name: expectedName, arguments: expectedArgs },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            [
+                'object output',
+                {
+                    type: 'tool-result',
+                    toolCallId: 'tc_123',
+                    toolName: 'get_weather',
+                    output: { temperature: 72, unit: 'F' },
+                },
+                '{"temperature":72,"unit":"F"}',
+                'tc_123',
+            ],
+            [
+                'string output',
+                { type: 'tool-result', toolCallId: 'tc_456', toolName: 'search', output: 'Found 3 results' },
+                'Found 3 results',
+                'tc_456',
+            ],
+        ])('handles Vercel AI SDK tool-result with %s', (_label, message, expectedContent, expectedToolCallId) => {
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: expectedContent,
+                    tool_call_id: expectedToolCallId,
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK toolName variant with string input', () => {
+            const message = { type: 'tool-call', toolCallId: 'tc_1', toolName: 'run_code', input: 'print("hi")' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_1',
+                            function: { name: 'run_code', arguments: 'print("hi")' },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK toolName variant with missing input', () => {
+            const message = { type: 'tool-call', toolCallId: 'tc_2', toolName: 'no_args_tool' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_2',
+                            function: { name: 'no_args_tool', arguments: {} },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('prefers function variant when both function and toolName are present', () => {
+            const message = {
+                type: 'tool-call',
+                id: 'func_id',
+                function: { name: 'from_function', arguments: '{"a":1}' },
+                toolCallId: 'tool_id',
+                toolName: 'from_toolName',
+                input: { b: 2 },
+            }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'func_id',
+                            function: { name: 'from_function', arguments: { a: 1 } },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with undefined output', () => {
+            const message = { type: 'tool-result', toolCallId: 'tc_empty', toolName: 'void_tool' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '',
+                    tool_call_id: 'tc_empty',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with non-serializable output', () => {
+            const circular: Record<string, unknown> = { key: 'value' }
+            circular.self = circular
+            const message = { type: 'tool-result', toolCallId: 'tc_circ', toolName: 'bad_tool', output: circular }
+            const result = normalizeMessage(message, 'assistant')
+            expect(result).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '[object Object]',
+                    tool_call_id: 'tc_circ',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK mixed content array with reasoning + text + tool-call', () => {
+            const message = {
+                role: 'assistant',
+                content: [
+                    { type: 'reasoning', text: 'I should use a tool to look up the data.' },
+                    { type: 'text', text: 'Let me check that for you.' },
+                    {
+                        type: 'tool-call',
+                        id: 'toolu_vrtx_abc',
+                        function: { name: 'queryModel', arguments: '{"query":"data"}' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: 'I should use a tool to look up the data.',
+                },
+                {
+                    role: 'assistant',
+                    content: 'Let me check that for you.',
+                },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_vrtx_abc',
+                            function: { name: 'queryModel', arguments: { query: 'data' } },
+                        },
+                    ],
+                },
+            ])
+        })
+
         it.each([
             ['web_search_call', 'ws_123', { type: 'web_search_call', id: 'ws_123', status: 'completed' }],
             [

@@ -41,6 +41,8 @@ export interface ReferenceLineProps {
     fillSide?: ReferenceLineFillSide
     /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin grey). Defaults to `goal`. */
     variant?: ReferenceLineVariant
+    /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
+    yAxisId?: string
 }
 
 interface ResolvedStyle {
@@ -85,7 +87,11 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
     const { orientation = 'horizontal', variant = 'goal', style } = props
-    const resolved = useMemo(() => resolveStyle(variant, style), [variant, style?.color, style?.stroke, style?.width])
+    const resolved = useMemo(
+        () => resolveStyle(variant, style),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [variant, style?.color, style?.stroke, style?.width]
+    )
 
     const common: ResolvedProps = {
         resolved,
@@ -97,7 +103,9 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
     }
 
     if (orientation === 'horizontal') {
-        return typeof props.value === 'number' ? <HorizontalReferenceLine y={props.value} {...common} /> : null
+        return typeof props.value === 'number' ? (
+            <HorizontalReferenceLine y={props.value} yAxisId={props.yAxisId} {...common} />
+        ) : null
     }
     return typeof props.value === 'string' ? <VerticalReferenceLine xLabel={props.value} {...common} /> : null
 }
@@ -113,19 +121,21 @@ interface ResolvedProps {
 
 function HorizontalReferenceLine({
     y: value,
+    yAxisId,
     resolved,
     fillSide,
     fillColor,
     fillOpacity,
     label,
     labelPosition,
-}: ResolvedProps & { y: number }): React.ReactElement | null {
+}: ResolvedProps & { y: number; yAxisId?: string }): React.ReactElement | null {
     const { scales, dimensions } = useChart()
     const { plotLeft, plotTop, plotWidth, plotHeight, width: containerWidth } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
 
-    const y = scales.y(value)
+    const yScaleFn = yAxisId && scales.yAxes?.[yAxisId] ? scales.yAxes[yAxisId].scale : scales.y
+    const y = yScaleFn(value)
     if (!isFinite(y) || y < plotTop || y > plotBottom) {
         return null
     }

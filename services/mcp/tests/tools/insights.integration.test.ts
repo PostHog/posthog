@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
     type CreatedResources,
     SAMPLE_HOGQL_QUERIES,
+    SAMPLE_TREND_QUERIES,
     TEST_ORG_ID,
     TEST_PROJECT_ID,
     cleanupResources,
@@ -13,16 +14,16 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import createInsightTool from '@/tools/insights/create'
-import deleteInsightTool from '@/tools/insights/delete'
-import getInsightTool from '@/tools/insights/get'
-import getAllInsightsTool from '@/tools/insights/getAll'
+import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 import queryInsightTool from '@/tools/insights/query'
-import updateInsightTool from '@/tools/insights/update'
 import type { Context } from '@/tools/types'
 
+const insightGetTool = GENERATED_TOOLS['insight-get']!()
+const insightCreateTool = GENERATED_TOOLS['insight-create']!()
+const insightUpdateTool = GENERATED_TOOLS['insight-update']!()
+const insightDeleteTool = GENERATED_TOOLS['insight-delete']!()
+
 describe('Insights', { concurrent: false }, () => {
-    // All tests run sequentially to avoid conflicts with shared PostHog project
     let context: Context
     const createdResources: CreatedResources = {
         featureFlags: [],
@@ -44,278 +45,224 @@ describe('Insights', { concurrent: false }, () => {
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
-    describe('create-insight tool', () => {
-        const createTool = createInsightTool()
-
-        it('should create an insight with pageview query', async () => {
-            const params = {
-                data: {
-                    name: generateUniqueKey('Test Pageview Insight'),
-                    description: 'Integration test for pageview insight',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
-
-            const result = await createTool.handler(context, params)
-
-            const insightData = parseToolResponse(result)
-            expect(insightData.id).toBeTruthy()
-            expect(insightData.name).toBe(params.data.name)
-            expect(insightData.saved).toBe(true)
-            expect(insightData.url).toContain('/insights/')
-
-            createdResources.insights.push(insightData.id)
+    async function createTestInsight(name: string): Promise<{ id: number; short_id: string; name: string }> {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<{
+            id: number
+            short_id: string
+            name: string
+        }>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/insights/`,
+            body: {
+                name,
+                query: SAMPLE_HOGQL_QUERIES.pageviews,
+                saved: true,
+            },
         })
+        createdResources.insights.push(result.id)
+        return result
+    }
 
-        it('should create an insight with top events query', async () => {
-            const params = {
-                data: {
-                    name: generateUniqueKey('Test Top Events Insight'),
-                    description: 'Integration test for top events insight',
-                    query: SAMPLE_HOGQL_QUERIES.topEvents,
-                    favorited: false,
-                },
-            }
-
-            const result = await createTool.handler(context, params)
-
-            const insightData = parseToolResponse(result)
-            expect(insightData.id).toBeTruthy()
-            expect(insightData.name).toBe(params.data.name)
-
-            createdResources.insights.push(insightData.id)
+    async function createTestTrendsInsight(name: string): Promise<{ id: number; short_id: string; name: string }> {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<{
+            id: number
+            short_id: string
+            name: string
+        }>({
+            method: 'POST',
+            path: `/api/projects/${projectId}/insights/`,
+            body: {
+                name,
+                query: SAMPLE_TREND_QUERIES.basicPageviews,
+                saved: true,
+            },
         })
+        createdResources.insights.push(result.id)
+        return result
+    }
 
-        it('should create an insight with tags', async () => {
-            const params = {
-                data: {
-                    name: generateUniqueKey('Test Tagged Insight'),
-                    description: 'Integration test with tags',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    tags: ['test', 'integration'],
-                    favorited: false,
-                },
-            }
-
-            const result = await createTool.handler(context, params)
-
-            const insightData = parseToolResponse(result)
-            expect(insightData.id).toBeTruthy()
-            expect(insightData.name).toBe(params.data.name)
-
-            createdResources.insights.push(insightData.id)
-        })
-    })
-
-    describe('update-insight tool', () => {
-        const createTool = createInsightTool()
-        const updateTool = updateInsightTool()
-
-        it("should update an insight's name and description", async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Original Insight Name'),
-                    description: 'Original description',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
-            const createdInsight = parseToolResponse(createResult)
-            createdResources.insights.push(createdInsight.id)
-
-            const updateParams = {
-                insightId: createdInsight.id,
-                data: {
-                    name: 'Updated Insight Name',
-                    description: 'Updated description',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
-
-            const updatedInsight = parseToolResponse(updateResult)
-            expect(updatedInsight.id).toBe(createdInsight.id)
-            expect(updatedInsight.name).toBe(updateParams.data.name)
-        })
-
-        it("should update an insight's query", async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Query Update Test'),
-                    description: 'Testing query updates',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
-            const createdInsight = parseToolResponse(createResult)
-            createdResources.insights.push(createdInsight.id)
-
-            const updateParams = {
-                insightId: createdInsight.id,
-                data: {
-                    query: SAMPLE_HOGQL_QUERIES.topEvents,
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
-
-            const updatedInsight = parseToolResponse(updateResult)
-            expect(updatedInsight.id).toBe(createdInsight.id)
-            expect(updatedInsight.name).toBe(createParams.data.name)
-        })
-    })
-
-    describe('get-all-insights tool', () => {
-        const getAllTool = getAllInsightsTool()
-
-        it('should return insights with proper structure', async () => {
-            const result = await getAllTool.handler(context, {})
-            const insights = parseToolResponse(result)
-
-            expect(Array.isArray(insights)).toBe(true)
-            if (insights.length > 0) {
-                const insight = insights[0]
-                expect(insight).toHaveProperty('id')
-                expect(insight).toHaveProperty('name')
-                expect(insight).toHaveProperty('description')
-                expect(insight).toHaveProperty('url')
-            }
-        })
-    })
-
-    describe('get-insight tool', () => {
-        const createTool = createInsightTool()
-        const getTool = getInsightTool()
-
-        it('should get a specific insight by ID', async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Get Test Insight'),
-                    description: 'Test insight for get operation',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
-            const createdInsight = parseToolResponse(createResult)
-            createdResources.insights.push(createdInsight.id)
-
-            const result = await getTool.handler(context, { insightId: createdInsight.id })
-            const retrievedInsight = parseToolResponse(result)
-
-            expect(retrievedInsight.id).toBe(createdInsight.id)
-            expect(retrievedInsight.name).toBe(createParams.data.name)
-            expect(retrievedInsight.description).toBe(createParams.data.description)
-            expect(retrievedInsight.url).toContain('/insights/')
-        })
-    })
-
-    describe('query-insight tool', () => {
-        const createTool = createInsightTool()
+    describe('insight-query tool', () => {
         const queryTool = queryInsightTool()
 
-        it('should query an insight and return results with metadata', async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Query Test Insight'),
-                    description: 'Test insight for query operation',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
-            const createdInsight = parseToolResponse(createResult)
-            createdResources.insights.push(createdInsight.id)
+        it('should run an insight and return optimized results by default', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Run Optimized Test'))
 
             const result = await queryTool.handler(context, {
-                insightId: createdInsight.id,
+                insightId: String(insight.id),
+                format: 'optimized',
             })
-            const queryResponse = parseToolResponse(result)
+            const response = parseToolResponse(result)
 
-            expect(queryResponse).toHaveProperty('insight')
-            expect(queryResponse).toHaveProperty('results')
-            expect(queryResponse.insight.id).toBe(createdInsight.id)
-            expect(queryResponse.insight.name).toBe(createParams.data.name)
-            expect(queryResponse.insight.url).toContain('/insights/')
+            expect(response).toHaveProperty('insight')
+            expect(response).toHaveProperty('results')
+            expect(response.insight.id).toBe(insight.id)
+            expect(response.insight.name).toBe(insight.name)
+            expect(response.insight.url).toContain('/insights/')
+        })
+
+        it('should run an insight and return JSON results when format is json', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Run JSON Test'))
+
+            const result = await queryTool.handler(context, {
+                insightId: String(insight.id),
+                format: 'json',
+            })
+            const response = parseToolResponse(result)
+
+            expect(response).toHaveProperty('insight')
+            expect(response).toHaveProperty('results')
+            expect(response.insight.id).toBe(insight.id)
+        })
+
+        it('should default to optimized format when format is not specified', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Run Default Format Test'))
+
+            // Simulate what the MCP server does: parse input through the schema to apply defaults
+            const parsedParams = queryTool.schema.parse({ insightId: String(insight.id) })
+            const result = await queryTool.handler(context, parsedParams)
+            const response = parseToolResponse(result)
+
+            expect(response).toHaveProperty('insight')
+            expect(response).toHaveProperty('results')
+        })
+
+        describe('result shapes by format and query type', () => {
+            it('HogQL query with format=json returns table shape with columns and results arrays', async () => {
+                const insight = await createTestInsight(generateUniqueKey('HogQL JSON Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'json',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(response.results).toHaveProperty('columns')
+                expect(response.results).toHaveProperty('results')
+                expect(Array.isArray(response.results.columns)).toBe(true)
+                expect(Array.isArray(response.results.results)).toBe(true)
+            })
+
+            it('HogQL query with format=optimized returns a formatted string', async () => {
+                // The API client always sends X-PostHog-Client: mcp, so the backend
+                // runs the SQLResultsFormatter and returns formatted_results as a string.
+                const insight = await createTestInsight(generateUniqueKey('HogQL Optimized Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'optimized',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(typeof response.results).toBe('string')
+            })
+
+            it('TrendsQuery with format=json returns an array of series', async () => {
+                const insight = await createTestTrendsInsight(generateUniqueKey('Trends JSON Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'json',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(Array.isArray(response.results)).toBe(true)
+            })
+
+            it('TrendsQuery with format=optimized returns a formatted string', async () => {
+                // The API client always sends X-PostHog-Client: mcp, so the backend
+                // runs the TrendsResultsFormatter and returns formatted_results as a string.
+                const insight = await createTestTrendsInsight(generateUniqueKey('Trends Optimized Shape'))
+
+                const result = await queryTool.handler(context, {
+                    insightId: String(insight.id),
+                    format: 'optimized',
+                })
+                const response = parseToolResponse(result)
+
+                expect(response).toHaveProperty('results')
+                expect(typeof response.results).toBe('string')
+            })
         })
     })
 
-    describe('delete-insight tool', () => {
-        const createTool = createInsightTool()
-        const deleteTool = deleteInsightTool()
+    describe('insight CRUD id handling', () => {
+        it('insight-get accepts a numeric id', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Get By Numeric Id'))
 
-        it('should delete an insight', async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Delete Test Insight'),
-                    description: 'Test insight for deletion',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
+            const parsed = insightGetTool.schema.parse({ id: insight.id })
+            const result = (await insightGetTool.handler(context, parsed)) as { id: number; short_id: string }
 
-            const createResult = await createTool.handler(context, createParams)
-            const createdInsight = parseToolResponse(createResult)
-
-            const deleteResult = await deleteTool.handler(context, {
-                insightId: createdInsight.id,
-            })
-
-            const deleteResponse = parseToolResponse(deleteResult)
-            expect(deleteResponse.success).toBe(true)
-            expect(deleteResponse.message).toContain('deleted successfully')
+            expect(result.id).toBe(insight.id)
+            expect(result.short_id).toBe(insight.short_id)
         })
-    })
 
-    describe('Insights workflow', () => {
-        it('should support full CRUD workflow', async () => {
-            const createTool = createInsightTool()
-            const updateTool = updateInsightTool()
-            const getTool = getInsightTool()
-            const deleteTool = deleteInsightTool()
+        it('insight-get accepts a short_id', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Get By Short Id'))
 
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Workflow Test Insight'),
-                    description: 'Testing full workflow',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
-                },
-            }
+            // Document current behavior: the generated schema types `id` as number only,
+            // but the PostHog API accepts both numeric id and short_id on the retrieve path.
+            // If this test ever fails, we need to widen the schema to z.union([z.number(), z.string()]).
+            const parsed = insightGetTool.schema.parse({ id: insight.short_id as unknown as number })
+            const result = (await insightGetTool.handler(context, parsed)) as { id: number; short_id: string }
 
-            const createResult = await createTool.handler(context, createParams)
-            const createdInsight = parseToolResponse(createResult)
+            expect(result.short_id).toBe(insight.short_id)
+        })
 
-            const getResult = await getTool.handler(context, { insightId: createdInsight.id })
-            const retrievedInsight = parseToolResponse(getResult)
-            expect(retrievedInsight.id).toBe(createdInsight.id)
+        it('insight-update updates by numeric id and returns the updated insight', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Update By Numeric Id'))
+            const newName = generateUniqueKey('Renamed')
 
-            const updateParams = {
-                insightId: createdInsight.id,
-                data: {
-                    name: 'Updated Workflow Insight',
-                    description: 'Updated workflow description',
-                    query: SAMPLE_HOGQL_QUERIES.pageviews,
-                },
-            }
+            const parsed = insightUpdateTool.schema.parse({ id: insight.id, name: newName })
+            const result = (await insightUpdateTool.handler(context, parsed)) as { id: number; name: string }
 
-            const updateResult = await updateTool.handler(context, updateParams)
-            const updatedInsight = parseToolResponse(updateResult)
-            expect(updatedInsight.name).toBe(updateParams.data.name)
+            expect(result.id).toBe(insight.id)
+            expect(result.name).toBe(newName)
+        })
 
-            const deleteResult = await deleteTool.handler(context, {
-                insightId: createdInsight.id,
+        it('insight-create returns numeric id + short_id for later lookup', async () => {
+            const name = generateUniqueKey('Create And Look Up')
+            const parsed = insightCreateTool.schema.parse({
+                name,
+                query: SAMPLE_HOGQL_QUERIES.pageviews,
             })
-            const deleteResponse = parseToolResponse(deleteResult)
-            expect(deleteResponse.success).toBe(true)
+            const created = (await insightCreateTool.handler(context, parsed)) as {
+                id: number
+                short_id: string
+                name: string
+            }
+            createdResources.insights.push(created.id)
+
+            expect(created.id).toEqual(expect.any(Number))
+            expect(created.short_id).toEqual(expect.any(String))
+            expect(created.name).toBe(name)
+
+            // Round-trip: the numeric id returned from create should work with insight-get
+            const fetched = (await insightGetTool.handler(
+                context,
+                insightGetTool.schema.parse({ id: created.id })
+            )) as { id: number }
+            expect(fetched.id).toBe(created.id)
+        })
+
+        it('insight-delete soft-deletes by numeric id', async () => {
+            const insight = await createTestInsight(generateUniqueKey('Delete By Numeric Id'))
+
+            const parsed = insightDeleteTool.schema.parse({ id: insight.id })
+            const result = (await insightDeleteTool.handler(context, parsed)) as {
+                id: number
+                deleted: boolean
+            }
+
+            expect(result.id).toBe(insight.id)
+            expect(result.deleted).toBe(true)
+
+            // Drop from cleanup since we already deleted it
+            createdResources.insights = createdResources.insights.filter((id) => id !== insight.id)
         })
     })
 })

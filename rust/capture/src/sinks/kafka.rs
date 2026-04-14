@@ -189,7 +189,7 @@ impl KafkaSink {
         client_config
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
-            .set("partitioner", "murmur2_random") // Compatibility with python-kafka
+            .set("partitioner", &config.kafka_producer_partitioner)
             .set(
                 "metadata.max.age.ms",
                 config.kafka_metadata_max_age_ms.to_string(),
@@ -239,7 +239,33 @@ impl KafkaSink {
             .set(
                 "enable.idempotence",
                 config.kafka_producer_enable_idempotence.to_string(),
+            )
+            .set(
+                "log.connection.close",
+                config.kafka_log_connection_close.to_string(),
+            )
+            .set(
+                "queue.buffering.max.messages",
+                config
+                    .kafka_producer_queue_buffering_max_messages
+                    .to_string(),
+            )
+            .set(
+                "retry.backoff.max.ms",
+                config.kafka_retry_backoff_max_ms.to_string(),
+            )
+            .set(
+                "socket.send.buffer.bytes",
+                config.kafka_socket_send_buffer_bytes.to_string(),
+            )
+            .set(
+                "socket.receive.buffer.bytes",
+                config.kafka_socket_receive_buffer_bytes.to_string(),
             );
+
+        if !config.kafka_broker_address_family.is_empty() {
+            client_config.set("broker.address.family", &config.kafka_broker_address_family);
+        }
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -588,6 +614,13 @@ mod tests {
             kafka_producer_max_in_flight_requests: 1000000,
             kafka_producer_sticky_partitioning_linger_ms: 10,
             kafka_producer_enable_idempotence: false,
+            kafka_producer_partitioner: "murmur2_random".to_string(),
+            kafka_broker_address_family: String::new(),
+            kafka_log_connection_close: true,
+            kafka_producer_queue_buffering_max_messages: 100000,
+            kafka_retry_backoff_max_ms: 1000,
+            kafka_socket_send_buffer_bytes: 0,
+            kafka_socket_receive_buffer_bytes: 0,
         };
         let sink = KafkaSink::new(config, handle, limiter, None)
             .await
