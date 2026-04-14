@@ -15,6 +15,15 @@
 
 @import 'tailwindcss';
 @import '@posthog/quill/styles.css';
+
+/*
+ * Re-import the raw color-system.css after the pre-compiled quill bundle
+ * so the :root / .dark custom property values come from the live tokens
+ * package rather than the snapshot baked into dist/quill.css. Pair with
+ * the `quillTokensWatcher` Vite plugin in main.ts: editing
+ * packages/tokens/src/colors.ts regenerates this file and hot-reloads.
+ */
+@import '@posthog/quill-tokens/color-system.css';
 @import '@fontsource-variable/inter';
 @source "../stories/**/*.{ts,tsx}";
 @source "../../../packages/primitives/src/**/*.stories.{ts,tsx}";
