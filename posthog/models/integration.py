@@ -3185,6 +3185,7 @@ class StripeIntegration:
             "posthog_region": region.lower(),
             "posthog_access_token": access_token_value,
             "posthog_refresh_token": refresh_token_value,
+            "posthog_project_id": str(team_id),
         }
 
         client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
@@ -3216,7 +3217,7 @@ class StripeIntegration:
 
         client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
 
-        for name in ("posthog_region", "posthog_access_token", "posthog_refresh_token"):
+        for name in ("posthog_region", "posthog_access_token", "posthog_refresh_token", "posthog_project_id"):
             try:
                 client.apps.secrets.delete_where(
                     params={
