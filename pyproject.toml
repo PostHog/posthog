@@ -11,7 +11,7 @@ requires-python = "==3.12.12" # Pin full version to control Python upgrades expl
 #
 dependencies = [
     "aioboto3==15.4.0",
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.4",
     "aiokafka~=0.12.0",
     "anthropic==0.80.0",
     "antlr4-python3-runtime==4.13.1",
@@ -272,6 +272,9 @@ sentiment = [
 required-version = "~=0.10.2"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false }
+constraint-dependencies = [
+    "langgraph-checkpoint<3",
+]
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
