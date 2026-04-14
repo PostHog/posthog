@@ -121,26 +121,28 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('wait_until_condition'),
         config: z.object({
-            // Person property polling (optional): re-evaluates on a polling
-            // schedule against the current person state.
-            condition: z
-                .object({
+            condition: z.object({
+                filters: z.any(), // type this stronger
+                name: z.string().optional(), // Custom name for the condition
+            }),
+            max_wait_duration: z.string(),
+        }),
+    }),
+
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('wait_until_event'),
+        config: z.object({
+            // OR semantics: any subscription matching wakes the workflow.
+            // Each entry uses the same filters shape as triggers (event name + property filters).
+            // Bytecode is compiled at workflow save time and nested inside filters,
+            // matching the convention used by trigger and conditional_branch filters.
+            events: z.array(
+                z.object({
                     filters: z.any(), // type this stronger
-                    name: z.string().optional(),
+                    name: z.string().optional(), // Custom name for the subscription
                 })
-                .optional(),
-            // Event subscriptions (optional): push-based. The cdp-events
-            // consumer wakes the workflow when any of these events fire for
-            // the person. Each entry uses the same filters shape as triggers.
-            // Bytecode is compiled at workflow save time.
-            events: z
-                .array(
-                    z.object({
-                        filters: z.any(),
-                        name: z.string().optional(),
-                    })
-                )
-                .optional(),
+            ),
             max_wait_duration: z.string(),
         }),
     }),
@@ -245,7 +247,7 @@ export const HogFlowSchema = z.object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
-            // Event-based conversion: array of event subscriptions (same shape as wait_until_condition events)
+            // Event-based conversion: array of event subscriptions (same shape as wait_until_event)
             events: z
                 .array(
                     z.object({

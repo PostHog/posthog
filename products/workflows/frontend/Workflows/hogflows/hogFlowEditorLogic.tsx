@@ -38,21 +38,6 @@ const getEdgeId = (edge: HogFlow['edges'][number]): string =>
     `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
 
 /**
- * Label for the continue edge (the "no match" / "timeout" path).
- * For wait_until_condition steps with events configured, the continue edge
- * represents the timeout path, so we label it accordingly.
- */
-const continueEdgeLabel = (action: HogFlowAction | undefined): string => {
-    if (action?.type === 'wait_until_condition') {
-        const waitAction = action as Extract<HogFlowAction, { type: 'wait_until_condition' }>
-        if ((waitAction.config.events?.length ?? 0) > 0) {
-            return 'Timeout'
-        }
-    }
-    return 'No match'
-}
-
-/**
  * Helper to get branch label with custom name fallback
  */
 const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'][0]): string => {
@@ -64,13 +49,10 @@ const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'
         case 'wait_until_condition': {
             const waitAction = action as Extract<HogFlowAction, { type: 'wait_until_condition' }>
             const customName = waitAction.config.condition?.name
-            // If the step has events configured, the matched path can be triggered by either
-            // a condition match or an event match, so use a generic label.
-            if ((waitAction.config.events?.length ?? 0) > 0) {
-                return customName || 'Matched'
-            }
             return customName || 'If condition matches'
         }
+        case 'wait_until_event':
+            return 'Event matched'
         case 'random_cohort_branch': {
             const cohortAction = action as Extract<HogFlowAction, { type: 'random_cohort_branch' }>
             const cohort = cohortAction.config.cohorts?.[edge.index || 0]
@@ -351,7 +333,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                const branchingTypes = [
+                    'conditional_branch',
+                    'random_cohort_branch',
+                    'wait_until_condition',
+                    'wait_until_event',
+                ]
                 return !branchingTypes.includes(selectedNode?.data.type ?? '')
             },
         ],
@@ -454,7 +441,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 label: isOnlyEdgeForNode
                                     ? undefined
                                     : edge.type === 'continue'
-                                      ? continueEdgeLabel(edgeSourceAction)
+                                      ? edgeSourceAction?.type === 'wait_until_event'
+                                          ? 'Timeout'
+                                          : 'No match'
                                       : getBranchLabel(edgeSourceAction, edge),
                             },
                             labelShowBg: false,

@@ -11,6 +11,7 @@ import {
     IconLeave,
     IconLetter,
     IconPercentage,
+    IconTarget,
     IconWebhooks,
 } from '@posthog/icons'
 
@@ -28,6 +29,7 @@ import { StepFunctionConfiguration } from './StepFunction'
 import { StepRandomCohortBranchConfiguration } from './StepRandomCohortBranch'
 import { StepTriggerConfiguration } from './StepTrigger'
 import { StepWaitUntilConditionConfiguration } from './StepWaitUntilCondition'
+import { StepWaitUntilEventConfiguration } from './StepWaitUntilEvent'
 import { StepWaitUntilTimeWindowConfiguration } from './StepWaitUntilTimeWindow'
 
 type HogFlowStepBuilder<T extends HogFlowAction['type']> = {
@@ -86,6 +88,12 @@ const HogFlowStepConfigs: Partial<{
         icon: () => <IconHourglass />,
         color: () => '#ffaa00',
         renderConfiguration: (node) => <StepWaitUntilConditionConfiguration key={node.id} node={node} />,
+    },
+    wait_until_event: {
+        type: 'wait_until_event',
+        icon: () => <IconTarget />,
+        color: () => '#ffaa00',
+        renderConfiguration: (node) => <StepWaitUntilEventConfiguration key={node.id} node={node} />,
     },
     wait_until_time_window: {
         type: 'wait_until_time_window',

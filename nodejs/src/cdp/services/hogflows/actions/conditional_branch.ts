@@ -14,8 +14,22 @@ export class ConditionalBranchHandler implements ActionHandler {
     async execute({
         invocation,
         action,
-    }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'conditional_branch' }>>): Promise<ActionHandlerResult> {
-        const conditionResult = await checkConditions(invocation, action)
+    }: ActionHandlerOptions<
+        Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
+    >): Promise<ActionHandlerResult> {
+        const conditionResult = await checkConditions(
+            invocation,
+            action.type === 'conditional_branch'
+                ? action
+                : {
+                      ...action,
+                      type: 'conditional_branch',
+                      config: {
+                          conditions: [action.config.condition],
+                          delay_duration: action.config.max_wait_duration,
+                      },
+                  }
+        )
 
         if (conditionResult.scheduledAt) {
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }

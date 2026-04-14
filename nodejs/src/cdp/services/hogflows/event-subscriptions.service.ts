@@ -4,8 +4,8 @@ export type SubscriptionType = 'wait_step' | 'conversion'
 
 /**
  * A single waiting subscription. One workflow invocation may have several
- * subscription rows (one per event in its `wait_until_condition` events config,
- * plus optional conversion goal subscriptions).
+ * subscription rows (one per event in its `wait_until_event` config, plus
+ * optional conversion goal subscriptions).
  */
 export type MatchedEventData = {
     event: string
@@ -43,7 +43,7 @@ export type CreateSubscriptionInput = {
  * Service for managing rows in `cyclotron_event_subscriptions`.
  *
  * Two subscription types:
- * - `wait_step`: created by the `wait_until_condition` handler for step-level event matching
+ * - `wait_step`: created by the `wait_until_event` handler for step-level event matching
  * - `conversion`: created by the executor for conversion goal event matching
  *
  * The cdp-events consumer queries subscriptions when processing events and

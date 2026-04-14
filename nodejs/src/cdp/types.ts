@@ -317,9 +317,8 @@ export type HogFlowInvocationContext = {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
-        // Set by the wait_until_condition handler when event subscriptions are
-        // created, used to distinguish re-entries (after wake or poll) from the
-        // initial execution so we don't create duplicate subscriptions.
+        // Set by the wait_until_event handler on first visit, used to distinguish
+        // re-entries (after wake or timeout) from the initial execution.
         waitingForEvent?: boolean
     }
     variables?: Record<string, any>

@@ -177,7 +177,7 @@ export function createCdpCoreServices(
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
 
     // Build the EventSubscriptionsService against the cyclotron-v2 database, if configured.
-    // Used by the wait_until_condition handler to create event subscriptions and by the cdp-events
+    // Used by the wait_until_event handler to create subscriptions and by the cdp-events
     // consumer to wake matched workflows.
     let eventSubscriptionsService: EventSubscriptionsService | undefined
     if (config.CYCLOTRON_NODE_DATABASE_URL) {
