@@ -9,7 +9,7 @@ from typing import cast
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import F, Prefetch
+from django.db.models import F
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -195,9 +195,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # Defer the large `state` blob from runs, and select_related to avoid N+1 on created_by/team
-        runs_qs = TaskRun.objects.defer("state")
-        qs = qs.select_related("created_by", "team").prefetch_related(Prefetch("runs", queryset=runs_qs))
+        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
+        qs = qs.select_related("created_by", "team").prefetch_related("runs")
 
         return qs
 
