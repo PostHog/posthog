@@ -139,11 +139,60 @@ jobs:
                   path: common/storybook/dist
                   retention-days: 1
 
+    vr-setup:
+        name: Create Visual Review run
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: [changes, build-storybook]
+        if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        outputs:
+            run_id: ${{ steps.create.outputs.run_id }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  sparse-checkout: |
+                      .nvmrc
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                      frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Install VR CLI
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+
+            - name: Create VR run
+              id: create
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+              run: |
+                  RUN_ID=$(vr run create \
+                    --type storybook \
+                    --baseline frontend/snapshots.yml \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR" \
+                    --token "$VR_TOKEN")
+                  echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
-        needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true'
+        needs: [changes, build-storybook, vr-setup]
+        if: >-
+            always()
+            && needs.changes.outputs.frontend == 'true'
+            && needs.build-storybook.result == 'success'
         timeout-minutes: 60
         container:
             image: ghcr.io/posthog/playwright:v1.45.0
@@ -342,6 +391,23 @@ jobs:
                       exit 1
                     fi
                   fi
+
+            # Upload snapshots to Visual Review (runs in parallel across shards)
+            - name: Install VR CLI
+              if: always() && needs.vr-setup.outputs.run_id != ''
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+
+            - name: Upload snapshots to Visual Review
+              if: always() && needs.vr-setup.outputs.run_id != ''
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+              run: |
+                  vr run upload \
+                    --run-id "${{ needs.vr-setup.outputs.run_id }}" \
+                    --dir frontend/__snapshots__/ \
+                    --baseline frontend/snapshots.yml \
+                    --token "$VR_TOKEN"
 
             - name: Archive failure screenshots
               if: failure()
@@ -587,7 +653,7 @@ jobs:
         name: Handle snapshot changes
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: [visual-regression, changes]
+        needs: [visual-regression, changes, vr-setup]
         if: always() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
             contents: write
@@ -637,7 +703,6 @@ jobs:
                     echo "Snapshot changes detected in patches"
                   fi
 
-            # Apply patches BEFORE VR so it hashes the final state
             # Uses --index so changes are staged for the downstream commit action
             - name: Apply snapshot patches
               if: steps.check-snapshots.outputs.has-changes == 'true'
@@ -647,28 +712,23 @@ jobs:
                     git apply --index "$patch"
                   done
 
-            # Visual Review: submit snapshots after patches are applied
-            - name: Install VR CLI deps
-              run: cd products/visual_review/cli && npm ci
+            # Visual Review: complete the run (shards already uploaded directly)
+            - name: Install VR CLI
+              if: needs.vr-setup.outputs.run_id != ''
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
-            - name: Submit to Visual Review
+            - name: Complete Visual Review run
+              if: needs.vr-setup.outputs.run_id != ''
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
-                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
-                  VR_PR: ${{ github.event.pull_request.number }}
                   VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
-                  npx tsx products/visual_review/cli/src/index.ts submit \
-                    --dir frontend/__snapshots__/ \
-                    --type storybook \
+                  vr run complete \
+                    --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --baseline frontend/snapshots.yml \
                     $VR_AUTO_APPROVE \
-                    --token "$VR_TOKEN" \
-                    --branch "$VR_BRANCH" \
-                    --commit "$VR_COMMIT" \
-                    --pr "$VR_PR"
+                    --token "$VR_TOKEN"
 
             - name: Check baseline changes
               id: check-baseline
@@ -680,8 +740,7 @@ jobs:
                     git add frontend/snapshots.yml
                   fi
 
-            # UPDATE mode: commit PNGs + baseline together
-            # Patches already applied above — commit-snapshots will re-apply (idempotent)
+            # UPDATE mode: commit PNGs + baseline together in a single commit
             - name: Commit snapshot changes
               if: (steps.check-snapshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
