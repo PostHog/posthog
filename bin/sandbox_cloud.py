@@ -9,6 +9,7 @@ import json
 import time
 import base64
 import shutil
+import tempfile
 import subprocess
 from pathlib import Path
 
@@ -325,7 +326,7 @@ def _cloud_render_user_data(
     s3_archive_manifest: str,
     jetbrains: str,
 ) -> str:
-    """Returns base64-encoded gzip data for AWS user-data."""
+    """Returns gzip-compressed user-data bytes (caller writes to a temp file for AWS CLI)."""
 
     def b64(val: str) -> str:
         return base64.b64encode(val.encode()).decode() if val else ""
@@ -346,8 +347,7 @@ def _cloud_render_user_data(
         },
     )
 
-    compressed = gzip.compress(rendered.encode(), compresslevel=9)
-    return base64.b64encode(compressed).decode()
+    return gzip.compress(rendered.encode(), compresslevel=9)
 
 
 def _cloud_get_tailscale_key(config: dict) -> str:
@@ -531,7 +531,7 @@ def _launch_instance(config: dict, branch: str, owner: str, hostname: str) -> st
     if jetbrains:
         info(f"  JetBrains IDE: {jetbrains} (inherited from local config)")
 
-    user_data = _cloud_render_user_data(
+    user_data_gz = _cloud_render_user_data(
         branch=branch,
         owner=owner,
         hostname=hostname,
@@ -544,14 +544,21 @@ def _launch_instance(config: dict, branch: str, owner: str, hostname: str) -> st
         jetbrains=jetbrains,
     )
 
-    user_data_bytes = len(base64.b64decode(user_data))
-    info(f"  User data size: {user_data_bytes} bytes (gzip compressed, limit 16384)")
-    if user_data_bytes > 16384:
+    info(f"  User data size: {len(user_data_gz)} bytes (gzip compressed, limit 16384)")
+    if len(user_data_gz) > 16384:
         fatal(
-            f"User data is {user_data_bytes} bytes, exceeding AWS 16KB limit.\n"
+            f"User data is {len(user_data_gz)} bytes, exceeding AWS 16KB limit.\n"
             "  This usually means Claude settings or SSH keys are too large.\n"
             "  Check ~/.claude/settings.json and ~/.ssh/*.pub"
         )
+
+    # Write gzip data to a temp file and use fileb:// so the AWS CLI
+    # base64-encodes it exactly once.  Previously the code passed a
+    # base64 string directly to --user-data, which the CLI base64-encoded
+    # *again*, doubling the payload and hitting the 16KB limit.
+    user_data_file = tempfile.NamedTemporaryFile(suffix=".gz", delete=False)
+    user_data_file.write(user_data_gz)
+    user_data_file.close()
 
     tags = json.dumps(
         [
@@ -586,10 +593,11 @@ def _launch_instance(config: dict, branch: str, owner: str, hostname: str) -> st
         "--metadata-options",
         "HttpTokens=required,HttpEndpoint=enabled,HttpPutResponseHopLimit=2",
         "--user-data",
-        user_data,
+        f"fileb://{user_data_file.name}",
         "--tag-specifications",
         tags,
     )
+    os.unlink(user_data_file.name)
 
     instance_id = json.loads(result.stdout)["Instances"][0]["InstanceId"]
     info(f"  Instance: {instance_id}")
