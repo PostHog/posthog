@@ -18,8 +18,6 @@ import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/g
 
 import type { usageMetricsConfigLogicType } from './usageMetricsConfigLogicType'
 
-export type { GroupUsageMetricApi }
-
 export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id'> & { id?: string }
 
 const NEW_USAGE_METRIC: UsageMetricFormData = {
