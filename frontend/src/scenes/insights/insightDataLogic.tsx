@@ -43,7 +43,8 @@ import { compareQuery, stripUnsupportedQueryFields } from './utils/queryUtils'
 
 const normalizeQuery = (query: Node | null): Node | null => {
     if (query && isInsightVizNode(query) && isInsightQueryNode(query.source)) {
-        return { ...query, source: stripUnsupportedQueryFields(query.source) }
+        const normalized: InsightVizNode = { ...query, source: stripUnsupportedQueryFields(query.source) }
+        return normalized
     }
     return query
 }

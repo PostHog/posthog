@@ -347,7 +347,7 @@ export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQue
 
     // legacy top-level fields that are no longer valid on TrendsQuery
     if (isTrendsQuery(query)) {
-        const trendsCleaned = cleaned as Record<string, unknown>
+        const trendsCleaned = cleaned as unknown as Record<string, unknown>
         delete trendsCleaned.breakdown
         delete trendsCleaned.full
         delete trendsCleaned.limit
@@ -356,12 +356,12 @@ export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQue
 
     // legacy top-level field no longer valid on FunnelsQuery
     if (isFunnelsQuery(query)) {
-        delete (cleaned as Record<string, unknown>).funnelWindowDays
+        delete (cleaned as unknown as Record<string, unknown>).funnelWindowDays
     }
 
     // breakdownFilter.limit is invalid — schema uses breakdown_limit
     if (cleaned.breakdownFilter && 'limit' in cleaned.breakdownFilter) {
-        const { limit: _limit, ...rest } = cleaned.breakdownFilter as Record<string, unknown>
+        const { limit: _limit, ...rest } = cleaned.breakdownFilter as unknown as Record<string, unknown>
         cleaned.breakdownFilter = rest as BreakdownFilter
     }
 
@@ -371,11 +371,11 @@ export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQue
         const filter = filterForQuery(query)
         if (filter && invalidFields.length > 0 && invalidFields.some((k) => k in filter)) {
             const filterKey = filterKeyForQuery(query)
-            const strippedFilter = { ...filter } as Record<string, unknown>
+            const strippedFilter = { ...filter } as unknown as Record<string, unknown>
             for (const k of invalidFields) {
                 delete strippedFilter[k]
             }
-            ;(cleaned as Record<string, unknown>)[filterKey] = strippedFilter
+            ;(cleaned as unknown as Record<string, unknown>)[filterKey] = strippedFilter
         }
     }
 
