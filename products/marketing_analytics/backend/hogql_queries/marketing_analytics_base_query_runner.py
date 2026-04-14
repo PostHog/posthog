@@ -85,7 +85,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 groups=groups(self.team.organization, self.team),
             )
         except Exception:
-            logger.exception("Failed to capture marketing analytics telemetry event", event=event)
+            logger.exception("Failed to capture marketing analytics telemetry event", event_name=event)
 
     @cached_property
     def query_date_range(self):
