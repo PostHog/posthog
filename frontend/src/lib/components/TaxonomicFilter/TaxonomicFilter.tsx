@@ -8,6 +8,7 @@ import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import {
+    TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
@@ -15,7 +16,10 @@ import {
 import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
+import { CohortCreateModal } from 'scenes/cohorts/CohortCreateModal'
 import { urls } from 'scenes/urls'
+
+import { CohortType } from '~/types'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -51,7 +55,9 @@ export function TaxonomicFilter({
     definitionPopoverRenderer,
     minSearchQueryLength,
     suggestedFiltersLabel,
+    enableInlineCohortCreation = true,
 }: TaxonomicFilterProps): JSX.Element {
+    const [isCohortCreateModalOpen, setIsCohortCreateModalOpen] = useState(false)
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
         () => taxonomicFilterLogicKeyInput || `taxonomic-filter-${uniqueMemoizedIndex++}`,
@@ -90,8 +96,16 @@ export function TaxonomicFilter({
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { activeTab } = useValues(logic)
+    const { activeTab, taxonomicGroups } = useValues(logic)
+    const { selectItem } = useActions(logic)
     const [refReady, setRefReady] = useState(false)
+
+    const cohortCreationEnabled =
+        enableInlineCohortCreation &&
+        (taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Cohorts) ||
+            taxonomicGroupTypes.includes(TaxonomicFilterGroupType.CohortsWithAllUsers))
+
+    const openCohortCreateModal = useMemo(() => () => setIsCohortCreateModalOpen(true), [])
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -135,9 +149,32 @@ export function TaxonomicFilter({
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
                         definitionPopoverRenderer={definitionPopoverRenderer}
+                        openCohortCreateModal={cohortCreationEnabled ? openCohortCreateModal : undefined}
                     />
                 )}
             </div>
+            {cohortCreationEnabled && (
+                <CohortCreateModal
+                    isOpen={isCohortCreateModalOpen}
+                    onClose={() => setIsCohortCreateModalOpen(false)}
+                    onSaved={(cohort: CohortType) => {
+                        // Prefer the breakdown-friendly "CohortsWithAllUsers" group if present,
+                        // otherwise use the plain Cohorts group. Both groups share `getValue`
+                        // returning the cohort id, so either works with downstream consumers.
+                        const cohortGroup =
+                            taxonomicGroups.find(
+                                (g: TaxonomicFilterGroup) => g.type === TaxonomicFilterGroupType.Cohorts
+                            ) ??
+                            taxonomicGroups.find(
+                                (g: TaxonomicFilterGroup) => g.type === TaxonomicFilterGroupType.CohortsWithAllUsers
+                            )
+                        if (cohortGroup) {
+                            selectItem(cohortGroup, cohort.id, cohort)
+                        }
+                    }}
+                    modalKey={taxonomicFilterLogicKey}
+                />
+            )}
         </BindLogic>
     )
 }

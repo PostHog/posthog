@@ -102,6 +102,11 @@ export interface TaxonomicFilterProps {
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
+    /**
+     * Set to `false` to hide the inline "+ Create new cohort" row that appears
+     * above the Cohorts and CohortsWithAllUsers lists. Defaults to enabled.
+     */
+    enableInlineCohortCreation?: boolean
 }
 
 export interface DataWarehousePopoverField {

@@ -1,7 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -17,11 +18,22 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
+const COHORT_GROUP_TYPES: readonly TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.CohortsWithAllUsers,
+]
+
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /**
+     * When provided, a "+ Create new cohort" button is rendered above the list
+     * for cohort-typed groups. Firing this callback typically opens a modal
+     * hosted by the parent TaxonomicFilter.
+     */
+    openCohortCreateModal?: () => void
 }
 
 // CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
@@ -122,6 +134,7 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     definitionPopoverRenderer,
+    openCohortCreateModal,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -201,12 +214,27 @@ export function InfiniteSelectResults({
 
             <div className={cn('flex-1 overflow-hidden min-h-0')}>
                 {taxonomicGroupTypes.map((groupType) => {
+                    const showCohortCreateButton = !!openCohortCreateModal && COHORT_GROUP_TYPES.includes(groupType)
                     return (
                         <div key={groupType} className={cn(groupType === openTab ? 'flex flex-col h-full' : 'hidden')}>
                             <BindLogic
                                 logic={infiniteListLogic}
                                 props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                             >
+                                {showCohortCreateButton && (
+                                    <div className="px-1 pb-1">
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            fullWidth
+                                            icon={<IconPlusSmall />}
+                                            onClick={openCohortCreateModal}
+                                            data-attr={`taxonomic-create-cohort-${groupType}`}
+                                        >
+                                            Create new cohort
+                                        </LemonButton>
+                                    </div>
+                                )}
                                 {(showDataWarehouseLoadingState || showEmptyState) && (
                                     <TaxonomicFilterEmptyState
                                         groupType={groupType}

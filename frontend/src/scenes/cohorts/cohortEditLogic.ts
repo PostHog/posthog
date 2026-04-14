@@ -50,6 +50,14 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 export type CohortLogicProps = {
     id?: CohortType['id']
     tabId?: string
+    /**
+     * When true, successful creation of a new cohort does NOT navigate to
+     * `/cohorts/:id`. Used when `cohortEditLogic` is mounted inside a modal
+     * (e.g. the inline creation modal in TaxonomicFilter).
+     */
+    disableNavigation?: boolean
+    /** Called after a new cohort is successfully created. */
+    onSaved?: (cohort: CohortType) => void
 }
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
@@ -317,7 +325,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    loaders(({ actions, values, key }) => ({
+    loaders(({ actions, values, key, props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -426,7 +434,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         actions.refreshPersonsData()
                     }
                     if (existingCohort.id === 'new') {
-                        router.actions.push(urls.cohort(cohort.id))
+                        if (props.disableNavigation) {
+                            props.onSaved?.(cohort)
+                        } else {
+                            router.actions.push(urls.cohort(cohort.id))
+                        }
                         if (existingCohort.is_static) {
                             actions.resetPersonsToCreateStaticCohort()
                         }
