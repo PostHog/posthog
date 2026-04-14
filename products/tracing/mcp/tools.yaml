@@ -1,0 +1,95 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Tracing
+feature: tracing
+url_prefix: /tracing
+ui_apps: {}
+tools:
+    tracing-spans-query-create:
+        operation: tracing_spans_query_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query tracing spans
+        description_file: ./prompts/query-tracing-spans.md
+        response:
+            include:
+                - results
+    tracing-spans-trace-create:
+        operation: tracing_spans_trace_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Retrieve trace spans
+        description: >
+            Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace
+            including parent-child relationships, timing, and status information. Use this to inspect a specific
+            trace in detail after discovering it via the query tool.
+        response:
+            include:
+                - results
+    tracing-spans-service-names-retrieve:
+        operation: tracing_spans_service_names_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing service names
+        description: >
+            List distinct service names that have emitted trace spans. Use to discover available services before
+            filtering spans by service name.
+        response:
+            include:
+                - results
+    tracing-spans-attributes-retrieve:
+        operation: tracing_spans_attributes_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing span attributes
+        description: >
+            List available span or resource attribute names. Use attribute_type "span" for span-level attributes
+            or "resource" for resource-level attributes (e.g. k8s labels). Use this to discover available
+            attribute keys before building filters.
+        response:
+            include:
+                - results
+                - count
+    tracing-spans-values-retrieve:
+        operation: tracing_spans_values_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing attribute values
+        description: >
+            List values for a specific span or resource attribute key. Use to discover what values exist for
+            a given attribute before building filters.
+        response:
+            include:
+                - results
+    tracing-spans-sparkline-create:
+        operation: tracing_spans_sparkline_create
+        enabled: false

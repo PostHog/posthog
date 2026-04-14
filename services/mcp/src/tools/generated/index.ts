@@ -27,6 +27,7 @@ import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as surveys } from './surveys'
+import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -56,5 +57,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...queryWrappers,
     ...replay,
     ...surveys,
+    ...tracing,
     ...workflows,
 }
