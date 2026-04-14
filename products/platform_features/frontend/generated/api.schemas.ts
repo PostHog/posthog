@@ -326,7 +326,7 @@ export interface ActivityLogApi {
 }
 
 export interface PaginatedActivityLogListApi {
-    count?: number
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
