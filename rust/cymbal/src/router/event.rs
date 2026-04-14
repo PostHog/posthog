@@ -1,11 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::{
-        atomic::{AtomicI64, Ordering},
-        Arc,
-    },
-    time::Instant,
-};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 
 use axum::{
     extract::{Json, State},
@@ -24,29 +17,24 @@ use crate::{
     error::UnhandledError,
     metric_consts::{
         PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
-        PROCESS_REQUEST_DURATION_SECONDS, PROCESS_REQUEST_SIZE_KB, PROCESS_RESPONSE_SIZE_KB,
+        PROCESS_REQUEST_DURATION_SECONDS,
     },
     stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
 
-static PROCESS_IN_FLIGHT_COUNT: AtomicI64 = AtomicI64::new(0);
-
 struct ProcessInFlightGuard;
 
 impl ProcessInFlightGuard {
     fn start() -> Self {
-        let current = PROCESS_IN_FLIGHT_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        metrics::gauge!(PROCESS_IN_FLIGHT).set(current as f64);
+        metrics::gauge!(PROCESS_IN_FLIGHT).increment(1.0);
         Self
     }
 }
 
 impl Drop for ProcessInFlightGuard {
     fn drop(&mut self) {
-        let previous = PROCESS_IN_FLIGHT_COUNT.fetch_sub(1, Ordering::Relaxed);
-        let current = (previous - 1).max(0);
-        metrics::gauge!(PROCESS_IN_FLIGHT).set(current as f64);
+        metrics::gauge!(PROCESS_IN_FLIGHT).decrement(1.0);
     }
 }
 
@@ -108,22 +96,12 @@ pub async fn process_events(
         .collect::<HashSet<_>>()
         .len();
 
-    let estimated_request_bytes = match serde_json::to_vec(&events) {
-        Ok(bytes) => bytes.len(),
-        Err(err) => {
-            warn!(request_id = %request_id, error = %err, "Failed to estimate request JSON size");
-            0
-        }
-    };
-
     metrics::histogram!(PROCESS_BATCH_EVENTS).record(batch_events as f64);
-    metrics::histogram!(PROCESS_REQUEST_SIZE_KB).record(estimated_request_bytes as f64 / 1024.0);
 
     debug!(
         request_id = %request_id,
         batch_events,
         team_count,
-        request_size_bytes = estimated_request_bytes,
         "Started /process request"
     );
 
@@ -155,18 +133,6 @@ pub async fn process_events(
             )
             .increment(1);
 
-            let estimated_response_bytes = match serde_json::to_vec(batch.inner_ref()) {
-                Ok(bytes) => {
-                    let bytes_len = bytes.len();
-                    metrics::histogram!(PROCESS_RESPONSE_SIZE_KB).record(bytes_len as f64 / 1024.0);
-                    bytes_len
-                }
-                Err(err) => {
-                    warn!(request_id = %request_id, error = %err, "Failed to estimate response JSON size");
-                    0
-                }
-            };
-
             if is_slow {
                 warn!(
                     request_id = %request_id,
@@ -175,8 +141,6 @@ pub async fn process_events(
                     output_events,
                     suppressed_events,
                     team_count,
-                    request_size_bytes = estimated_request_bytes,
-                    response_size_bytes = estimated_response_bytes,
                     "Completed /process request (slow)"
                 );
             } else {
@@ -187,8 +151,6 @@ pub async fn process_events(
                     output_events,
                     suppressed_events,
                     team_count,
-                    request_size_bytes = estimated_request_bytes,
-                    response_size_bytes = estimated_response_bytes,
                     "Completed /process request"
                 );
             }
@@ -207,7 +169,6 @@ pub async fn process_events(
                 duration_ms,
                 batch_events,
                 team_count,
-                request_size_bytes = estimated_request_bytes,
                 "Failed /process request"
             );
         }
