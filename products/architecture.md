@@ -294,10 +294,16 @@ def process_artifact(artifact: Artifact) -> None:
 
 Global `[[interfaces]]` blocks in `tach.toml` control which paths inside a product other modules can import. All modules — including core (`posthog`, `ee`) — sit in a single `modules` layer, so interface enforcement applies everywhere. tach will reject any import that doesn't go through the declared `expose` patterns.
 
-Products with legacy interface leaks (where core still imports internals directly) get explicit TODO blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+Products with legacy interface leaks (where core still imports internals directly) get explicit blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+
+### What import-linter enforces
+
+[import-linter](https://github.com/seddonym/import-linter) enforces internal product architecture: presentation layers must not import models or logic directly — they must go through the facade. This is configured as a single wildcard-based forbidden contract in `pyproject.toml` that applies to all products automatically.
+
+tach handles _inter_-module boundaries (what can cross a product boundary). import-linter handles _intra_-product architecture (how code is structured within a product). Both run in CI.
 
 > [!TIP]
-> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and tach boundary enforcement step by step.
+> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and boundary enforcement step by step.
 
 During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
 
