@@ -67,8 +67,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 if (!selectedTraceId) {
                     return []
                 }
-                if (traceSpans.length > 0) {
-                    return traceSpans
+                const filteredTraceSpans = traceSpans.filter((s) => s.trace_id === selectedTraceId)
+                if (filteredTraceSpans.length > 0) {
+                    return filteredTraceSpans
                 }
                 return spans.filter((s) => s.trace_id === selectedTraceId)
             },
