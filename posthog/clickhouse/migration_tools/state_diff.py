@@ -995,7 +995,11 @@ def diff_state(
             # since CH will always store the expanded form, never matching the YAML literally.
             desired_norm = _normalize_mv_select(desired_table.select, database=db)
             is_select_star = re.match(r"^select \* from\b", desired_norm)
-            if current_select and not is_select_star and desired_norm != _normalize_mv_select(current_select, database=db):
+            if (
+                current_select
+                and not is_select_star
+                and desired_norm != _normalize_mv_select(current_select, database=db)
+            ):
                 drops.append(
                     StateDiff(
                         action="drop",
