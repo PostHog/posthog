@@ -250,7 +250,10 @@ where
                 // convert a handled ResolutionError into an UnhandledError
                 // that kills the entire batch.
                 if let Err(save_err) = self.save_no_data(team_id, set_ref, &e).await {
-                    warn!("Failed to save symbol set error for resolution failure: {}", save_err);
+                    warn!(
+                        "Failed to save symbol set error for resolution failure: {}",
+                        save_err
+                    );
                 }
                 return Err(ResolveError::ResolutionError(e));
             }
@@ -285,7 +288,10 @@ where
                 // We save the no-data case here, to prevent us from fetching again for a day.
                 // Best-effort — don't let a PG failure kill the batch.
                 if let Err(save_err) = self.save_no_data(data.team_id, data.set_ref, &e).await {
-                    warn!("Failed to save symbol set error for parse failure: {}", save_err);
+                    warn!(
+                        "Failed to save symbol set error for parse failure: {}",
+                        save_err
+                    );
                 }
                 return Err(ResolveError::ResolutionError(e));
             }
