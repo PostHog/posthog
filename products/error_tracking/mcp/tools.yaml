@@ -71,7 +71,17 @@ tools:
         enabled: false
     error-tracking-grouping-rules-list:
         operation: error_tracking_grouping_rules_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking grouping rules
+        description: >
+            List error tracking grouping rules for the current project. Returns rules in evaluation order with
+            their filters, optional assignee, description, and linked issue when available.
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: false
