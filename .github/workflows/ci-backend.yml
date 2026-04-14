@@ -486,6 +486,9 @@ jobs:
             - name: Check module boundaries (tach)
               run: tach check --dependencies --interfaces
 
+            - name: Check product facade enforcement (import-linter)
+              run: lint-imports
+
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
     # migrations, then checks out the PR branch. All steps after the PR checkout
