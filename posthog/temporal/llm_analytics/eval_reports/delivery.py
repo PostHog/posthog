@@ -18,7 +18,15 @@ logger = structlog.get_logger(__name__)
 
 # Match any UUID in content — strips surrounding punctuation (backticks, angle brackets, etc.)
 # so we don't depend on how the LLM formats generation references.
-UUID_LINK_PATTERN = re.compile(r"[`<]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]*")
+# The double-backtick branch handles `` `uuid` `` which CommonMark treats as a code span;
+# without it, _linkify_uuids would produce `[uuid...](url)` still inside the code span.
+UUID_LINK_PATTERN = re.compile(
+    r"`{2}\s*`?"
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    r"`?\s*`{2}"
+    r"|"
+    r"[`<]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[`>]*"
+)
 
 # Matches a leading markdown heading line at the very start of a section's content.
 # The renderer (email/Slack/UI) already emits its own section title, so if the agent
@@ -80,7 +88,7 @@ def _linkify_uuids(text: str, project_id: int, citation_map: dict[str, str] | No
     cmap = citation_map or {}
 
     def replace_with_md_link(match: re.Match) -> str:
-        gen_id = match.group(1)
+        gen_id = match.group(1) or match.group(2)
         link = _make_trace_link(project_id, gen_id, cmap)
         return f"[{gen_id[:8]}...]({link})"
 
