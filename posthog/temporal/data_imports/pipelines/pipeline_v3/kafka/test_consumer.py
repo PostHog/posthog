@@ -206,6 +206,11 @@ class TestExtractMessageKey:
         assert _extract_message_key(msg) is None
 
 
+def _wrap(*messages: dict) -> list[tuple[Any, dict]]:
+    """Pair each message dict with a MagicMock standing in for a confluent_kafka.Message."""
+    return [(MagicMock(name=f"raw_msg_{i}"), m) for i, m in enumerate(messages)]
+
+
 class TestProcessBatchPersistentRetry:
     def _setup_service(self, process_message: Any = None) -> KafkaConsumerService:
         service = _make_service(process_message=process_message or MagicMock())
@@ -219,11 +224,13 @@ class TestProcessBatchPersistentRetry:
         service = self._setup_service()
         msg = _make_message()
 
-        service._process_batch_with_retry([msg])
+        service._process_batch_with_retry(_wrap(msg))
 
         mock_inc.assert_called_once_with(1, "schema-1", "run-1", 0)
         mock_clear.assert_called_once_with(1, "schema-1", "run-1", 0)
-        cast(MagicMock, service._consumer).commit.assert_called_once()
+        consumer = cast(MagicMock, service._consumer)
+        # Success path: exactly one trailing batch commit, no per-message commit.
+        consumer.commit.assert_called_once_with()
 
     @patch(f"{RETRY_TRACKER_PATH}.update_retry_error_type")
     @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
@@ -234,7 +241,7 @@ class TestProcessBatchPersistentRetry:
         msg = _make_message()
 
         with pytest.raises(ValueError, match="bad data"):
-            service._process_batch_with_retry([msg])
+            service._process_batch_with_retry(_wrap(msg))
 
         mock_update.assert_called_once_with(
             1, "schema-1", "run-1", 0, error_type="non_transient", last_error="bad data"
@@ -249,17 +256,25 @@ class TestProcessBatchPersistentRetry:
         process_fn = MagicMock(side_effect=ValueError("bad data"))
         service = self._setup_service(process_message=process_fn)
         msg = _make_message()
+        wrapped = _wrap(msg)
+        raw_msg = wrapped[0][0]
 
         with (
             patch.object(service, "_send_to_dlq") as mock_dlq,
             patch.object(service, "_mark_job_failed_from_message") as mock_fail,
         ):
-            service._process_batch_with_retry([msg])
+            service._process_batch_with_retry(wrapped)
 
             mock_dlq.assert_called_once()
             mock_fail.assert_called_once()
-            mock_clear.assert_called_once_with(1, "schema-1", "run-1", 0)
-            cast(MagicMock, service._consumer).commit.assert_called_once()
+            # Retry state must NOT be cleared — redelivery relies on it to re-DLQ
+            # idempotently if any commit fails after DLQ'ing.
+            mock_clear.assert_not_called()
+            consumer = cast(MagicMock, service._consumer)
+            # Per-message commit fires right after DLQ, trailing batch commit after the loop.
+            assert consumer.commit.call_count == 2
+            consumer.commit.assert_any_call(message=raw_msg, asynchronous=False)
+            consumer.commit.assert_any_call()
 
     @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
     @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count")
@@ -271,19 +286,24 @@ class TestProcessBatchPersistentRetry:
         process_fn = MagicMock()
         service = self._setup_service(process_message=process_fn)
         msg = _make_message()
+        wrapped = _wrap(msg)
+        raw_msg = wrapped[0][0]
 
         with (
             patch.object(service, "_send_to_dlq") as mock_dlq,
             patch.object(service, "_mark_job_failed_from_message") as mock_fail,
         ):
-            service._process_batch_with_retry([msg])
+            service._process_batch_with_retry(wrapped)
 
             process_fn.assert_not_called()
             mock_inc.assert_not_called()
             mock_dlq.assert_called_once()
             mock_fail.assert_called_once()
-            mock_clear.assert_called_once()
-            cast(MagicMock, service._consumer).commit.assert_called_once()
+            mock_clear.assert_not_called()
+            consumer = cast(MagicMock, service._consumer)
+            assert consumer.commit.call_count == 2
+            consumer.commit.assert_any_call(message=raw_msg, asynchronous=False)
+            consumer.commit.assert_any_call()
 
     @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
     @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
@@ -303,7 +323,7 @@ class TestProcessBatchPersistentRetry:
         service = self._setup_service(process_message=track_process)
         msg = _make_message()
 
-        service._process_batch_with_retry([msg])
+        service._process_batch_with_retry(_wrap(msg))
 
         assert call_order == ["increment", "process"]
 
@@ -316,7 +336,7 @@ class TestProcessBatchPersistentRetry:
         msg = _make_message()
 
         with pytest.raises(ConnectionError):
-            service._process_batch_with_retry([msg])
+            service._process_batch_with_retry(_wrap(msg))
 
         mock_update.assert_called_once_with(1, "schema-1", "run-1", 0, error_type="transient", last_error="reset")
 
@@ -340,8 +360,99 @@ class TestProcessBatchPersistentRetry:
         msg2 = _make_message(batch_index=1)
 
         with pytest.raises(ValueError):
-            service._process_batch_with_retry([msg1, msg2])
+            service._process_batch_with_retry(_wrap(msg1, msg2))
 
         # Only the first message was attempted
         assert call_count == 1
         cast(MagicMock, service._consumer).commit.assert_not_called()
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count")
+    @patch(
+        f"{RETRY_TRACKER_PATH}.get_retry_info",
+        return_value=RetryInfo(count=4, error_type="non_transient", last_error="previous error"),
+    )
+    def test_redelivered_exhausted_message_redlqs_idempotently(self, mock_get, mock_inc, mock_clear):
+        """On redelivery of a message that was DLQ'd but whose offset never advanced,
+        the exhausted retry state in Redis must cause a fresh DLQ + per-message commit
+        rather than a new retry cycle. Two deliveries → two DLQ sends, two per-message
+        commits, zero process_message calls, zero clear_retry_info calls."""
+        process_fn = MagicMock()
+        service = self._setup_service(process_message=process_fn)
+        msg = _make_message()
+
+        with (
+            patch.object(service, "_send_to_dlq") as mock_dlq,
+            patch.object(service, "_mark_job_failed_from_message") as mock_fail,
+        ):
+            first = _wrap(msg)
+            service._process_batch_with_retry(first)
+
+            second = _wrap(msg)
+            service._process_batch_with_retry(second)
+
+            process_fn.assert_not_called()
+            mock_inc.assert_not_called()
+            mock_clear.assert_not_called()
+            assert mock_dlq.call_count == 2
+            assert mock_fail.call_count == 2
+
+            consumer = cast(MagicMock, service._consumer)
+            # Each delivery: 1 per-message commit on DLQ + 1 trailing batch commit = 2.
+            assert consumer.commit.call_count == 4
+            consumer.commit.assert_any_call(message=first[0][0], asynchronous=False)
+            consumer.commit.assert_any_call(message=second[0][0], asynchronous=False)
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.update_retry_error_type")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
+    def test_sibling_failure_does_not_unwind_dlq_offset(self, mock_inc, mock_update, mock_clear):
+        """Batch [A exhausted-on-arrival, B raises non-exhausted]. A must be DLQ'd and
+        its offset committed via per-message commit *before* B's raise propagates out.
+        The trailing batch commit is skipped — but A's offset has already advanced, so
+        on redelivery A is no longer in the batch."""
+        with patch(f"{RETRY_TRACKER_PATH}.get_retry_info") as mock_get:
+            # A is exhausted on arrival; B starts fresh.
+            mock_get.side_effect = [
+                RetryInfo(count=4, error_type="non_transient", last_error="earlier"),
+                RetryInfo(count=0),
+            ]
+
+            process_fn = MagicMock(side_effect=ValueError("B fails"))
+            service = self._setup_service(process_message=process_fn)
+            msg_a = _make_message(batch_index=0)
+            msg_b = _make_message(batch_index=1)
+            wrapped = _wrap(msg_a, msg_b)
+            raw_a = wrapped[0][0]
+
+            with (
+                patch.object(service, "_send_to_dlq") as mock_dlq,
+                patch.object(service, "_mark_job_failed_from_message") as mock_fail,
+                pytest.raises(ValueError, match="B fails"),
+            ):
+                service._process_batch_with_retry(wrapped)
+
+            # A was DLQ'd, B was attempted and failed.
+            mock_dlq.assert_called_once()
+            mock_fail.assert_called_once()
+            process_fn.assert_called_once()
+            mock_clear.assert_not_called()
+
+            consumer = cast(MagicMock, service._consumer)
+            # Only A's per-message commit — B's raise aborts the trailing batch commit.
+            consumer.commit.assert_called_once_with(message=raw_a, asynchronous=False)
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
+    @patch(f"{RETRY_TRACKER_PATH}.get_retry_info", return_value=RetryInfo(count=0))
+    def test_success_path_uses_batch_commit_not_per_message(self, mock_get, mock_inc, mock_clear):
+        service = self._setup_service()
+        msgs = [_make_message(batch_index=i) for i in range(3)]
+
+        service._process_batch_with_retry(_wrap(*msgs))
+
+        consumer = cast(MagicMock, service._consumer)
+        consumer.commit.assert_called_once_with()
+        # No per-message commit was issued on any message.
+        for call in consumer.commit.call_args_list:
+            assert call.kwargs.get("message") is None
