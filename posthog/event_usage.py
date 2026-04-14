@@ -471,13 +471,7 @@ def report_organization_deletion_initiated(user: User, organization: Organizatio
     )
 
 
-def report_organization_deletion_completed(
-    user_id: int,
-    organization_id: str,
-    organization_name: str,
-    team_ids: list[int],
-    project_names: list[str],
-) -> None:
+def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
     from posthog.models import User as UserModel
 
     user = UserModel.objects.filter(id=user_id).first()
@@ -486,12 +480,7 @@ def report_organization_deletion_completed(
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="organization deletion completed",
-        properties={
-            "organization_id": organization_id,
-            "organization_name": organization_name,
-            "team_count": len(team_ids),
-            "project_names": project_names,
-        },
+        properties={"organization_id": organization_id},
         groups={"instance": SITE_URL, "organization": organization_id},
     )
 

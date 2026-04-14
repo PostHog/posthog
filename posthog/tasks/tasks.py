@@ -1040,13 +1040,7 @@ def delete_organization_data_and_notify_task(
             Organization.objects.filter(id=organization_id).delete()
 
         logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
-        report_organization_deletion_completed(
-            user_id=user_id,
-            organization_id=organization_id,
-            organization_name=organization_name,
-            team_ids=team_ids,
-            project_names=project_names,
-        )
+        report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
         if is_email_available():
             send_organization_deleted_email.delay(
                 user_id=user_id, organization_name=organization_name, project_names=project_names
