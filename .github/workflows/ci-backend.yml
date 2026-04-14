@@ -484,7 +484,7 @@ jobs:
               run: python .github/scripts/check-operator-parity.py
 
             - name: Check module boundaries (tach)
-              run: tach check
+              run: tach check --dependencies --interfaces
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
