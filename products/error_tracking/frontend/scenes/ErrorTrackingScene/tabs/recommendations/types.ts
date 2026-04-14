@@ -21,3 +21,9 @@ export interface CrossSellRecommendationMeta extends Record<string, unknown> {
 }
 
 export type CrossSellRecommendationRun = ErrorTrackingRecommendationRun<CrossSellRecommendationMeta>
+
+export interface ErrorTrackingRecommendationSettingsResponse {
+    id: string
+    enabled: boolean
+    ignored_recommendation_types: ErrorTrackingRecommendationType[]
+}

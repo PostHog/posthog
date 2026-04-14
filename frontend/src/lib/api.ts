@@ -216,7 +216,10 @@ import type {
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
-import type { ErrorTrackingRecommendationRun } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
+import type {
+    ErrorTrackingRecommendationRun,
+    ErrorTrackingRecommendationSettingsResponse,
+} from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type {
@@ -1322,6 +1325,10 @@ export class ApiRequest {
 
     public errorTrackingRecommendations(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('recommendations')
+    }
+
+    public errorTrackingRecommendationSettings(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('recommendation_settings')
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -3884,6 +3891,19 @@ const api = {
 
         async refreshRecommendations(): Promise<{ results: ErrorTrackingRecommendationRun[] }> {
             return await new ApiRequest().errorTrackingRecommendations().withAction('refresh').create()
+        },
+
+        async getRecommendationSettings(): Promise<ErrorTrackingRecommendationSettingsResponse> {
+            return await new ApiRequest().errorTrackingRecommendationSettings().get()
+        },
+
+        async updateRecommendationSettings(
+            data: Partial<ErrorTrackingRecommendationSettingsResponse>
+        ): Promise<ErrorTrackingRecommendationSettingsResponse> {
+            return await new ApiRequest()
+                .errorTrackingRecommendationSettings()
+                .withAction('update_settings')
+                .update({ data })
         },
 
         async createRule(
