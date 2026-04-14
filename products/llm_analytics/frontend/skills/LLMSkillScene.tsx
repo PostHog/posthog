@@ -7,6 +7,7 @@ import { IconChevronRight, IconDocument, IconPencil, IconTrash } from '@posthog/
 import { LemonButton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -350,6 +351,56 @@ function SkillViewDetails(): JSX.Element {
     )
 }
 
+const LANGUAGE_BY_EXTENSION: Record<string, Language> = {
+    py: Language.Python,
+    js: Language.JavaScript,
+    jsx: Language.JavaScript,
+    mjs: Language.JavaScript,
+    ts: Language.TypeScript,
+    tsx: Language.TypeScript,
+    sh: Language.Bash,
+    bash: Language.Bash,
+    zsh: Language.Bash,
+    json: Language.JSON,
+    yaml: Language.YAML,
+    yml: Language.YAML,
+    html: Language.HTML,
+    xml: Language.XML,
+    sql: Language.SQL,
+    rb: Language.Ruby,
+    go: Language.Go,
+    java: Language.Java,
+    kt: Language.Kotlin,
+    swift: Language.Swift,
+    php: Language.PHP,
+    dart: Language.Dart,
+    cs: Language.CSharp,
+    m: Language.ObjectiveC,
+    ex: Language.Elixir,
+    exs: Language.Elixir,
+    hcl: Language.HCL,
+    tf: Language.HCL,
+    groovy: Language.Groovy,
+}
+
+function getFileLanguage(path: string, contentType?: string): Language | null {
+    const templateStripped = path.replace(/\.(template|tmpl|j2)$/i, '')
+    const ext = templateStripped.toLowerCase().split('.').pop() ?? ''
+    if (ext in LANGUAGE_BY_EXTENSION) {
+        return LANGUAGE_BY_EXTENSION[ext]
+    }
+    if (contentType?.startsWith('application/json')) {
+        return Language.JSON
+    }
+    if (contentType === 'text/x-python') {
+        return Language.Python
+    }
+    if (contentType === 'text/x-shellscript') {
+        return Language.Bash
+    }
+    return null
+}
+
 function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkillFileManifestEntry }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [content, setContent] = useState<string | null>(null)
@@ -375,6 +426,7 @@ function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkil
     }, [expanded, content, skillName, file.path])
 
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
+    const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
 
     return (
         <div className="rounded border">
@@ -398,8 +450,12 @@ function SkillFileViewer({ skillName, file }: { skillName: string; file: LLMSkil
                             <LemonSkeleton active className="h-3 w-3/4" />
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
-                    ) : isMarkdown && content ? (
+                    ) : content === null ? null : isMarkdown ? (
                         <LemonMarkdown className="text-sm">{content}</LemonMarkdown>
+                    ) : codeLanguage !== null ? (
+                        <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
+                            {content}
+                        </CodeSnippet>
                     ) : (
                         <pre className="max-h-80 overflow-auto text-xs whitespace-pre-wrap">{content}</pre>
                     )}
