@@ -523,7 +523,7 @@ function buildResponseFilter(config: ToolConfig): {
         const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: result.results.map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
                 helperImport: 'pickResponseFields',
             }
         }
@@ -536,7 +536,7 @@ function buildResponseFilter(config: ToolConfig): {
         const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: result.results.map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
                 helperImport: 'omitResponseFields',
             }
         }
@@ -560,7 +560,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all(${resultVar}.results.map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
             `        }, '${baseUrl}')`,
             ``,
         ].join('\n')

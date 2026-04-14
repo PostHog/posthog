@@ -703,7 +703,7 @@ describe('buildResponseFilter', () => {
             response: { include: ['id', 'key'] },
         }
         const result = buildResponseFilter(config)
-        expect(result.code).toContain('result.results.map')
+        expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('pickResponseFields(item, ')
         expect(result.helperImport).toBe('pickResponseFields')
     })
@@ -716,7 +716,7 @@ describe('buildResponseFilter', () => {
             response: { exclude: ['large_blob'] },
         }
         const result = buildResponseFilter(config)
-        expect(result.code).toContain('result.results.map')
+        expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('omitResponseFields(item, ')
         expect(result.helperImport).toBe('omitResponseFields')
     })
@@ -832,9 +832,9 @@ describe('generateToolCode with response filtering', () => {
             stubGetQuerySchema
         )
 
-        expect(result.code).toContain('result.results.map((item: any) => omitResponseFields(item, ')
+        expect(result.code).toContain('(result.results ?? []).map((item: any) => omitResponseFields(item, ')
         expect(result.code).toContain('...filtered,')
-        expect(result.code).toContain('filtered.results.map')
+        expect(result.code).toContain('(filtered.results ?? []).map')
         expect(result.responseFilterImport).toBe('omitResponseFields')
     })
 })
