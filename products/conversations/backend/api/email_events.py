@@ -285,13 +285,12 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
 
             if existing_ticket:
-                update_kwargs: dict[str, Any] = {
-                    "unread_team_count": F("unread_team_count") + 1,
-                }
+                qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if cc_list:
                     merged = list(dict.fromkeys(ticket.cc_participants + cc_list))
-                    update_kwargs["cc_participants"] = merged
-                Ticket.objects.filter(id=ticket.id, team=team).update(**update_kwargs)
+                    qs.update(unread_team_count=F("unread_team_count") + 1, cc_participants=merged)
+                else:
+                    qs.update(unread_team_count=F("unread_team_count") + 1)
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,
