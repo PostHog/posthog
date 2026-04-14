@@ -79,6 +79,6 @@ tables:
         engine: MaterializedView
         source: kafka_precalculated_events
         target: writable_precalculated_events
-        select: "SELECT team_id, toDate(_timestamp) AS date, distinct_id, person_id, condition, uuid, source, _timestamp, _offset, _partition FROM {{ database }}.kafka_precalculated_events"
+        select: 'SELECT team_id, toDate(_timestamp) AS date, distinct_id, person_id, condition, uuid, source, _timestamp, _offset, _partition FROM {{ database }}.kafka_precalculated_events'
         on_nodes: INGESTION_EVENTS
         columns: []

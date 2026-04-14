@@ -31,41 +31,41 @@ tables:
             - name: block_last_timestamps
               type: "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
             - name: block_urls
-              type: "SimpleAggregateFunction(groupArrayArray, Array(String))"
+              type: 'SimpleAggregateFunction(groupArrayArray, Array(String))'
             - name: first_url
               type: "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
             - name: all_urls
-              type: "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+              type: 'SimpleAggregateFunction(groupUniqArrayArray, Array(String))'
             - name: click_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: keypress_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: mouse_activity_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: active_milliseconds
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: console_log_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: console_warn_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: console_error_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: size
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: message_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: event_count
-              type: "SimpleAggregateFunction(sum, Int64)"
+              type: 'SimpleAggregateFunction(sum, Int64)'
             - name: snapshot_source
               type: "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
             - name: snapshot_library
               type: "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
             - name: _timestamp
-              type: "SimpleAggregateFunction(max, DateTime)"
+              type: 'SimpleAggregateFunction(max, DateTime)'
             - name: retention_period_days
-              type: "SimpleAggregateFunction(max, Nullable(Int64))"
+              type: 'SimpleAggregateFunction(max, Nullable(Int64))'
             - name: is_deleted
-              type: "SimpleAggregateFunction(max, UInt8)"
+              type: 'SimpleAggregateFunction(max, UInt8)'
               default_expression: '0'
               default_kind: DEFAULT
 
@@ -141,7 +141,7 @@ tables:
         engine: MaterializedView
         source: kafka_session_replay_events
         target: writable_session_replay_events
-        select: "SELECT session_id, team_id, any(distinct_id) as distinct_id, min(first_timestamp) AS min_first_timestamp, max(last_timestamp) AS max_last_timestamp, ... FROM {{ database }}.kafka_session_replay_events GROUP BY session_id, team_id"
+        select: 'SELECT session_id, team_id, any(distinct_id) as distinct_id, min(first_timestamp) AS min_first_timestamp, max(last_timestamp) AS max_last_timestamp, ... FROM {{ database }}.kafka_session_replay_events GROUP BY session_id, team_id'
         on_nodes: INGESTION_SMALL
         columns: []
 

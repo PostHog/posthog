@@ -16,7 +16,7 @@ tables:
             # to avoid a perpetual ORDER BY diff on every apply.
             - "coalesce(event, '')"
             - name
-            - "coalesce(group_type_index, 255)"
+            - 'coalesce(group_type_index, 255)'
         columns:
             - name: team_id
               type: UInt32
@@ -41,4 +41,4 @@ tables:
               default_kind: MATERIALIZED
               # No outer parens — CH strips them during DDL parse, so align
               # the YAML with how system.columns reports the expression.
-              default_expression: "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))"
+              default_expression: 'bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))'

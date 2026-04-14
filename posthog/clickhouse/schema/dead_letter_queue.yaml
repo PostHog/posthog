@@ -107,6 +107,6 @@ tables:
         engine: MaterializedView
         source: kafka_events_dead_letter_queue
         target: writable_events_dead_letter_queue
-        select: "SELECT id, event_uuid, event, properties, distinct_id, team_id, elements_chain, created_at, ip, site_url, now, raw_payload, error_timestamp, error_location, error, tags, _timestamp, _offset FROM {{ database }}.kafka_events_dead_letter_queue"
+        select: 'SELECT id, event_uuid, event, properties, distinct_id, team_id, elements_chain, created_at, ip, site_url, now, raw_payload, error_timestamp, error_location, error, tags, _timestamp, _offset FROM {{ database }}.kafka_events_dead_letter_queue'
         on_nodes: ALL
         columns: []

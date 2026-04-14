@@ -72,6 +72,6 @@ tables:
         engine: MaterializedView
         source: kafka_ingestion_warnings
         target: writable_ingestion_warnings
-        select: "SELECT team_id, source, type, details, timestamp, _timestamp, _offset, _partition FROM {{ database }}.kafka_ingestion_warnings"
+        select: 'SELECT team_id, source, type, details, timestamp, _timestamp, _offset, _partition FROM {{ database }}.kafka_ingestion_warnings'
         on_nodes: INGESTION_EVENTS
         columns: []

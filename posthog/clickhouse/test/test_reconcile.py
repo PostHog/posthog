@@ -19,10 +19,7 @@ from posthog.clickhouse.migration_tools.desired_state import (
     parse_desired_state,
     parse_desired_state_dir,
 )
-from posthog.clickhouse.migration_tools.plan_generator import (
-    generate_manifest_steps,
-    generate_plan_text,
-)
+from posthog.clickhouse.migration_tools.plan_generator import generate_manifest_steps, generate_plan_text
 from posthog.clickhouse.migration_tools.schema_introspect import ColumnSchema, TableSchema
 from posthog.clickhouse.migration_tools.state_diff import StateDiff, diff_state
 
@@ -1274,6 +1271,18 @@ class TestCircularInheritance(unittest.TestCase):
 class TestKafkaFallbackWarning(unittest.TestCase):
     """F5: _resolve_setting must log a warning when Django setting is unset."""
 
+    def setUp(self) -> None:
+        # posthog/settings/logs.py sets ``disable_existing_loggers: True`` on
+        # Django's LOGGING config. When Django initializes after state_diff is
+        # imported (order depends on pytest discovery), the "migrations"
+        # logger gets disabled and assertLogs can never capture records.
+        # Re-enable + ensure WARNING level for this test.
+        import logging
+
+        migrations_logger = logging.getLogger("migrations")
+        migrations_logger.disabled = False
+        migrations_logger.setLevel(logging.WARNING)
+
     def test_warning_when_kafka_setting_unset(self) -> None:
         from unittest.mock import patch
 
@@ -1341,6 +1350,43 @@ class TestMergetreeOrderByLint(unittest.TestCase):
         errors = validate_desired_states([state])
         order_by_errors = [e for e in errors if "ORDER BY" in e]
         self.assertEqual(len(order_by_errors), 0, f"Unexpected ORDER BY error: {errors}")
+
+
+class TestEngineRequiredFieldsLint(unittest.TestCase):
+    """Distributed tables need a source; materialized views need a target."""
+
+    def _validate(self, tables: dict[str, DesiredTable]) -> list[str]:
+        from posthog.clickhouse.migration_tools.validator import validate_desired_states
+
+        state = DesiredState(ecosystem="test", cluster="main", tables=tables)
+        return validate_desired_states([state])
+
+    def test_distributed_without_source_rejected(self) -> None:
+        errors = self._validate(
+            {
+                "dist_no_source": DesiredTable(
+                    name="dist_no_source",
+                    engine="Distributed",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["COORDINATOR"],
+                ),
+            }
+        )
+        self.assertTrue(any("source" in e.lower() for e in errors), f"Expected source error, got: {errors}")
+
+    def test_mv_without_target_rejected(self) -> None:
+        errors = self._validate(
+            {
+                "mv_no_target": DesiredTable(
+                    name="mv_no_target",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["DATA"],
+                    select="SELECT 1",
+                ),
+            }
+        )
+        self.assertTrue(any("target" in e.lower() for e in errors), f"Expected target error, got: {errors}")
 
 
 class TestSatelliteRoleLint(unittest.TestCase):
