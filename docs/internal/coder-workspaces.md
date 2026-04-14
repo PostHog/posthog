@@ -16,7 +16,7 @@ Use this when you want a remote PostHog dev environment instead of running the f
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
 
 **Sharing a workspace** —
-Grant a teammate access for pair debugging or to pick up where you (or Claude) left off:
+Grant a teammate access for pair debugging or to pick up where you left off:
 
 ```bash
 hogli devbox:users                                        # list Coder usernames
