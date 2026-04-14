@@ -418,7 +418,7 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Restore pre-migrated Django schema
-              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.migrations != 'true' }}
+              if: ${{ github.event_name == 'pull_request' }}
               env:
                   GH_TOKEN: ${{ github.token }}
               run: ./bin/hogli db:prime-test-db
@@ -1276,7 +1276,7 @@ jobs:
               run: bin/ci-wait-for-docker wait
 
             - name: Restore pre-migrated Django schema
-              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.migrations != 'true' }}
+              if: ${{ github.event_name == 'pull_request' }}
               env:
                   GH_TOKEN: ${{ github.token }}
               run: ./bin/hogli db:prime-test-db
