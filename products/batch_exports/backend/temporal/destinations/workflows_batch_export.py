@@ -331,6 +331,10 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             except* NotFound as exc_group:
                 raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
             except* HogFunctionErrorThresholdExceeded as exc_group:
+                # Since we're making multiple requests in parallel, as soon as we hit the error threshold
+                # we expect any new errors to also raise the same exception.
+                # Therefore, rather than raising an ExceptionGroup we just re-raise the exception once,
+                # but using the most recent values.
                 raise HogFunctionErrorThresholdExceeded(
                     failed_count=consumer.records_failed_count,
                     total_count=consumer.total_requests_count,
