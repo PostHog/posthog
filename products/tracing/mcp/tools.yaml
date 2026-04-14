@@ -7,7 +7,16 @@
 category: Tracing
 feature: tracing
 url_prefix: /tracing
-ui_apps: {}
+ui_apps:
+    trace-span:
+        type: detail
+        view_prop: data
+    trace-span-list:
+        type: list
+        detail_tool: tracing-spans-trace-create
+        detail_args: '{ trace_id: item.trace_id }'
+        item_name_field: name
+        click_prop: onSpanClick
 tools:
     tracing-spans-query-create:
         operation: tracing_spans_query_create
@@ -20,6 +29,7 @@ tools:
             idempotent: true
         title: Query tracing spans
         description_file: ./prompts/query-tracing-spans.md
+        ui_app: trace-span-list
         response:
             include:
                 - results
@@ -37,6 +47,7 @@ tools:
             Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace
             including parent-child relationships, timing, and status information. Use this to inspect a specific
             trace in detail after discovering it via the query tool.
+        ui_app: trace-span-list
         response:
             include:
                 - results
