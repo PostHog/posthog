@@ -58,7 +58,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Heatmap]: () => import('./heatmaps/scenes/heatmap/HeatmapScene'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
-    [Scene.InsightOptions]: () => import('./insights/InsightOptions/InsightOptions'),
+    [Scene.InsightQuickStart]: () => import('./insights/InsightQuickStart/InsightQuickStart'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
@@ -80,6 +80,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
+    [Scene.AccountSocialConnected]: () => import('./authentication/AccountSocialConnected'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.TwoFactorReset]: () => import('./authentication/TwoFactorReset'),
     [Scene.Person]: () => import('./persons/PersonScene'),
@@ -135,4 +136,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
+    [Scene.OrganizationPendingDeletion]: () => import('./organization/PendingDeletion'),
 }

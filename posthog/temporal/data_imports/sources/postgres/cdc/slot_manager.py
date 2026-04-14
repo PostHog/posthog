@@ -18,25 +18,26 @@ logger = logging.getLogger(__name__)
 
 @contextmanager
 def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[psycopg.Connection]:
-    """Open a psycopg connection to the source database, respecting SSH tunnels.
+    """Open a connection to the source database for CDC management operations.
 
-    This is the single place to create CDC management connections. All callers
-    (slot creation, publication management, cleanup, WAL lag checks) should use
-    this rather than constructing connections manually from job_inputs.
+    Handles SSH tunnel and delegates the actual connection
+    to _connect_to_postgres which owns SSL cert overrides.
     """
-    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource, PostgresSourceConfig
+    from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres, source_requires_ssl
+    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
     source_impl = PostgresSource()
-    job_inputs = source.job_inputs or {}
-    config: PostgresSourceConfig = source_impl.parse_config(job_inputs)
+    config = source_impl.parse_config(source.job_inputs or {})
+    require_ssl = source_requires_ssl(source)
 
     with source_impl.with_ssh_tunnel(config) as (host, port):
-        conn = psycopg.connect(
+        conn = _connect_to_postgres(
             host=host,
             port=port,
-            dbname=config.database,
+            database=config.database,
             user=config.user,
             password=config.password,
+            require_ssl=require_ssl,
             connect_timeout=connect_timeout,
         )
         try:

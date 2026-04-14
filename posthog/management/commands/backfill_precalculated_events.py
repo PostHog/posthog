@@ -1,5 +1,5 @@
-import time
 import datetime as dt
+import dataclasses
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -13,6 +13,19 @@ from posthog.temporal.messaging.filter_storage import store_event_filters
 from posthog.temporal.messaging.types import BehavioralEventFilter
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass
+class _DeduplicatedCondition:
+    """Accumulator for deduplicating behavioral filters across cohorts."""
+
+    bytecode: list[Any]
+    event_name: str
+    time_value: int
+    time_interval: str
+    event_filters: list[dict] | None
+    cohort_ids: set[int]
+
 
 # Behavioral filter types that can be compiled to bytecode for realtime evaluation
 SUPPORTED_BEHAVIORAL_TYPES = {
@@ -71,6 +84,15 @@ def extract_behavioral_filters(cohort: Cohort) -> list[BehavioralEventFilter]:
         event_name = node.get("key")
 
         if not condition_hash or not bytecode or not event_name:
+            return
+
+        # Bytecode must be a list with header + version + at least one op
+        if not isinstance(bytecode, list) or len(bytecode) <= 2:
+            logger.warning(
+                "Skipping behavioral filter with invalid bytecode",
+                condition_hash=condition_hash,
+                bytecode_type=type(bytecode).__name__,
+            )
             return
 
         # event_name must be a string (action IDs are ints and not supported for backfill)
@@ -220,8 +242,7 @@ class Command(BaseCommand):
             )
 
             # Collect and deduplicate filters across all cohorts
-            # Maps condition_hash -> (bytecode, event_name, time_value, time_interval, event_filters, cohort_ids)
-            condition_map: dict[str, tuple[list[Any], str, int, str, list[dict] | None, set[int]]] = {}
+            condition_map: dict[str, _DeduplicatedCondition] = {}
             cohort_ids: list[int] = []
             total_original_filters = 0
 
@@ -249,17 +270,17 @@ class Command(BaseCommand):
 
                 for f in filters:
                     if f.condition_hash not in condition_map:
-                        condition_map[f.condition_hash] = (
-                            f.bytecode,
-                            f.event_name,
-                            f.time_value,
-                            f.time_interval,
-                            f.event_filters,
-                            {cohort.id},
+                        condition_map[f.condition_hash] = _DeduplicatedCondition(
+                            bytecode=f.bytecode,
+                            event_name=f.event_name,
+                            time_value=f.time_value,
+                            time_interval=f.time_interval,
+                            event_filters=f.event_filters,
+                            cohort_ids={cohort.id},
                         )
                         self.stdout.write(f"  + New condition: {f.condition_hash} (event: {f.event_name})")
                     else:
-                        condition_map[f.condition_hash][5].add(cohort.id)
+                        condition_map[f.condition_hash].cohort_ids.add(cohort.id)
                         self.stdout.write(f"  = Duplicate condition: {f.condition_hash}")
 
             if not condition_map:
@@ -271,21 +292,14 @@ class Command(BaseCommand):
             deduplicated_filters = [
                 BehavioralEventFilter(
                     condition_hash=condition_hash,
-                    bytecode=bytecode,
-                    cohort_ids=sorted(cohort_set),
-                    event_name=event_name,
-                    time_value=time_value,
-                    time_interval=time_interval,
-                    event_filters=event_filters,
+                    bytecode=cond.bytecode,
+                    cohort_ids=sorted(cond.cohort_ids),
+                    event_name=cond.event_name,
+                    time_value=cond.time_value,
+                    time_interval=cond.time_interval,
+                    event_filters=cond.event_filters,
                 )
-                for condition_hash, (
-                    bytecode,
-                    event_name,
-                    time_value,
-                    time_interval,
-                    event_filters,
-                    cohort_set,
-                ) in sorted(condition_map.items())
+                for condition_hash, cond in sorted(condition_map.items())
             ]
 
             cohort_ids = sorted(cohort_ids)
@@ -366,6 +380,8 @@ class Command(BaseCommand):
         concurrent_workflows: int,
     ) -> str:
         """Run the Temporal coordinator workflow for the team."""
+        import time
+
         filter_storage_key = store_event_filters(filters, team_id)
         self.stdout.write(
             self.style.SUCCESS(f"Stored {len(filters)} event filters in Redis with key: {filter_storage_key}")

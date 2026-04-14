@@ -517,6 +517,23 @@ export function OverViewTab({
         },
     ]
 
+    const countTextNode = (
+        <span
+            className={cn(
+                'text-secondary text-sm transition-opacity whitespace-nowrap',
+                filtersChanged && 'opacity-50'
+            )}
+            aria-busy={filtersChanged}
+            aria-live="polite"
+        >
+            {filtersChanged ? (
+                <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+            ) : effectiveCount > 0 ? (
+                flagCountText
+            ) : null}
+        </span>
+    )
+
     const filtersSection = (
         <FeatureFlagFiltersSection
             filters={filters}
@@ -530,6 +547,7 @@ export function OverViewTab({
                 tags: true,
                 runtime: true,
             }}
+            countText={countTextNode}
         />
     )
 
@@ -549,69 +567,55 @@ export function OverViewTab({
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
-            <LemonDivider className="my-0" />
-            <div className="flex items-center justify-between min-h-9">
-                <span
-                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
-                    aria-busy={filtersChanged}
-                    aria-live="polite"
-                >
-                    {filtersChanged ? (
-                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
-                    ) : effectiveCount > 0 ? (
-                        flagCountText
-                    ) : null}
-                </span>
-                {selectedCount > 0 && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-muted text-sm">
-                            {allMatchingSelected
-                                ? `All ${selectedCount} matching flags selected`
-                                : `${selectedCount} flag${selectedCount !== 1 ? 's' : ''} selected`}
-                        </span>
-                        {showSelectAllMatchingBanner && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={selectAllMatching}
-                                loading={matchingFlagIdsLoading}
-                            >
-                                Select all {totalMatchingCount} matching flags
-                            </LemonButton>
-                        )}
-                        <LemonButton type="secondary" size="small" onClick={clearSelection}>
-                            Clear
-                        </LemonButton>
+            {selectedCount > 0 && (
+                <div className="flex items-center justify-end gap-2 min-h-9">
+                    <span className="text-muted text-sm">
+                        {allMatchingSelected
+                            ? `All ${selectedCount} matching flags selected`
+                            : `${selectedCount} flag${selectedCount !== 1 ? 's' : ''} selected`}
+                    </span>
+                    {showSelectAllMatchingBanner && (
                         <LemonButton
-                            type="primary"
-                            status="danger"
+                            type="secondary"
                             size="small"
-                            icon={<IconTrash />}
-                            loading={bulkDeleteResponseLoading}
-                            onClick={() => {
-                                const description = `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
-                                LemonDialog.open({
-                                    title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
-                                    description,
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => bulkDeleteFlags(),
-                                        size: 'small',
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'tertiary',
-                                        size: 'small',
-                                    },
-                                })
-                            }}
+                            onClick={selectAllMatching}
+                            loading={matchingFlagIdsLoading}
                         >
-                            {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
+                            Select all {totalMatchingCount} matching flags
                         </LemonButton>
-                    </div>
-                )}
-            </div>
+                    )}
+                    <LemonButton type="secondary" size="small" onClick={clearSelection}>
+                        Clear
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        size="small"
+                        icon={<IconTrash />}
+                        loading={bulkDeleteResponseLoading}
+                        onClick={() => {
+                            const description = `Are you sure you want to delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
+                            LemonDialog.open({
+                                title: `Delete ${selectedCount} feature flag${selectedCount !== 1 ? 's' : ''}?`,
+                                description,
+                                primaryButton: {
+                                    children: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => bulkDeleteFlags(),
+                                    size: 'small',
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                    type: 'tertiary',
+                                    size: 'small',
+                                },
+                            })
+                        }}
+                    >
+                        {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
+                    </LemonButton>
+                </div>
+            )}
             <BulkDeleteResultsModal />
 
             <LemonTable
