@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMetricsQuery, UsageMetricsQueryResponse
@@ -60,7 +61,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         metric_queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
-            query for metric in self._get_usage_metrics() if (query := self._get_metric_query(metric)) is not None
+            query for metric in self._usage_metrics if (query := self._get_metric_query(metric)) is not None
         ]
 
         if not metric_queries:
@@ -69,7 +70,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
         return ast.SelectSetQuery.create_from_queries(queries=metric_queries, set_operator="UNION ALL")
 
-    def _get_usage_metrics(self) -> list[GroupUsageMetric]:
+    @cached_property
+    def _usage_metrics(self) -> list[GroupUsageMetric]:
         """
         Fetch all metrics for the team, regardless of group_type_index.
         The model conception was too coupled to groups, we'll need to make it group-agnostic to support person-level
@@ -217,7 +219,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         """
         payload = super().get_cache_payload()
         metric_keys = sorted(
-            f"{metric.id}:{metric.math}:{metric.math_property or ''}" for metric in self._get_usage_metrics()
+            f"{metric.id}:{metric.math}:{metric.math_property or ''}" for metric in self._usage_metrics
         )
         payload["usage_metric_keys"] = metric_keys
         return payload
