@@ -77,9 +77,12 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN npm install -g @anthropic-ai/claude-code
 
 # --- Rarely changes: GeoIP database (pre-decompressed, read directly at runtime) ---
+# brotli --output writes with mode 600 by default; chmod so non-root users can
+# read the symlink target from /workspace/share.
 RUN mkdir -p /share && \
     curl -L "https://mmdbcdn.posthog.net/" --http1.1 --fail --retry 3 --retry-max-time 60 | \
-    brotli --decompress --output=/share/GeoLite2-City.mmdb
+    brotli --decompress --output=/share/GeoLite2-City.mmdb && \
+    chmod 644 /share/GeoLite2-City.mmdb
 
 # --- Static config ---
 RUN echo 'export PATH="/cache/python/bin:/usr/local/cargo/bin:$PATH"' > /etc/profile.d/sandbox.sh
@@ -90,7 +93,8 @@ RUN mkdir -p /cache/uv /cache/pnpm /cache/python /run/sshd \
 
 WORKDIR /workspace
 
-# --- Changes often: entrypoint ---
+# --- Changes often: entrypoint + sandbox tmux shim ---
+COPY bin/sandbox-shims/tmux.sandbox.conf /etc/tmux.sandbox.conf
 COPY --chmod=755 bin/sandbox-entrypoint.py /usr/local/bin/sandbox-entrypoint.py
 
 ENTRYPOINT ["python3", "/usr/local/bin/sandbox-entrypoint.py"]

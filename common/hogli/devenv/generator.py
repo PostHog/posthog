@@ -36,45 +36,9 @@ class DevenvConfig(BaseModel):
 
 # Docker compose command building
 
-# Native services that codespaces run as Docker containers instead of local
-# Rust/Go binaries. The profile is None when the service is part of the base
-# compose stack and starts without an explicit profile.
-CODESPACE_SERVICE_PROFILES: dict[str, str | None] = {
-    "capture": "capture",  # profile-gated in docker-compose.dev.yml
-    "feature-flags": None,  # always starts from dev.yml
-    "property-defs-rs": None,  # always starts from codespace overlay
-    "capture-replay": "capture_replay",
-    "capture-ai": "capture_ai",
-    "cyclotron-janitor": "codespace_cyclotron",
-    "livestream": "codespace_livestream",
-}
-
-
-def _is_codespace() -> bool:
-    return os.environ.get("POSTHOG_DEVBOX") == "1"
-
 
 def _get_docker_compose_base() -> str:
-    if _is_codespace():
-        return "docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
     return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
-
-
-def get_effective_docker_profiles(profiles: list[str], resolved_units: set[str] | None = None) -> list[str]:
-    """Return docker compose profiles after codespace-specific translation."""
-    effective_profiles = set(profiles)
-
-    if _is_codespace() and resolved_units:
-        for service_name, profile in CODESPACE_SERVICE_PROFILES.items():
-            if service_name in resolved_units and profile:
-                effective_profiles.add(profile)
-
-    return sorted(effective_profiles)
-
-
-def should_skip_native_process(name: str, resolved_units: set[str] | None = None) -> bool:
-    """Return whether a process should be omitted from mprocs in codespace mode."""
-    return _is_codespace() and name in CODESPACE_SERVICE_PROFILES and (resolved_units is None or name in resolved_units)
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -166,11 +130,6 @@ class MprocsGenerator(ConfigGenerator):
             if not proc_config:
                 continue
 
-            # In codespace mode, native Rust/Go services run as Docker
-            # containers — skip them from the mprocs process list.
-            if should_skip_native_process(name, resolved.units):
-                continue
-
             # Include if: in resolved units, or autostart: false (manual start)
             is_resolved = name in resolved.units
             is_manual_start = proc_config.get("autostart") is False
@@ -200,9 +159,7 @@ class MprocsGenerator(ConfigGenerator):
 
             # Special handling for docker-compose
             if name == "docker-compose":
-                proc_config = self._generate_docker_compose_config(
-                    resolved.get_docker_profiles_list(), resolved_units=resolved.units
-                )
+                proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
             # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
             if name == "nodejs":
@@ -301,20 +258,16 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         proc_config["shell"] = message + original_shell
         return proc_config
 
-    def _generate_docker_compose_config(
-        self, profiles: list[str], resolved_units: set[str] | None = None
-    ) -> dict[str, Any]:
+    def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
         """Generate docker-compose process config with profile flags.
 
         Args:
             profiles: List of docker compose profiles to activate
-            resolved_units: Resolved unit names (used in codespace mode to
-                inject profiles for native services running as containers)
 
         Returns:
             Process configuration dict with modified shell command
         """
-        profiles = get_effective_docker_profiles(profiles, resolved_units)
+        profiles = sorted(profiles)
 
         # Build the profile flags (may be empty for minimal stack)
         if profiles:

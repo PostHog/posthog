@@ -41,7 +41,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.insight_metadata import SUPPORTED_ACTOR_SOURCES, generate_insight_metadata
+from posthog.api.insight_metadata import generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
@@ -1611,15 +1611,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             if kind == "ActorsQuery":
-                actors_query = schema.ActorsQuery.model_validate(query_data)
-                if not isinstance(actors_query.source, SUPPORTED_ACTOR_SOURCES):
-                    return Response(
-                        {"error": "ActorsQuery must have a supported insight source (e.g. InsightActorsQuery)"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
                 validated_query: (
                     schema.InsightVizNode | schema.ActorsQuery | schema.EventsQuery | schema.GroupsQuery
-                ) = actors_query
+                ) = schema.ActorsQuery.model_validate(query_data)
             elif kind == "EventsQuery":
                 validated_query = schema.EventsQuery.model_validate(query_data)
             elif kind == "GroupsQuery":
