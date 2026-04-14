@@ -330,6 +330,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
 
         config = OptOutSyncConfig.objects.get(team=self.team)
         self.assertEqual(config.app_integration, integration)
+        assert config.app_import_result is not None
         self.assertEqual(config.app_import_result["status"], "completed")
         self.assertEqual(config.app_import_result["categories_created"], 3)
 
@@ -351,6 +352,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(response.json()["status"], "failed")
 
         config = OptOutSyncConfig.objects.get(team=self.team)
+        assert config.app_import_result is not None
         self.assertEqual(config.app_import_result["status"], "failed")
         self.assertIn("Invalid API key", config.app_import_result["error"])
 
@@ -435,6 +437,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         config = OptOutSyncConfig.objects.get(team=self.team)
+        assert config.csv_import_result is not None
         self.assertEqual(config.csv_import_result["status"], "completed")
         self.assertEqual(config.csv_import_result["total_rows"], 100)
         self.assertEqual(config.csv_import_result["users_with_optouts"], 60)
@@ -457,5 +460,6 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         config = OptOutSyncConfig.objects.get(team=self.team)
+        assert config.csv_import_result is not None
         self.assertEqual(config.csv_import_result["status"], "failed")
         self.assertIn("No categories found", config.csv_import_result["error"])
