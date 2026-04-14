@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconRefresh } from '@posthog/icons'
+import { IconCheck, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
@@ -8,11 +8,13 @@ import type { CrossSellRecommendationRun } from './types'
 
 export function CrossSellRecommendationCard({
     recommendation,
+    dismissed,
 }: {
     recommendation: CrossSellRecommendationRun
+    dismissed?: boolean
 }): JSX.Element | null {
     const { recommendationsLoading } = useValues(recommendationsTabLogic)
-    const { refreshRecommendations } = useActions(recommendationsTabLogic)
+    const { refreshRecommendations, dismissRecommendation, restoreRecommendation } = useActions(recommendationsTabLogic)
     const products = recommendation.meta.products ?? []
 
     if (products.length === 0) {
@@ -43,13 +45,32 @@ export function CrossSellRecommendationCard({
                             style={{ width: `${(enabledCount / products.length) * 100}%` }}
                         />
                     </div>
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        icon={<IconRefresh />}
-                        loading={recommendationsLoading}
-                        onClick={refreshRecommendations}
-                    />
+                    {dismissed ? (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => restoreRecommendation(recommendation.type)}
+                        >
+                            Restore
+                        </LemonButton>
+                    ) : (
+                        <>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconRefresh />}
+                                loading={recommendationsLoading}
+                                onClick={refreshRecommendations}
+                            />
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconX />}
+                                onClick={() => dismissRecommendation(recommendation.type)}
+                                tooltip="Dismiss this recommendation"
+                            />
+                        </>
+                    )}
                 </div>
             </div>
             <p className="text-xs text-secondary mt-1 mb-3">Complete your setup to get the full picture.</p>
