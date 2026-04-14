@@ -12,6 +12,7 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import (
+    _CLUSTER_REGISTRY,
     AlterTableMutationRunner,
     ClickhouseCluster,
     HostInfo,
@@ -21,7 +22,6 @@ from posthog.clickhouse.cluster import (
     Query,
     RetryPolicy,
     T,
-    _CLUSTER_REGISTRY,
     get_all_logical_clusters,
     get_cluster,
     get_cluster_by_name,
