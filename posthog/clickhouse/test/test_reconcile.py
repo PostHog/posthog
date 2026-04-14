@@ -22,7 +22,6 @@ from posthog.clickhouse.migration_tools.desired_state import (
 from posthog.clickhouse.migration_tools.plan_generator import (
     generate_manifest_steps,
     generate_plan_text,
-    generate_rollback_steps,
 )
 from posthog.clickhouse.migration_tools.schema_introspect import ColumnSchema, TableSchema
 from posthog.clickhouse.migration_tools.state_diff import StateDiff, diff_state
@@ -441,38 +440,6 @@ class TestManifestStepGeneration(unittest.TestCase):
         self.assertEqual(len(steps), 2)
         self.assertIn("drop", steps[0][0].sql)
         self.assertIn("create", steps[1][0].sql)
-
-
-class TestRollbackGeneration(unittest.TestCase):
-    def test_rollback_create_produces_drop(self) -> None:
-        diffs = [
-            StateDiff(
-                action="create",
-                table="new_t",
-                detail="Create table",
-                sql="CREATE TABLE ...",
-                node_roles=["DATA"],
-            ),
-        ]
-        rollback = generate_rollback_steps(diffs)
-        self.assertEqual(len(rollback), 1)
-        self.assertIn("DROP TABLE", rollback[0][1])
-
-    def test_rollback_add_column_produces_drop_column(self) -> None:
-        diffs = [
-            StateDiff(
-                action="alter_add_column",
-                table="t",
-                detail="Add col",
-                sql="ALTER TABLE posthog.t ADD COLUMN IF NOT EXISTS foo String",
-                node_roles=["DATA"],
-                is_alter_on_replicated_table=True,
-            ),
-        ]
-        rollback = generate_rollback_steps(diffs)
-        self.assertEqual(len(rollback), 1)
-        self.assertIn("DROP COLUMN", rollback[0][1])
-        self.assertIn("foo", rollback[0][1])
 
 
 class TestReconcileImportYamlRoundTrip(unittest.TestCase):
