@@ -26,6 +26,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_PRIVATE_KEY }}
                   owner: PostHog
+                  repositories: posthog-cloud-infra
 
             - name: Trigger UDFs Workflow
               shell: bash

@@ -26,6 +26,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_FOSS_SYNC_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_FOSS_SYNC_PRIVATE_KEY }}
                   owner: PostHog
+                  repositories: posthog-foss
 
             - name: Sync repositories 1 to 1 - master branch
               uses: PostHog/git-sync@29d9a6756e8646d0715d5caa9c66438be7e32a1f # v3
