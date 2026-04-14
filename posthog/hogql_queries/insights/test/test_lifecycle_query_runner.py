@@ -812,7 +812,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         with self.assertRaises(ValidationError) as context:
-            LifecycleQueryRunner(team=self.team, query=query)
+            LifecycleQueryRunner(team=self.team, query=query).calculate()
 
         self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
 

@@ -441,7 +441,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 LifecycleQueryRunner(
                     team=self.team,
                     query=LifecycleQuery(**query_kwargs),
-                )
+                ).calculate()
 
         self.assertIn(expected_error, str(context.exception))
 
