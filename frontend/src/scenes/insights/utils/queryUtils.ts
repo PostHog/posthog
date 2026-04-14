@@ -311,6 +311,27 @@ type InsightQueryNodeWithLeakedFields = InsightQueryNode & {
 
 const FORMULA_FIELDS = ['formula', 'formulas', 'formulaNodes'] as const
 
+const getInvalidFilterFields = (query: InsightQueryNode): readonly string[] => {
+    const fields: string[] = []
+    // formula fields only valid on TrendsFilter
+    if (!isTrendsQuery(query)) {
+        fields.push(...FORMULA_FIELDS)
+    }
+    // display only valid on Trends / Retention / Stickiness filters
+    if (isFunnelsQuery(query) || isPathsQuery(query) || isLifecycleQuery(query)) {
+        fields.push('display')
+    }
+    // selectedInterval only valid on RetentionFilter
+    if (!isRetentionQuery(query)) {
+        fields.push('selectedInterval')
+    }
+    // these fields are not in TrendsFilter schema
+    if (isTrendsQuery(query)) {
+        fields.push('chartSettings', 'totalIntervals')
+    }
+    return fields
+}
+
 export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQueryNode => {
     const cleaned: InsightQueryNodeWithLeakedFields = { ...query }
 
@@ -324,14 +345,35 @@ export const stripUnsupportedQueryFields = (query: InsightQueryNode): InsightQue
         delete cleaned.funnelPathsFilter
     }
 
-    // formula fields only belong on trendsFilter of a TrendsQuery
-    if (!isTrendsQuery(query) && !isWebAnalyticsInsightQuery(query) && !isHogQLQuery(query)) {
-        const filterKey = filterKeyForQuery(query)
+    // legacy top-level fields that are no longer valid on TrendsQuery
+    if (isTrendsQuery(query)) {
+        const trendsCleaned = cleaned as Record<string, unknown>
+        delete trendsCleaned.breakdown
+        delete trendsCleaned.full
+        delete trendsCleaned.limit
+        delete trendsCleaned.cohort
+    }
+
+    // legacy top-level field no longer valid on FunnelsQuery
+    if (isFunnelsQuery(query)) {
+        delete (cleaned as Record<string, unknown>).funnelWindowDays
+    }
+
+    // breakdownFilter.limit is invalid — schema uses breakdown_limit
+    if (cleaned.breakdownFilter && 'limit' in cleaned.breakdownFilter) {
+        const { limit: _limit, ...rest } = cleaned.breakdownFilter as Record<string, unknown>
+        cleaned.breakdownFilter = rest as BreakdownFilter
+    }
+
+    // strip invalid fields from the query's insight filter object
+    if (!isWebAnalyticsInsightQuery(query) && !isHogQLQuery(query)) {
+        const invalidFields = getInvalidFilterFields(query)
         const filter = filterForQuery(query)
-        if (filter && FORMULA_FIELDS.some((k) => k in filter)) {
-            const strippedFilter = { ...filter }
-            for (const k of FORMULA_FIELDS) {
-                delete (strippedFilter as Record<string, unknown>)[k]
+        if (filter && invalidFields.length > 0 && invalidFields.some((k) => k in filter)) {
+            const filterKey = filterKeyForQuery(query)
+            const strippedFilter = { ...filter } as Record<string, unknown>
+            for (const k of invalidFields) {
+                delete strippedFilter[k]
             }
             ;(cleaned as Record<string, unknown>)[filterKey] = strippedFilter
         }

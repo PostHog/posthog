@@ -421,4 +421,138 @@ describe('stripUnsupportedQueryFields', () => {
             expect(result.trendsFilter.formulaNodes).toEqual([{ formula: 'A+B' }])
         })
     })
+
+    describe('display field', () => {
+        it.each([
+            [NodeKind.FunnelsQuery, 'funnelsFilter'],
+            [NodeKind.PathsQuery, 'pathsFilter'],
+            [NodeKind.LifecycleQuery, 'lifecycleFilter'],
+        ])('strips display from %s.%s', (kind, filterKey) => {
+            const input = {
+                kind,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                [filterKey]: { display: 'ActionsLineGraph', someValidField: 'keep-me' },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result[filterKey].display).toBeUndefined()
+            expect(result[filterKey].someValidField).toBe('keep-me')
+        })
+
+        it.each([
+            [NodeKind.TrendsQuery, 'trendsFilter'],
+            [NodeKind.RetentionQuery, 'retentionFilter'],
+            [NodeKind.StickinessQuery, 'stickinessFilter'],
+        ])('preserves display on %s.%s', (kind, filterKey) => {
+            const input = {
+                kind,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                [filterKey]: { display: 'ActionsLineGraph' },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result[filterKey].display).toBe('ActionsLineGraph')
+        })
+    })
+
+    describe('selectedInterval field', () => {
+        it.each([
+            [NodeKind.TrendsQuery, 'trendsFilter'],
+            [NodeKind.FunnelsQuery, 'funnelsFilter'],
+            [NodeKind.StickinessQuery, 'stickinessFilter'],
+        ])('strips selectedInterval from %s.%s', (kind, filterKey) => {
+            const input = {
+                kind,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                [filterKey]: { selectedInterval: 7 },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result[filterKey].selectedInterval).toBeUndefined()
+        })
+
+        it('preserves selectedInterval on RetentionQuery.retentionFilter', () => {
+            const input = {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: { selectedInterval: 7 },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result.retentionFilter.selectedInterval).toBe(7)
+        })
+    })
+
+    describe('TrendsFilter-specific invalid fields', () => {
+        it('strips chartSettings and totalIntervals from trendsFilter', () => {
+            const input = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                trendsFilter: {
+                    chartSettings: { foo: 'bar' },
+                    totalIntervals: 14,
+                    display: 'ActionsLineGraph',
+                },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result.trendsFilter.chartSettings).toBeUndefined()
+            expect(result.trendsFilter.totalIntervals).toBeUndefined()
+            expect(result.trendsFilter.display).toBe('ActionsLineGraph')
+        })
+    })
+
+    describe('legacy top-level query fields', () => {
+        it('strips breakdown, full, limit, cohort from TrendsQuery top level', () => {
+            const input = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                breakdown: { property: '$browser' },
+                full: true,
+                limit: 100,
+                cohort: 42,
+                breakdownFilter: { breakdown: '$os' },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result.breakdown).toBeUndefined()
+            expect(result.full).toBeUndefined()
+            expect(result.limit).toBeUndefined()
+            expect(result.cohort).toBeUndefined()
+            // breakdownFilter — the valid modern location — is preserved
+            expect(result.breakdownFilter).toEqual({ breakdown: '$os' })
+        })
+
+        it('strips funnelWindowDays from FunnelsQuery top level', () => {
+            const input = {
+                kind: NodeKind.FunnelsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                funnelWindowDays: 14,
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result.funnelWindowDays).toBeUndefined()
+        })
+    })
+
+    describe('breakdownFilter invalid fields', () => {
+        it('strips limit from breakdownFilter (schema uses breakdown_limit)', () => {
+            const input = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                breakdownFilter: { breakdown: '$browser', limit: 25, breakdown_limit: 10 },
+            }
+
+            const result = stripUnsupportedQueryFields(input as unknown as InsightQueryNode) as Record<string, any>
+
+            expect(result.breakdownFilter.limit).toBeUndefined()
+            expect(result.breakdownFilter.breakdown_limit).toBe(10)
+        })
+    })
 })
