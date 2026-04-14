@@ -11,6 +11,7 @@ from django.test.client import Client as HttpClient
 import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from temporalio.service import RPCError
 
 from posthog.api.test.test_organization import create_organization
@@ -237,8 +238,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    @pytest.mark.parametrize(
-        "from_sync_type",
+    @parameterized.expand(
         [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
     )
     def test_update_schema_to_webhook_does_not_reset_pipeline(self, from_sync_type):
