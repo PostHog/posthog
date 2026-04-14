@@ -556,7 +556,7 @@ const cachePropertiesFromDataTable = (query: DataTableNode): QueryPropertyCache 
         return null
     }
     const source = query.source
-    const cache: QueryPropertyCache = { commonFilter: {} }
+    const cache: Partial<QueryPropertyCache> = {}
 
     if (source.properties?.length) {
         cache.properties = JSON.parse(JSON.stringify(source.properties))
@@ -577,7 +577,7 @@ const cachePropertiesFromDataTable = (query: DataTableNode): QueryPropertyCache 
         }))
     }
 
-    return cache
+    return cache as QueryPropertyCache
 }
 
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
