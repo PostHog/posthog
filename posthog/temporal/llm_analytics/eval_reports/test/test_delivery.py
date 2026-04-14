@@ -370,3 +370,41 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
+
+    @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_slack_report")
+    @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_comma_separated_emails_all_fail_marks_failed(self, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
+        # Regression: a single email target with N comma-separated addresses can produce
+        # N errors. all_failed must compare errors against delivery attempts, not target count.
+        targets = [{"type": "email", "value": "a@x.com, b@x.com, c@x.com"}]
+        report = self._make_report(targets)
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+        mock_email.return_value = ["fail a", "fail b", "fail c"]
+
+        with self.assertRaises(RuntimeError):
+            deliver_report("report-id", "run-id")
+
+        self.assertEqual(run.delivery_status, "failed")
+
+    @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.llm_analytics.eval_reports.delivery.deliver_slack_report")
+    @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.llm_analytics.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_comma_separated_emails_some_fail_marks_partial(self, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
+        # Two of three addresses fail — should be partial_failure, not failed.
+        targets = [{"type": "email", "value": "a@x.com, b@x.com, c@x.com"}]
+        report = self._make_report(targets)
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+        mock_email.return_value = ["fail a", "fail b"]
+
+        deliver_report("report-id", "run-id")
+
+        self.assertEqual(run.delivery_status, "partial_failure")
