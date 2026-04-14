@@ -2397,3 +2397,86 @@ class TestRealSchemaDirLintsClean(unittest.TestCase):
             [],
             "production YAMLs must lint clean. Errors:\n" + "\n".join(f"  - {e}" for e in errors),
         )
+
+
+class TestBadYamlLintCorpus(unittest.TestCase):
+    """Fixture corpus: lint must reject each of these intentional defects.
+
+    Every rule the validator enforces should have a paired test here — a
+    "things that must fail" suite complements the positive tests and guards
+    against a future refactor silently swallowing an error class.
+    """
+
+    @staticmethod
+    def _validate(tables: dict[str, DesiredTable], ecosystem: str = "test", cluster: str = "main") -> list[str]:
+        from posthog.clickhouse.migration_tools.validator import validate_desired_states
+
+        return validate_desired_states([DesiredState(ecosystem=ecosystem, cluster=cluster, tables=tables)])
+
+    def test_kafka_on_data_role_rejected(self) -> None:
+        """DATA role is not legal for Kafka engines — ingestion roles only."""
+        errors = self._validate(
+            {
+                "bad_kafka": DesiredTable(
+                    name="bad_kafka",
+                    engine="Kafka",
+                    columns=[ColumnDef(name="event", type="String")],
+                    on_nodes=["DATA"],
+                    settings={"topic": "events", "broker_list": "kafka:9092"},
+                ),
+            }
+        )
+        self.assertTrue(any("DATA" in e or "role" in e.lower() for e in errors), f"Expected role error, got: {errors}")
+
+    def test_mergetree_without_order_by_rejected(self) -> None:
+        """ReplicatedMergeTree without ORDER BY is a hard lint error (duplicates
+        TestMergetreeOrderByLint but part of the regression-fixture suite)."""
+        errors = self._validate(
+            {
+                "no_order": DesiredTable(
+                    name="no_order",
+                    engine="ReplicatedMergeTree",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["DATA"],
+                    order_by=None,
+                ),
+            }
+        )
+        self.assertTrue(any("ORDER BY" in e for e in errors), f"Expected ORDER BY error, got: {errors}")
+
+    def test_distributed_without_source_rejected(self) -> None:
+        """Distributed table must declare a source table."""
+        errors = self._validate(
+            {
+                "dist_no_source": DesiredTable(
+                    name="dist_no_source",
+                    engine="Distributed",
+                    columns=[ColumnDef(name="id", type="UUID")],
+                    on_nodes=["COORDINATOR"],
+                    # no source/sharding_key set
+                ),
+            }
+        )
+        self.assertTrue(
+            any("source" in e.lower() or "distributed" in e.lower() for e in errors),
+            f"Expected source/distributed error, got: {errors}",
+        )
+
+    def test_mv_without_target_rejected(self) -> None:
+        """MaterializedView without a target table is malformed."""
+        errors = self._validate(
+            {
+                "mv_no_target": DesiredTable(
+                    name="mv_no_target",
+                    engine="MaterializedView",
+                    columns=[],
+                    on_nodes=["DATA"],
+                    select="SELECT 1",
+                    # no target
+                ),
+            }
+        )
+        self.assertTrue(
+            any("target" in e.lower() or "mv" in e.lower() for e in errors),
+            f"Expected target/mv error, got: {errors}",
+        )
