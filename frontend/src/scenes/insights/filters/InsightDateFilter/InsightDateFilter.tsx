@@ -4,6 +4,7 @@ import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils'
+import { alignResolvedDateRangeToInterval } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -13,7 +14,7 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange, interval } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
 
@@ -34,7 +35,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             }}
             dateOptions={dateMapping}
             allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-            resolvedDateRange={insightData?.resolved_date_range}
+            resolvedDateRange={alignResolvedDateRangeToInterval(insightData?.resolved_date_range, interval)}
             makeLabel={(key) => (
                 <>
                     <IconCalendar /> {key}

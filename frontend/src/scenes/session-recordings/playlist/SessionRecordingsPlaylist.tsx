@@ -23,7 +23,6 @@ export function SessionRecordingsPlaylist({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -57,7 +56,6 @@ function HorizontalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -109,7 +107,6 @@ function VerticalLayout({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
-    type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
 }): JSX.Element {
@@ -201,7 +198,7 @@ function PlayerWrapper({
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
-            {isFiltersExpanded ? (
+            {isFiltersExpanded && (
                 <div className="h-full rounded border">
                     <RecordingsUniversalFiltersEmbed
                         resetFilters={resetFilters}
@@ -212,29 +209,32 @@ function PlayerWrapper({
                         pinnedFilters={pinnedFilters}
                     />
                 </div>
-            ) : showContent && activeSessionRecording ? (
-                <SessionRecordingPlayer
-                    playerKey={props.logicKey ?? 'playlist'}
-                    sessionRecordingId={activeSessionRecording.id}
-                    matchingEventsMatchType={matchingEventsMatchType}
-                    autoPlay={props.autoPlay}
-                    onRecordingDeleted={() => {
-                        loadAllRecordings()
-                        setSelectedRecordingId(null)
-                    }}
-                    pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-                    setPinned={
-                        props.onPinnedChange
-                            ? (pinned) => {
-                                  if (!activeSessionRecording.id) {
-                                      return
+            )}
+            {showContent && activeSessionRecording ? (
+                <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
+                    <SessionRecordingPlayer
+                        playerKey={props.logicKey ?? 'playlist'}
+                        sessionRecordingId={activeSessionRecording.id}
+                        matchingEventsMatchType={matchingEventsMatchType}
+                        autoPlay={props.autoPlay}
+                        onRecordingDeleted={() => {
+                            loadAllRecordings()
+                            setSelectedRecordingId(null)
+                        }}
+                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                        setPinned={
+                            props.onPinnedChange
+                                ? (pinned) => {
+                                      if (!activeSessionRecording.id) {
+                                          return
+                                      }
+                                      props.onPinnedChange?.(activeSessionRecording, pinned)
                                   }
-                                  props.onPinnedChange?.(activeSessionRecording, pinned)
-                              }
-                            : undefined
-                    }
-                    playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
-                />
+                                : undefined
+                        }
+                        playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                    />
+                </div>
             ) : sessionRecordingsResponseLoading ? (
                 <div className="relative flex flex-col h-full p-4">
                     {/* Player skeleton background */}
@@ -251,7 +251,7 @@ function PlayerWrapper({
 
                     {/* Centered hedgehog overlay */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <FilmCameraHog height={150} />
+                        <FilmCameraHog className="w-60 h-60" />
                         <div className="mt-4 flex items-center gap-2">
                             <Spinner textColored />
                             <span className="text-secondary">Loading recordings...</span>

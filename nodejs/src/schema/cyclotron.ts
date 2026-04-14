@@ -50,7 +50,7 @@ export const CyclotronInputMappingSchema = z.object({
     name: z.string(),
     disabled: z.boolean().optional(),
     inputs_schema: z.array(CyclotronJobInputSchemaTypeSchema).optional(),
-    inputs: z.record(CyclotronInputSchema).optional().nullable(),
+    inputs: z.record(z.string(), CyclotronInputSchema).optional().nullable(),
     filters: z.any().optional().nullable(),
 })
 
@@ -66,7 +66,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     method: z.string(),
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({

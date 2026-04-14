@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 import urllib.parse
@@ -36,7 +37,11 @@ from products.batch_exports.backend.temporal.utils import (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = []
+NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "NotFoundErrorGroup",
+    "BadRequestErrorGroup",
+    "HogFunctionErrorThresholdExceeded",
+]
 HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
@@ -85,6 +90,41 @@ class InternalServerError(aiohttp.ClientResponseError):
     pass
 
 
+class ServiceUnavailable(aiohttp.ClientResponseError):
+    pass
+
+
+class ClientResponseErrorGroup(ExceptionGroup[aiohttp.ClientResponseError]):
+    """Base class for grouped HTTP errors."""
+
+    def derive(self, excs):
+        return ClientResponseErrorGroup(self.message, excs)
+
+
+class BadRequestErrorGroup(ClientResponseErrorGroup):
+    def derive(self, excs):
+        return BadRequestErrorGroup(self.message, excs)
+
+
+class NotFoundErrorGroup(ClientResponseErrorGroup):
+    def derive(self, excs):
+        return NotFoundErrorGroup(self.message, excs)
+
+
+class HogFunctionErrorThresholdExceeded(Exception):
+    """Raised when too many Hog Function executions fail with status=error."""
+
+    def __init__(self, failed_count: int, total_count: int, latest_error: str | None = None):
+        self.failed_count = failed_count
+        self.total_count = total_count
+        self.latest_error = latest_error
+
+        message = f"Hog Function error rate above threshold: {failed_count}/{total_count} executions failed."
+        if latest_error:
+            message += f" Latest error message: '{latest_error}'"
+        super().__init__(message)
+
+
 def _make_exception(
     exc: type[aiohttp.ClientResponseError], err: aiohttp.ClientResponseError
 ) -> aiohttp.ClientResponseError:
@@ -96,13 +136,32 @@ def _make_exception(
 
 
 class WorkflowsConsumer(Consumer):
+    """Consumer that posts each record as a Hog Function invocation to the CDP API.
+
+    One HTTP POST request per record is issued concurrently via `request_task_group`, up
+    to `max_concurrent_requests` in flight at a time.
+
+    A 2xx response with a `{"status": "error", ...}` body is treated as a Hog Function
+    execution error (the CDP call succeeded but the function itself failed).
+
+    If the ratio of such execution errors to total handled records exceeds
+    `hog_function_error_threshold_pct` — once at least
+    `hog_function_error_threshold_min_records` records have been handled —
+    the consumer aborts the run by raising a non-retryable
+    `HogFunctionErrorThresholdExceeded` exception.
+    """
+
     def __init__(
         self,
         url: str,
         hog_function_id: str,
         team_id: int,
         session: aiohttp.ClientSession,
+        request_task_group: asyncio.TaskGroup,
         model: str = "events",
+        max_concurrent_requests: int = 1_000,
+        hog_function_error_threshold_pct: float = 0.5,
+        hog_function_error_threshold_min_records: int = 100,
     ):
         super().__init__(model=model)
 
@@ -114,45 +173,81 @@ class WorkflowsConsumer(Consumer):
 
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
-        self.internal_api_secret = settings.INTERNAL_API_SECRET
+        self.request_task_group = request_task_group
+        self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self.hog_function_error_threshold_pct = hog_function_error_threshold_pct
+        self.hog_function_error_threshold_min_records = hog_function_error_threshold_min_records
+        self.records_handled_count = 0
+        self.latest_hog_function_error: str | None = None
 
-    async def consume_chunk(self, data: bytes):
+    async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
-            self.post, retryable_exceptions=(InternalServerError, TooManyRequests)
+            self.post,
+            retryable_exceptions=(
+                InternalServerError,
+                ServiceUnavailable,
+                TooManyRequests,
+                aiohttp.ServerDisconnectedError,
+            ),
+            # Retry forever on retryable errors
+            max_attempts=None,
         )
-        await post(data)
+        self.request_task_group.create_task(post(data))
 
-    async def post(self, data: bytes):
-        async with await self.session.post(
-            self.url,
-            # Data is already JSON encoded, so we can't use json=data.
-            data=b'{"clickhouse_event":' + data + b"}",
-            headers={
-                "Content-Type": "application/json",
-                "X-Internal-Api-Secret": self.internal_api_secret,
-            },
-        ) as response:
-            try:
-                response.raise_for_status()
-            except aiohttp.ClientResponseError as err:
-                response_body = await response.text()
-                self.logger.exception("Request failed", status=err.status, response_body=response_body)
+    async def post(self, data: bytes) -> None:
+        async with self._requests_semaphore:
+            async with self.session.post(
+                self.url,
+                # Data is already JSON encoded, so we can't use json=data and must set
+                # the header ourselves.
+                data=b'{"clickhouse_event":' + data + b"}",
+                headers={
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                try:
+                    response.raise_for_status()
+                except aiohttp.ClientResponseError as err:
+                    response_body = await response.text()
+                    self.logger.exception("Request failed", status=err.status, response_body=response_body)
 
-                match err.status:
-                    case 404:
-                        raise _make_exception(NotFound, err)
-                    case 429:
-                        raise _make_exception(TooManyRequests, err)
-                    case n if n >= 400 and n < 500:
-                        raise _make_exception(BadRequest, err)
-                    case n if n >= 500:
-                        raise _make_exception(InternalServerError, err)
+                    match err.status:
+                        case 404:
+                            raise _make_exception(NotFound, err)
+                        case 429:
+                            raise _make_exception(TooManyRequests, err)
+                        case n if n >= 400 and n < 500:
+                            raise _make_exception(BadRequest, err)
+                        case 503:
+                            raise _make_exception(ServiceUnavailable, err)
+                        case n if n >= 500:
+                            raise _make_exception(InternalServerError, err)
+                else:
+                    response_body = await response.json()
+                    self.records_handled_count += 1
+                    if response_body.get("status") == "error":
+                        errors = response_body.get("errors", [])
+                        self.logger.warning("Hog Function execution failed", errors=errors)
+                        self.records_failed_count += 1
+                        if errors:
+                            self.latest_hog_function_error = errors[-1]
+
+                        if (
+                            self.records_handled_count >= self.hog_function_error_threshold_min_records
+                            and self.records_failed_count / self.records_handled_count
+                            >= self.hog_function_error_threshold_pct
+                        ):
+                            raise HogFunctionErrorThresholdExceeded(
+                                failed_count=self.records_failed_count,
+                                total_count=self.records_handled_count,
+                                latest_error=self.latest_hog_function_error,
+                            )
 
     async def finalize_file(self):
         """Required by consumer interface."""
         pass
 
-    async def finalize(self):
+    async def finalize(self) -> None:
         """Required by consumer interface."""
         pass
 
@@ -206,28 +301,65 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
         transformer = JSONLStreamTransformer(max_workers=1)
 
-        async with aiohttp.ClientSession(trust_env=True) as session:
+        # NOTE: We initialize the TaskGroup first so that any errors in setting up
+        # the consumer are not raised in the TaskGroup context.
+        # TODO: The consumer should be refactored.
+        tg = asyncio.TaskGroup()
+        # The batch exports API resolves to a local address which our proxy blocks,
+        # so we have to disable it by not reading the environment configuration.
+        # nosemgrep: aiohttp-missing-trust-env
+        async with aiohttp.ClientSession(
+            trust_env=False,
+            connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
+            headers={
+                "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
+            },
+        ) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
                 hog_function_id=inputs.hog_function_id,
                 team_id=inputs.batch_export.team_id,
                 session=session,
+                request_task_group=tg,
                 model=inputs.batch_export.batch_export_model.name
                 if inputs.batch_export.batch_export_model
                 else "events",
+                max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
             )
+            try:
+                async with tg:
+                    # TODO: Use multiple consumers
+                    _ = await run_consumer_from_stage(
+                        queue=queue,
+                        consumer=consumer,
+                        producer_task=producer_task,
+                        transformer=transformer,
+                        # the CDP API expects the JSON columns to be strings
+                        json_columns=(),
+                    )
+            # NOTE: Nothing inside the TaskGroup raises an ExceptionGroup, so it is
+            # impossible for a nested ExceptionGroup to be captured by except*.
+            # Mypy is unable to figure this out, so we just ignore the errors. Otherwise
+            # We would need a lot of extra code to flatten any groups (that do not
+            # exist). If you are adding a TaskGroup inside this TaskGroup revisit this!
+            except* BadRequest as exc_group:
+                raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
+            except* NotFound as exc_group:
+                raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
+            except* HogFunctionErrorThresholdExceeded:
+                # Since we're making multiple requests in parallel, as soon as we hit the error threshold
+                # we expect any new errors to also raise the same exception.
+                # Therefore, rather than raising an ExceptionGroup we just re-raise the exception once,
+                # but using the most recent values.
+                exc = HogFunctionErrorThresholdExceeded(
+                    failed_count=consumer.records_failed_count,
+                    total_count=consumer.records_handled_count,
+                    latest_error=consumer.latest_hog_function_error,
+                )
+                external_logger.exception(str(exc))
+                raise exc
 
-            # TODO: Use multiple consumers
-            result = await run_consumer_from_stage(
-                queue=queue,
-                consumer=consumer,
-                producer_task=producer_task,
-                transformer=transformer,
-                # the CDP API expects the JSON columns to be strings
-                json_columns=(),
-            )
-
-        return result
+        return consumer.collect_result()
 
 
 @temporalio.workflow.defn(name="workflows-export", failure_exception_types=[temporalio.workflow.NondeterminismError])

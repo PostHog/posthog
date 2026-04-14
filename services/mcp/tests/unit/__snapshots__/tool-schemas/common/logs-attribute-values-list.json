@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "attribute_type": {
+            "description": "Type of attribute: \"log\" or \"resource\"\n\n* `log` - log\n* `resource` - resource",
+            "enum": ["log", "resource"],
+            "type": "string"
+        },
+        "key": {
+            "description": "The attribute key to get values for",
+            "minLength": 1,
+            "type": "string"
+        },
+        "value": {
+            "description": "Search filter for attribute values",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["key"],
+    "type": "object"
+}

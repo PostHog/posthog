@@ -8,12 +8,12 @@ from django.db import models
 import numpy
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
 from products.data_warehouse.backend.data_load.service import (
@@ -42,6 +42,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         INCREMENTAL = "incremental", "incremental"
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
+        CDC = "cdc", "cdc"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -82,7 +83,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name)
+        return NamingConvention.normalize_identifier(self.name)
 
     @property
     def is_incremental(self):
@@ -95,6 +96,28 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_webhook(self):
         return self.sync_type == self.SyncType.WEBHOOK
+
+    @property
+    def is_cdc(self):
+        return self.sync_type == self.SyncType.CDC
+
+    @property
+    def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("cdc_mode")
+        return None
+
+    @property
+    def cdc_last_log_position(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("cdc_last_log_position")
+        return None
+
+    @property
+    def cdc_table_mode(self) -> Literal["consolidated", "cdc_only", "both"]:
+        if self.sync_type_config:
+            return self.sync_type_config.get("cdc_table_mode", "consolidated")
+        return "consolidated"
 
     @property
     def should_use_incremental_field(self):
@@ -467,6 +490,8 @@ def sync_old_schemas_with_new_schemas(
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
     if frequency == "never":
         return None
+    if frequency == "1min":
+        return timedelta(minutes=1)
     if frequency == "5min":
         return timedelta(minutes=5)
     if frequency == "15min":
@@ -492,6 +517,8 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | Non
 def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta | None) -> str | None:
     if sync_frequency_interval is None:
         return None
+    if sync_frequency_interval == timedelta(minutes=1):
+        return "1min"
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
     if sync_frequency_interval == timedelta(minutes=15):

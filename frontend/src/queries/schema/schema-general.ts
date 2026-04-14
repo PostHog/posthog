@@ -156,6 +156,7 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
@@ -318,6 +319,9 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+
+    // Session Recordings
+    | RecordingsQuery
 
     // Logs
     | LogsQuery
@@ -511,12 +515,14 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
     code?: string
 }
 
-export interface RecordingsQueryResponse {
+export interface RecordingsQueryResponse extends AnalyticsQueryResponseBase {
     results: SessionRecordingType[]
     has_next: boolean
     /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
     next_cursor?: string
 }
+
+export type CachedRecordingsQueryResponse = CachedQueryResponse<RecordingsQueryResponse>
 
 export const VALID_RECORDING_ORDERS = [
     'duration',
@@ -949,7 +955,7 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
      * Filter sessions by action - sessions that contain events matching this action
      */
     actionId?: integer
-    /** Event property filters - only applies when event or actionId is set */
+    /** Event property filters - filters sessions that contain events matching these properties */
     eventProperties?: AnyPropertyFilter[]
 }
 
@@ -1387,6 +1393,8 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    /** @default true */
+    excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
 }
@@ -1411,6 +1419,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'excludeBoxPlotOutliers',
     'hideWeekends',
 ])
 
@@ -1827,10 +1836,13 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+/** Query types supported by endpoints. Excludes FunnelsQuery, PathsQuery, and StickinessQuery. */
+export type EndpointQueryNode = TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery
+
 export interface EndpointRequest {
     name?: string
     description?: string
-    query?: HogQLQuery | InsightQueryNode
+    query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
     cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */
@@ -1879,15 +1891,6 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
-    /**
-     * @deprecated Use `variables` instead. Will be removed in a future release.
-     *
-     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
-     * Not allowed for HogQL endpoints.
-     *
-     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-     */
-    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -2107,7 +2110,13 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
+    source?:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | ExperimentActorsQuery
+        | StickinessActorsQuery
+        | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -2572,6 +2581,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     groupTypeIndex?: integer
     /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
     useQueryV2?: boolean
+    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    useQueryV3?: boolean
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -3274,6 +3285,86 @@ export interface ExperimentEventExposureConfig extends Node {
     properties: AnyPropertyFilter[]
 }
 
+// ── Slim API types for experiment create/update ──────────────────────
+// These are intentionally simplified versions of the full query types.
+// The full types (EventsNode, ExperimentMeanMetric, …) pull in
+// AnyPropertyFilter (18-subtype union) which explodes the OpenAPI/MCP
+// schema via inline expansion. These slim types use EventPropertyFilter
+// directly, keeping the generated schema compact.
+
+/** Slim event/action source for experiment API payloads. */
+export interface ExperimentApiEventSource {
+    kind: 'EventsNode' | 'ActionsNode'
+    /** Event name, e.g. '$pageview'. Required for EventsNode. */
+    event?: string
+    /** Action ID. Required for ActionsNode. */
+    id?: integer
+    /** Event property filters to narrow which events are counted. */
+    properties?: EventPropertyFilter[]
+}
+
+/** Experiment metric for API create/update. All metric-type-specific
+ *  fields are optional; discriminated by metric_type at runtime. */
+export interface ExperimentApiMetric {
+    kind: NodeKind.ExperimentMetric
+    metric_type: ExperimentMetricType
+    /** Human-readable metric name. */
+    name?: string
+    /** Unique identifier. Auto-generated if omitted. */
+    uuid?: string
+    /** Whether higher or lower values indicate success. */
+    goal?: ExperimentMetricGoal
+    /** Conversion window duration. */
+    conversion_window?: integer
+    /** For mean metrics: event source. */
+    source?: ExperimentApiEventSource
+    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
+    series?: ExperimentApiEventSource[]
+    /** For ratio metrics: numerator source. */
+    numerator?: ExperimentApiEventSource
+    /** For ratio metrics: denominator source. */
+    denominator?: ExperimentApiEventSource
+    /** For retention metrics: start event. */
+    start_event?: ExperimentApiEventSource
+    /** For retention metrics: completion event. */
+    completion_event?: ExperimentApiEventSource
+    retention_window_start?: integer
+    retention_window_end?: integer
+    retention_window_unit?: FunnelConversionWindowTimeUnit
+    start_handling?: 'first_seen' | 'last_seen'
+}
+
+export interface ExperimentVariant {
+    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    key: string
+    /** Human-readable variant name. */
+    name?: string
+    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
+    rollout_percentage: number
+}
+
+export interface ExperimentParameters {
+    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    feature_flag_variants?: ExperimentVariant[]
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
+    minimum_detectable_effect?: number
+}
+
+/** Slim exposure config for experiment API payloads. */
+export interface ExperimentApiExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    /** Custom exposure event name. */
+    event: string
+    /** Event property filters. Pass an empty array if no filters needed. */
+    properties: EventPropertyFilter[]
+}
+
+/** Exposure criteria for experiment API payloads. */
+export interface ExperimentApiExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentApiExposureConfig
+}
+
 export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
@@ -3310,7 +3401,7 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 
 export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -3359,6 +3450,15 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
+// Legacy experiment query type guards
+export const isExperimentTrendsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentTrendsQuery => query.kind === NodeKind.ExperimentTrendsQuery
+
+export const isExperimentFunnelsQuery = (
+    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
+): query is ExperimentFunnelsQuery => query.kind === NodeKind.ExperimentFunnelsQuery
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
@@ -3381,6 +3481,7 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     metric: ExperimentMetric
     experiment_id?: integer
     name?: string
+    precomputation_mode?: 'precomputed' | 'direct'
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -3435,6 +3536,22 @@ export interface LegacyExperimentQueryResponse {
     stats_version?: integer
     p_value: number
     credible_intervals: Record<string, [number, number]>
+}
+
+export interface ExperimentActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.ExperimentActorsQuery
+    source: ExperimentQuery
+    /** Index of the step for which we want to get actors for, per experiment variant.
+     * Positive for converted persons, negative for dropped off persons. */
+    funnelStep?: integer
+    /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
+    funnelStepBreakdown?: BreakdownKeyType
+    /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
+    exposureConfig?: ExperimentExposureConfig
+    /** How to handle users with multiple variant exposures. */
+    multipleVariantHandling?: 'exclude' | 'first_seen'
+    /** Feature flag key for breakdown filtering. */
+    featureFlagKey?: string
 }
 
 export interface SessionData {
@@ -3724,7 +3841,12 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
+    source:
+        | InsightActorsQuery
+        | FunnelsActorsQuery
+        | FunnelCorrelationActorsQuery
+        | StickinessActorsQuery
+        | ExperimentActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -4008,6 +4130,17 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+/** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
+export interface AlertScheduleRestrictionWindow {
+    start: string
+    end: string
+}
+
+/** Quiet hours: local time windows when the alert must not run. At most five windows after API normalization. */
+export interface AlertScheduleRestriction {
+    blocked_windows: AlertScheduleRestrictionWindow[]
+}
+
 // Detector types for anomaly detection alerts
 export enum DetectorType {
     ZSCORE = 'zscore',
@@ -4252,10 +4385,17 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     actionId?: integer
     properties?: string[]
     maxPropertyValues?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
 }
 
 export interface EventTaxonomyQueryResponse extends AnalyticsQueryResponseBase {
     results: EventTaxonomyResponse
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
 }
 
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
@@ -5057,6 +5197,9 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
 export enum AttributionMode {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
+    Linear = 'linear',
+    TimeDecay = 'time_decay',
+    PositionBased = 'position_based',
 }
 
 export enum MatchField {
@@ -5886,6 +6029,7 @@ export enum ProductKey {
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
+    SUBSCRIPTIONS = 'subscriptions',
     SURVEYS = 'surveys',
     TASKS = 'tasks',
     TEAMS = 'teams',

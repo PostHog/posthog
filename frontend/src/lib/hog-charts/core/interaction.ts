@@ -1,6 +1,7 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext } from './types'
+import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 export function findNearestIndex(
     mouseX: number,
@@ -37,15 +38,16 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
     )
 }
 
-export function buildTooltipContext(
+export function buildTooltipContext<Meta = unknown>(
     dataIndex: number,
-    series: Series[],
+    series: Series<Meta>[],
     labels: string[],
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
-    resolveValue: ResolveValueFn
-): TooltipContext | null {
+    resolveValue: ResolveValueFn,
+    yAxes?: Record<string, YAxisScale>
+): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }
@@ -56,15 +58,18 @@ export function buildTooltipContext(
         return null
     }
 
-    const seriesData: TooltipContext['seriesData'] = []
+    const seriesData: TooltipContext<Meta>['seriesData'] = []
     const yPixels: number[] = []
     for (const s of series) {
         if (s.hidden) {
             continue
         }
         const value = resolveValue(s, dataIndex)
-        seriesData.push({ series: s, value, color: s.color })
-        const yVal = yScale(value)
+        if (!s.hideFromTooltip) {
+            seriesData.push({ series: s, value, color: s.color })
+        }
+        const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const yVal = seriesYScale(value)
         if (isFinite(yVal)) {
             yPixels.push(yVal)
         }
@@ -78,15 +83,16 @@ export function buildTooltipContext(
         seriesData,
         position: { x, y },
         canvasBounds,
+        isPinned: false,
     }
 }
 
-export function buildPointClickData(
+export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
-    series: Series[],
+    series: Series<Meta>[],
     labels: string[],
     resolveValue: ResolveValueFn
-): PointClickData | null {
+): PointClickData<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }

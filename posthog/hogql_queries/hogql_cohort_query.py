@@ -1057,7 +1057,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 SELECT
                     person_id,
                     condition,
-                    argMax(matches, _timestamp) as latest_matches
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
@@ -1100,7 +1100,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 SELECT
                     person_id,
                     condition,
-                    argMax(matches, _timestamp) as latest_matches
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
@@ -1167,7 +1167,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {team_id}
                     AND condition = {condition_hash}
                 GROUP BY person_id
-                HAVING argMax(matches, _offset) = 1
+                HAVING argMax(matches, (_timestamp, _offset)) = 1
             """
 
             return cast(

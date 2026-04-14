@@ -62,7 +62,26 @@ tools:
         enabled: false
     llm-analytics-evaluation-summary-create:
         operation: llm_analytics_evaluation_summary_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        requires_ai_consent: true
+        title: Summarize evaluation results
+        description: >
+            Generate an AI-powered summary of LLM evaluation results for a given
+            evaluation config. Pass an evaluation_id and an optional filter
+            ("all", "pass", "fail", or "na") to scope which runs are analyzed.
+            Returns an overall assessment, pattern groups for passing, failing,
+            and N/A runs (each with title, description, frequency, and example
+            generation IDs), actionable recommendations, and run statistics.
+            Optionally pass generation_ids to restrict the analysis to specific
+            runs. Results are cached for one hour — use force_refresh to
+            recompute. Rate-limited; requires AI data processing approval for
+            the organization.
     llm-analytics-models-retrieve:
         operation: llm_analytics_models_retrieve
         enabled: false

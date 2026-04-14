@@ -172,7 +172,6 @@ fn setup_ai_test_router() -> Router {
         Arc::new(sink),
         redis,
         None,
-        None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -1630,7 +1629,6 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         Arc::new(sink),
         redis,
         None,
-        None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
@@ -2540,7 +2538,6 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         Arc::new(sink),
         redis,
         None,
-        None,
         quota_limiter,
         token_dropper,
         None,  // event_restriction_service
@@ -2744,7 +2741,6 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         liveness,
         Arc::new(sink),
         redis,
-        None,
         None,
         quota_limiter,
         TokenDropper::default(),

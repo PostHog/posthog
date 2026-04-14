@@ -2,6 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { getColorVar } from 'lib/colors'
+import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
+import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
@@ -14,6 +18,21 @@ import {
     WebhookUrlDisplay,
 } from '../../external/forms/WebhookSetupForm'
 import { webhookTabLogic } from './webhookTabLogic'
+
+const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const
+
+const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
+    succeeded: {
+        name: 'Received',
+        description: 'Total number of webhook events received and processed successfully',
+        color: getColorVar('success'),
+    },
+    failed: {
+        name: 'Failed',
+        description: 'Total number of webhook events that had errors during processing',
+        color: getColorVar('danger'),
+    },
+}
 
 export function WebhookTab({ id }: { id: string }): JSX.Element {
     const {
@@ -82,9 +101,52 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                 />
             )}
             <WebhookDetailsSection webhookInfo={webhookInfo} />
+            {webhookInfo.hog_function?.id && <WebhookMetricsSection hogFunctionId={webhookInfo.hog_function.id} />}
             {mappedTables.length > 0 && <MappedTablesSection mappedTables={mappedTables} />}
             <WebhookDeleteSection canDelete={canDeleteWebhook} deleting={webhookDeleting} onDelete={deleteWebhook} />
         </div>
+    )
+}
+
+function WebhookMetricsSection({ hogFunctionId }: { hogFunctionId: string }): JSX.Element {
+    const logicKey = `webhook-metrics-${hogFunctionId}`
+    const logic = appMetricsLogic({
+        logicKey,
+        loadOnMount: true,
+        loadOnChanges: true,
+        forceParams: {
+            appSource: 'hog_function',
+            appSourceId: hogFunctionId,
+            metricName: [...WEBHOOK_METRIC_KEYS],
+            breakdownBy: 'metric_name',
+        },
+    })
+
+    const { appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
+
+    return (
+        <LemonCard hoverEffect={false} className="space-y-4">
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold mb-0">Metrics</h3>
+                <AppMetricsFilters logicKey={logicKey} />
+            </div>
+
+            <div className="flex flex-row gap-2 flex-wrap justify-center">
+                {WEBHOOK_METRIC_KEYS.map((key) => (
+                    <AppMetricSummary
+                        key={key}
+                        name={WEBHOOK_METRICS_INFO[key].name}
+                        description={WEBHOOK_METRICS_INFO[key].description}
+                        loading={appMetricsTrendsLoading}
+                        timeSeries={getSingleTrendSeries(key)}
+                        previousPeriodTimeSeries={getSingleTrendSeries(key, true)}
+                        color={WEBHOOK_METRICS_INFO[key].color}
+                        colorIfZero={getColorVar('muted')}
+                        hideIfZero={!['succeeded', 'failed'].includes(key)}
+                    />
+                ))}
+            </div>
+        </LemonCard>
     )
 }
 

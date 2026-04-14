@@ -169,13 +169,17 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const textContent = getTextContent(content, values.meFirstMembers)
 
+                    const composerAnchor = values.itemContext?.context
+                    const isNewAnchoredThread =
+                        composerAnchor && (composerAnchor.type === 'mark' || composerAnchor.type === 'node')
+
                     const newComment = await api.comments.create({
                         rich_content: content,
                         content: textContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
-                        source_comment: values.replyingCommentId ?? undefined,
+                        source_comment: isNewAnchoredThread ? undefined : (values.replyingCommentId ?? undefined),
                         mentions,
                         slug: discussionsSlug(props.scope, props.item_id),
                     })
@@ -253,8 +257,10 @@ export const commentsLogic = kea<commentsLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
-        setReplyingComment: () => {
-            actions.clearItemContext()
+        setReplyingComment: ({ commentId }) => {
+            if (commentId) {
+                actions.clearItemContext()
+            }
         },
         clearItemContext: () => {
             values.itemContext?.callback?.({ sent: false })

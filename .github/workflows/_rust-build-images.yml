@@ -170,7 +170,7 @@ jobs:
                   echo "json=${props}}" >> "$GITHUB_OUTPUT"
 
             - name: Report failure
-              if: failure()
+              if: failure() && github.event_name != 'pull_request'
               uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}

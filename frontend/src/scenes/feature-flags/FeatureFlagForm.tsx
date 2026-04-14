@@ -182,8 +182,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
-
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -994,14 +992,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
-                                        bucketingIdentifier={
-                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
-                                        }
-                                        onBucketingIdentifierChange={
-                                            showBucketingIdentifierUI
-                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
-                                                      setBucketingIdentifier(value)
-                                                : undefined
+                                        bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) =>
+                                            setBucketingIdentifier(value)
                                         }
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />

@@ -413,7 +413,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             { endpoint, type, newInput, propertyKey, eventNames, properties, refresh },
             breakpoint
         ) => {
-            if (['cohort', 'log'].includes(type)) {
+            if (['cohort', 'log', 'span', 'workflow_variable'].includes(type)) {
                 return
             }
             if (!propertyKey || values.currentTeamId === null) {
@@ -422,6 +422,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
 
             if (refresh !== 'force_blocking' && localOptions[getPropertyKey(type, propertyKey)]) {
                 actions.setOptions(propertyKey, localOptions[getPropertyKey(type, propertyKey)], false)
+                return
+            }
+
+            if (!endpoint && type === 'log_entry') {
                 return
             }
 
