@@ -14334,6 +14334,27 @@ export namespace Schemas {
       success: boolean;
     }
 
+    export interface ErrorTrackingIssueSplitFingerprint {
+      /** Fingerprint to split into a new issue. */
+      fingerprint: string;
+      /** Optional name for the new issue created from this fingerprint. */
+      name?: string;
+      /** Optional description for the new issue created from this fingerprint. */
+      description?: string;
+    }
+
+    export interface ErrorTrackingIssueSplitRequest {
+      /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
+      fingerprints?: ErrorTrackingIssueSplitFingerprint[];
+    }
+
+    export interface ErrorTrackingIssueSplitResponse {
+      /** Whether the split completed successfully. */
+      success: boolean;
+      /** IDs of the new issues created by the split. */
+      new_issue_ids: string[];
+    }
+
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
