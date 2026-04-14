@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
@@ -68,7 +67,7 @@ function SnapshotThumbnail({
                     )}
                 </div>
                 <div className="flex items-center gap-1 max-w-[108px]">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${RESULT_DOT_COLORS[result]}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${RESULT_DOT_COLORS[result] || 'bg-muted'}`} />
                     <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>
                         {shortName}
                     </span>
@@ -92,13 +91,7 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshotHistoryLoading,
         repoFullName,
     } = useValues(visualReviewRunSceneLogic)
-    const { loadRun, loadSnapshots, setSelectedSnapshotId, approveChanges, approveSnapshot } =
-        useActions(visualReviewRunSceneLogic)
-
-    useEffect(() => {
-        loadRun()
-        loadSnapshots()
-    }, [loadSnapshots, loadRun])
+    const { setSelectedSnapshotId, approveChanges, approveSnapshot } = useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
         return (
