@@ -162,7 +162,16 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
-        if !matches!(self.command, Commands::Login | Commands::Api { cmd: ApiCommand::List { .. } }) {
+        if !matches!(
+            self.command,
+            Commands::Login
+                | Commands::Api {
+                    cmd: ApiCommand::List { .. }
+                }
+                | Commands::Api {
+                    cmd: ApiCommand::Inspect { .. }
+                }
+        ) {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,

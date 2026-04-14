@@ -20,7 +20,21 @@ pub enum ApiCommand {
         filter: Option<String>,
     },
 
-    /// Call an API operation by its operation ID
+    /// Show details for an API operation (path, params, body)
+    Inspect {
+        /// Operation ID (supports fuzzy matching)
+        operation_id: String,
+    },
+
+    /// Call an API operation by its operation ID.
+    ///
+    /// Path params like project_id and environment_id are auto-filled from
+    /// your login context. Pass any overrides or extra params as JSON.
+    ///
+    /// Examples:
+    ///   posthog-cli api call feature_flags_list
+    ///   posthog-cli api call feature_flags_list '{"limit": "10"}'
+    ///   posthog-cli api call feature_flags_retrieve '{"id": "42"}'
     Call {
         /// Operation ID (e.g. "feature_flags_list", "dashboards_retrieve")
         /// Use `posthog-cli api list` to see all available operations.
@@ -28,7 +42,7 @@ pub enum ApiCommand {
 
         /// JSON object with parameters and request body.
         /// Path/query params are extracted by name, remaining fields become the request body.
-        /// Example: '{"project_id": "12345", "limit": "10"}'
+        /// project_id and environment_id are auto-filled from your login context.
         #[arg(default_value = "{}")]
         params_json: String,
     },
@@ -38,6 +52,7 @@ impl ApiCommand {
     pub fn run(self) -> Result<(), CapturedError> {
         match self {
             ApiCommand::List { filter } => list_operations(filter),
+            ApiCommand::Inspect { operation_id } => inspect_operation(&operation_id),
             ApiCommand::Call {
                 operation_id,
                 params_json,
@@ -65,12 +80,20 @@ fn list_operations(filter: Option<String>) -> Result<(), CapturedError> {
             }
         }
 
-        let summary = op.summary.unwrap_or("");
+        let desc = op
+            .summary
+            .or(op.description.map(|d| {
+                // Truncate long descriptions to first sentence
+                d.split('\n').next().unwrap_or(d)
+            }))
+            .unwrap_or("");
+        // Truncate to fit terminal
+        let desc_truncated: String = desc.chars().take(60).collect();
         println!(
             "  {:<8} {:<55} {}",
             op.method.as_str(),
             op.id,
-            summary
+            desc_truncated
         );
         printed += 1;
     }
@@ -86,12 +109,112 @@ fn list_operations(filter: Option<String>) -> Result<(), CapturedError> {
     Ok(())
 }
 
+fn inspect_operation(operation_id: &str) -> Result<(), CapturedError> {
+    let op = find_operation(operation_id)?;
+
+    println!("Operation: {}", op.id);
+    println!("Method:    {}", op.method.as_str());
+    println!("Path:      {}", op.path);
+
+    if let Some(desc) = op.description.or(op.summary) {
+        println!();
+        // Print first paragraph only
+        for line in desc.split('\n') {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                break;
+            }
+            println!("  {trimmed}");
+        }
+    }
+
+    let path_params: Vec<_> = op
+        .params
+        .iter()
+        .filter(|p| p.location == ParamLocation::Path)
+        .collect();
+    let query_params: Vec<_> = op
+        .params
+        .iter()
+        .filter(|p| p.location == ParamLocation::Query)
+        .collect();
+
+    if !path_params.is_empty() {
+        println!("\nPath parameters:");
+        for p in &path_params {
+            let req = if p.required { " (required)" } else { "" };
+            let auto = if p.name == "project_id" || p.name == "environment_id" {
+                " [auto-filled from login]"
+            } else {
+                ""
+            };
+            let desc = p.description.unwrap_or("");
+            println!("  {:<25} {}{}{}", p.name, desc, req, auto);
+        }
+    }
+
+    if !query_params.is_empty() {
+        println!("\nQuery parameters:");
+        for p in &query_params {
+            let req = if p.required { " (required)" } else { "" };
+            let desc = p.description.unwrap_or("");
+            println!("  {:<25} {}{}", p.name, desc, req);
+        }
+    }
+
+    if op.body.is_some() {
+        println!("\nAccepts request body (JSON)");
+        if let Some(schema) = op.body.as_ref().and_then(|b| b.schema_name) {
+            println!("  Schema: {schema}");
+        }
+    }
+
+    // Show example usage
+    println!("\nExample:");
+    let mut example_json = serde_json::Map::new();
+    for p in op.params.iter() {
+        if p.location == ParamLocation::Path
+            && p.name != "project_id"
+            && p.name != "environment_id"
+        {
+            example_json.insert(
+                p.name.to_string(),
+                serde_json::Value::String("...".to_string()),
+            );
+        }
+    }
+    if example_json.is_empty() {
+        println!("  posthog-cli api call {}", op.id);
+    } else {
+        let json_str = serde_json::to_string(&example_json).unwrap_or_default();
+        println!("  posthog-cli api call {} '{}'", op.id, json_str);
+    }
+
+    Ok(())
+}
+
 fn call_operation(operation_id: &str, params_json: &str) -> Result<(), CapturedError> {
     let op = find_operation(operation_id)?;
 
     let params: serde_json::Value = serde_json::from_str(params_json)
         .map_err(|e| anyhow::anyhow!("Invalid JSON params: {e}"))?;
-    let params_map = params.as_object().cloned().unwrap_or_default();
+    let mut params_map = params.as_object().cloned().unwrap_or_default();
+
+    // Auto-fill project_id and environment_id from the login context
+    let ctx = context();
+    let env_id = ctx.client.get_env_id().clone();
+    if !params_map.contains_key("project_id") {
+        params_map.insert(
+            "project_id".to_string(),
+            serde_json::Value::String(env_id.clone()),
+        );
+    }
+    if !params_map.contains_key("environment_id") {
+        params_map.insert(
+            "environment_id".to_string(),
+            serde_json::Value::String(env_id),
+        );
+    }
 
     // Build the URL by substituting path parameters
     let mut path = op.path.to_string();
@@ -111,8 +234,8 @@ fn call_operation(operation_id: &str, params_json: &str) -> Result<(), CapturedE
                     consumed_keys.insert(param.name.to_string());
                 } else if param.required {
                     return Err(anyhow::anyhow!(
-                        "Missing required path parameter: '{}'\nUsage: posthog-cli api call {} '{{\"{}\":\"...\"}}'",
-                        param.name, operation_id, param.name
+                        "Missing required path parameter: '{}'\n\nRun `posthog-cli api inspect {}` to see all parameters.",
+                        param.name, operation_id
                     )
                     .into());
                 }
@@ -124,7 +247,6 @@ fn call_operation(operation_id: &str, params_json: &str) -> Result<(), CapturedE
                 }
             }
             ParamLocation::Header => {
-                // Headers are handled separately if needed; skip for now
                 if value.is_some() {
                     consumed_keys.insert(param.name.to_string());
                 }
@@ -148,7 +270,6 @@ fn call_operation(operation_id: &str, params_json: &str) -> Result<(), CapturedE
     };
 
     // Build the full URL
-    let ctx = context();
     let host = &ctx.config.host;
     let mut url = reqwest::Url::parse(host)
         .map_err(|e| anyhow::anyhow!("Invalid host URL: {e}"))?
@@ -178,13 +299,14 @@ fn call_operation(operation_id: &str, params_json: &str) -> Result<(), CapturedE
 
     match response {
         Ok(resp) => {
-            let text = resp.text().map_err(|e| anyhow::anyhow!("Failed to read response: {e}"))?;
+            let text = resp
+                .text()
+                .map_err(|e| anyhow::anyhow!("Failed to read response: {e}"))?;
             // Try to pretty-print JSON, fall back to raw text
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&json)
-                        .unwrap_or(text)
+                    serde_json::to_string_pretty(&json).unwrap_or(text)
                 );
             } else {
                 println!("{text}");
