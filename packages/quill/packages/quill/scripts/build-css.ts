@@ -8,7 +8,7 @@
  * `dist/theme.css` and re-exposes it as `@posthog/quill/theme.css`. This
  * is the *opt-in* path for consumers who want their own Tailwind to
  * generate utility classes against quill's design tokens (e.g.
- * `bg-fill-active`, `text-muted-foreground`) — see README §"Authoring
+ * `text-muted-foreground`) — see README §"Authoring
  * against quill tokens".
  *
  * Runs `@tailwindcss/cli` as a child process so we don't have to pin
@@ -42,8 +42,8 @@ if (result.status !== 0) {
 // This file is intentionally NOT precompiled — consumers run it through
 // their own Tailwind v4 instance so the `@theme` declarations register
 // quill's design tokens with their compiler. Without this, consumer code
-// like `bg-fill-active` is silently dropped because the consumer's
-// Tailwind has no idea `--color-fill-active` exists.
+// like `bg-fill-hover` is silently dropped because the consumer's
+// Tailwind has no idea `--color-fill-hover` exists.
 const themeSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.css')
 const themeOutput = resolve(packageRoot, 'dist/theme.css')
 
