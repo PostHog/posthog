@@ -3,10 +3,11 @@ import os
 import json
 import tempfile
 import textwrap
+import subprocess
 from pathlib import Path
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -17,6 +18,7 @@ from bin.find_affected_tests import (
     _ast_get_imports,
     _build_ast_reverse_map,
     build_reverse_map,
+    changed_files_from_git,
     estimate_duration,
     is_test_module,
     load_durations,
@@ -399,6 +401,42 @@ class TestFullRunPatternsCompleteness(unittest.TestCase):
         self.assertTrue(requires_full_run("docker-compose.yml"))
         self.assertTrue(requires_full_run("docker-compose.dev.yml"))
         self.assertTrue(requires_full_run("docker-compose.base.yml"))
+
+
+class TestChangedFilesFromGit(unittest.TestCase):
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_passes_triple_dot_range_to_git(self, mock_run):
+        # `...` is the load-bearing detail — it resolves against the merge-base
+        # so files pulled in via a merge of base_ref into the branch are excluded.
+        mock_run.return_value = MagicMock(stdout="")
+        changed_files_from_git("origin/master")
+        args = mock_run.call_args.args[0]
+        self.assertEqual(args, ["git", "diff", "--name-only", "origin/master...HEAD"])
+
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_parses_stdout_lines(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="posthog/api/user.py\nposthog/models/team.py\n")
+        result = changed_files_from_git("origin/master")
+        self.assertEqual(result, ["posthog/api/user.py", "posthog/models/team.py"])
+
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_drops_blank_lines(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="a.py\n\n  \nb.py\n")
+        result = changed_files_from_git("origin/master")
+        self.assertEqual(result, ["a.py", "b.py"])
+
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_empty_diff_returns_empty_list(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="")
+        self.assertEqual(changed_files_from_git("origin/master"), [])
+
+    @patch("bin.find_affected_tests.subprocess.run")
+    def test_propagates_git_failure(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=128, cmd=["git", "diff"], stderr="fatal: bad revision"
+        )
+        with self.assertRaises(subprocess.CalledProcessError):
+            changed_files_from_git("does/not/exist")
 
 
 class TestLocalPackagesExist(unittest.TestCase):
