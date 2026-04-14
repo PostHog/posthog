@@ -256,24 +256,30 @@ mod tests {
 
     #[test]
     fn test_patch_otel_json_null_scalar_attrs() {
-        let mut v = serde_json::json!({
-            "resourceSpans": [{
-                "scopeSpans": [{
-                    "spans": [{
-                        "attributes": [
-                            {"key": "gen_ai.usage.cost", "value": {"doubleValue": null}},
-                            {"key": "gen_ai.usage.tokens", "value": {"intValue": null}},
-                            {"key": "gen_ai.model", "value": {"stringValue": "gpt-4"}}
-                        ]
-                    }]
-                }]
-            }]
-        });
+        for field in &[
+            "doubleValue",
+            "intValue",
+            "stringValue",
+            "boolValue",
+            "bytesValue",
+        ] {
+            let mut v = serde_json::json!({"value": {}});
+            v["value"]
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_string(), Value::Null);
+            patch_otel_json(&mut v);
+            assert_eq!(
+                v["value"],
+                Value::Null,
+                "field `{field}` with null should be stripped"
+            );
+        }
+
+        // Non-null scalar must be preserved.
+        let mut v = serde_json::json!({"value": {"stringValue": "gpt-4"}});
         patch_otel_json(&mut v);
-        let attrs = &v["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"];
-        assert_eq!(attrs[0]["value"], Value::Null);
-        assert_eq!(attrs[1]["value"], Value::Null);
-        assert_eq!(attrs[2]["value"]["stringValue"], "gpt-4");
+        assert_eq!(v["value"]["stringValue"], "gpt-4");
     }
 
     #[test]
