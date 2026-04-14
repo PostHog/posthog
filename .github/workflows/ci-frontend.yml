@@ -215,6 +215,7 @@ jobs:
               if: |
                   (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
                   (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')
+              continue-on-error: true
               uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
@@ -367,6 +368,7 @@ jobs:
                   status-job: 'Frontend Tests Pass'
                   runner: 'github'
             - name: Capture running time to DevEx PostHog
+              continue-on-error: true
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
