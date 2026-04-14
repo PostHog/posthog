@@ -15,7 +15,7 @@ export type KafkaConfigTarget =
     | 'CONSUMER'
     | 'CDP_PRODUCER'
     | 'WARPSTREAM_PRODUCER'
-    | 'HOGTRANSFORMER_PRODUCER'
+    | 'MONITORING_PRODUCER'
     | 'METRICS_PRODUCER'
     | 'WAREHOUSE_PRODUCER'
 

@@ -49,7 +49,7 @@ export class PluginServer implements NodeServer {
 
     // Infrastructure resources (tracked for shutdown cleanup)
     private kafkaProducer?: KafkaProducerWrapper
-    private hogTransformerProducer?: KafkaProducerWrapper
+    private monitoringProducer?: KafkaProducerWrapper
     private postgres?: PostgresRouter
     private redisPool?: RedisPool
     private posthogRedisPool?: RedisPool
@@ -113,7 +113,7 @@ export class PluginServer implements NodeServer {
                   teamManager,
                   integrationManager: cdpServices!.integrationManager,
                   kafkaProducer: this.kafkaProducer!,
-                  hogTransformerProducer: this.hogTransformerProducer!,
+                  monitoringProducer: this.monitoringProducer!,
                   internalCaptureService: cdpServices!.internalCaptureService,
                   personRepository: cdpServices!.personRepository,
                   geoipService: cdpServices!.geoipService,
@@ -269,7 +269,7 @@ export class PluginServer implements NodeServer {
 
     private getCleanupResources(): CleanupResources {
         return {
-            kafkaProducers: [this.kafkaProducer, this.hogTransformerProducer].filter(Boolean) as KafkaProducerWrapper[],
+            kafkaProducers: [this.kafkaProducer, this.monitoringProducer].filter(Boolean) as KafkaProducerWrapper[],
             redisPools: [this.redisPool, this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
@@ -288,9 +288,9 @@ export class PluginServer implements NodeServer {
 
         logger.info('🤔', 'Connecting to Kafka...')
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        this.hogTransformerProducer = await KafkaProducerWrapper.create(
+        this.monitoringProducer = await KafkaProducerWrapper.create(
             this.config.KAFKA_CLIENT_RACK,
-            'HOGTRANSFORMER_PRODUCER'
+            'MONITORING_PRODUCER'
         )
         logger.info('👍', 'Kafka ready')
 
