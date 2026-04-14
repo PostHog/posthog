@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from bin.find_affected_tests import (
-    FILE_ALIASES,
     FULL_RUN_PATTERNS,
     LOCAL_PACKAGES,
     REPO_ROOT,
@@ -72,8 +71,6 @@ class TestRequiresFullRun(unittest.TestCase):
             ("ci_backend", ".github/workflows/ci-backend.yml", True),
             ("docker_compose", "docker-compose.dev.yml", True),
             ("docker_ch", "docker/clickhouse/config.xml", True),
-            # schema.json no longer forces full-run — it's aliased to posthog/schema.py
-            # so the import graph identifies actual test dependents.
             ("schema_json_not_full", "frontend/src/queries/schema.json", False),
             ("email_templates", "frontend/public/email/template.html", True),
             ("rust_property_models", "rust/feature-flags/src/properties/property_models.rs", True),
@@ -101,9 +98,6 @@ class TestPatternIsCovered(unittest.TestCase):
             ("conftest", "conftest.py", True),
             ("docker_compose", "docker-compose*", True),
             ("gate_only_bin", "bin/build-schema-latest-versions.py", True),
-            # Aliased files still need to be covered by the dorny sync check
-            # since they're in the backend filter but no longer in FULL_RUN_PATTERNS.
-            ("alias_schema_json", "frontend/src/queries/schema.json", True),
             ("random_uncovered", "some/random/path", False),
         ]
     )
@@ -133,35 +127,6 @@ class TestHasNoTestDepsByPath(unittest.TestCase):
     )
     def test_path_matching(self, _name, path, expected):
         self.assertEqual(has_no_test_deps_by_path(path), expected, f"Failed for {path}")
-
-
-class TestFileAliases(unittest.TestCase):
-    def test_schema_json_aliases_to_schema_py(self):
-        # Guards the key invariant: schema.json drives posthog/schema.py via
-        # codegen, and pointing the alias at any other target would silently
-        # skip tests that actually depend on schema changes.
-        self.assertEqual(FILE_ALIASES.get("frontend/src/queries/schema.json"), "posthog/schema.py")
-
-    def test_alias_targets_exist_on_disk(self):
-        # Aliases point at generated Python files — if a target file disappears,
-        # the alias becomes a silent black hole (the translated path wouldn't
-        # match anything in the reverse map and we'd fall through to "no tests
-        # depend on it"). Catch that drift here rather than in production CI.
-        for source, target in FILE_ALIASES.items():
-            self.assertTrue(
-                os.path.isfile(os.path.join(REPO_ROOT, target)),
-                f"FILE_ALIASES[{source!r}] points at {target!r} which doesn't exist on disk",
-            )
-
-    def test_aliased_sources_are_not_also_in_full_run_patterns(self):
-        # Leaving an alias source in FULL_RUN_PATTERNS would short-circuit to
-        # full-run before the alias translation ever runs.
-        for source in FILE_ALIASES:
-            for pattern in FULL_RUN_PATTERNS:
-                self.assertFalse(
-                    pattern in source,
-                    f"{source!r} is aliased but also matches FULL_RUN_PATTERNS entry {pattern!r}",
-                )
 
 
 class TestAstGetImports(unittest.TestCase):
