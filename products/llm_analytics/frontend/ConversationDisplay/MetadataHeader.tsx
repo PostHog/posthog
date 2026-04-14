@@ -5,6 +5,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { lowercaseFirstLetter } from 'lib/utils'
 
+import { CostBreakdownTooltip } from '../components/CostBreakdownTooltip'
 import { MetadataTag } from '../components/MetadataTag'
 import { formatLLMCost } from '../utils'
 
@@ -76,11 +77,11 @@ export function MetadataHeader({
                     label="Total generation cost"
                     tooltipContent={
                         typeof inputCostUsd === 'number' || typeof outputCostUsd === 'number' ? (
-                            <div className="flex flex-col gap-0.5">
-                                {typeof inputCostUsd === 'number' && <div>Input: {formatLLMCost(inputCostUsd)}</div>}
-                                {typeof outputCostUsd === 'number' && <div>Output: {formatLLMCost(outputCostUsd)}</div>}
-                                <div className="font-semibold">Total: {formatLLMCost(totalCostUsd)}</div>
-                            </div>
+                            <CostBreakdownTooltip
+                                inputCost={inputCostUsd}
+                                outputCost={outputCostUsd}
+                                totalCost={totalCostUsd}
+                            />
                         ) : undefined
                     }
                 >

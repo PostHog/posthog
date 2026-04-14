@@ -11,6 +11,7 @@ import { EventType } from '~/types'
 
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { formatLLMCost } from '../utils'
+import { CostBreakdownTooltip } from './CostBreakdownTooltip'
 import { SentimentBar } from './SentimentTag'
 
 interface LLMAnalyticsEventCardProps {
@@ -98,15 +99,11 @@ export function LLMAnalyticsEventCard({
                             title={
                                 typeof event.properties.$ai_input_cost_usd === 'number' ||
                                 typeof event.properties.$ai_output_cost_usd === 'number' ? (
-                                    <div className="flex flex-col gap-0.5">
-                                        {typeof event.properties.$ai_input_cost_usd === 'number' && (
-                                            <div>Input: {formatLLMCost(event.properties.$ai_input_cost_usd)}</div>
-                                        )}
-                                        {typeof event.properties.$ai_output_cost_usd === 'number' && (
-                                            <div>Output: {formatLLMCost(event.properties.$ai_output_cost_usd)}</div>
-                                        )}
-                                        <div className="font-semibold">Total: {formatLLMCost(cost)}</div>
-                                    </div>
+                                    <CostBreakdownTooltip
+                                        inputCost={event.properties.$ai_input_cost_usd}
+                                        outputCost={event.properties.$ai_output_cost_usd}
+                                        totalCost={cost}
+                                    />
                                 ) : (
                                     'Total cost'
                                 )

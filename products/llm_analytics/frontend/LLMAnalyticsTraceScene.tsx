@@ -40,7 +40,6 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -58,6 +57,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { ClustersTabContent } from './components/ClustersTabContent'
+import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
@@ -616,20 +616,7 @@ function CostChip({
 
     const tooltipContent =
         hasBreakdown || hasBilling ? (
-            <div className="flex flex-col gap-0.5">
-                {typeof inputCost === 'number' && (
-                    <div className="flex items-center gap-1">
-                        <IconArrowUp className="text-xs" />
-                        Input: {formatLLMCost(inputCost)}
-                    </div>
-                )}
-                {typeof outputCost === 'number' && (
-                    <div className="flex items-center gap-1">
-                        <IconArrowDown className="text-xs" />
-                        Output: {formatLLMCost(outputCost)}
-                    </div>
-                )}
-                <div className="font-semibold">Total: {formatLLMCost(totalCost)}</div>
+            <CostBreakdownTooltip inputCost={inputCost} outputCost={outputCost} totalCost={totalCost}>
                 {hasBilling && (
                     <>
                         <hr className="my-0.5 border-border" />
@@ -640,7 +627,7 @@ function CostChip({
                         {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
                     </>
                 )}
-            </div>
+            </CostBreakdownTooltip>
         ) : undefined
 
     return (
