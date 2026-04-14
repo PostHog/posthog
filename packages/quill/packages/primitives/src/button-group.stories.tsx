@@ -45,3 +45,20 @@ export const Default: Story = {
         </div>
     ),
 } satisfies Story
+
+export const Vertical: Story = {
+    render: () => (
+        <div className="flex flex-col gap-2">
+            <ButtonGroup orientation="vertical">
+                <ButtonGroup>
+                    <Button variant="outline">Button 1</Button>
+                </ButtonGroup>
+                <ButtonGroup>
+                    <Button variant="outline">Button 2</Button>
+                    <Button variant="outline">Button 3</Button>
+                    <Button variant="outline">Button 4</Button>
+                </ButtonGroup>
+            </ButtonGroup>
+        </div>
+    ),
+} satisfies Story
