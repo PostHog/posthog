@@ -48,8 +48,9 @@ pub struct EvaluationResult<Id: Copy + Eq + std::hash::Hash> {
     /// Node IDs grouped by evaluation stage. Stage 0 = leaves (no deps).
     /// Each inner Vec is sorted by ID for determinism.
     pub stages: Vec<Vec<Id>>,
-    /// Node ID → set of all transitive dependency node IDs.
-    /// Cycle participants get empty sets.
+    /// Node ID → set of all transitive dependency node IDs for nodes remaining
+    /// in the graph. Nodes removed before evaluation (e.g. cycle participants)
+    /// will be absent — callers should backfill empty entries if needed.
     pub transitive_deps: HashMap<Id, HashSet<Id>>,
     /// Sorted list of node IDs with missing, cyclic, or transitively broken deps.
     pub nodes_with_missing_deps: Vec<Id>,
