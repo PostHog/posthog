@@ -81,6 +81,9 @@ jobs:
                         - 'docker/postgres-init-scripts/**'
                         # Persons DB migrations (sqlx migrate run)
                         - 'rust/persons_migrations/**'
+                        # Django entry point + pytest config
+                        - manage.py
+                        - pytest.ini
                         - pyproject.toml
                         - uv.lock
 
