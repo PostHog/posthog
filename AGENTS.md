@@ -3,9 +3,9 @@
 ## Codebase Structure
 
 - Key entry points: `posthog/api/__init__.py` (URL routing), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
-- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
-- [Products README](products/README.md) - how to create and structure products
-- [Products architecture](products/architecture.md) - DTOs, facades, isolated testing
+- [Monorepo layout](docs/internal/monorepo-layout.md) — high-level directory structure (products, services, common)
+- [Products README](products/README.md) — how to create and structure products
+- [Products architecture](products/architecture.md) — DTOs, facades, isolated testing
 
 ## Commands
 
