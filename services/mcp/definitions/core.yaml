@@ -542,3 +542,6 @@ tools:
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
         enabled: false
+    users-github-login-retrieve:
+        operation: users_github_login_retrieve
+        enabled: false

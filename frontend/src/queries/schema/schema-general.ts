@@ -955,7 +955,7 @@ export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
      * Filter sessions by action - sessions that contain events matching this action
      */
     actionId?: integer
-    /** Event property filters - only applies when event or actionId is set */
+    /** Event property filters - filters sessions that contain events matching these properties */
     eventProperties?: AnyPropertyFilter[]
 }
 
@@ -3401,7 +3401,7 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 
 export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
+export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {

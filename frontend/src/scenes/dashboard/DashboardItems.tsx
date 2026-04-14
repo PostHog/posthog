@@ -86,6 +86,11 @@ export function DashboardItems(): JSX.Element {
             if (scrollAnimationRef.current) {
                 cancelAnimationFrame(scrollAnimationRef.current)
             }
+            if (dragEndTimeout.current) {
+                window.clearTimeout(dragEndTimeout.current)
+            }
+            scrollContainerRef.current = null
+            scrollContainerRectRef.current = null
         }
     }, [])
     const className = clsx({
