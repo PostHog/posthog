@@ -28,11 +28,15 @@ from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries imp
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
     PATH_BOUNCE_AND_AVG_TIME_QUERY,
+    PATH_BOUNCE_AND_AVG_TIME_QUERY_PREFILTERED,
     PATH_BOUNCE_QUERY,
+    PATH_BOUNCE_QUERY_PREFILTERED,
     PATH_SCROLL_BOUNCE_QUERY,
+    PATH_SCROLL_BOUNCE_QUERY_PREFILTERED,
 )
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
@@ -150,24 +154,31 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy not in [WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE]:
             raise NotImplementedError("Time on page is only supported for page breakdowns")
 
+        use_prefilter = is_web_analytics_events_prefilter_team(self.team.pk)
+
         with self.timings.measure("stats_table_time_on_page_query"):
+            placeholders = {
+                "breakdown_value": self._counts_breakdown_value(),
+                "session_properties": self._session_properties(),
+                "event_properties": self._event_properties(),
+                "time_on_page_event_properties": self._event_properties_for_scroll(),
+                "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
+                "bounce_event_properties": self._event_properties_for_bounce_rate(),
+                "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                "current_period": self._current_period_expression(),
+                "previous_period": self._previous_period_expression(),
+                "avg_current_period": self._current_period_expression("timestamp"),
+                "avg_previous_period": self._previous_period_expression("timestamp"),
+                "inside_periods": self._periods_expression(),
+            }
+            if use_prefilter:
+                placeholders["events_prefilter"] = self._events_prefilter_expr()
+                placeholders["events_prefilter_scroll"] = self._events_prefilter_expr()
+
             query = parse_select(
-                PATH_BOUNCE_AND_AVG_TIME_QUERY,
+                PATH_BOUNCE_AND_AVG_TIME_QUERY_PREFILTERED if use_prefilter else PATH_BOUNCE_AND_AVG_TIME_QUERY,
                 timings=self.timings,
-                placeholders={
-                    "breakdown_value": self._counts_breakdown_value(),
-                    "session_properties": self._session_properties(),
-                    "event_properties": self._event_properties(),
-                    "time_on_page_event_properties": self._event_properties_for_scroll(),
-                    "time_on_page_breakdown_value": self._scroll_prev_pathname_breakdown(),
-                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
-                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                    "current_period": self._current_period_expression(),
-                    "previous_period": self._previous_period_expression(),
-                    "avg_current_period": self._current_period_expression("timestamp"),
-                    "avg_previous_period": self._previous_period_expression("timestamp"),
-                    "inside_periods": self._periods_expression(),
-                },
+                placeholders=placeholders,
             )
         assert isinstance(query, ast.SelectQuery)
 
@@ -185,21 +196,28 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         return query
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
+        use_prefilter = is_web_analytics_events_prefilter_team(self.team.pk)
+
         with self.timings.measure("stats_table_bounce_query"):
+            placeholders = {
+                "session_properties": self._session_properties(),
+                "event_properties": self._event_properties(),
+                "event_properties_for_scroll": self._event_properties_for_scroll(),
+                "breakdown_value": self._counts_breakdown_value(),
+                "scroll_breakdown_value": self._scroll_prev_pathname_breakdown(),
+                "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                "current_period": self._current_period_expression(),
+                "previous_period": self._previous_period_expression(),
+                "inside_periods": self._periods_expression(),
+            }
+            if use_prefilter:
+                placeholders["events_prefilter"] = self._events_prefilter_expr()
+                placeholders["events_prefilter_scroll"] = self._events_prefilter_expr()
+
             query = parse_select(
-                PATH_SCROLL_BOUNCE_QUERY,
+                PATH_SCROLL_BOUNCE_QUERY_PREFILTERED if use_prefilter else PATH_SCROLL_BOUNCE_QUERY,
                 timings=self.timings,
-                placeholders={
-                    "session_properties": self._session_properties(),
-                    "event_properties": self._event_properties(),
-                    "event_properties_for_scroll": self._event_properties_for_scroll(),
-                    "breakdown_value": self._counts_breakdown_value(),
-                    "scroll_breakdown_value": self._scroll_prev_pathname_breakdown(),
-                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                    "current_period": self._current_period_expression(),
-                    "previous_period": self._previous_period_expression(),
-                    "inside_periods": self._periods_expression(),
-                },
+                placeholders=placeholders,
             )
         assert isinstance(query, ast.SelectQuery)
 
@@ -217,20 +235,26 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if self.query.breakdownBy not in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]:
             raise NotImplementedError("Bounce rate is only supported for page breakdowns")
 
+        use_prefilter = is_web_analytics_events_prefilter_team(self.team.pk)
+
         with self.timings.measure("stats_table_scroll_query"):
+            placeholders = {
+                "breakdown_value": self._counts_breakdown_value(),
+                "session_properties": self._session_properties(),
+                "event_properties": self._event_properties(),
+                "bounce_event_properties": self._event_properties_for_bounce_rate(),
+                "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
+                "current_period": self._current_period_expression(),
+                "previous_period": self._previous_period_expression(),
+                "inside_periods": self._periods_expression(),
+            }
+            if use_prefilter:
+                placeholders["events_prefilter"] = self._events_prefilter_expr()
+
             query = parse_select(
-                PATH_BOUNCE_QUERY,
+                PATH_BOUNCE_QUERY_PREFILTERED if use_prefilter else PATH_BOUNCE_QUERY,
                 timings=self.timings,
-                placeholders={
-                    "breakdown_value": self._counts_breakdown_value(),
-                    "session_properties": self._session_properties(),
-                    "event_properties": self._event_properties(),
-                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
-                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
-                    "current_period": self._current_period_expression(),
-                    "previous_period": self._previous_period_expression(),
-                    "inside_periods": self._periods_expression(),
-                },
+                placeholders=placeholders,
             )
         assert isinstance(query, ast.SelectQuery)
 

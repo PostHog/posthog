@@ -541,6 +541,25 @@ WHERE
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
+    def _events_prefilter_expr(self) -> ast.Expr:
+        date_from = (self.query_date_range.date_from() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        date_to = (self.query_date_range.date_to() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "timestamp"]),
+                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_from), ast.Constant(value="UTC")]),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["events", "timestamp"]),
+                    right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_to), ast.Constant(value="UTC")]),
+                    op=ast.CompareOperationOp.LtEq,
+                ),
+            ]
+        )
+
     @cached_property
     def events_session_property(self):
         # we should delete this once SessionsV2JoinMode is always uuid, eventually we will always use $session_id_uuid
