@@ -16,7 +16,11 @@ import {
     isWinning,
 } from '../shared/utils'
 
-export const renderTooltipContent = (variantResult: ExperimentVariantResult, metric: ExperimentMetric): JSX.Element => {
+export const renderTooltipContent = (
+    variantResult: ExperimentVariantResult,
+    metric: ExperimentMetric,
+    timeseriesEnabled?: boolean
+): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
     const significant = isSignificant(variantResult)
@@ -73,6 +77,10 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
                 <span className="text-muted-alt font-semibold">{intervalLabel}:</span>
                 <span className="font-semibold">{intervalPercent}</span>
             </div>
+
+            {timeseriesEnabled && (
+                <div className="text-muted-alt text-xs mt-1 text-center">Click to view timeseries</div>
+            )}
         </div>
     )
 }
