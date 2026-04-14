@@ -43,7 +43,7 @@ const viewList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
                 ),
             },
             '/sql'

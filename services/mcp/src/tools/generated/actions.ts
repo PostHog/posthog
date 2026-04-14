@@ -35,7 +35,7 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Sc
                 {
                     ...result,
                     results: await Promise.all(
-                        result.results.map((item) =>
+                        (result.results ?? []).map((item) =>
                             withPostHogUrl(context, item, `/data-management/actions/${item.id}`)
                         )
                     ),

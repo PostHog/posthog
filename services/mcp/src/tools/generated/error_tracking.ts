@@ -39,7 +39,9 @@ const errorTrackingIssuesList = (): ToolBase<
                 {
                     ...result,
                     results: await Promise.all(
-                        result.results.map((item) => withPostHogUrl(context, item, `/error_tracking/${item.id}`))
+                        (result.results ?? []).map((item) =>
+                            withPostHogUrl(context, item, `/error_tracking/${item.id}`)
+                        )
                     ),
                 },
                 '/error_tracking'
