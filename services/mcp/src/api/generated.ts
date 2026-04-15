@@ -14418,6 +14418,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `error` - Error
+     */
+    export type EvaluationStatusEnum = typeof EvaluationStatusEnum[keyof typeof EvaluationStatusEnum];
+
+
+    export const EvaluationStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Error: 'error',
+    } as const;
+
+    /**
+     * * `trial_limit_reached` - Trial evaluation limit reached
+    * `model_not_allowed` - Model not available on the trial plan
+    * `provider_key_deleted` - Provider API key was deleted
+     */
+    export type StatusReasonEnum = typeof StatusReasonEnum[keyof typeof StatusReasonEnum];
+
+
+    export const StatusReasonEnum = {
+      TrialLimitReached: 'trial_limit_reached',
+      ModelNotAllowed: 'model_not_allowed',
+      ProviderKeyDeleted: 'provider_key_deleted',
+    } as const;
+
+    /**
      * * `llm_judge` - LLM as a judge
     * `hog` - Hog
      */
@@ -14476,6 +14504,8 @@ export namespace Schemas {
       name: string;
       description?: string;
       enabled?: boolean;
+      readonly status: EvaluationStatusEnum;
+      readonly status_reason: StatusReasonEnum | NullEnum | null;
       evaluation_type: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type: OutputTypeEnum;
@@ -24073,6 +24103,8 @@ export namespace Schemas {
       name?: string;
       description?: string;
       enabled?: boolean;
+      readonly status?: EvaluationStatusEnum;
+      readonly status_reason?: StatusReasonEnum | NullEnum | null;
       evaluation_type?: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type?: OutputTypeEnum;
