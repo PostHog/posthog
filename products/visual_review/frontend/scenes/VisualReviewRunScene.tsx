@@ -113,8 +113,9 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
-    // Count by result type
-    const changedCount = snapshots.filter((s: SnapshotApi) => s.result === 'changed').length
+    // Count by result type — tolerated snapshots are excluded from the changed count
+    const toleratedCount = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
+    const changedCount = snapshots.filter((s: SnapshotApi) => s.result === 'changed').length - toleratedCount
     const newCount = snapshots.filter((s: SnapshotApi) => s.result === 'new').length
     const removedCount = snapshots.filter((s: SnapshotApi) => s.result === 'removed').length
 
@@ -170,10 +171,10 @@ export function VisualReviewRunScene(): JSX.Element {
                             {newCount > 0 && <span className="text-primary-dark">{newCount} new</span>}
                             {newCount > 0 && removedCount > 0 && ' · '}
                             {removedCount > 0 && <span className="text-danger">{removedCount} removed</span>}
-                            {(run.summary.tolerated_matched ?? 0) > 0 && (
+                            {toleratedCount > 0 && (
                                 <>
                                     {(changedCount > 0 || newCount > 0 || removedCount > 0) && ' · '}
-                                    <span className="text-muted">{run.summary.tolerated_matched} tolerated</span>
+                                    <span className="text-muted">{toleratedCount} tolerated</span>
                                 </>
                             )}
                         </span>
