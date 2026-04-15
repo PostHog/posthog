@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FieldName, Form, Group } from 'kea-forms'
 import React, { useEffect, useState } from 'react'
 
@@ -10,6 +10,7 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
+    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
@@ -22,9 +23,9 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
-import { ExternalDataSourceType } from '~/types'
+import { ExternalDataSourceType, SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
@@ -269,7 +270,9 @@ function CDCRequirementsPanel(): JSX.Element {
                             <code>rds.logical_replication = 1</code>.
                         </li>
                         <li>
-                            <code>max_replication_slots</code> and <code>max_wal_senders</code> at least 10.
+                            <code>max_replication_slots</code> and <code>max_wal_senders</code> with at least one free
+                            slot for PostHog. Postgres' defaults (10) are plenty unless other consumers share the same
+                            database.
                         </li>
                         <li>
                             Database user with the <code>REPLICATION</code> role for PostHog-managed mode (
@@ -292,25 +295,77 @@ function CDCRequirementsPanel(): JSX.Element {
 }
 
 function CDCPrerequisitesCheck(): JSX.Element {
-    const { sourceConnectionDetails } = useValues(sourceWizardLogic)
+    const { sourceConnectionDetails, sourceConnectionDetailsValidationErrors, selectedConnector } =
+        useValues(sourceWizardLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { touchSourceConnectionDetailsField } = useActions(sourceWizardLogic)
     const [loading, setLoading] = useState(false)
     const [result, setResult] = useState<{ valid: boolean; errors: string[] } | null>(null)
 
+    const collectFieldPaths = (fields: any[], prefix: string): string[] => {
+        const paths: string[] = []
+        for (const f of fields ?? []) {
+            if (!f?.name) {
+                continue
+            }
+            const path = prefix ? `${prefix}.${f.name}` : f.name
+            paths.push(path)
+            if (Array.isArray(f.fields)) {
+                paths.push(...collectFieldPaths(f.fields, path))
+            }
+        }
+        return paths
+    }
+
+    const hasFormErrors = (errs: any): boolean => {
+        if (!errs) {
+            return false
+        }
+        if (typeof errs === 'string') {
+            return errs.length > 0
+        }
+        if (Array.isArray(errs)) {
+            return errs.some(hasFormErrors)
+        }
+        if (typeof errs === 'object') {
+            return Object.values(errs).some(hasFormErrors)
+        }
+        return false
+    }
+
     const runCheck = async (): Promise<void> => {
+        // Mirror the Next button: if the connection form is invalid, highlight missing fields and bail.
+        if (hasFormErrors(sourceConnectionDetailsValidationErrors)) {
+            for (const path of collectFieldPaths(selectedConnector?.fields ?? [], '')) {
+                touchSourceConnectionDetailsField(path)
+            }
+            // Also touch top-level required fields that live outside `payload` (prefix, access_method)
+            touchSourceConnectionDetailsField('prefix')
+            lemonToast.error('Please fill in all required connection fields before checking prerequisites.')
+            return
+        }
+
         setLoading(true)
         setResult(null)
         try {
             const payload = sourceConnectionDetails?.payload || {}
             const managementMode = (payload.cdc_management_mode || 'posthog') as 'posthog' | 'self_managed'
-            const response = await api.externalDataSources.check_cdc_prerequisites({
-                source_type: 'Postgres' as ExternalDataSourceType,
-                ...payload,
-                cdc_management_mode: managementMode,
-                // Pre-selection: no table list yet. Slot/pub checks only relevant in self_managed popup.
-                tables: [],
-                cdc_slot_name: managementMode === 'self_managed' ? payload.cdc_slot_name : null,
-                cdc_publication_name: managementMode === 'self_managed' ? payload.cdc_publication_name : null,
-            })
+            if (!currentTeamId) {
+                lemonToast.error('No project selected — reload the page and try again.')
+                return
+            }
+            const response = await api.externalDataSources.check_cdc_prerequisites(
+                {
+                    source_type: 'Postgres' as ExternalDataSourceType,
+                    ...payload,
+                    cdc_management_mode: managementMode,
+                    // Pre-selection: no table list yet. Slot/pub checks only relevant in self_managed popup.
+                    tables: [],
+                    cdc_slot_name: managementMode === 'self_managed' ? payload.cdc_slot_name : null,
+                    cdc_publication_name: managementMode === 'self_managed' ? payload.cdc_publication_name : null,
+                },
+                currentTeamId
+            )
             setResult(response)
         } catch (e: any) {
             lemonToast.error(e?.detail || e?.message || 'Failed to check prerequisites')
@@ -318,6 +373,24 @@ function CDCPrerequisitesCheck(): JSX.Element {
             setLoading(false)
         }
     }
+
+    const checkedManagementMode = (sourceConnectionDetails?.payload?.cdc_management_mode || 'posthog') as
+        | 'posthog'
+        | 'self_managed'
+
+    // When running as PostHog-managed and the only blockers are PostHog-managed-specific
+    // (replication role, slot capacity), self-managed mode is a valid escape hatch.
+    const posthogManagedOnlyBlockers =
+        result &&
+        !result.valid &&
+        checkedManagementMode === 'posthog' &&
+        result.errors.length > 0 &&
+        result.errors.every(
+            (err) =>
+                err.includes('cannot create logical replication slots') ||
+                err.includes('REPLICATION role') ||
+                err.includes('No replication slot capacity available')
+        )
 
     return (
         <div>
@@ -340,6 +413,16 @@ function CDCPrerequisitesCheck(): JSX.Element {
                     )}
                 </LemonBanner>
             )}
+            {posthogManagedOnlyBlockers && (
+                <LemonBanner type="info" className="mt-2">
+                    <p className="m-0 text-sm">
+                        Your database is otherwise ready — these blockers only apply to PostHog-managed CDC. Switch to{' '}
+                        <strong>Self-managed</strong> below: you (or your DBA) create the replication slot and
+                        publication once using an admin user, and PostHog connects with a read-only user that only needs{' '}
+                        <code>SELECT</code>.
+                    </p>
+                </LemonBanner>
+            )}
         </div>
     )
 }
@@ -351,14 +434,35 @@ function CDCConfigSection(): JSX.Element {
     return (
         <Group name="payload">
             <div className="space-y-4 mt-4">
-                <LemonField name="cdc_enabled" label="Change data capture (CDC)">
+                <LemonField name="cdc_enabled">
                     {({ value: cdcEnabled, onChange }) => (
-                        <>
-                            <p className="text-xs text-secondary mb-2">
-                                CDC captures inserts, updates, and deletes via PostgreSQL logical replication.
-                            </p>
-                            <LemonSwitch checked={!!cdcEnabled} onChange={onChange} />
-                        </>
+                        <div
+                            className={`rounded border p-4 ${
+                                cdcEnabled
+                                    ? 'border-success/40 bg-success-highlight/40'
+                                    : 'border-success/40 bg-success-highlight/20'
+                            }`}
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
+                                        <LemonTag type="success">Recommended</LemonTag>
+                                    </div>
+                                    <p className="text-sm text-secondary mb-2">
+                                        Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
+                                        and <strong>deletes</strong> — the other sync modes can't. No full table scans
+                                        and no reliance on an <code>updated_at</code> field.
+                                    </p>
+                                </div>
+                                <LemonSwitch checked={!!cdcEnabled} onChange={onChange} />
+                            </div>
+                            <LemonDivider className="my-3" />
+                            <CDCRequirementsPanel />
+                            <div className="mt-2">
+                                <CDCPrerequisitesCheck />
+                            </div>
+                        </div>
                     )}
                 </LemonField>
 
@@ -437,9 +541,6 @@ function CDCConfigSection(): JSX.Element {
                                         )
                                     }
                                 </LemonField>
-
-                                <CDCRequirementsPanel />
-                                <CDCPrerequisitesCheck />
 
                                 <div>
                                     <button

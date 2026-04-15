@@ -121,16 +121,38 @@ def _check_select_permission(conn: psycopg.Connection, schema: str, tables: list
 
 
 def _check_replication_role(conn: psycopg.Connection) -> list[str]:
-    """Check if current user has REPLICATION role (PostHog-managed mode)."""
+    """Check if current user can create logical replication slots (PostHog-managed mode).
+
+    Any of the following is sufficient:
+      - rolsuper: superusers can always create slots
+      - rolreplication: the standard REPLICATION attribute
+      - membership in rds_replication or rds_superuser: AWS RDS's equivalent
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT rolreplication FROM pg_roles WHERE rolname = current_user")
+        cur.execute(
+            """
+            SELECT
+                r.rolsuper
+                OR r.rolreplication
+                OR EXISTS (
+                    SELECT 1
+                    FROM pg_auth_members m
+                    JOIN pg_roles parent ON parent.oid = m.roleid
+                    WHERE m.member = r.oid
+                      AND parent.rolname IN ('rds_replication', 'rds_superuser')
+                )
+            FROM pg_roles r
+            WHERE r.rolname = current_user
+            """
+        )
         row = cur.fetchone()
         if row is None:
             return ["Could not determine user roles."]
         if not row[0]:
             return [
-                "The database user must have the REPLICATION role for PostHog-managed CDC. "
-                "Run: ALTER USER <username> WITH REPLICATION;"
+                "The database user cannot create logical replication slots. "
+                "Grant one of: REPLICATION attribute (ALTER USER <username> WITH REPLICATION), "
+                "superuser, or membership in rds_replication / rds_superuser on RDS."
             ]
     return []
 

@@ -25,6 +25,7 @@ import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHog
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -242,6 +243,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 function CDCSelfManagedSetupDialog(): JSX.Element | null {
     const { cdcSelfManagedSetupDialogOpen, source, databaseSchema, sourceConnectionDetails, selectedConnector } =
         useValues(sourceWizardLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { closeCdcSelfManagedSetupDialog, setIsLoading, createSource } = useActions(sourceWizardLogic)
 
     const [confirmed, setConfirmed] = useState(false)
@@ -288,15 +290,22 @@ SELECT pg_create_logical_replication_slot('${slotName}', 'pgoutput');
         setVerifying(true)
         setErrors(null)
         try {
+            if (!currentTeamId) {
+                lemonToast.error('No project selected — reload the page and try again.')
+                return
+            }
             const connectionPayload = (sourceConnectionDetails?.payload || {}) as Record<string, any>
-            const response = await api.externalDataSources.check_cdc_prerequisites({
-                source_type: 'Postgres' as ExternalDataSourceType,
-                ...connectionPayload,
-                cdc_management_mode: 'self_managed',
-                cdc_slot_name: slotName,
-                cdc_publication_name: pubName,
-                tables: cdcTableNames,
-            })
+            const response = await api.externalDataSources.check_cdc_prerequisites(
+                {
+                    source_type: 'Postgres' as ExternalDataSourceType,
+                    ...connectionPayload,
+                    cdc_management_mode: 'self_managed',
+                    cdc_slot_name: slotName,
+                    cdc_publication_name: pubName,
+                    tables: cdcTableNames,
+                },
+                currentTeamId
+            )
             if (!response.valid) {
                 setErrors(response.errors)
                 return

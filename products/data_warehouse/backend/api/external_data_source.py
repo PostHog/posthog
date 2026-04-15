@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
@@ -804,17 +805,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
-            schema_model = ExternalDataSchema.objects.create(
-                name=schema_name,
-                team=self.team,
-                source=new_source_model,
-                should_sync=should_sync,
-                sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
-                sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
-                sync_type_config=sync_type_config,
-                description=source_schema.description if source_schema else None,
-                label=schema_label_by_name.get(schema_name),
-            )
+            schema_create_kwargs: dict[str, Any] = {
+                "name": schema_name,
+                "team": self.team,
+                "source": new_source_model,
+                "should_sync": should_sync,
+                "sync_type": sync_type if new_source_model.supports_scheduled_sync else None,
+                "sync_time_of_day": sync_time_of_day if new_source_model.supports_scheduled_sync else None,
+                "sync_type_config": sync_type_config,
+                "description": source_schema.description if source_schema else None,
+                "label": schema_label_by_name.get(schema_name),
+            }
+            # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
+            # and the value prop is near-real-time. Other sync types keep the model default (6h).
+            if is_cdc_schema and new_source_model.supports_scheduled_sync:
+                schema_create_kwargs["sync_frequency_interval"] = timedelta(minutes=5)
+            schema_model = ExternalDataSchema.objects.create(**schema_create_kwargs)
 
             # For CDC schemas with PostHog-managed mode, add table to publication
             if is_cdc_schema and should_sync and cdc_enabled:
