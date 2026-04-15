@@ -4034,18 +4034,6 @@ snapshots:
         hash: v1.k794b7964.b52dc1818acfe1a49dde54bfb8a265d25553f5329730cb7c4149b16db704bb0f.OnhTjCCnzp4jDOLmhGl_c9Y-ZaPafkY8Xzdyha3yGK0
     scenes-app-insights-user-paths--user-paths-edit--light:
         hash: v1.k794b7964.566d2c07c7ac9eef4abe2fd409741a239809d5f0704464c9300c27059be11495.qR8hShxAuJEkwqfWHbWPT8liEBpYgvnjv5LbFxTiBG8
-    scenes-app-insights-user-paths--user-paths-edit-viewports--medium--dark:
-        hash: v1.k794b7964.7d8006dad49b74a965d794ea03cdfe2085dbd3a4819244a379b6b39f39cd5f7c.vxCAL_3fstB4YqHE4V4JGP85h_iOsJ_BT6fnQQ_zTAE
-    scenes-app-insights-user-paths--user-paths-edit-viewports--medium--light:
-        hash: v1.k794b7964.9ed1543517b9786aad6b6673366e3a5728dd3b2203ac43587c1136e54657d1bc.zHkOtz1iUH_NB2lWkgZTafN9IFSnltGtmeGiesa4zBw
-    scenes-app-insights-user-paths--user-paths-edit-viewports--superwide--dark:
-        hash: v1.k794b7964.fbd95587b34c2b1bbcc5b7aae97d266249544cd4635fb2219d60d027dd592144.4Q8GTmO5uDTzYnVKvgeEGSMLzFqH8dumYyMyO-KUt1c
-    scenes-app-insights-user-paths--user-paths-edit-viewports--superwide--light:
-        hash: v1.k794b7964.22a57e6825d343bd5f88546b6230e4cb5daef4aac63eef6798a3b5eb7b26964c.0usiC_BFj4gOoQkXT4etW2jJenQhGKlZXXlf6Yb2OQg
-    scenes-app-insights-user-paths--user-paths-edit-viewports--wide--dark:
-        hash: v1.k794b7964.2709a04d3cf468a65820c9b4b2286b3d47f29ccde4f50653b6a7d39394205e4e.D-hkJCHtDla3BLNbcNnj1hG9caySUvLDa8xE_LoDusg
-    scenes-app-insights-user-paths--user-paths-edit-viewports--wide--light:
-        hash: v1.k794b7964.11c1d197c49d315e36cdc8a01342c91b5853dca2a8d965271c7decf8922600bf.OV-Jp-GSjIIHwfHXxbkdwDbyo_ZuE_4PJV9vPs1NouE
     scenes-app-insights-worldmap--default--dark:
         hash: v1.k794b7964.2ae053a42345d07b2372b648446f03b8cff727eedd7afc2f19facfb78cc16a40.7oXNjZbliAovSBVd5tlEViYzaJH2APZzrb9Hd28l_Ko
     scenes-app-insights-worldmap--default--light:
