@@ -13681,6 +13681,7 @@ export namespace Schemas {
        * @nullable
        */
       debug?: boolean | null;
+      filters_override?: DashboardFilter | null;
       /**
        * Maximum number of results to return. If not provided, returns all results.
        * @nullable
