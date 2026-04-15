@@ -10,6 +10,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.models import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.dependencies import (
+    COHORT_BACKFILL_DEBOUNCE_SECONDS,
+    COHORT_BACKFILL_REDIS_TTL_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
     _extract_person_property_filters,
@@ -532,22 +534,55 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         self.assertFalse(_has_person_property_filters(cohort))
 
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    def test_trigger_cohort_backfill_calls_celery_task(self, mock_task):
-        """Test that _trigger_cohort_backfill calls the correct Celery task"""
+    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    def test_trigger_cohort_backfill_calls_celery_task(self, mock_get_redis, mock_task):
+        mock_redis = mock.MagicMock()
+        mock_redis.set.return_value = True
+        mock_get_redis.return_value = mock_redis
         cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
 
         _trigger_cohort_backfill(cohort)
 
-        mock_task.delay.assert_called_once_with(cohort.team_id, cohort.pk)
+        mock_redis.set.assert_called_once_with(
+            f"cohort_backfill_pending:{cohort.pk}", 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS
+        )
+        mock_task.apply_async.assert_called_once_with(
+            args=[cohort.team_id, cohort.pk], countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS
+        )
 
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    def test_trigger_cohort_backfill_handles_exceptions(self, mock_task):
-        """Test that _trigger_cohort_backfill handles exceptions gracefully"""
-        mock_task.delay.side_effect = Exception("Task failed")
+    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    def test_trigger_cohort_backfill_debounces_when_pending(self, mock_get_redis, mock_task):
+        mock_redis = mock.MagicMock()
+        mock_redis.set.return_value = False  # Key already exists
+        mock_get_redis.return_value = mock_redis
         cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
 
-        # Should not raise an exception
         _trigger_cohort_backfill(cohort)
+
+        mock_task.apply_async.assert_not_called()
+
+    @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
+    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    def test_trigger_cohort_backfill_handles_task_exception(self, mock_get_redis, mock_task):
+        mock_redis = mock.MagicMock()
+        mock_redis.set.return_value = True
+        mock_get_redis.return_value = mock_redis
+        mock_task.apply_async.side_effect = Exception("Task failed")
+        cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
+
+        # Should not raise
+        _trigger_cohort_backfill(cohort)
+
+    @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
+    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    def test_trigger_cohort_backfill_handles_redis_failure(self, mock_get_redis, mock_task):
+        mock_get_redis.side_effect = Exception("Redis unavailable")
+        cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
+
+        # Should not raise
+        _trigger_cohort_backfill(cohort)
+        mock_task.apply_async.assert_not_called()
 
     @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
