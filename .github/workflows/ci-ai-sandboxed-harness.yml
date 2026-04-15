@@ -114,8 +114,17 @@ jobs:
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Run sandboxed harness smoke test
+              # ee/hogai/eval/pytest.ini pins python_files=eval_*.py /
+              # python_functions=eval_* for the whole eval subtree so real
+              # Braintrust runs never accidentally pick up anything named
+              # test_*. That also means without the -o overrides below,
+              # pytest would collect zero tests from this smoke file.
               run: |
-                  pytest ee/hogai/eval/sandboxed/ci/test_harness_smoke.py -vv --junitxml=junit.xml
+                  pytest ee/hogai/eval/sandboxed/ci/test_harness_smoke.py -vv \
+                      -o python_files=test_*.py \
+                      -o python_functions=test_* \
+                      -o python_classes=Test* \
+                      --junitxml=junit.xml
               env:
                   # The LLM gateway reads its Anthropic key from the parent env.
                   # The smoke test never triggers an LLM call, so a stub is fine
