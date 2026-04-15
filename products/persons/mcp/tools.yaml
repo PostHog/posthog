@@ -33,6 +33,9 @@ tools:
                 - uuid
                 - name
                 - distinct_ids
+                - properties.email
+                - properties.$email
+                - properties.$geoip_country_code
                 - created_at
                 - last_seen_at
     persons-retrieve:

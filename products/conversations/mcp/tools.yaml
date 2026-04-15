@@ -1,0 +1,154 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Conversations
+feature: conversations
+url_prefix: /conversations/tickets
+ui_apps: {}
+tools:
+    conversations-tickets-list:
+        operation: conversations_tickets_list
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List support tickets
+        description: >
+            List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved),
+            priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search.
+            Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including
+            status, priority, message counts, and timestamps.
+        response:
+            include:
+                - id
+                - ticket_number
+                - status
+                - priority
+                - channel_source
+                - assignee
+                - last_message_text
+                - message_count
+                - unread_team_count
+                - created_at
+                - updated_at
+    conversations-tickets-retrieve:
+        operation: conversations_tickets_retrieve
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get support ticket
+        description: >
+            Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
+            priority, assignee, message count, channel info, person data, and session context.
+        response:
+            include:
+                - id
+                - ticket_number
+                - status
+                - priority
+                - channel_source
+                - channel_detail
+                - assignee
+                - last_message_text
+                - message_count
+                - unread_team_count
+                - tags
+                - sla_due_at
+                - anonymous_traits
+                - session_context
+                - session_id
+                - person
+                - email_from
+                - email_to
+                - email_subject
+                - distinct_id
+                - created_at
+                - updated_at
+    conversations-tickets-update:
+        operation: conversations_tickets_partial_update
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update support ticket
+        description: >
+            Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
+            high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user'
+            or 'role') and id, or null to unassign.
+        exclude_params:
+            - anonymous_traits
+            - ai_resolved
+            - escalation_reason
+    conversations-tickets-suggest-reply-create:
+        operation: conversations_tickets_suggest_reply_create
+        enabled: false
+    conversations-tickets-create:
+        operation: conversations_tickets_create
+        enabled: false
+    conversations-tickets-unread-count-retrieve:
+        operation: conversations_tickets_unread_count_retrieve
+        enabled: false
+    conversations-tickets-full-update:
+        operation: conversations_tickets_update
+        enabled: false
+    conversations-tickets-destroy:
+        operation: conversations_tickets_destroy
+        enabled: false
+    conversations-list:
+        operation: conversations_list
+        enabled: false
+    conversations-create:
+        operation: conversations_create
+        enabled: false
+    conversations-retrieve:
+        operation: conversations_retrieve
+        enabled: false
+    conversations-append-message-create:
+        operation: conversations_append_message_create
+        enabled: false
+    conversations-cancel-partial-update:
+        operation: conversations_cancel_partial_update
+        enabled: false
+    conversations-queue-retrieve:
+        operation: conversations_queue_retrieve
+        enabled: false
+    conversations-queue-create:
+        operation: conversations_queue_create
+        enabled: false
+    conversations-queue-partial-update:
+        operation: conversations_queue_partial_update
+        enabled: false
+    conversations-queue-destroy:
+        operation: conversations_queue_destroy
+        enabled: false
+    conversations-queue-clear-create:
+        operation: conversations_queue_clear_create
+        enabled: false
+    conversations-views-list:
+        operation: conversations_views_list
+        enabled: false
+    conversations-views-create:
+        operation: conversations_views_create
+        enabled: false
+    conversations-views-retrieve:
+        operation: conversations_views_retrieve
+        enabled: false
+    conversations-views-destroy:
+        operation: conversations_views_destroy
+        enabled: false

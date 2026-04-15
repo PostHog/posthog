@@ -143,7 +143,6 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             project_id=ctx.team_id,
             scopes=scopes,
         )
-
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(
                 token=access_token,
@@ -152,6 +151,19 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             )
             if user_mcp_configs:
                 mcp_configs = mcp_configs + user_mcp_configs
+
+        if mcp_configs:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Resolved {len(mcp_configs)} MCP config(s) for agent server: {', '.join(config.name for config in mcp_configs)}",
+            )
+        else:
+            emit_agent_log(
+                ctx.run_id,
+                "warn",
+                "No MCP configs were resolved for this run. PostHog MCP tools will be unavailable in the agent session.",
+            )
 
         if ctx.allowed_domains:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
@@ -174,6 +186,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 task_id=ctx.task_id,
                 run_id=ctx.run_id,
                 mode=ctx.mode,
+                create_pr=ctx.create_pr,
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
                 mcp_configs=mcp_configs or None,

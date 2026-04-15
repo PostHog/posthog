@@ -246,7 +246,7 @@ export const InsightGenerateHogQLFromQuestionSchema = z.object({
 
 export const InsightQueryInputSchema = z.object({
     insightId: z.string().describe('The insight ID or short_id to run.'),
-    format: z
+    output_format: z
         .enum(['optimized', 'json'])
         .optional()
         .default('optimized')
