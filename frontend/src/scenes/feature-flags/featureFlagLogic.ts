@@ -28,7 +28,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { slugify } from 'lib/utils'
+import { objectsEqual, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -2149,6 +2149,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        hasUnsavedChanges: [
+            (s) => [s.featureFlag, s.originalFeatureFlag],
+            (featureFlag, originalFeatureFlag): boolean => {
+                if (!originalFeatureFlag) {
+                    // New flag — compare against form defaults via featureFlagChanged instead
+                    return false
+                }
+                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
+                return !objectsEqual(currentCleaned, originalFeatureFlag)
+            },
+        ],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         flagType: [
             (s) => [s.featureFlag],
@@ -2529,7 +2540,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            if (!logic.values.featureFlagChanged) {
+            // For existing flags, compare against server state to avoid false positives.
+            // featureFlagChanged (from kea-forms) compares against form defaults (NEW_FLAG),
+            // which is always true for loaded flags.
+            const isDirty = logic.values.originalFeatureFlag
+                ? logic.values.hasUnsavedChanges
+                : logic.values.featureFlagChanged
+
+            if (!isDirty) {
                 return false
             }
 
