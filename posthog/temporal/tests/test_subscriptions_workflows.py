@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -27,9 +27,11 @@ from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    create_delivery_record,
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    update_delivery_record,
 )
 from posthog.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
@@ -48,9 +50,29 @@ from posthog.temporal.subscriptions.workflows import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
+from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+SUBSCRIPTION_SCHEDULE_ACTIVITIES = [
+    fetch_due_subscriptions_activity,
+    create_delivery_record,
+    create_export_assets,
+    export_asset_activity,
+    deliver_subscription,
+    update_delivery_record,
+    advance_next_delivery_date,
+]
+
+SUBSCRIPTION_PROCESS_ACTIVITIES = [
+    create_delivery_record,
+    create_export_assets,
+    export_asset_activity,
+    deliver_subscription,
+    update_delivery_record,
+    advance_next_delivery_date,
+]
 
 
 @pytest_asyncio.fixture
@@ -65,13 +87,7 @@ async def subscriptions_worker(temporal_client: Client):
             HandleSubscriptionValueChangeWorkflow,
             ProcessSubscriptionWorkflow,
         ],
-        activities=[
-            fetch_due_subscriptions_activity,
-            create_export_assets,
-            export_asset_activity,
-            deliver_subscription,
-            advance_next_delivery_date,
-        ],
+        activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
         interceptors=[SloInterceptor()],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -135,13 +151,7 @@ async def test_subscription_delivery_scheduling(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                fetch_due_subscriptions_activity,
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -208,13 +218,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                fetch_due_subscriptions_activity,
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -265,12 +269,7 @@ async def test_handle_subscription_value_change_email(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -306,21 +305,32 @@ async def test_handle_subscription_value_change_email(
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
 
 
+@patch("posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async", new_callable=AsyncMock)
+@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team")
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
-    mock_send_slack: MagicMock,
     mock_metric_meter: MagicMock,
     mock_analytics: MagicMock,
     mock_exporter: MagicMock,
+    mock_get_slack: MagicMock,
+    mock_send_slack_async: AsyncMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
     user,
 ):
+    mock_integration = MagicMock()
+    mock_integration.kind = "slack"
+    mock_get_slack.return_value = mock_integration
+    mock_send_slack_async.return_value = SlackDeliveryResult(
+        main_message_sent=True,
+        total_thread_messages=0,
+        failed_thread_message_indices=[],
+    )
+
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
 
     subscription = await sync_to_async(create_subscription)(
@@ -342,12 +352,7 @@ async def test_deliver_subscription_report_slack(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -364,7 +369,7 @@ async def test_deliver_subscription_report_slack(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    assert mock_send_slack.call_count == 1
+    assert mock_send_slack_async.await_count == 1
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -394,6 +399,42 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.export_format == "image/png"
 
     # SLO started is emitted by the interceptor, not this activity
+    mock_analytics.capture.assert_not_called()
+
+
+@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch("posthog.slo.events.posthoganalytics")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_includes_insight_snapshots(
+    mock_analytics: MagicMock,
+    mock_build_snapshot: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    mock_build_snapshot.return_value = {
+        "id": 1,
+        "short_id": "snap01",
+        "name": "Snap Test",
+        "dashboard_tile_id": None,
+        "query_hash": "cache_key_test",
+        "cache_key": "cache_key_test",
+        "query_results": {"result": []},
+    }
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="prep01", name="Prep Test")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id),
+    )
+
+    assert len(result.exported_asset_ids) == 1
+    assert len(result.insight_snapshots) == 1
+    assert result.insight_snapshots[0]["query_hash"] == "cache_key_test"
+    mock_build_snapshot.assert_called_once()
     mock_analytics.capture.assert_not_called()
 
 
@@ -558,12 +599,7 @@ async def test_deliver_subscription_workflow_end_to_end(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -638,12 +674,7 @@ async def test_new_subscription_sends_invite_email(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -702,12 +733,7 @@ async def test_manual_send_uses_regular_template_not_invite(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -767,12 +793,7 @@ async def test_scheduled_delivery_updates_next_delivery_date(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -860,12 +881,7 @@ async def test_export_error_slo_outcome(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -960,12 +976,7 @@ async def test_partial_export_failure_delivers_successful_assets(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
