@@ -11,7 +11,7 @@ from django.db.models import Prefetch, Q
 import structlog
 import temporalio
 from dateutil import parser
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -1243,12 +1243,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         ]
         return Response(status=status.HTTP_200_OK, data=data)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "valid": {"type": "boolean"},
+                        "errors": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                description="Whether the Postgres database satisfies CDC prerequisites.",
+            ),
+            400: OpenApiResponse(description="Invalid config, disallowed host, or connection failure."),
+        },
+    )
     @action(methods=["POST"], detail=False)
     def check_cdc_prerequisites(self, request: Request, *arg: Any, **kwargs: Any):
         """Validate CDC prerequisites against a live Postgres connection.
 
         Used by the source wizard to surface ✅/❌ checks before source creation,
-        and by the self-managed setup popup to verify user-created slot/publication.
+        and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
         if source_type != ExternalDataSourceType.POSTGRES:
@@ -1268,6 +1284,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         config = source_impl.parse_config(request.data)
 
+        # SSRF protection: reject internal/private hosts (same as validate_credentials).
+        is_ssh_valid, ssh_errors = source_impl.ssh_tunnel_is_valid(config, self.team_id)
+        if not is_ssh_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": ssh_errors or "SSH tunnel host not allowed"},
+            )
+        valid_host, host_errors = source_impl.is_database_host_valid(
+            config.host,
+            self.team_id,
+            using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False,
+        )
+        if not valid_host:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": host_errors or "Host not allowed"},
+            )
+
         management_mode = request.data.get("cdc_management_mode", "posthog")
         if management_mode not in ("posthog", "self_managed"):
             return Response(
@@ -1282,7 +1316,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             prereq_errors = source_impl.check_cdc_prerequisites(
                 config,
-                self.team_id,
                 management_mode=management_mode,
                 tables=tables,
                 slot_name=slot_name,

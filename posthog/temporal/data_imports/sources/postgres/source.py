@@ -290,7 +290,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     def check_cdc_prerequisites(
         self,
         config: PostgresSourceConfig,
-        team_id: int,
         management_mode: str,
         tables: list[str],
         slot_name: str | None = None,

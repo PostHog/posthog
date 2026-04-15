@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -295,6 +296,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         submitWebhookFields: true,
         openCdcSelfManagedSetupDialog: true,
         closeCdcSelfManagedSetupDialog: true,
+        clearCdcPrereqsCheckResult: true,
+        clearCdcSelfManagedVerifyResult: true,
+        touchAllSourceConnectionDetailsFields: true,
     }),
     connect(() => ({
         values: [
@@ -306,6 +310,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [
             selfManagedSourceLogic,
@@ -476,6 +482,76 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        cdcPrereqsCheckResult: [
+            null as { valid: boolean; errors: string[] } | null,
+            {
+                clearCdcPrereqsCheckResult: () => null,
+                checkCdcPrereqs: async () => {
+                    if (!values.currentTeamId) {
+                        lemonToast.error('No project selected — reload the page and try again.')
+                        return null
+                    }
+                    const payload = ((values.sourceConnectionDetails as any)?.payload || {}) as Record<string, any>
+                    const mode = (payload.cdc_management_mode || 'posthog') as 'posthog' | 'self_managed'
+                    try {
+                        return await api.externalDataSources.check_cdc_prerequisites(
+                            {
+                                source_type: 'Postgres' as ExternalDataSourceType,
+                                ...payload,
+                                cdc_management_mode: mode,
+                                tables: [],
+                                cdc_slot_name: null,
+                                cdc_publication_name: null,
+                            },
+                            values.currentTeamId
+                        )
+                    } catch (e: any) {
+                        lemonToast.error(e?.detail || e?.message || 'Failed to check prerequisites')
+                        return null
+                    }
+                },
+            },
+        ],
+        cdcSelfManagedVerifyResult: [
+            null as { valid: boolean; errors: string[] } | null,
+            {
+                clearCdcSelfManagedVerifyResult: () => null,
+                verifyCdcSelfManagedSetup: async () => {
+                    if (!values.currentTeamId) {
+                        lemonToast.error('No project selected — reload the page and try again.')
+                        return null
+                    }
+                    const sourcePayload = ((values.source as any)?.payload || {}) as Record<string, any>
+                    const connectionPayload = ((values.sourceConnectionDetails as any)?.payload || {}) as Record<
+                        string,
+                        any
+                    >
+                    const pubName = (sourcePayload.cdc_publication_name as string) || 'posthog_pub'
+                    const cdcTableNames = (values.databaseSchema || [])
+                        .filter((s: any) => s.should_sync && s.sync_type === 'cdc')
+                        .map((s: any) => s.table as string)
+                    try {
+                        return await api.externalDataSources.check_cdc_prerequisites(
+                            {
+                                source_type: 'Postgres' as ExternalDataSourceType,
+                                ...connectionPayload,
+                                cdc_management_mode: 'self_managed',
+                                // PostHog creates the slot itself — only verify the publication.
+                                cdc_slot_name: null,
+                                cdc_publication_name: pubName,
+                                tables: cdcTableNames,
+                            },
+                            values.currentTeamId
+                        )
+                    } catch (e: any) {
+                        lemonToast.error(e?.detail || e?.message || 'Could not verify CDC setup')
+                        return null
+                    }
+                },
+            },
+        ],
+    })),
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         requiredTables: [() => [(_, p) => p.requiredTables], (requiredTables) => requiredTables ?? null],
@@ -712,6 +788,37 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
     listeners(({ actions, values, props }) => ({
+        verifyCdcSelfManagedSetupSuccess: ({ cdcSelfManagedVerifyResult }) => {
+            if (cdcSelfManagedVerifyResult?.valid) {
+                actions.closeCdcSelfManagedSetupDialog()
+                actions.setIsLoading(true)
+                actions.createSource()
+                if (values.selectedConnector) {
+                    posthog.capture('source created', { sourceType: values.selectedConnector.name })
+                }
+            }
+        },
+        closeCdcSelfManagedSetupDialog: () => {
+            actions.clearCdcSelfManagedVerifyResult()
+        },
+        touchAllSourceConnectionDetailsFields: () => {
+            // Walk the connector field tree and touch each leaf path so kea-forms
+            // renders validation errors (matching the Next button behavior).
+            const walk = (fields: any[], prefix: string): void => {
+                for (const f of fields ?? []) {
+                    if (!f?.name) {
+                        continue
+                    }
+                    const p = prefix ? `${prefix}.${f.name}` : f.name
+                    actions.touchSourceConnectionDetailsField(p)
+                    if (Array.isArray(f.fields)) {
+                        walk(f.fields, p)
+                    }
+                }
+            }
+            walk(values.selectedConnector?.fields ?? [], '')
+            actions.touchSourceConnectionDetailsField('prefix')
+        },
         saveFormStateBeforeRedirect: () => {
             const sourceKind = values.selectedConnector?.name?.toLowerCase()
             if (sourceKind) {

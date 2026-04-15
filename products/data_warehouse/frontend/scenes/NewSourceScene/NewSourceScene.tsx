@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -14,17 +13,14 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -241,14 +237,18 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 }
 
 function CDCSelfManagedSetupDialog(): JSX.Element | null {
-    const { cdcSelfManagedSetupDialogOpen, source, databaseSchema, sourceConnectionDetails, selectedConnector } =
-        useValues(sourceWizardLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { closeCdcSelfManagedSetupDialog, setIsLoading, createSource } = useActions(sourceWizardLogic)
+    const {
+        cdcSelfManagedSetupDialogOpen,
+        source,
+        databaseSchema,
+        sourceConnectionDetails,
+        cdcSelfManagedVerifyResult,
+        cdcSelfManagedVerifyResultLoading,
+    } = useValues(sourceWizardLogic)
+    const { closeCdcSelfManagedSetupDialog, verifyCdcSelfManagedSetup } = useActions(sourceWizardLogic)
 
+    // Checkbox state is pure UI toggle — no business logic, stays local.
     const [confirmed, setConfirmed] = useState(false)
-    const [verifying, setVerifying] = useState(false)
-    const [errors, setErrors] = useState<string[] | null>(null)
 
     const payload = (source?.payload || {}) as Record<string, any>
     const cdcTableNames = useMemo(
@@ -288,47 +288,12 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
         await copyToClipboard(sql, 'Setup SQL')
     }
 
-    const handleVerifyAndCreate = async (): Promise<void> => {
-        setVerifying(true)
-        setErrors(null)
-        try {
-            if (!currentTeamId) {
-                lemonToast.error('No project selected — reload the page and try again.')
-                return
-            }
-            const connectionPayload = (sourceConnectionDetails?.payload || {}) as Record<string, any>
-            const response = await api.externalDataSources.check_cdc_prerequisites(
-                {
-                    source_type: 'Postgres' as ExternalDataSourceType,
-                    ...connectionPayload,
-                    cdc_management_mode: 'self_managed',
-                    // PostHog creates the slot itself — only verify the publication exists.
-                    cdc_slot_name: null,
-                    cdc_publication_name: pubName,
-                    tables: cdcTableNames,
-                },
-                currentTeamId
-            )
-            if (!response.valid) {
-                setErrors(response.errors)
-                return
-            }
-            closeCdcSelfManagedSetupDialog()
-            setIsLoading(true)
-            createSource()
-            if (selectedConnector) {
-                posthog.capture('source created', { sourceType: selectedConnector.name })
-            }
-        } catch (e: any) {
-            lemonToast.error(e?.detail || e?.message || 'Could not verify CDC setup')
-        } finally {
-            setVerifying(false)
-        }
-    }
-
     if (!cdcSelfManagedSetupDialogOpen) {
         return null
     }
+
+    const errors =
+        cdcSelfManagedVerifyResult && !cdcSelfManagedVerifyResult.valid ? cdcSelfManagedVerifyResult.errors : null
 
     return (
         <LemonModal
@@ -342,15 +307,15 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
                     <LemonButton
                         type="tertiary"
                         onClick={closeCdcSelfManagedSetupDialog}
-                        disabledReason={verifying ? 'Verifying...' : undefined}
+                        disabledReason={cdcSelfManagedVerifyResultLoading ? 'Verifying...' : undefined}
                     >
                         Back
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        loading={verifying}
+                        loading={cdcSelfManagedVerifyResultLoading}
                         disabledReason={!confirmed ? 'Confirm you have executed the SQL' : undefined}
-                        onClick={() => void handleVerifyAndCreate()}
+                        onClick={verifyCdcSelfManagedSetup}
                     >
                         Verify & create source
                     </LemonButton>

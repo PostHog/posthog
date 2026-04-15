@@ -14,7 +14,6 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -22,9 +21,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { ExternalDataSourceType, SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
@@ -303,27 +301,13 @@ function CDCRequirementsPanel(): JSX.Element {
 }
 
 function CDCPrerequisitesCheck(): JSX.Element {
-    const { sourceConnectionDetails, sourceConnectionDetailsValidationErrors, selectedConnector } =
-        useValues(sourceWizardLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { touchSourceConnectionDetailsField } = useActions(sourceWizardLogic)
-    const [loading, setLoading] = useState(false)
-    const [result, setResult] = useState<{ valid: boolean; errors: string[] } | null>(null)
-
-    const collectFieldPaths = (fields: any[], prefix: string): string[] => {
-        const paths: string[] = []
-        for (const f of fields ?? []) {
-            if (!f?.name) {
-                continue
-            }
-            const path = prefix ? `${prefix}.${f.name}` : f.name
-            paths.push(path)
-            if (Array.isArray(f.fields)) {
-                paths.push(...collectFieldPaths(f.fields, path))
-            }
-        }
-        return paths
-    }
+    const {
+        sourceConnectionDetails,
+        sourceConnectionDetailsValidationErrors,
+        cdcPrereqsCheckResult,
+        cdcPrereqsCheckResultLoading,
+    } = useValues(sourceWizardLogic)
+    const { checkCdcPrereqs, touchAllSourceConnectionDetailsFields } = useActions(sourceWizardLogic)
 
     const hasFormErrors = (errs: any): boolean => {
         if (!errs) {
@@ -341,64 +325,27 @@ function CDCPrerequisitesCheck(): JSX.Element {
         return false
     }
 
-    const runCheck = async (): Promise<void> => {
-        // Mirror the Next button: if the connection form is invalid, highlight missing fields and bail.
+    const onClick = (): void => {
         if (hasFormErrors(sourceConnectionDetailsValidationErrors)) {
-            for (const path of collectFieldPaths(selectedConnector?.fields ?? [], '')) {
-                touchSourceConnectionDetailsField(path)
-            }
-            // Also touch top-level required fields that live outside `payload` (prefix, access_method)
-            touchSourceConnectionDetailsField('prefix')
+            touchAllSourceConnectionDetailsFields()
             lemonToast.error('Please fill in all required connection fields before checking prerequisites.')
             return
         }
-
-        setLoading(true)
-        setResult(null)
-        try {
-            const payload = sourceConnectionDetails?.payload || {}
-            const managementMode = (payload.cdc_management_mode || 'posthog') as 'posthog' | 'self_managed'
-            if (!currentTeamId) {
-                lemonToast.error('No project selected — reload the page and try again.')
-                return
-            }
-            const response = await api.externalDataSources.check_cdc_prerequisites(
-                {
-                    source_type: 'Postgres' as ExternalDataSourceType,
-                    ...payload,
-                    cdc_management_mode: managementMode,
-                    // Pre-setup check: no tables selected yet, and in self-managed mode the
-                    // slot/publication don't exist yet — the popup after schema selection
-                    // verifies those once the user has run the generated SQL.
-                    tables: [],
-                    cdc_slot_name: null,
-                    cdc_publication_name: null,
-                },
-                currentTeamId
-            )
-            setResult(response)
-        } catch (e: any) {
-            lemonToast.error(e?.detail || e?.message || 'Failed to check prerequisites')
-        } finally {
-            setLoading(false)
-        }
+        checkCdcPrereqs()
     }
 
     const checkedManagementMode = (sourceConnectionDetails?.payload?.cdc_management_mode || 'posthog') as
         | 'posthog'
         | 'self_managed'
 
-    // The "switch to self-managed to avoid REPLICATION" shortcut was wrong — self-managed
-    // still reads from the slot so still needs REPLICATION. No useful narrow hint here today.
-
     return (
         <div>
-            <LemonButton type="secondary" onClick={runCheck} loading={loading}>
+            <LemonButton type="secondary" onClick={onClick} loading={cdcPrereqsCheckResultLoading}>
                 Check database prerequisites
             </LemonButton>
-            {result && (
-                <LemonBanner type={result.valid ? 'success' : 'error'} className="mt-2">
-                    {result.valid ? (
+            {cdcPrereqsCheckResult && (
+                <LemonBanner type={cdcPrereqsCheckResult.valid ? 'success' : 'error'} className="mt-2">
+                    {cdcPrereqsCheckResult.valid ? (
                         <>
                             <p className="m-0">Your database is ready for CDC.</p>
                             {checkedManagementMode === 'self_managed' && (
