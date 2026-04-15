@@ -8,10 +8,10 @@ from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRu
 
 class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
     def _run_prefiltered_query(self, **query_kwargs):
+        query_kwargs.setdefault("properties", [])
+        query_kwargs.setdefault("breakdownBy", WebStatsBreakdown.PAGE)
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
-            properties=[],
-            breakdownBy=WebStatsBreakdown.PAGE,
             **query_kwargs,
         )
         with patch(
@@ -111,4 +111,36 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
             sql = runner.paginator.response.clickhouse or ""
 
         # Non-bounce queries also get wrapped since they go through the same _calculate path
+        assert "toDate(events.timestamp)" in sql
+
+    def test_bounce_with_geo_filter(self):
+        sql = self._run_prefiltered_query(
+            includeBounceRate=True,
+            properties=[
+                EventPropertyFilter(
+                    key="$geoip_city_name",
+                    operator=PropertyOperator.EXACT,
+                    value=["Pretoria"],
+                )
+            ],
+        )
+
+        assert "toDate(events.timestamp)" in sql
+        assert sql.count("toDate(events.timestamp)") >= 2
+
+    def test_bounce_with_non_utc_timezone(self):
+        self.team.timezone = "Europe/Berlin"
+        self.team.save()
+
+        sql = self._run_prefiltered_query(includeBounceRate=True)
+
+        assert "toDate(events.timestamp)" in sql
+        assert sql.count("toDate(events.timestamp)") >= 2
+
+    def test_initial_page_breakdown_with_bounce(self):
+        sql = self._run_prefiltered_query(
+            includeBounceRate=True,
+            breakdownBy=WebStatsBreakdown.INITIAL_PAGE,
+        )
+
         assert "toDate(events.timestamp)" in sql

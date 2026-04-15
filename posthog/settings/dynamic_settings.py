@@ -241,7 +241,7 @@ CONSTANCE_CONFIG = {
         list[int],
     ),
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS": (
-        get_from_env("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS", default=[], type_cast=list[int]),
+        get_from_env("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS", default=[2, 140988], type_cast=list[int]),
         "Team IDs that use prefiltered events subqueries in web analytics bounce/scroll queries for better granule pruning",
         list[int],
     ),
