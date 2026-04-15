@@ -456,6 +456,32 @@ export interface ReorderTilesRequestApi {
 }
 
 /**
+ * InsightSerializer restricted to identifiers + result only.
+ */
+export interface InsightResultApi {
+    readonly id: number
+    readonly short_id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly derived_name: string | null
+    readonly result: unknown
+}
+
+/**
+ * DashboardTileSerializer restricted to tile id + insight result fields.
+ */
+export interface DashboardTileResultApi {
+    id?: number
+    insight: InsightResultApi
+}
+
+export interface RunInsightsResponseApi {
+    /** Results for each insight tile on the dashboard. */
+    results: DashboardTileResultApi[]
+}
+
+/**
  * * `add` - add
  * `remove` - remove
  * `set` - set
@@ -497,32 +523,6 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
-}
-
-/**
- * InsightSerializer restricted to identifiers + result only.
- */
-export interface InsightResultApi {
-    readonly id: number
-    readonly short_id: string
-    /** @nullable */
-    readonly name: string | null
-    /** @nullable */
-    readonly derived_name: string | null
-    readonly result: unknown
-}
-
-/**
- * DashboardTileSerializer restricted to tile id + insight result fields.
- */
-export interface DashboardTileResultApi {
-    id?: number
-    insight: InsightResultApi
-}
-
-export interface RunInsightsResponseApi {
-    /** Results for each insight tile on the dashboard. */
-    results: DashboardTileResultApi[]
 }
 
 export interface DataColorThemeApi {
