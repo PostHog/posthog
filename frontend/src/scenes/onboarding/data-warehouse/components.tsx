@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
 
 import { OnboardingStep } from '../OnboardingStep'
 
@@ -16,7 +16,7 @@ export function DataWarehouseOnboardingLoadingPlaceholder(): JSX.Element {
 }
 
 export function useDataWarehouseLoadingState(): { isLoading: boolean } {
-    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     return { isLoading: availableSourcesLoading || availableSources === null }
 }
 

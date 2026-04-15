@@ -88,7 +88,17 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, enabled: !e.enabled } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id
+                            ? {
+                                  ...e,
+                                  enabled: !e.enabled,
+                                  // Keep status in sync so the list-column pill updates optimistically.
+                                  status: !e.enabled ? 'active' : 'paused',
+                                  status_reason: null,
+                              }
+                            : e
+                    ),
             },
         ],
         evaluationsLoading: [

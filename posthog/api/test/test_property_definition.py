@@ -1,5 +1,5 @@
 import json
-from typing import Optional, Union
+from typing import Any, Optional, Union, cast
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
@@ -539,9 +539,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             scope="PropertyDefinition", activity="deleted"
         ).first()
         assert activity_log is not None
-        assert activity_log.detail["type"] == "event"
+        detail = cast(dict[str, Any], activity_log.detail)
+        assert detail["type"] == "event"
         assert activity_log.item_id == str(property_definition.id)
-        assert activity_log.detail["name"] == "test_property"
+        assert detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
     def test_event_name_filter_json_contains_int(self):
