@@ -226,17 +226,22 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     const triggeredResponse = await loadAppMetricsTotals(request, timezone)
                     await breakpoint(10)
 
+                    // "terminated" counts every terminal state at the exit action, not just success:
+                    // - 'succeeded' is emitted by the happy path (ExitHandler)
+                    // - 'failed' is emitted when a run aborts with an error
+                    // - 'early_exit' is emitted when a run exits early via the exit condition
+                    // Without subtracting all three, errored and early-exited runs would remain
+                    // pinned on the "In progress" tile forever, misleading operators into thinking
+                    // the runs are still being processed.
                     const exitRequest: AppMetricsTotalsRequest = {
                         ...request,
                         instanceId: EXIT_NODE_ID,
-                        metricName: ['succeeded'],
+                        metricName: ['succeeded', 'failed', 'early_exit'],
                     }
-                    const completedResponse = await loadAppMetricsTotals(exitRequest, timezone)
+                    const terminatedResponse = await loadAppMetricsTotals(exitRequest, timezone)
                     await breakpoint(10)
 
-                    const triggered = Object.values(triggeredResponse).reduce((sum, r) => sum + r.total, 0)
-                    const completed = Object.values(completedResponse).reduce((sum, r) => sum + r.total, 0)
-                    return Math.max(0, triggered - completed)
+                    return calculateInProgressTotal(triggeredResponse, terminatedResponse)
                 },
             },
         ],
@@ -361,6 +366,21 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
 function subtractSeriesValues(minuend: number[] | undefined, subtrahend: number[] | undefined, size: number): number[] {
     return Array.from({ length: size }, (_, index) => Math.max(0, (minuend?.[index] ?? 0) - (subtrahend?.[index] ?? 0)))
+}
+
+/**
+ * Given the totals responses for the triggered query and the exit-action terminated query
+ * (which includes `succeeded`, `failed`, and `early_exit` rows), return the count of workflow
+ * runs that are still in progress — clamped to zero to avoid negative display when the metric
+ * stream is still catching up.
+ */
+export function calculateInProgressTotal(
+    triggeredResponse: AppMetricsTotalsResponse,
+    terminatedResponse: AppMetricsTotalsResponse
+): number {
+    const triggered = Object.values(triggeredResponse).reduce((sum, r) => sum + r.total, 0)
+    const terminated = Object.values(terminatedResponse).reduce((sum, r) => sum + r.total, 0)
+    return Math.max(0, triggered - terminated)
 }
 
 export function withDisplayName(
