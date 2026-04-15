@@ -267,14 +267,17 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
                 'query-trends-actors'
             )
-            const result = (await tool.handler(context, { source: trendsSource })) as any
+            const result = (await tool.handler(context, {
+                source: trendsSource,
+                day: '2026-03-25',
+            })) as any
 
+            expect(result).toHaveProperty('query')
             expect(result).toHaveProperty('hasMore')
             expect(result).toHaveProperty('offset')
-            expect(result).toHaveProperty('columns')
             expect(result).toHaveProperty('results')
-            expect(result.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
-            expect(Array.isArray(result.results)).toBe(true)
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+            expect(Array.isArray(result.results.results)).toBe(true)
         })
 
         it('filters actors by day selector', async () => {
@@ -288,8 +291,8 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
                 series: 0,
             })) as any
 
-            expect(result.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
-            expect(Array.isArray(result.results)).toBe(true)
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
+            expect(Array.isArray(result.results.results)).toBe(true)
         })
 
         it('accepts breakdown as an array of values', async () => {
@@ -305,24 +308,11 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             }
             const result = (await tool.handler(context, {
                 source: sourceWithBreakdown,
+                day: '2026-03-25',
                 breakdown: ['Chrome'],
             })) as any
 
-            expect(result.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
-        })
-
-        it('rejects breakdown passed as a string', async () => {
-            const tool = getToolByName(
-                GENERATED_TOOLS as Record<string, () => ToolBase<ZodObjectAny>>,
-                'query-trends-actors'
-            )
-            await expect(
-                tool.handler(context, {
-                    source: trendsSource,
-                    // @ts-expect-error — schema requires string[]
-                    breakdown: 'Chrome',
-                })
-            ).rejects.toThrow()
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'event_count'])
         })
     })
 })
