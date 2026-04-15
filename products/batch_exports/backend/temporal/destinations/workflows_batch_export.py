@@ -37,7 +37,11 @@ from products.batch_exports.backend.temporal.utils import (
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-NON_RETRYABLE_ERROR_TYPES: list[str] = ["NotFoundErrorGroup", "BadRequestErrorGroup"]
+NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "NotFoundErrorGroup",
+    "BadRequestErrorGroup",
+    "HogFunctionErrorThresholdExceeded",
+]
 HOG_FUNCTION_API_PATH = "/api/projects/{team_id}/hog_functions/{hog_function_id}/batch_export_invocations"
 
 
@@ -107,6 +111,20 @@ class NotFoundErrorGroup(ClientResponseErrorGroup):
         return NotFoundErrorGroup(self.message, excs)
 
 
+class HogFunctionErrorThresholdExceeded(Exception):
+    """Raised when too many Hog Function executions fail with status=error."""
+
+    def __init__(self, failed_count: int, total_count: int, latest_error: str | None = None):
+        self.failed_count = failed_count
+        self.total_count = total_count
+        self.latest_error = latest_error
+
+        message = f"Hog Function error rate above threshold: {failed_count}/{total_count} executions failed."
+        if latest_error:
+            message += f" Latest error message: '{latest_error}'"
+        super().__init__(message)
+
+
 def _make_exception(
     exc: type[aiohttp.ClientResponseError], err: aiohttp.ClientResponseError
 ) -> aiohttp.ClientResponseError:
@@ -118,6 +136,21 @@ def _make_exception(
 
 
 class WorkflowsConsumer(Consumer):
+    """Consumer that posts each record as a Hog Function invocation to the CDP API.
+
+    One HTTP POST request per record is issued concurrently via `request_task_group`, up
+    to `max_concurrent_requests` in flight at a time.
+
+    A 2xx response with a `{"status": "error", ...}` body is treated as a Hog Function
+    execution error (the CDP call succeeded but the function itself failed).
+
+    If the ratio of such execution errors to total handled records exceeds
+    `hog_function_error_threshold_pct` — once at least
+    `hog_function_error_threshold_min_records` records have been handled —
+    the consumer aborts the run by raising a non-retryable
+    `HogFunctionErrorThresholdExceeded` exception.
+    """
+
     def __init__(
         self,
         url: str,
@@ -127,6 +160,8 @@ class WorkflowsConsumer(Consumer):
         request_task_group: asyncio.TaskGroup,
         model: str = "events",
         max_concurrent_requests: int = 1_000,
+        hog_function_error_threshold_pct: float = 0.5,
+        hog_function_error_threshold_min_records: int = 100,
     ):
         super().__init__(model=model)
 
@@ -140,11 +175,20 @@ class WorkflowsConsumer(Consumer):
         self.session = session
         self.request_task_group = request_task_group
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self.hog_function_error_threshold_pct = hog_function_error_threshold_pct
+        self.hog_function_error_threshold_min_records = hog_function_error_threshold_min_records
+        self.records_handled_count = 0
+        self.latest_hog_function_error: str | None = None
 
     async def consume_chunk(self, data: bytes) -> None:
         post = make_retryable_with_exponential_backoff(
             self.post,
-            retryable_exceptions=(InternalServerError, ServiceUnavailable, TooManyRequests),
+            retryable_exceptions=(
+                InternalServerError,
+                ServiceUnavailable,
+                TooManyRequests,
+                aiohttp.ServerDisconnectedError,
+            ),
             # Retry forever on retryable errors
             max_attempts=None,
         )
@@ -180,12 +224,24 @@ class WorkflowsConsumer(Consumer):
                             raise _make_exception(InternalServerError, err)
                 else:
                     response_body = await response.json()
+                    self.records_handled_count += 1
                     if response_body.get("status") == "error":
-                        self.logger.warning(
-                            "Hog function execution failed",
-                            errors=response_body.get("errors", []),
-                        )
+                        errors = response_body.get("errors", [])
+                        self.logger.warning("Hog Function execution failed", errors=errors)
                         self.records_failed_count += 1
+                        if errors:
+                            self.latest_hog_function_error = errors[-1]
+
+                        if (
+                            self.records_handled_count >= self.hog_function_error_threshold_min_records
+                            and self.records_failed_count / self.records_handled_count
+                            >= self.hog_function_error_threshold_pct
+                        ):
+                            raise HogFunctionErrorThresholdExceeded(
+                                failed_count=self.records_failed_count,
+                                total_count=self.records_handled_count,
+                                latest_error=self.latest_hog_function_error,
+                            )
 
     async def finalize_file(self):
         """Required by consumer interface."""
@@ -254,7 +310,9 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         # nosemgrep: aiohttp-missing-trust-env
         async with aiohttp.ClientSession(
             trust_env=False,
-            connector=aiohttp.TCPConnector(limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS),
+            connector=aiohttp.TCPConnector(
+                limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS, keepalive_timeout=5
+            ),
             headers={
                 "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
             },
@@ -290,6 +348,18 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 raise BadRequestErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
             except* NotFound as exc_group:
                 raise NotFoundErrorGroup(exc_group.message, exc_group.exceptions) from exc_group  # type: ignore[arg-type]
+            except* HogFunctionErrorThresholdExceeded:
+                # Since we're making multiple requests in parallel, as soon as we hit the error threshold
+                # we expect any new errors to also raise the same exception.
+                # Therefore, rather than raising an ExceptionGroup we just re-raise the exception once,
+                # but using the most recent values.
+                exc = HogFunctionErrorThresholdExceeded(
+                    failed_count=consumer.records_failed_count,
+                    total_count=consumer.records_handled_count,
+                    latest_error=consumer.latest_hog_function_error,
+                )
+                external_logger.exception(str(exc))
+                raise exc
 
         return consumer.collect_result()
 

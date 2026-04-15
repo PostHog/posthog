@@ -53,3 +53,24 @@ export const Default: Story = {
         )
     },
 } satisfies Story
+
+export const Vertical: Story = {
+    render: () => {
+        return (
+            <div className="flex gap-2">
+                <ToggleGroup variant="outline" multiple orientation="vertical">
+                    <ToggleGroupItem value="bold" aria-label="Toggle bold">
+                        <Filter />
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="italic" aria-label="Toggle italic">
+                        <Heart />
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="strikethrough" aria-label="Toggle strikethrough">
+                        <ArrowDownAZ />
+                    </ToggleGroupItem>
+                </ToggleGroup>
+            </div>
+        )
+    },
+} satisfies Story
+

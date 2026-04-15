@@ -5651,7 +5651,6 @@ const api = {
             data: {
                 variables: Record<string, HogQLVariable>
                 filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
-                scheduled_at?: string | null
             }
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
