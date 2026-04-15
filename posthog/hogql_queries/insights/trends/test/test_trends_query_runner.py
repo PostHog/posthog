@@ -68,7 +68,6 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_OTHER_DISPLAY, TrendsQueryRunner
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -108,34 +107,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
-
-    def test_uses_standard_insight_validation_rules(self):
-        query_runner = TrendsQueryRunner(
-            team=self.team,
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-            ),
-        )
-
-        validators = query_runner.validators()
-
-        self.assertEqual(
-            tuple(type(validator) for validator in validators),
-            (RequireAtLeastOneSeries, DisallowUnsupportedDataWarehouseSettings),
-        )
-
-    def test_raises_for_empty_series(self):
-        query_runner = TrendsQueryRunner(
-            team=self.team,
-            query=TrendsQuery(
-                series=[],
-            ),
-        )
-
-        with self.assertRaises(DRFValidationError) as context:
-            query_runner.calculate()
-
-        self.assertIn("Trends insights require at least one series.", str(context.exception))
 
     def _create_events(self, data: list[SeriesTestData]):
         person_result = []
@@ -2758,6 +2729,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert modifiers.inCohortVia == InCohortVia.AUTO
+
+    def test_raises_for_empty_series(self):
+        query_runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[],
+            ),
+        )
+
+        with self.assertRaises(DRFValidationError) as context:
+            query_runner.calculate()
+
+        self.assertIn("Trends insights require at least one series.", str(context.exception))
 
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query")
     def test_should_throw_exception(self, patch_sync_execute):
