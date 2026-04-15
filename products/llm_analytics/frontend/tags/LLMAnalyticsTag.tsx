@@ -701,7 +701,7 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
                 columns={columns}
                 dataSource={tagRuns}
                 loading={tagRunsLoading}
-                rowKey="timestamp"
+                rowKey="target_event_id"
                 pagination={{ pageSize: 20 }}
                 nouns={['run', 'runs']}
                 emptyState={
@@ -753,16 +753,20 @@ export function LLMAnalyticsTagScene({ id }: { id?: string }): JSX.Element {
                     onChange={(key) => setActiveTab(key as 'runs' | 'configuration')}
                     data-attr="llma-tagger-tabs"
                     tabs={[
-                        !isNew && {
-                            key: 'runs',
-                            label: 'Runs',
-                            content: (
-                                <div className="max-w-6xl">
-                                    <TagRunsChart id={taggerId} />
-                                    <TagRunsTable id={taggerId} />
-                                </div>
-                            ),
-                        },
+                        ...(!isNew
+                            ? [
+                                  {
+                                      key: 'runs',
+                                      label: 'Runs',
+                                      content: (
+                                          <div className="max-w-6xl">
+                                              <TagRunsChart id={taggerId} />
+                                              <TagRunsTable id={taggerId} />
+                                          </div>
+                                      ),
+                                  },
+                              ]
+                            : []),
                         {
                             key: 'configuration',
                             label: 'Configuration',

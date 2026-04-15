@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -12,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmTaggersLogicType } from './llmTaggersLogicType'
 import { defaultTaggerTemplates } from './templates'
-import { Tagger } from './types'
+import { getIntervalFromDateRange, Tagger } from './types'
 
 export interface LLMTaggersLogicProps {
     tabId?: string
@@ -31,25 +30,6 @@ export interface TaggerTagCount {
 
 type RawStatsRow = [tagger_id: string, runs_count: number]
 type RawTagCountRow = [tagger_id: string, tag_name: string, count: number]
-
-function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
-    if (!dateFrom) {
-        return 'day'
-    }
-    if (dateFrom === 'dStart' || dateFrom === '-0d' || dateFrom === '-0dStart') {
-        return 'hour'
-    }
-    const match = dateFrom.match(/^-(\d+)([hdwmy])/i)
-    if (match) {
-        const value = parseInt(match[1])
-        const unit = match[2].toLowerCase()
-        const hoursMap: Record<string, number> = { h: 1, d: 24, w: 168, m: 720, y: 8760 }
-        const hours = value * (hoursMap[unit] || 24)
-        return hours <= 24 ? 'hour' : 'day'
-    }
-    const duration = dayjs.duration(dayjs().diff(dayjs(dateFrom)))
-    return duration.asDays() <= 1 ? 'hour' : 'day'
-}
 
 export const llmTaggersLogic = kea<llmTaggersLogicType>([
     path(['products', 'llm_analytics', 'taggers', 'llmTaggersLogic']),

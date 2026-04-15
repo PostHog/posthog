@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,7 +15,14 @@ import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggerLogicType } from './llmTaggerLogicType'
 import { llmTaggersLogic } from './llmTaggersLogic'
-import { ModelConfiguration, Tagger, TaggerConditionSet, TaggerConfig, TaggerType } from './types'
+import {
+    getIntervalFromDateRange,
+    ModelConfiguration,
+    Tagger,
+    TaggerConditionSet,
+    TaggerConfig,
+    TaggerType,
+} from './types'
 
 export interface HogTestResult {
     event_uuid: string
@@ -179,22 +185,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
 
                 const dateFrom = dateFilter.dateFrom || '-7d'
                 const dateTo = dateFilter.dateTo || null
-
-                // Pick hour vs day interval based on date range
-                let interval: 'hour' | 'day' = 'day'
-                if (dateFrom === 'dStart' || dateFrom === '-0d' || dateFrom === '-0dStart') {
-                    interval = 'hour'
-                } else {
-                    const match = dateFrom.match(/^-(\d+)([hdwmy])/i)
-                    if (match) {
-                        const value = parseInt(match[1])
-                        const unit = match[2].toLowerCase()
-                        const hoursMap: Record<string, number> = { h: 1, d: 24, w: 168, m: 720, y: 8760 }
-                        interval = value * (hoursMap[unit] || 24) <= 24 ? 'hour' : 'day'
-                    } else {
-                        interval = dayjs.duration(dayjs().diff(dayjs(dateFrom))).asDays() <= 1 ? 'hour' : 'day'
-                    }
-                }
+                const interval = getIntervalFromDateRange(dateFrom)
 
                 return {
                     kind: NodeKind.TrendsQuery,
@@ -311,6 +302,9 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             }
             const dateFrom = values.dateFilter?.dateFrom || '-24h'
             const dateTo = values.dateFilter?.dateTo || null
+            // Use a HogQL parameter placeholder rather than string interpolation —
+            // props.id comes from the URL path, so interpolating it directly into
+            // the query text would open an injection vector.
             const query: HogQLQuery = {
                 kind: NodeKind.HogQLQuery,
                 query: `
@@ -324,11 +318,12 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                         properties.$ai_tagger_name as tagger_name
                     FROM events
                     WHERE event = '$ai_tag'
-                      AND properties.$ai_tagger_id = '${props.id}'
+                      AND properties.$ai_tagger_id = {tagger_id}
                       AND {filters}
                     ORDER BY timestamp DESC
                     LIMIT 100
                 `,
+                values: { tagger_id: props.id },
                 filters: {
                     dateRange: {
                         date_from: dateFrom,
@@ -356,17 +351,24 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             if (props.id === 'new') {
                 return
             }
-            const tagger = await api.get(`api/environments/@current/taggers/${props.id}/`)
-            actions.loadTaggerSuccess(tagger)
-            actions.setTaggerFormValues({
-                name: tagger.name,
-                description: tagger.description || '',
-                enabled: tagger.enabled,
-                tagger_type: tagger.tagger_type || 'llm',
-                tagger_config: tagger.tagger_config,
-                conditions: tagger.conditions.length > 0 ? tagger.conditions : [DEFAULT_CONDITION],
-                model_configuration: tagger.model_configuration,
-            })
+            // Wrap in try/catch so a failed fetch clears taggerLoading — otherwise
+            // the UI is stuck on the skeleton indefinitely on any API error.
+            try {
+                const tagger = await api.get(`api/environments/@current/taggers/${props.id}/`)
+                actions.loadTaggerSuccess(tagger)
+                actions.setTaggerFormValues({
+                    name: tagger.name,
+                    description: tagger.description || '',
+                    enabled: tagger.enabled,
+                    tagger_type: tagger.tagger_type || 'llm',
+                    tagger_config: tagger.tagger_config,
+                    conditions: tagger.conditions.length > 0 ? tagger.conditions : [DEFAULT_CONDITION],
+                    model_configuration: tagger.model_configuration,
+                })
+            } catch (error) {
+                lemonToast.error(`Failed to load tagger: ${error instanceof Error ? error.message : String(error)}`)
+                actions.loadTaggerSuccess(null as any)
+            }
         },
         deleteTagger: async () => {
             if (props.id === 'new') {

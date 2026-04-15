@@ -1,15 +1,14 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmTaggersLogic } from './llmTaggersLogic'
 import type { tagMetricsLogicType } from './tagMetricsLogicType'
-import { Tagger } from './types'
+import { getIntervalFromDateRange, Tagger } from './types'
 
 export interface TagStats {
     tagger_id: string
@@ -27,28 +26,6 @@ export interface TagMetricsLogicProps {
     tabId?: string
 }
 
-function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
-    if (!dateFrom) {
-        return 'day'
-    }
-
-    if (dateFrom === 'dStart' || dateFrom === '-0d' || dateFrom === '-0dStart') {
-        return 'hour'
-    }
-
-    const match = dateFrom.match(/^-(\d+)([hdwmy])/i)
-    if (match) {
-        const value = parseInt(match[1])
-        const unit = match[2].toLowerCase()
-        const hoursMap: Record<string, number> = { h: 1, d: 24, w: 168, m: 720, y: 8760 }
-        const hours = value * (hoursMap[unit] || 24)
-        return hours <= 24 ? 'hour' : 'day'
-    }
-
-    const duration = dayjs.duration(dayjs().diff(dayjs(dateFrom)))
-    return duration.asDays() <= 1 ? 'hour' : 'day'
-}
-
 export const tagMetricsLogic = kea<tagMetricsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tags', 'tagMetricsLogic']),
     props({} as TagMetricsLogicProps),
@@ -60,6 +37,15 @@ export const tagMetricsLogic = kea<tagMetricsLogicType>([
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+    }),
+
+    reducers({
+        dateFilter: [
+            { dateFrom: '-7d' as string | null, dateTo: null as string | null },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -138,15 +124,6 @@ export const tagMetricsLogic = kea<tagMetricsLogicType>([
     })),
 
     selectors({
-        dateFilter: [
-            () => [],
-            (): { dateFrom: string | null; dateTo: string | null } => ({
-                dateFrom: '-7d',
-                dateTo: null,
-            }),
-            { resultEqualityCheck: () => true },
-        ],
-
         summaryMetrics: [
             (s) => [s.tagStats, s.totalRuns],
             (tagStats: { tag: string; count: number }[], totalRuns: number): TagSummaryMetrics => {
