@@ -28,19 +28,19 @@ export function Default(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-lg">
             <ButtonPrimitive variant="outline" size="base">
-                Default (VR test v2)
+                Default
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="outline" size="base">
-                Outline (VR test)
+                Outline
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="danger" size="base">
-                Danger (VR test)
+                Danger
             </ButtonPrimitive>
 
             <ButtonPrimitive size="base" disabled>
-                Disabled (VR test)
+                Button base disabled
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="outline" size="base">
