@@ -490,3 +490,46 @@ def send_email_reply(
         to=ticket.email_from,
         message_id=outbound_message_id,
     )
+
+
+WAKE_SNOOZE_BATCH_SIZE = 100
+
+
+@shared_task(ignore_result=True)
+def wake_snoozed_tickets() -> None:
+    """Reopen tickets whose snooze period has expired, in batches."""
+    from django.db import transaction
+    from django.utils import timezone
+
+    from products.conversations.backend.events import capture_ticket_status_changed
+
+    now = timezone.now()
+    total = 0
+
+    while True:
+        with transaction.atomic():
+            batch = list(
+                Ticket.objects.select_for_update(skip_locked=True)
+                .filter(snoozed_until__isnull=False, snoozed_until__lte=now)
+                .order_by("snoozed_until")[:WAKE_SNOOZE_BATCH_SIZE]
+            )
+            if not batch:
+                break
+
+            for ticket in batch:
+                old_status = ticket.status
+                ticket.status = "open"
+                ticket.snoozed_until = None
+                ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
+
+                try:
+                    capture_ticket_status_changed(ticket, old_status, "open")
+                except Exception:
+                    logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
+
+            total += len(batch)
+            if len(batch) < WAKE_SNOOZE_BATCH_SIZE:
+                break
+
+    if total:
+        logger.info("wake_snoozed_tickets_completed", count=total)
