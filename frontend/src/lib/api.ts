@@ -1849,6 +1849,14 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('import_from_customerio')
     }
 
+    public messagingCategoriesOptOutSyncConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('optout_sync_config')
+    }
+
+    public messagingCategoriesRemoveCustomerIOAppConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_customerio_app_config')
+    }
+
     public messagingPreferences(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences')
     }
