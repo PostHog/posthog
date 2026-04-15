@@ -9,6 +9,8 @@ from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import NodeRole
 
+MIN_TRACKED_MIGRATION_PREFIX = 83
+
 
 class TestUniqueMigrationPrefixes(TestCase):
     def test_migration_prefixes_are_unique(self):
@@ -24,7 +26,7 @@ class TestUniqueMigrationPrefixes(TestCase):
             if match:
                 prefix = match.group(1)
                 # Skip files with prefix less than 0083
-                if int(prefix) <= 83:
+                if int(prefix) <= MIN_TRACKED_MIGRATION_PREFIX:
                     continue
                 prefix_to_files[prefix].append(migration_file)
 
@@ -35,7 +37,8 @@ class TestUniqueMigrationPrefixes(TestCase):
                 match = re.match(r"^(\d+)_(.+)$", entry)
                 if match:
                     prefix = match.group(1)
-                    if int(prefix) <= 83:
+                    # Keep the same cutoff as .py migration files above.
+                    if int(prefix) <= MIN_TRACKED_MIGRATION_PREFIX:
                         continue
                     prefix_to_files[prefix].append(f"{entry}/")
 
