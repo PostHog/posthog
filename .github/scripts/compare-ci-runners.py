@@ -16,6 +16,11 @@
 #     by removing trailing " (<runner>)".
 #   - Dedicated shadow jobs use the suffix "-blacksmith" or "blacksmith shadow" in name.
 #   - Pairs: same (workflow, base_name, sha) → one depot duration + one blacksmith duration.
+#
+# Conclusions:
+#   - Speedup uses only success↔success pairs (mixed conclusions would be apples-to-oranges).
+#   - Failure rates are tracked per runner across ALL observed runs (paired or not).
+#   - Singletons (runs that only appeared on one runner for a given SHA) are reported separately.
 
 import re
 import sys
@@ -133,6 +138,45 @@ def get_repo() -> str:
     return out.strip()
 
 
+def derive_stats(by_sha: dict[str, dict[str, dict]]) -> dict:
+    """Reduce a (wf, base) sha→provider→{sec,conclusion} map into summary stats."""
+    depot_total = depot_fail = 0
+    bs_total = bs_fail = 0
+    success_pairs: list[tuple[float, float]] = []
+    mixed_pairs = 0
+    depot_only = bs_only = 0
+    for providers in by_sha.values():
+        d = providers.get("depot")
+        b = providers.get("blacksmith")
+        if d:
+            depot_total += 1
+            if d["conclusion"] == "failure":
+                depot_fail += 1
+        if b:
+            bs_total += 1
+            if b["conclusion"] == "failure":
+                bs_fail += 1
+        if d and b:
+            if d["conclusion"] == "success" and b["conclusion"] == "success":
+                success_pairs.append((d["sec"], b["sec"]))
+            else:
+                mixed_pairs += 1
+        elif d:
+            depot_only += 1
+        elif b:
+            bs_only += 1
+    return {
+        "depot_total": depot_total,
+        "depot_fail": depot_fail,
+        "bs_total": bs_total,
+        "bs_fail": bs_fail,
+        "success_pairs": success_pairs,
+        "mixed_pairs": mixed_pairs,
+        "depot_only": depot_only,
+        "bs_only": bs_only,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=7)
@@ -143,8 +187,8 @@ def main() -> None:
     since = datetime.now(UTC) - timedelta(days=args.days)
     print(f"# Collecting jobs from {repo} since {since.date()}", file=sys.stderr)
 
-    # pairs[(workflow, base_name)] = list of {sha, depot_sec, blacksmith_sec}
-    pairs: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    # observations[(workflow, base_name)][sha][provider] = {"sec": dur, "conclusion": conc}
+    observations: dict[tuple[str, str], dict[str, dict[str, dict]]] = defaultdict(lambda: defaultdict(dict))
 
     for wf in WORKFLOWS:
         print(f"# {wf}", file=sys.stderr)
@@ -160,8 +204,6 @@ def main() -> None:
                 jobs = get_jobs(rid, repo)
             except subprocess.CalledProcessError:
                 continue
-            # Collect per-base-name entries for this run
-            by_base: dict[str, dict] = defaultdict(dict)
             for j in jobs:
                 base, provider = classify_runner(j["name"])
                 dur = duration_seconds(j["started_at"], j["completed_at"])
@@ -169,50 +211,96 @@ def main() -> None:
                     continue
                 if j["conclusion"] not in ("success", "failure"):
                     continue  # skipped/cancelled not useful
-                by_base[base][f"{provider}_sec"] = dur
-                by_base[base][f"{provider}_conclusion"] = j["conclusion"]
-            for base, entry in by_base.items():
-                if "depot_sec" in entry and "blacksmith_sec" in entry:
-                    pairs[(wf, base)].append({"sha": sha, **entry})
+                observations[(wf, base)][sha][provider] = {
+                    "sec": dur,
+                    "conclusion": j["conclusion"],
+                }
 
     if args.format == "csv":
-        print("workflow,job,sha,depot_sec,blacksmith_sec,delta_sec,speedup")
-        for (wf, base), rows in sorted(pairs.items()):
-            for r in rows:
-                d, b = r["depot_sec"], r["blacksmith_sec"]
-                print(f'"{wf}","{base}",{r["sha"]},{d:.1f},{b:.1f},{d - b:.1f},{d / b:.2f}')
+        print("workflow,job,sha,depot_sec,blacksmith_sec,depot_conclusion,blacksmith_conclusion,delta_sec,speedup")
+        for (wf, base), by_sha in sorted(observations.items()):
+            for sha, providers in by_sha.items():
+                d = providers.get("depot")
+                b = providers.get("blacksmith")
+                d_sec = f"{d['sec']:.1f}" if d else ""
+                b_sec = f"{b['sec']:.1f}" if b else ""
+                d_conc = d["conclusion"] if d else ""
+                b_conc = b["conclusion"] if b else ""
+                if d and b and d["conclusion"] == "success" and b["conclusion"] == "success" and b["sec"] > 0:
+                    delta = f"{d['sec'] - b['sec']:.1f}"
+                    speedup = f"{d['sec'] / b['sec']:.2f}"
+                else:
+                    delta = ""
+                    speedup = ""
+                print(f'"{wf}","{base}",{sha},{d_sec},{b_sec},{d_conc},{b_conc},{delta},{speedup}')
         return
 
     # Markdown summary
     print("# Blacksmith vs Depot — paired CI job durations")
     print(f"\nCollection window: last {args.days} days. Repo: `{repo}`.\n")
     print(
-        "Each row is an `(workflow, job)` for which we have at least one paired run (same SHA produced both a Depot and a Blacksmith result). Durations are seconds.\n"
+        "Each row is an `(workflow, job)` with at least one same-SHA success↔success pair. "
+        "**Speedup uses success↔success pairs only** — mixed-conclusion pairs are counted in `Mixed` but excluded from the ratio. "
+        "`Fails` is the per-runner failure count across all observed runs (paired or not). Durations are seconds.\n"
     )
     print(
-        "| Workflow | Job | Pairs | Depot median | Blacksmith median | Speedup (median) | Depot p95 | Blacksmith p95 |"
+        "| Workflow | Job | Success pairs | Depot median | Blacksmith median | Speedup (median) | Depot p95 | Blacksmith p95 | Depot fails | Blacksmith fails | Mixed |"
     )
-    print("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    print("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
     summary_rows = []
-    for (wf, base), rows in sorted(pairs.items()):
-        depot = [r["depot_sec"] for r in rows]
-        bs = [r["blacksmith_sec"] for r in rows]
+    stats_by_key: dict[tuple[str, str], dict] = {}
+    for (wf, base), by_sha in sorted(observations.items()):
+        s = derive_stats(by_sha)
+        stats_by_key[(wf, base)] = s
+        if not s["success_pairs"]:
+            continue  # no comparable data — surfaced in singletons table below
+        depot = [p[0] for p in s["success_pairs"]]
+        bs = [p[1] for p in s["success_pairs"]]
         dm = statistics.median(depot)
         bm = statistics.median(bs)
         speedup = dm / bm if bm > 0 else float("inf")
         dp95 = sorted(depot)[max(0, int(len(depot) * 0.95) - 1)]
         bp95 = sorted(bs)[max(0, int(len(bs) * 0.95) - 1)]
-        summary_rows.append((speedup, wf, base, len(rows), dm, bm, dp95, bp95))
+        dfail = f"{s['depot_fail']}/{s['depot_total']}"
+        bfail = f"{s['bs_fail']}/{s['bs_total']}"
+        summary_rows.append(
+            (speedup, wf, base, len(s["success_pairs"]), dm, bm, dp95, bp95, dfail, bfail, s["mixed_pairs"])
+        )
 
     # Sort by speedup descending — biggest wins at the top
-    for speedup, wf, base, n, dm, bm, dp95, bp95 in sorted(summary_rows, reverse=True):
-        print(f"| `{wf}` | {base} | {n} | {dm:.0f}s | {bm:.0f}s | **{speedup:.2f}x** | {dp95:.0f}s | {bp95:.0f}s |")
+    for speedup, wf, base, n, dm, bm, dp95, bp95, dfail, bfail, mixed in sorted(summary_rows, reverse=True):
+        print(
+            f"| `{wf}` | {base} | {n} | {dm:.0f}s | {bm:.0f}s | **{speedup:.2f}x** | "
+            f"{dp95:.0f}s | {bp95:.0f}s | {dfail} | {bfail} | {mixed} |"
+        )
+
+    # Unpaired / singleton jobs — highlights where the shadow didn't fire consistently
+    unpaired_rows = [
+        (wf, base, s["depot_only"], s["bs_only"])
+        for (wf, base), s in sorted(stats_by_key.items())
+        if s["depot_only"] or s["bs_only"]
+    ]
+    if unpaired_rows:
+        print("\n## Unpaired runs")
+        print(
+            "Jobs that ran on only one runner for a given SHA (shadow didn't fire, paths filter "
+            "differed, job was skipped on the other side, etc.). Large imbalances mean the "
+            "pairing denominator above is small.\n"
+        )
+        print("| Workflow | Job | Depot-only | Blacksmith-only |")
+        print("| --- | --- | ---: | ---: |")
+        for wf, base, d_only, b_only in unpaired_rows:
+            print(f"| `{wf}` | {base} | {d_only} | {b_only} |")
 
     print("\n## Interpretation")
     print(
         "- **Speedup > 1.0** → Blacksmith is faster on that job\n"
         "- **Speedup < 1.0** → Blacksmith is slower (decision: is the price cut worth it?)\n"
-        "- Low `Pairs` count (< 10) → treat as noisy; widen window or re-run\n"
+        "- **Fails (x/y)** → per-runner failure count across all observed runs. High asymmetry "
+        "(e.g. `5/50` vs `1/50`) points to runner-specific instability\n"
+        "- **Mixed** → pairs where one runner passed and the other failed. Excluded from speedup "
+        "but worth inspecting manually — the shadow may be masking a flake or a real break\n"
+        "- Low `Success pairs` count (< 10) → treat as noisy; widen window or re-run\n"
         "- Compare `p95` to `median` — a large gap means runner variance is high\n"
     )
 
