@@ -40,11 +40,13 @@ from .serializers import (
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
+    MarkToleratedInputSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
+    ToleratedHashEntrySerializer,
     UpdateRepoInputSerializer,
 )
 
@@ -127,8 +129,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "mark_tolerated"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "tolerated_hashes"]
 
     @extend_schema(
         parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
@@ -181,6 +183,46 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer = SnapshotSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
+
+    @extend_schema(
+        request=MarkToleratedInputSerializer,
+        responses={200: SnapshotSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="mark-tolerated")
+    def mark_tolerated(self, request: Request, pk: str, **kwargs) -> Response:
+        """Mark a changed snapshot as a known tolerated alternate."""
+        snapshot_id = request.data.get("snapshot_id")
+        if not snapshot_id:
+            return Response({"detail": "snapshot_id required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            snapshot = api.mark_snapshot_as_tolerated(
+                run_id=UUID(pk),
+                snapshot_id=UUID(snapshot_id),
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SnapshotSerializer(instance=snapshot).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: ToleratedHashEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tolerated-hashes")
+    def tolerated_hashes(self, request: Request, pk: str, **kwargs) -> Response:
+        """List known tolerated hashes for a snapshot identifier."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
 
     @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
     @action(detail=True, methods=["post"], url_path="add-snapshots")
