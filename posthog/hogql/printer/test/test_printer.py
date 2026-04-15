@@ -31,6 +31,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyGroupsMode,
+    SessionTableVersion,
 )
 
 from posthog.hogql import ast
@@ -3547,6 +3548,24 @@ class TestPrinter(BaseTest):
                 assert "globalIn" not in printed
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    def test_sessions_filter_by_event_subquery_uses_global_in(self):
+        # Sessions tables live on a separate ClickHouse cluster from events.
+        # When filtering sessions by a subquery against events, we MUST emit
+        # `globalIn` rather than plain `in`. Plain `in` causes ClickHouse to
+        # ship the subquery to each sessions shard, where `events` doesn't
+        # exist → UNKNOWN_TABLE.
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        printed = self._select(
+            """
+            SELECT session_id
+            FROM sessions
+            WHERE session_id IN (SELECT $session_id FROM events WHERE event = 'payment_confirm_clicked')
+            """,
+            context=context,
+        )
+        assert "globalIn" in printed, f"expected globalIn in:\n{printed}"
 
     @parameterized.expand(
         [

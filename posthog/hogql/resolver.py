@@ -15,6 +15,9 @@ from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQue
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
+from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
@@ -1899,6 +1902,20 @@ class Resolver(CloningVisitor):
             else:
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
+        # Sessions tables live on a separate ClickHouse cluster from events/persons.
+        # An IN/NotIn against a sessions field with a subquery on the right must use
+        # globalIn — otherwise ClickHouse pushes the subquery into each sessions shard,
+        # which doesn't have events/persons → UNKNOWN_TABLE.
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, ast.SelectQuery)
+            and self._is_sessions_table(node.left)
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
         return node
 
     def _get_scope(self):
@@ -1938,6 +1955,33 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.field_type.table_type.table_type.table, EventsTable)
             if isinstance(node.type.field_type.table_type, ast.TableType):
                 return isinstance(node.type.field_type.table_type.table, EventsTable)
+        return False
+
+    def _is_sessions_table(self, node: ast.Expr) -> bool:
+        sessions_tables = (
+            SessionsTableV1,
+            SessionsTableV2,
+            SessionsTableV3,
+            RawSessionsTableV1,
+            RawSessionsTableV2,
+            RawSessionsTableV3,
+        )
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if not isinstance(node, ast.Field):
+            return False
+        field_type = node.type
+        if isinstance(field_type, ast.PropertyType):
+            field_type = field_type.field_type
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        table_type = field_type.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.LazyTableType):
+            return isinstance(table_type.table, sessions_tables)
+        if isinstance(table_type, ast.TableType):
+            return isinstance(table_type.table, sessions_tables)
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
