@@ -9673,6 +9673,9 @@ export namespace Schemas {
       Firebase: 'firebase',
       Jira: 'jira',
       PinterestAds: 'pinterest-ads',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -15041,6 +15044,8 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       only_count_matured_users?: boolean;
+      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      update_feature_flag_params?: boolean;
       readonly status: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -18010,11 +18015,14 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
     * `stripe` - Stripe
+    * `customerio-app` - Customerio App
+    * `customerio-webhook` - Customerio Webhook
+    * `customerio-track` - Customerio Track
      */
-    export type KindBa9Enum = typeof KindBa9Enum[keyof typeof KindBa9Enum];
+    export type KindEc9Enum = typeof KindEc9Enum[keyof typeof KindEc9Enum];
 
 
-    export const KindBa9Enum = {
+    export const KindEc9Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -18044,6 +18052,9 @@ export namespace Schemas {
       Jira: 'jira',
       PinterestAds: 'pinterest-ads',
       Stripe: 'stripe',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
     } as const;
 
     /**
@@ -18051,7 +18062,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: KindBa9Enum;
+      kind: KindEc9Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -18590,6 +18601,22 @@ export namespace Schemas {
        */
       version?: number | null;
     }
+
+    /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+     */
+    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
+
+
+    export const InitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+    } as const;
 
     /**
      * @nullable
@@ -19597,6 +19624,8 @@ export namespace Schemas {
      * * `user_message` - user_message
     * `cancel` - cancel
     * `close` - close
+    * `permission_response` - permission_response
+    * `set_config_option` - set_config_option
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -19605,6 +19634,8 @@ export namespace Schemas {
       UserMessage: 'user_message',
       Cancel: 'cancel',
       Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
     } as const;
 
     export interface MinimalPerson {
@@ -19733,6 +19764,21 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
+    }
+
+    export interface NotebookCollabSave {
+      /** Unique identifier for the client session. */
+      client_id: string;
+      /** The collab version the client's steps are based on. */
+      version: number;
+      /** List of ProseMirror step JSON objects to apply. */
+      steps: unknown[];
+      /** The resulting ProseMirror document after applying the steps locally. */
+      content: unknown;
+      /** Plain text for search indexing. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
     }
 
     export interface NotebookMinimal {
@@ -22407,6 +22453,8 @@ export namespace Schemas {
        */
       sla_due_at?: string | null;
       /** @nullable */
+      snoozed_until?: string | null;
+      /** @nullable */
       readonly slack_channel_id: string | null;
       /** @nullable */
       readonly slack_thread_ts: string | null;
@@ -24055,6 +24103,8 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       only_count_matured_users?: boolean;
+      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      update_feature_flag_params?: boolean;
       readonly status?: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -24598,7 +24648,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: KindBa9Enum;
+      kind?: KindEc9Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -25522,7 +25572,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: KindBa9Enum;
+      readonly kind: KindEc9Enum;
       readonly display_name: string;
     }
 
@@ -26672,6 +26722,8 @@ export namespace Schemas {
        * @nullable
        */
       sla_due_at?: string | null;
+      /** @nullable */
+      snoozed_until?: string | null;
       /** @nullable */
       readonly slack_channel_id?: string | null;
       /** @nullable */
@@ -31175,7 +31227,9 @@ export namespace Schemas {
 
     * `user_message` - user_message
     * `cancel` - cancel
-    * `close` - close */
+    * `close` - close
+    * `permission_response` - permission_response
+    * `set_config_option` - set_config_option */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -31254,6 +31308,13 @@ export namespace Schemas {
       signal_report_id?: string;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
+      /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+
+    * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions */
+      initial_permission_mode?: InitialPermissionModeEnum;
     }
 
     export interface TaskRunRelayMessageRequest {

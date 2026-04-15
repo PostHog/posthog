@@ -421,6 +421,12 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         write_only=True,
         help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
     )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=["default", "acceptEdits", "plan", "bypassPermissions"],
+        required=False,
+        default=None,
+        help_text="Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).",
+    )
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
@@ -430,6 +436,8 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "user_message",
         "cancel",
         "close",
+        "permission_response",
+        "set_config_option",
     ]
 
     jsonrpc = serializers.ChoiceField(

@@ -301,6 +301,10 @@ jobs:
         permissions:
             id-token: write
         steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .nvmrc
+                  sparse-checkout-cone-mode: false
             - name: Fetch npm packages
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
