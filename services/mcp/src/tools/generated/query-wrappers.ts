@@ -1097,8 +1097,10 @@ const AssistantTraceQuery = z.object({
 
 const AssistantInsightActorsQuery = z.object({
     breakdown: z
-        .union([z.string(), z.array(z.string()), integer])
-        .describe('Breakdown value to filter by.')
+        .array(z.string())
+        .describe(
+            "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions."
+        )
         .optional(),
     compare: z
         .enum(['current', 'previous'])
