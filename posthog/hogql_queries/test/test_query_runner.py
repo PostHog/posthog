@@ -17,6 +17,8 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DashboardFilter,
+    DateRange,
     EventsNode,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -273,6 +275,40 @@ class TestQueryRunner(BaseTest):
 
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_ff888ce61e00a0bf5be0521f24b4225b723fd59d67b74bb104a56b1f01cfb1c4"
+
+    def test_cache_key_resolves_relative_dates_so_keys_differ_across_days(self):
+        # Regression test: "-7d" used to hash identically on any day, so yesterday's cached
+        # "last 7 days" result was served today. The cache payload now resolves relative
+        # expressions to day-truncated absolute dates so the key changes at midnight.
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange())
+        runner = TrendsQueryRunner(team=self.team, query=query)
+        runner.apply_dashboard_filters(DashboardFilter(date_from="-7d"))
+
+        with freeze_time("2026-04-08T12:00:00Z"):
+            key_on_apr_8 = runner.get_cache_key()
+        with freeze_time("2026-04-15T12:00:00Z"):
+            key_on_apr_15 = runner.get_cache_key()
+        with freeze_time("2026-04-15T23:59:00Z"):
+            key_on_apr_15_later = runner.get_cache_key()
+
+        assert key_on_apr_8 != key_on_apr_15
+        # Same calendar day must produce a stable key — sibling tiles dispatched microseconds
+        # apart must not disagree on the cache key.
+        assert key_on_apr_15 == key_on_apr_15_later
+
+    def test_cache_key_absolute_dates_pass_through_unchanged(self):
+        # Absolute dates in dashboard filters must NOT be mangled by the relative-date
+        # resolver — the cache key should be identical regardless of wall clock.
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange())
+        runner = TrendsQueryRunner(team=self.team, query=query)
+        runner.apply_dashboard_filters(DashboardFilter(date_from="2026-01-01", date_to="2026-01-31"))
+
+        with freeze_time("2026-04-08T12:00:00Z"):
+            key_on_apr_8 = runner.get_cache_key()
+        with freeze_time("2026-04-15T12:00:00Z"):
+            key_on_apr_15 = runner.get_cache_key()
+
+        assert key_on_apr_8 == key_on_apr_15
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
