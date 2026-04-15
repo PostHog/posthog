@@ -624,6 +624,8 @@ export class HogFlowExecutorService {
                 jobId: invocation.id,
                 teamId: invocation.teamId,
                 personId: String(personId),
+                hogflowId: invocation.hogFlow.id,
+                actionId: 'conversion',
                 eventName,
                 type: 'conversion' as const,
                 filters: eventConfig.filters ?? null,
