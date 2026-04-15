@@ -95,6 +95,18 @@ export function Login(): JSX.Element {
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const prevEmail = usePrevious(login.email)
 
+    // Only surface the "Last used" badge when there's more than one login method configured for the
+    // instance — otherwise (common on self-hosted with just password) the hint is redundant noise.
+    // Passkey is intentionally not counted: the button is always rendered on this page and it's tied
+    // to the same account as password, rather than being an independently configurable login method.
+    const socialProvidersCount = preflight
+        ? Object.values(preflight.available_social_auth_providers).filter(Boolean).length
+        : 0
+    const configuredLoginMethodsCount = precheckResponse.sso_enforcement
+        ? 1
+        : 1 /* password */ + (precheckResponse.saml_available ? 1 : 0) + socialProvidersCount
+    const effectiveLastLoginMethod: LoginMethod = configuredLoginMethodsCount >= 2 ? lastLoginMethod : null
+
     useEffect(() => {
         const wasPasswordHidden = wasPasswordHiddenRef.current
         wasPasswordHiddenRef.current = isPasswordHidden
@@ -210,7 +222,7 @@ export function Login(): JSX.Element {
                                         passwordInputRef.current?.focus()
                                     }
                                 }}
-                                badgeText={lastLoginMethod === 'password' ? 'Last used' : undefined}
+                                badgeText={effectiveLastLoginMethod === 'password' ? 'Last used' : undefined}
                             />
                         </LemonField>
                         <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
@@ -267,7 +279,7 @@ export function Login(): JSX.Element {
                             <SSOEnforcedLoginButton
                                 provider={precheckResponse.sso_enforcement}
                                 email={login.email}
-                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
+                                isLastUsed={effectiveLastLoginMethod === precheckResponse.sso_enforcement}
                             />
                         )}
 
@@ -276,7 +288,7 @@ export function Login(): JSX.Element {
                             <SSOEnforcedLoginButton
                                 provider="saml"
                                 email={login.email}
-                                isLastUsed={lastLoginMethod === 'saml'}
+                                isLastUsed={effectiveLastLoginMethod === 'saml'}
                             />
                         )}
                     </Form>
@@ -293,7 +305,7 @@ export function Login(): JSX.Element {
                     <SocialLoginButtons
                         caption="Or log in with"
                         topDivider
-                        lastUsedProvider={lastLoginMethod}
+                        lastUsedProvider={effectiveLastLoginMethod}
                         showPasskey
                     />
                 )}
