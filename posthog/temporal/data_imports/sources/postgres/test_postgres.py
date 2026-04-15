@@ -626,11 +626,7 @@ class TestPostgreSQLColumnToArrowField:
 
     def test_numeric_raises_with_zero_precision(self):
         col = PostgreSQLColumn("val", "numeric", nullable=True, numeric_precision=0, numeric_scale=2)
-        # pyarrow rejects precision=0 with ValueError ("precision should be between 1 and 38").
-        # The `is None` guard in `to_arrow_field` intentionally lets 0 through so that legitimate
-        # NUMERIC(X, 0) columns aren't blocked — 0 precision is a real pathology and surfacing it
-        # as an error is the desired behavior.
-        with pytest.raises((TypeError, ValueError)):
+        with pytest.raises(TypeError):
             col.to_arrow_field()
 
     def test_array_types_map_to_string(self):
