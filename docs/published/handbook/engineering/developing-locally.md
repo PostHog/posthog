@@ -136,10 +136,11 @@ To get PostHog running in a dev environment:
 
 3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
    
-   > Note on connection errors: If you see connection errors on flox activation, ensure the following entry exists in `/etc/hosts`:
-   > ```
-   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
-   > ```
+    > Note on connection errors: If you see connection errors on flox activation, ensure the following entry exists in `/etc/hosts`:
+    >
+    > ```
+    > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
+    > ```
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
