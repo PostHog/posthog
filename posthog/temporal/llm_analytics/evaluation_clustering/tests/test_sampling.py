@@ -55,6 +55,30 @@ class TestComposeEvaluationText:
         assert "Evaluation: unknown" in text
         assert "Reasoning: " in text
 
+    def test_description_is_included_when_provided(self):
+        text = _compose_evaluation_text(
+            name="Relevance",
+            result=True,
+            applicable=None,
+            reasoning="response fit",
+            description="Checks that the model's answer is on-topic for the user's question",
+        )
+        # Description line sits between name and verdict so the verdict/reasoning stay at the end
+        assert text.splitlines() == [
+            "Evaluation: Relevance",
+            "Description: Checks that the model's answer is on-topic for the user's question",
+            "Verdict: pass",
+            "Reasoning: response fit",
+        ]
+
+    def test_description_omitted_when_empty_or_none(self):
+        # Empty string — treat as absent to avoid flattening the embedding space with boilerplate
+        for desc in (None, ""):
+            text = _compose_evaluation_text(
+                name="Relevance", result=True, applicable=None, reasoning="ok", description=desc
+            )
+            assert "Description:" not in text
+
 
 @patch(
     "posthog.temporal.llm_analytics.evaluation_clustering.sampling.Heartbeater",
@@ -64,10 +88,12 @@ class TestSampleAndEmbedForJobActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_enqueues_one_embedding_per_row(self, mock_team):
+        # Row shape mirrors the HogQL SELECT:
+        # [event_uuid, eval_name, eval_result, eval_applicable, eval_reasoning, eval_id]
         rows = [
-            ["uuid-1", "Accuracy", True, None, "Response was factually correct"],
-            ["uuid-2", "Accuracy", False, None, "Missed the key detail"],
-            ["uuid-3", "Applicability", True, False, "Out of scope"],
+            ["uuid-1", "Accuracy", True, None, "Response was factually correct", "eval-acc"],
+            ["uuid-2", "Accuracy", False, None, "Missed the key detail", "eval-acc"],
+            ["uuid-3", "Applicability", True, False, "Out of scope", "eval-app"],
         ]
 
         inputs = SamplerActivityInputs(
@@ -86,6 +112,10 @@ class TestSampleAndEmbedForJobActivity:
             patch(
                 "posthog.temporal.llm_analytics.evaluation_clustering.sampling.LLMTracesSummarizerEmbedder"
             ) as mock_embedder_cls,
+            patch(
+                "posthog.temporal.llm_analytics.evaluation_clustering.sampling._fetch_evaluation_descriptions",
+                return_value={"eval-acc": "Checks factual correctness of the answer"},
+            ),
         ):
             mock_execute.return_value.results = rows
             mock_embedder = MagicMock()
@@ -111,6 +141,12 @@ class TestSampleAndEmbedForJobActivity:
         # Third row's N/A verdict is surfaced in the composed text
         na_content = calls[2].kwargs["content"]
         assert "Verdict: n/a" in na_content
+
+        # Accuracy rows carry the description from the Evaluation model
+        assert "Description: Checks factual correctness of the answer" in calls[0].kwargs["content"]
+        assert "Description: Checks factual correctness of the answer" in calls[1].kwargs["content"]
+        # Applicability has no description — the line stays out of the composed text
+        assert "Description:" not in na_content
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio

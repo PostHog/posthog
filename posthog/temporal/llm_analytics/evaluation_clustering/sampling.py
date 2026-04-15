@@ -31,11 +31,17 @@ def _compose_evaluation_text(
     result: Any,
     applicable: Any,
     reasoning: str | None,
+    description: str | None = None,
 ) -> str:
     """Build the short text representation embedded for one $ai_evaluation event.
 
     Format intentionally compact so embeddings pick up on evaluator + verdict + reasoning
-    without being dominated by boilerplate.
+    without being dominated by boilerplate. The optional evaluator ``description`` comes
+    from the ``Evaluation`` model (not the event) — including it helps the embedding
+    capture intent/rubric, not just the emitted reasoning, which is especially useful
+    for short Hog-runtime reasoning like ``"OK"`` or ``"Total tokens 17250 exceeds 4000"``.
+    The ``Description:`` line is omitted when empty so blank descriptions don't inject
+    boilerplate that flattens the embedding space.
     """
     verdict: str
     # $ai_evaluation_applicable is only set when the evaluation allows N/A. When it's
@@ -50,7 +56,33 @@ def _compose_evaluation_text(
     else:
         verdict = "unknown"
 
-    return f"Evaluation: {name or 'unknown'}\nVerdict: {verdict}\nReasoning: {reasoning or ''}"
+    lines = [f"Evaluation: {name or 'unknown'}"]
+    if description:
+        lines.append(f"Description: {description}")
+    lines.append(f"Verdict: {verdict}")
+    lines.append(f"Reasoning: {reasoning or ''}")
+    return "\n".join(lines)
+
+
+def _fetch_evaluation_descriptions(team_id: int, evaluation_ids: list[str]) -> dict[str, str]:
+    """Batch-fetch Evaluation.description for the evaluators we sampled.
+
+    One Django query per sampler run keyed by the handful of distinct evaluator ids
+    in the sample — much cheaper than joining per-row. Missing or empty descriptions
+    are silently skipped by the caller (``_compose_evaluation_text`` omits the line).
+    """
+    # Local import: the activity's top-level import graph stays free of Django model modules
+    # so workflow-side imports don't accidentally pull them in via Temporal's sandbox.
+    from products.llm_analytics.backend.models.evaluations import Evaluation
+
+    # IDs come off ``$ai_evaluation_id`` as strings; filter out empty/unknown so we
+    # don't ship a huge empty-id set to Postgres.
+    ids = {eid for eid in evaluation_ids if eid}
+    if not ids:
+        return {}
+
+    rows = Evaluation.objects.filter(team_id=team_id, id__in=ids).values_list("id", "description")
+    return {str(eid): description for eid, description in rows if description}
 
 
 def _parse_iso(ts: str) -> datetime:
@@ -83,12 +115,13 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
             properties.$ai_evaluation_name as eval_name,
             properties.$ai_evaluation_result as eval_result,
             properties.$ai_evaluation_applicable as eval_applicable,
-            properties.$ai_evaluation_reasoning as eval_reasoning
+            properties.$ai_evaluation_reasoning as eval_reasoning,
+            properties.$ai_evaluation_id as eval_id
         FROM events
         WHERE event = '$ai_evaluation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND countIf({filter_expr}) > 0
+            AND {filter_expr}
         ORDER BY rand()
         LIMIT {max_samples}
         """
@@ -124,14 +157,24 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
     rendering = f"{team.id}_{inputs.run_ts}_{inputs.job_id}"
     embedder = LLMTracesSummarizerEmbedder(team=team)
 
+    # Enrich the composed text with each evaluator's description (from the Evaluation
+    # model) so the embedding picks up on rubric/intent, not just the emitted reasoning.
+    # Batched to a single Django query per run on the unique evaluator ids we sampled.
+    descriptions_by_id = _fetch_evaluation_descriptions(
+        team_id=team.id,
+        evaluation_ids=[row[5] for row in rows if row[5]],
+    )
+
     embedded = 0
     for row in rows:
         event_uuid = row[0]
+        eval_id = row[5]
         content = _compose_evaluation_text(
             name=row[1],
             result=row[2],
             applicable=row[3],
             reasoning=row[4],
+            description=descriptions_by_id.get(eval_id),
         )
         # Use the eval event UUID as document_id so repeated runs over the same window
         # would land the same row (idempotent at the document level). A collision is fine —
@@ -170,6 +213,19 @@ async def sample_and_embed_for_job_activity(inputs: SamplerActivityInputs) -> Sa
 
     Runs hourly per active evaluation ClusteringJob. Pure function of the inputs —
     no dedupe state, no watermark.
+
+    Exceptions are stringified before propagating so Temporal's failure serializer
+    doesn't trip on cyclic references inside HogQL AST nodes or ClickHouse error
+    payloads.
     """
     async with Heartbeater():
-        return await database_sync_to_async(_sample_and_embed_sync, thread_sensitive=False)(inputs)
+        try:
+            return await database_sync_to_async(_sample_and_embed_sync, thread_sensitive=False)(inputs)
+        except Exception as exc:
+            logger.exception(
+                "eval_sampler_activity_failed",
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                error_type=type(exc).__name__,
+            )
+            raise RuntimeError(f"{type(exc).__name__}: {exc}") from None
