@@ -1,3 +1,4 @@
+import uuid
 import typing
 import dataclasses
 
@@ -127,6 +128,7 @@ class DeliverSubscriptionResult:
 
 @dataclasses.dataclass
 class CreateDeliveryRecordInputs:
+    # TODO: subscription id should be uuid.UUID
     subscription_id: int
     team_id: int
     trigger_type: str
@@ -137,7 +139,7 @@ class CreateDeliveryRecordInputs:
 
 @dataclasses.dataclass
 class UpdateDeliveryRecordInputs:
-    delivery_id: int
+    delivery_id: uuid.UUID
     status: str
     exported_asset_ids: list[int] = dataclasses.field(default_factory=list)
     content_snapshot: dict[str, typing.Any] = dataclasses.field(default_factory=dict)

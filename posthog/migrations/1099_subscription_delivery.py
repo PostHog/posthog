@@ -4,6 +4,8 @@ import django.db.models.deletion
 import django.contrib.postgres.fields
 from django.db import migrations, models
 
+import posthog.models.utils
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -16,11 +18,11 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.AutoField(
-                        auto_created=True,
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
                         primary_key=True,
                         serialize=False,
-                        verbose_name="ID",
                     ),
                 ),
                 ("temporal_workflow_id", models.CharField(max_length=255)),

@@ -12,6 +12,7 @@ from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, Y
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
@@ -250,7 +251,7 @@ def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
     )
 
 
-class SubscriptionDelivery(models.Model):
+class SubscriptionDelivery(UUIDModel):
     class Status(models.TextChoices):
         STARTING = "starting"
         COMPLETED = "completed"

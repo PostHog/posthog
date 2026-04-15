@@ -21,6 +21,7 @@ from posthog.errors import CHQueryErrorS3Error
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.subscription import SubscriptionDelivery
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.temporal.common.slo_interceptor import SloInterceptor
@@ -34,12 +35,15 @@ from posthog.temporal.subscriptions.activities import (
     update_delivery_record,
 )
 from posthog.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
+    DeliveryStatus,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
+    UpdateDeliveryRecordInputs,
 )
 from posthog.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
@@ -436,6 +440,95 @@ async def test_create_export_assets_includes_insight_snapshots(
     assert result.insight_snapshots[0]["query_hash"] == "cache_key_test"
     mock_build_snapshot.assert_called_once()
     mock_analytics.capture.assert_not_called()
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="delrec01", name="Delivery record")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    inputs = CreateDeliveryRecordInputs(
+        subscription_id=subscription.id,
+        team_id=team.id,
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        temporal_workflow_id="wf-delivery-1",
+        idempotency_key="idem-dedupe",
+        scheduled_at="2022-02-02T08:55:00+00:00",
+    )
+    delivery_id = await env.run(create_delivery_record, inputs)
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.subscription_id == subscription.id
+    assert row.team_id == team.id
+    assert row.status == SubscriptionDelivery.Status.STARTING
+    assert row.idempotency_key == "idem-dedupe"
+    assert row.temporal_workflow_id == "wf-delivery-1"
+    assert row.trigger_type == SubscriptionTriggerType.SCHEDULED
+    assert row.scheduled_at is not None
+    assert row.content_snapshot["total_insight_count"] == 0
+    assert len(row.content_snapshot["insights"]) == 1
+    assert row.content_snapshot["insights"][0]["short_id"] == "delrec01"
+
+    inputs_retry = CreateDeliveryRecordInputs(
+        subscription_id=subscription.id,
+        team_id=team.id,
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        temporal_workflow_id="wf-delivery-retry",
+        idempotency_key="idem-dedupe",
+        scheduled_at="2022-02-02T08:55:00+00:00",
+    )
+    delivery_id_again = await env.run(create_delivery_record, inputs_retry)
+    assert delivery_id_again == delivery_id
+    assert await sync_to_async(SubscriptionDelivery.objects.filter(idempotency_key="idem-dedupe").count)() == 1
+    row_after = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row_after.temporal_workflow_id == "wf-delivery-1"
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_merges_snapshot_and_finalizes(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="upd01", name="Update delivery")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-upd",
+            idempotency_key="idem-upd",
+            scheduled_at=None,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[101, 102],
+            content_snapshot={
+                "total_insight_count": 1,
+                "insights": [{"id": 99, "short_id": "x", "name": "snap", "query_hash": "qh"}],
+            },
+            recipient_results=[{"recipient": "r@example.com", "status": "success"}],
+            error=None,
+            finished=True,
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.status == SubscriptionDelivery.Status.COMPLETED
+    assert row.exported_asset_ids == [101, 102]
+    assert row.recipient_results == [{"recipient": "r@example.com", "status": "success"}]
+    assert row.content_snapshot["total_insight_count"] == 1
+    assert row.content_snapshot["insights"] == [{"id": 99, "short_id": "x", "name": "snap", "query_hash": "qh"}]
+    assert "dashboard" in row.content_snapshot
+    assert row.finished_at is not None
 
 
 @patch("posthog.slo.events.posthoganalytics")

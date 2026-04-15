@@ -1,4 +1,5 @@
 import json
+import uuid
 import asyncio
 import datetime as dt
 
@@ -166,7 +167,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         caught_error: BaseException | None = None
 
         # Delivery record tracking
-        delivery_id: int | None = None
+        delivery_id: uuid.UUID | None = None
         final_status = DeliveryStatus.SKIPPED
         delivery_exported_asset_ids: list[int] = []
         delivery_content_snapshot: dict = {}

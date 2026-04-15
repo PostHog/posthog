@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -760,7 +761,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         params.update(kwargs)
         return SubscriptionDelivery.objects.create(**params)
 
-    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
     def test_can_list_deliveries(self, _mock_feature):
         d1 = self._create_delivery(idempotency_key="key-1")
         d2 = self._create_delivery(idempotency_key="key-2")
@@ -770,7 +771,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         results = response.json()["results"]
         assert len(results) == 2
         ids = {r["id"] for r in results}
-        assert ids == {d1.id, d2.id}
+        assert ids == {str(d1.id), str(d2.id)}
 
     def test_can_retrieve_single_delivery(self):
         delivery = self._create_delivery(
@@ -789,7 +790,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["id"] == delivery.id
+        assert data["id"] == str(delivery.id)
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "test@posthog.com", "status": "success"}]
         assert data["error"]["message"] == "something failed"
@@ -810,7 +811,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
     def test_deliveries_scoped_to_subscription(self, _mock_feature):
         other_subscription = Subscription.objects.create(
             team=self.team,
@@ -835,18 +836,18 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert len(results) == 1
         assert results[0]["subscription"] == self.subscription.id
 
-    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
     def test_deliveries_ordered_by_created_at_desc(self, _mock_feature):
         d1 = self._create_delivery(idempotency_key="older")
         d2 = self._create_delivery(idempotency_key="newer")
 
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
         results = response.json()["results"]
-        assert results[0]["id"] == d2.id
-        assert results[1]["id"] == d1.id
+        assert results[0]["id"] == str(d2.id)
+        assert results[1]["id"] == str(d1.id)
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
     def test_deliveries_require_premium_feature(self, _mock_feature):
         self.organization.available_product_features = []
         self.organization.save()
@@ -861,7 +862,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def test_deliveries_list_not_found_when_feature_flag_off(self):
         self._create_delivery(idempotency_key="flag-off")
         with patch(
-            "posthog.subscription_delivery_rollout.hackathon_subscription_feature",
+            "ee.api.subscription.hackathon_subscription_feature",
             return_value=False,
         ):
             response = self.client.get(
@@ -872,11 +873,69 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def test_deliveries_retrieve_ok_when_feature_flag_off(self):
         delivery = self._create_delivery(idempotency_key="retrieve-flag-off")
         with patch(
-            "posthog.subscription_delivery_rollout.hackathon_subscription_feature",
+            "ee.api.subscription.hackathon_subscription_feature",
             return_value=False,
         ):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
             )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["id"] == delivery.id
+        assert response.json()["id"] == str(delivery.id)
+
+    def test_retrieve_delivery_not_found_when_row_belongs_to_different_subscription(self):
+        other = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="email",
+            target_value="other@posthog.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Other",
+        )
+        delivery_on_other = self._create_delivery(
+            idempotency_key="other-sub-delivery",
+            subscription=other,
+        )
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery_on_other.id}/"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_retrieve_delivery_not_found_for_unknown_primary_key(self):
+        unknown_id = uuid4()
+        while SubscriptionDelivery.objects.filter(pk=unknown_id).exists():
+            unknown_id = uuid4()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{unknown_id}/"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("ee.api.subscription.SubscriptionDeliveryCursorPagination.page_size", 2)
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
+    def test_deliveries_list_cursor_pagination(self, _mock_feature):
+        self._create_delivery(idempotency_key="page-a")
+        self._create_delivery(idempotency_key="page-b")
+        self._create_delivery(idempotency_key="page-c")
+
+        base = f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        first = self.client.get(base)
+        assert first.status_code == status.HTTP_200_OK
+        body = first.json()
+        assert len(body["results"]) == 2
+        assert body["previous"] is None
+        assert body["next"] is not None
+
+        second = self.client.get(body["next"])
+        assert second.status_code == status.HTTP_200_OK
+        body2 = second.json()
+        assert len(body2["results"]) == 1
+        assert body2["next"] is None
+
+        first_ids = {row["id"] for row in body["results"]}
+        second_ids = {row["id"] for row in body2["results"]}
+        assert first_ids.isdisjoint(second_ids)
+        assert first_ids | second_ids == {
+            str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
+        }
