@@ -545,3 +545,6 @@ tools:
     users-github-login-retrieve:
         operation: users_github_login_retrieve
         enabled: false
+    dashboards-run-insights-retrieve:
+        operation: dashboards_run_insights_retrieve
+        enabled: false

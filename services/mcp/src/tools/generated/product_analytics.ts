@@ -112,7 +112,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
         })
         const filtered = {
             ...result,
-            results: result.results.map((item: any) =>
+            results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, [
                     'id',
                     'short_id',
@@ -135,7 +135,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
             {
                 ...filtered,
                 results: await Promise.all(
-                    filtered.results.map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
                 ),
             },
             '/insights'

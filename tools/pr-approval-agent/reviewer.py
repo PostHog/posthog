@@ -240,9 +240,11 @@ class Reviewer:
             # against weird unicode landing in analytics).
             reviewers = sorted({_sanitize_untrusted(r["user"], max_len=50) for r in pr.reviews if r.get("user")})
             safe_labels = [_sanitize_untrusted(label, max_len=100) for label in pr.labels]
+            trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
                 "posthog_properties": {
+                    "$ai_trace_name": trace_name,
                     "ai_product": "stamphog",
                     "stamphog_pr_number": pr.number,
                     "stamphog_pr_title": _sanitize_untrusted(pr.title, max_len=200),

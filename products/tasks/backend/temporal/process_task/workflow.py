@@ -144,12 +144,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            if self._context and self._context.mode == "interactive":
-                relay_task = asyncio.ensure_future(
-                    self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
-                )
-            else:
-                relay_task = asyncio.ensure_future(asyncio.sleep(0))  # no-op future
+            relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
 
             if self._should_forward_pending_user_message():
                 try:

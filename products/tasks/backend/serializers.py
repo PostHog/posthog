@@ -218,6 +218,12 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class TaskRunSetOutputRequestSerializer(serializers.Serializer):
+    output = serializers.JSONField(
+        help_text="Output data from the run. Validated against the task's json_schema if one is set."
+    )
+
+
 class ErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Error message")
 

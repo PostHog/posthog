@@ -32,10 +32,12 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
+    CsvWriter,
     ExcelWriter,
     UnexpectedEmptyJsonResponse,
     _convert_response_to_csv_data,
     _format_breakdown_value,
+    _sanitize_formula_injection,
     add_query_params,
     sanitize_value_for_excel,
 )
@@ -1798,3 +1800,106 @@ class TestNestedColumnExport(APIBaseTest):
             # Nested objects should be flattened to dot-notation columns
             assert b"inputState.messages.0.content" in exported_asset.content
             assert b"inputState.messages.1.content" in exported_asset.content
+
+
+class TestSanitizeFormulaInjection:
+    @pytest.mark.parametrize(
+        "input_value,expected",
+        [
+            ("=SUM(A1:A10)", "'=SUM(A1:A10)"),
+            ("+SUM(A1:A10)", "'+SUM(A1:A10)"),
+            ("-SUM(A1:A10)", "'-SUM(A1:A10)"),
+            ("@SUM(A1:A10)", "'@SUM(A1:A10)"),
+            ("\tSUM(A1:A10)", "'\tSUM(A1:A10)"),
+            ("\rSUM(A1:A10)", "'\rSUM(A1:A10)"),
+            ('=CMD("cmd /C calc")', '\'=CMD("cmd /C calc")'),
+        ],
+    )
+    def test_prefixes_dangerous_strings(self, input_value: str, expected: str) -> None:
+        assert _sanitize_formula_injection(input_value) == expected
+
+    @pytest.mark.parametrize(
+        "input_value",
+        [
+            "hello",
+            "normal text",
+            "123",
+            "",
+            42,
+            -5,
+            3.14,
+            -2.5,
+            None,
+            True,
+            False,
+        ],
+    )
+    def test_passes_through_safe_values(self, input_value: Any) -> None:
+        assert _sanitize_formula_injection(input_value) == input_value
+
+    def test_csv_writer_sanitizes_values(self) -> None:
+        writer = CsvWriter()
+        writer.write_header(["name", "value"])
+        writer.write_row({"name": "=evil", "value": "safe"})
+        path = writer.finish()
+        try:
+            with open(path) as f:
+                content = f.read()
+            assert "'=evil" in content
+            assert ",safe" in content
+        finally:
+            os.unlink(path)
+
+    def test_excel_writer_sanitizes_values(self) -> None:
+        writer = ExcelWriter()
+        writer.write_header(["name", "value"])
+        writer.write_row({"name": "=evil", "value": "+dangerous"})
+        path = writer.finish()
+        try:
+            wb = load_workbook(path)
+            ws = wb.active
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            assert rows[0][0] == "'=evil"
+            assert rows[0][1] == "'+dangerous"
+        finally:
+            os.unlink(path)
+
+    def test_csv_writer_sanitizes_headers(self) -> None:
+        writer = CsvWriter()
+        writer.write_header(["=formula", "safe"])
+        writer.write_row({"=formula": "val1", "safe": "val2"})
+        path = writer.finish()
+        try:
+            with open(path) as f:
+                header_line = f.readline()
+            assert "'=formula" in header_line
+            assert ",safe" in header_line
+        finally:
+            os.unlink(path)
+
+    def test_excel_writer_sanitizes_headers(self) -> None:
+        writer = ExcelWriter()
+        writer.write_header(["=formula", "safe"])
+        writer.write_row({"=formula": "val1", "safe": "val2"})
+        path = writer.finish()
+        try:
+            wb = load_workbook(path)
+            ws = wb.active
+            headers = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            assert headers[0] == "'=formula"
+            assert headers[1] == "safe"
+        finally:
+            os.unlink(path)
+
+    def test_excel_writer_illegal_char_bypass(self) -> None:
+        writer = ExcelWriter()
+        writer.write_header(["col"])
+        writer.write_row({"col": "\x01=SUM(A1:B1)"})
+        path = writer.finish()
+        try:
+            wb = load_workbook(path)
+            ws = wb.active
+            rows = list(ws.iter_rows(min_row=2, values_only=True))
+            assert rows[0][0] == "'=SUM(A1:B1)"
+        finally:
+            os.unlink(path)
