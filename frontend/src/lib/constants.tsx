@@ -358,6 +358,7 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION_VIDEO_AS_BASE: 'max-session-summarization-video-as-base', // owner: #team-signals
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
+    NOTEBOOKS_COLLABORATION: 'notebooks-collaboration', // owner: #team-platform-features
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @benjackwhite
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics

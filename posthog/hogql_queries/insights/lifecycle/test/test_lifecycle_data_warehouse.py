@@ -20,7 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at

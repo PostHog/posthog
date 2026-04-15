@@ -1891,6 +1891,15 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
+    /**
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     */
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**

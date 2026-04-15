@@ -3,7 +3,14 @@ from pathlib import Path
 from typing import Optional, Union
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -41,7 +48,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
@@ -151,7 +158,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _setup_data_warehouse(self) -> str:
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
-            csv_path=Path(__file__).parent.parent / "trends" / "test" / "data" / "trends_data.csv",
+            csv_path=Path(__file__).parent.parent.parent / "trends" / "test" / "data" / "trends_data.csv",
             table_name="test_table_stickiness",
             table_columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
@@ -266,6 +273,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = self._get_query(**kwargs)
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 
+    @snapshot_clickhouse_queries
     def test_stickiness_runs(self):
         self._create_test_events()
 
@@ -283,6 +291,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response.results, list)
         assert isinstance(response.results[0], dict)
 
+    @snapshot_clickhouse_queries
     def test_stickiness_data_warehouse(self):
         table_name = self._setup_data_warehouse()
 
@@ -872,6 +881,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
 
+    @snapshot_clickhouse_queries
     def test_cumulative_stickiness(self):
         self._create_events(
             [
@@ -1102,6 +1112,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert result["data"] == [2, 1, 0]  # 2 users active 1+ days, 2 users active 2+ days, 1 user for 3 days
         assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
 
+    @snapshot_clickhouse_queries
     def test_actor_query_cumulative(self):
         self._create_events(
             [
@@ -1182,6 +1193,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response_3.results), 1)  # Only p1 was active for 3+ days
 
+    @snapshot_clickhouse_queries
     def test_actor_query_non_cumulative(self):
         self._create_events(
             [

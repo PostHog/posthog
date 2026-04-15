@@ -24,7 +24,7 @@ from posthog.schema import CachedPathsQueryResponse, PathsLink
 
 from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, INSIGHT_FUNNELS
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
+from posthog.hogql_queries.insights.paths.paths_query_runner import PathsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
