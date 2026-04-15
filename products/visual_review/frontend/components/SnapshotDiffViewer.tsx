@@ -49,7 +49,9 @@ export function SnapshotDiffViewer({
     const height = snapshot.current_artifact?.height || snapshot.baseline_artifact?.height
 
     const isApproved = snapshot.review_state === 'approved'
+    const isTolerated = snapshot.review_state === 'tolerated'
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
+    const needsAction = hasChanges && !isApproved && !isTolerated
 
     // Parse identifier for display (e.g., "Feature-Flags-settings--e2e-test--dark--1440x900")
     const parts = snapshot.identifier.split('--')
@@ -101,14 +103,14 @@ export function SnapshotDiffViewer({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {hasChanges && !isApproved && (
+                        {needsAction && (
                             <>
                                 <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
                                     Accept change
                                 </LemonButton>
                                 {snapshot.result === 'changed' && (
                                     <LemonButton type="secondary" size="small" onClick={onMarkTolerated}>
-                                        Mark as tolerated
+                                        Tolerate
                                     </LemonButton>
                                 )}
                             </>
@@ -121,16 +123,8 @@ export function SnapshotDiffViewer({
                             </span>
                         )}
 
-                        {snapshot.classification_reason === 'tolerated_hash' && (
-                            <LemonTag type="muted" size="small">
-                                tolerated
-                            </LemonTag>
-                        )}
-
-                        {snapshot.classification_reason === 'below_threshold' && (
-                            <LemonTag type="muted" size="small">
-                                noise
-                            </LemonTag>
+                        {isTolerated && (
+                            <span className="flex items-center gap-1 text-sm text-muted font-medium">Tolerated</span>
                         )}
                     </div>
                 </div>

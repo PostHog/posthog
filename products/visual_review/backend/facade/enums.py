@@ -56,5 +56,6 @@ class ReviewState(StrEnum):
     """
 
     PENDING = "pending"  # Not yet reviewed
-    APPROVED = "approved"  # Accepted the change
+    APPROVED = "approved"  # Accepted the change — updates baseline
+    TOLERATED = "tolerated"  # Acknowledged as rendering noise — does not update baseline
     REJECTED = "rejected"  # Explicitly rejected

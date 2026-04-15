@@ -1394,13 +1394,15 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
         },
     )
 
-    snapshot.result = SnapshotResult.UNCHANGED
-    snapshot.classification_reason = "tolerated_hash"
+    # result stays CHANGED — it's the technical truth (hashes differ).
+    # review_state captures the human decision to tolerate.
+    snapshot.review_state = ReviewState.TOLERATED
+    snapshot.reviewed_at = timezone.now()
+    snapshot.reviewed_by_id = user_id
     snapshot.tolerated_hash_match = tolerated
-    snapshot.save(update_fields=["result", "classification_reason", "tolerated_hash_match"])
+    snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "tolerated_hash_match"])
 
-    _update_run_counts(run, using=WRITER_DB)
-    # Also update tolerated_match_count which _update_run_counts doesn't cover
+    # Update tolerated_match_count
     tolerated_count = RunSnapshot.objects.using(WRITER_DB).filter(run=run, tolerated_hash_match__isnull=False).count()
     Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
 
