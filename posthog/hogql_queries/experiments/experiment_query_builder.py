@@ -329,6 +329,16 @@ class ExperimentQueryBuilder:
             entity_id_cast = "toUUID(t.entity_id)" if self.entity_key == "person_id" else "t.entity_id"
             session_id_col = "t.session_id AS session_id," if not self.funnel_steps_data_disabled else ""
 
+            # Filter by experiment date range: jobs can cover broader time ranges
+            # than the experiment for cache reusability, so we must filter on read.
+            # Upper bound includes conversion window since funnel step events can
+            # occur after experiment end.
+            conversion_window_seconds = self._get_conversion_window_seconds()
+            if conversion_window_seconds > 0:
+                upper_bound = f"{{metric_events_date_to}} + toIntervalSecond({conversion_window_seconds})"
+            else:
+                upper_bound = "{metric_events_date_to}"
+
             metric_events_cte_str = f"""
                     metric_events AS (
                         SELECT
@@ -340,6 +350,8 @@ class ExperimentQueryBuilder:
                         FROM experiment_metric_events_preaggregated AS t
                         WHERE t.job_id IN {{metric_events_job_ids}}
                             AND t.team_id = {{metric_events_team_id}}
+                            AND t.timestamp >= {{metric_events_date_from}}
+                            AND t.timestamp <= {upper_bound}
                     )
             """
         elif has_dw_steps:
@@ -437,6 +449,8 @@ class ExperimentQueryBuilder:
         if self.metric_events_preaggregation_job_ids:
             placeholders["metric_events_job_ids"] = ast.Constant(value=self.metric_events_preaggregation_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self.team.id)
+            placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
+            placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
 
         query = parse_select(
             f"""
