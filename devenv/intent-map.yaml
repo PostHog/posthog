@@ -323,7 +323,6 @@ always_required:
     - migrate-clickhouse
     - migrate-persons-db
     - migrate-behavioral-cohorts
-    - migrate-flags-read-store
     # Core services
     - celery-worker
     - celery-beat
