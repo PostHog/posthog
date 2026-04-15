@@ -4,7 +4,6 @@ from posthog.settings.data_stores import KAFKA_PREFIX, SUFFIX
 from posthog.settings.utils import get_from_env
 
 KAFKA_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}"
-KAFKA_EXCEPTIONS_INGESTION = f"{KAFKA_PREFIX}exceptions_ingestion{SUFFIX}"
 KAFKA_EVENTS_PLUGIN_INGESTION = get_from_env(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"
 )
@@ -28,7 +27,6 @@ KAFKA_METRICS_TIME_TO_SEE_DATA = f"{KAFKA_PREFIX}clickhouse_metrics_time_to_see_
 KAFKA_PERSON_OVERRIDE = f"{KAFKA_PREFIX}clickhouse_person_override{SUFFIX}"
 KAFKA_LOG_ENTRIES = f"{KAFKA_PREFIX}log_entries{SUFFIX}"
 KAFKA_LOG_ENTRIES_V2_TEST = f"{KAFKA_PREFIX}log_entries_v2_test{SUFFIX}"
-KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
@@ -41,7 +39,6 @@ KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW = f"{KAFKA_PREFIX}session_recordi
 
 # from recordings consumer to clickhouse
 KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_replay_events{SUFFIX}"
-KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_recording_events{SUFFIX}"
 
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint{SUFFIX}"
 KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = (
@@ -58,9 +55,7 @@ KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
     f"{KAFKA_PREFIX}clickhouse_precalculated_person_properties{SUFFIX}"
 )
 KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = f"{KAFKA_PREFIX}clickhouse_prefiltered_events{SUFFIX}"
-KAFKA_CDP_BACKFILL_EVENTS = f"{KAFKA_PREFIX}cdp_backfill_events{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
-KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = f"{KAFKA_PREFIX}cohort_membership_changed_trigger{SUFFIX}"
 
 KAFKA_DWH_CDP_RAW_TABLE = f"{KAFKA_PREFIX}cdp_data_warehouse_source_table{SUFFIX}"
 KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = f"{KAFKA_PREFIX}data_warehouse_source_webhooks{SUFFIX}"
