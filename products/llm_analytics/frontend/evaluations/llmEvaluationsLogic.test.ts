@@ -48,6 +48,8 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): Evaluation
     name: `Evaluation ${id}`,
     description: '',
     enabled: true,
+    status: 'active',
+    status_reason: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Prompt' },
     output_type: 'boolean',
