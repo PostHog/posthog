@@ -20,6 +20,11 @@
   // Enable vulnerability detection for dashboard visibility (no PRs created)
   "osvVulnerabilityAlerts": true,
 
+  // Disable GitHub-sourced vulnerability fix PRs (these bypass packageRules)
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+
   "ignorePaths": [
     "common/hogql_parser/**"
   ]
