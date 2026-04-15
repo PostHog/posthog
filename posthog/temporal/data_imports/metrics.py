@@ -24,6 +24,11 @@ _TERMINAL_STATUS_TO_METRIC: dict[str, tuple[str, str]] = {
     "BillingLimitTooLow": ("failure", "billing_limited"),
 }
 
+# Shared source of truth for which ExternalDataJob statuses are terminal — also
+# imported by update_external_job_status to gate finished_at stamping and metric
+# emission on the first terminal transition.
+TERMINAL_JOB_STATUSES: frozenset[str] = frozenset(_TERMINAL_STATUS_TO_METRIC)
+
 
 def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:
     source_type = source_type or "unknown"
@@ -81,8 +86,4 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
         for payload in payloads:
             producer.produce(topic=KAFKA_APP_METRICS2, data=payload)
     except Exception:
-        logger.exception(
-            "Failed to emit data import app_metrics2 rows for job %s (status=%s)",
-            job.id,
-            job.status,
-        )
+        logger.exception("Failed to emit data import app_metrics2 rows")
