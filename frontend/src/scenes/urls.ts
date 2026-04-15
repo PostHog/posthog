@@ -138,6 +138,8 @@ export const urls = {
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
+    /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
+    accountSocialConnected: (): string => '/account/social-connected',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -276,6 +278,7 @@ export const urls = {
     productTour: (id: string, params?: string): string =>
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
+    organizationPendingDeletion: (): string => '/organization-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',

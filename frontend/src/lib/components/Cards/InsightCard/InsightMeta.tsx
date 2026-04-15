@@ -648,7 +648,9 @@ export function InsightMetaContent({
 }): JSX.Element {
     const titleContent = (
         <>
-            <span className={clsx(infoPopover && 'truncate')}>{title || <i>{fallbackTitle || 'Untitled'}</i>}</span>
+            <span className={clsx(infoPopover && 'truncate text-primary')}>
+                {title || <i>{fallbackTitle || 'Untitled'}</i>}
+            </span>
             {(loading || loadingQueued) && (
                 <Tooltip
                     title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}

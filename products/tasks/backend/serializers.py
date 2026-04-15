@@ -218,6 +218,12 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class TaskRunSetOutputRequestSerializer(serializers.Serializer):
+    output = serializers.JSONField(
+        help_text="Output data from the run. Validated against the task's json_schema if one is set."
+    )
+
+
 class ErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Error message")
 
@@ -415,6 +421,12 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         write_only=True,
         help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
     )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=["default", "acceptEdits", "plan", "bypassPermissions"],
+        required=False,
+        default=None,
+        help_text="Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).",
+    )
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
@@ -424,6 +436,8 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "user_message",
         "cancel",
         "close",
+        "permission_response",
+        "set_config_option",
     ]
 
     jsonrpc = serializers.ChoiceField(
@@ -530,6 +544,7 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "environment_variables",
             "has_environment_variables",
             "private",
+            "internal",
             "effective_domains",
             "created_by",
             "created_at",
@@ -537,6 +552,7 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "internal",
             "created_by",
             "created_at",
             "updated_at",
@@ -578,6 +594,7 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "allowed_domains",
             "repositories",
             "private",
+            "internal",
             "created_by",
             "created_at",
             "updated_at",

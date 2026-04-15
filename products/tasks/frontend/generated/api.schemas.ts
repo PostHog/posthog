@@ -100,6 +100,8 @@ export interface SandboxEnvironmentListApi {
     repositories?: string[]
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    internal?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -131,6 +133,8 @@ export interface SandboxEnvironmentApi {
     readonly has_environment_variables: boolean
     /** If true, only the creator can see this environment. Otherwise visible to whole team. */
     private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    readonly internal: boolean
     /** Computed domain allowlist based on network_access_level and allowed_domains */
     readonly effective_domains: readonly string[]
     readonly created_by: UserBasicApi
@@ -255,6 +259,22 @@ export const RunSourceEnumApi = {
 } as const
 
 /**
+ * * `default` - default
+ * `acceptEdits` - acceptEdits
+ * `plan` - plan
+ * `bypassPermissions` - bypassPermissions
+ */
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+
+export const InitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface TaskRunCreateRequestApi {
@@ -289,6 +309,13 @@ export interface TaskRunCreateRequestApi {
     signal_report_id?: string
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
     github_user_token?: string
+    /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+
+* `default` - default
+* `acceptEdits` - acceptEdits
+* `plan` - plan
+* `bypassPermissions` - bypassPermissions */
+    initial_permission_mode?: InitialPermissionModeEnumApi
 }
 
 /**
@@ -531,6 +558,8 @@ export const JsonrpcEnumApi = {
  * * `user_message` - user_message
  * `cancel` - cancel
  * `close` - close
+ * `permission_response` - permission_response
+ * `set_config_option` - set_config_option
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -538,6 +567,8 @@ export const MethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
+    PermissionResponse: 'permission_response',
+    SetConfigOption: 'set_config_option',
 } as const
 
 /**
@@ -552,7 +583,9 @@ export interface TaskRunCommandRequestApi {
 
 * `user_message` - user_message
 * `cancel` - cancel
-* `close` - close */
+* `close` - close
+* `permission_response` - permission_response
+* `set_config_option` - set_config_option */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
@@ -602,6 +635,11 @@ export interface TaskRunRelayMessageResponseApi {
     status: string
     /** Relay workflow ID when accepted */
     relay_id?: string
+}
+
+export interface PatchedTaskRunSetOutputRequestApi {
+    /** Output data from the run. Validated against the task's json_schema if one is set. */
+    output?: unknown
 }
 
 /**

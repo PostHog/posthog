@@ -7,7 +7,6 @@ from posthog.schema import (
     Breakdown as BreakdownSchema,
     ChartDisplayType,
     DataWarehouseNode,
-    DataWarehousePropertyFilter,
     EventsNode,
     GroupNode,
     HogQLQueryModifiers,
@@ -796,13 +795,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_event_series = (
-            isinstance(series, DataWarehouseNode)
-            and self.modifiers.dataWarehouseEventsModifiers is not None
-            and any(
-                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
-            )
-        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -829,35 +821,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                if is_data_warehouse_event_series:
-                    property_clone = property.copy()
-                    if property_clone["type"] in ("event", "person"):
-                        if property_clone["type"] == "event":
-                            property_clone["key"] = f"events.properties.{property_clone['key']}"
-                        elif property_clone["type"] == "person":
-                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
-                        property_clone["type"] = "data_warehouse"
-                    expr = property_to_expr(property_clone, self.team)
-                    if (
-                        property_clone["type"] in ("group", "element")
-                        and isinstance(expr, ast.CompareOperation)
-                        and isinstance(expr.left, ast.Field)
-                    ):
-                        expr.left.chain = ["events", *expr.left.chain]
-                    filters.append(expr)
-                else:
-                    filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_event_series:
-                data_warehouse_properties = [
-                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
-                ]
-                if data_warehouse_properties:
-                    filters.append(property_to_expr(data_warehouse_properties, self.team))
-            else:
-                filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:

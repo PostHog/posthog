@@ -79,6 +79,13 @@ class SandboxConfig(BaseModel):
 
 WORKING_DIR = "/tmp/workspace"
 
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
+"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
+
+
+def is_public_sandbox_repo(repository: str | None) -> bool:
+    return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
+
 
 class SandboxBase(ABC):
     id: str
@@ -149,7 +156,11 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute_task(
-        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+        self,
+        task_id: str,
+        run_id: str,
+        repository: str | None = None,
+        create_pr: bool = True,
     ) -> ExecutionResult: ...
 
     @abstractmethod
@@ -168,6 +179,7 @@ class SandboxBase(ABC):
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
