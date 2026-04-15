@@ -26,8 +26,15 @@ const subscriptionsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${projectId}/subscriptions/`,
             query: {
+                created_by: params.created_by,
+                dashboard: params.dashboard,
+                insight: params.insight,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
+                resource_type: params.resource_type,
+                search: params.search,
+                target_type: params.target_type,
             },
         })
         return await withPostHogUrl(context, result, '/')

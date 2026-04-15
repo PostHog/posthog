@@ -21770,54 +21770,92 @@ export namespace Schemas {
      */
     export interface Subscription {
       readonly id: number;
-      /** @nullable */
+      /**
+       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+       * @nullable
+       */
       dashboard?: number | null;
-      /** @nullable */
+      /**
+       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+       * @nullable
+       */
       insight?: number | null;
       /** @nullable */
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
       dashboard_export_insights?: number[];
+      /** Delivery channel: email, slack, or webhook.
+
+    * `email` - Email
+    * `slack` - Slack
+    * `webhook` - Webhook */
       target_type: TargetTypeEnum;
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
+      /** How often to deliver: daily, weekly, monthly, or yearly.
+
+    * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly */
       frequency: FrequencyEnum;
       /**
+       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       interval?: number;
-      /** @nullable */
+      /**
+       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+       * @nullable
+       */
       byweekday?: ByweekdayEnum[] | null;
       /**
+       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       bysetpos?: number | null;
       /**
+       * Total number of deliveries before the subscription stops. Null for unlimited.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       count?: number | null;
+      /** When to start delivering (ISO 8601 datetime). */
       start_date: string;
-      /** @nullable */
+      /**
+       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+       * @nullable
+       */
       until_date?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
+      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
       deleted?: boolean;
       /**
+       * Human-readable name for this subscription.
        * @maxLength 100
        * @nullable
        */
       title?: string | null;
+      /** Human-readable schedule summary, e.g. 'sent daily'. */
       readonly summary: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
-      /** @nullable */
+      /**
+       * ID of a connected Slack integration. Required when target_type is slack.
+       * @nullable
+       */
       integration_id?: number | null;
-      /** @nullable */
+      /**
+       * Optional message included in the invitation email when adding new recipients.
+       * @nullable
+       */
       invite_message?: string | null;
     }
 
@@ -25609,54 +25647,92 @@ export namespace Schemas {
      */
     export interface PatchedSubscription {
       readonly id?: number;
-      /** @nullable */
+      /**
+       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+       * @nullable
+       */
       dashboard?: number | null;
-      /** @nullable */
+      /**
+       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+       * @nullable
+       */
       insight?: number | null;
       /** @nullable */
       readonly insight_short_id?: string | null;
       /** @nullable */
       readonly resource_name?: string | null;
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
       dashboard_export_insights?: number[];
+      /** Delivery channel: email, slack, or webhook.
+
+    * `email` - Email
+    * `slack` - Slack
+    * `webhook` - Webhook */
       target_type?: TargetTypeEnum;
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
+      /** How often to deliver: daily, weekly, monthly, or yearly.
+
+    * `daily` - Daily
+    * `weekly` - Weekly
+    * `monthly` - Monthly
+    * `yearly` - Yearly */
       frequency?: FrequencyEnum;
       /**
+       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       interval?: number;
-      /** @nullable */
+      /**
+       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+       * @nullable
+       */
       byweekday?: ByweekdayEnum[] | null;
       /**
+       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       bysetpos?: number | null;
       /**
+       * Total number of deliveries before the subscription stops. Null for unlimited.
        * @minimum -2147483648
        * @maximum 2147483647
        * @nullable
        */
       count?: number | null;
+      /** When to start delivering (ISO 8601 datetime). */
       start_date?: string;
-      /** @nullable */
+      /**
+       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+       * @nullable
+       */
       until_date?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
+      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
       deleted?: boolean;
       /**
+       * Human-readable name for this subscription.
        * @maxLength 100
        * @nullable
        */
       title?: string | null;
+      /** Human-readable schedule summary, e.g. 'sent daily'. */
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
-      /** @nullable */
+      /**
+       * ID of a connected Slack integration. Required when target_type is slack.
+       * @nullable
+       */
       integration_id?: number | null;
-      /** @nullable */
+      /**
+       * Optional message included in the invitation email when adding new recipients.
+       * @nullable
+       */
       invite_message?: string | null;
     }
 
@@ -33293,6 +33369,14 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
+     * Filter by dashboard ID.
+     */
+    dashboard?: number;
+    /**
+     * Filter by insight ID.
+     */
+    insight?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -36948,6 +37032,14 @@ export namespace Schemas {
      * Filter by creator user UUID.
      */
     created_by?: string;
+    /**
+     * Filter by dashboard ID.
+     */
+    dashboard?: number;
+    /**
+     * Filter by insight ID.
+     */
+    insight?: number;
     /**
      * Number of results to return per page.
      */
