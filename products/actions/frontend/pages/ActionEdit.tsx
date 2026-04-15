@@ -59,22 +59,26 @@ export interface ActionEditProps extends ActionEditLogicProps {
     actionLoading?: boolean
 }
 
-export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEditProps): JSX.Element {
+export function ActionEdit({ action: loadedAction, id, tabId, actionLoading }: ActionEditProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
-        id: id,
+        id,
         action: loadedAction,
+        tabId,
     }
-    const { isComplete } = useValues(actionLogic({ id }))
+    const { isComplete } = useValues(actionLogic)
     const logic = actionEditLogic(logicProps)
     const { action, actionChanged } = useValues(logic)
-    const { submitAction, deleteAction, setActionValue, setAction } = useActions(logic)
+    const { submitAction, deleteAction, setActionValue, setAction, setOriginalAction } = useActions(logic)
 
-    // Sync the loaded action prop with the logic's internal state
+    // Sync the loaded action prop with the logic's internal state. This runs after load even
+    // when the logic was mounted eagerly by the scene logic (before the action was loaded),
+    // so the form and originalAction reducer both get populated once the data arrives.
     useEffect(() => {
         if (loadedAction && (!action || action.id !== loadedAction.id)) {
             setAction(loadedAction, { merge: false })
+            setOriginalAction(loadedAction)
         }
-    }, [loadedAction, action, setAction])
+    }, [loadedAction, action, setAction, setOriginalAction])
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)

@@ -9,6 +9,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -35,6 +36,7 @@ export interface SetActionProps {
 export interface ActionEditLogicProps {
     id: number
     action?: ActionType | null
+    tabId?: string
 }
 
 export const DEFAULT_ACTION_STEP: ActionStepType = {
@@ -45,7 +47,9 @@ export const DEFAULT_ACTION_STEP: ActionStepType = {
 export const actionEditLogic = kea<actionEditLogicType>([
     path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
-    key((props) => props.id || 'new'),
+    // Key by tabId AND id so each tab preserves its own form state across tab switches.
+    // Fall back to 'notab' for non-scene mounts (e.g. tests, side panel) to stay backwards-compatible.
+    key((props) => `${props.tabId || 'notab'}:${props.id || 'new'}`),
     connect(() => ({
         actions: [
             actionsModel,
@@ -66,8 +70,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
         deleteAction: true,
         migrateToHogFunction: true,
         setReferencesSearch: (search: string) => ({ search }),
+        setOriginalAction: (action: ActionType | null) => ({ action }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         createNew: [
             false,
             {
@@ -80,7 +85,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 setReferencesSearch: (_, { search }) => search,
             },
         ],
-    }),
+        // originalAction mirrors the action at the time it was first loaded, so edits can be
+        // compared against it (e.g. to detect cohort filter additions). It is stored as a
+        // reducer rather than derived from props because the logic may outlive the initial
+        // props.action (e.g. when the logic is mounted eagerly by the scene logic before the
+        // action has loaded).
+        originalAction: [
+            (props.action ?? null) as ActionType | null,
+            {
+                setOriginalAction: (_, { action }) => action,
+            },
+        ],
+    })),
     forms(({ actions, props }) => ({
         action: {
             defaults:
@@ -140,6 +156,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 lemonToast.success(`Action saved`)
                 actions.resetAction(updatedAction)
+                actions.setOriginalAction(action)
                 refreshTreeItem('action', String(action.id))
                 if (!props.id) {
                     // Mark task complete when creating a new action
@@ -147,7 +164,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string
-                    const logic = actionLogic.findMounted(id)
+                    const logic = actionLogic.findMounted({ tabId: props.tabId, id })
                     logic?.actions.loadActionSuccess(action)
                 }
 
@@ -168,7 +185,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 false,
         ],
         originalActionHasCohortFilters: [
-            () => [(_, p: ActionEditLogicProps) => p.action],
+            (s) => [s.originalAction],
             (action) =>
                 action?.steps?.some((step: ActionStepType) => step.properties?.find((p: any) => p.type === 'cohort')) ??
                 false,
@@ -251,6 +268,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             if (props.action) {
                 // Sync the prop action with the internal state when mounting with an existing action
                 actions.setAction(props.action, { merge: false })
+                actions.setOriginalAction(props.action)
             }
             actions.loadReferences()
         }
@@ -292,6 +310,24 @@ export const actionEditLogic = kea<actionEditLogicType>([
             // Ignore in-page URL updates such as opening the side panel
             if (newLocation && newLocation.pathname === router.values.location.pathname) {
                 return false
+            }
+
+            // Skip the prompt when the user is merely switching to another tab — our tab still
+            // exists, the logic stays mounted via the scene-logic cache, and the form state is
+            // preserved. We only want to prompt when the user is actually leaving this tab
+            // (closing it, or navigating within it to a different URL).
+            const myTabId = logic.props.tabId
+            const scene = sceneLogic.findMounted()
+            if (myTabId && scene && newLocation) {
+                const tabs = scene.values.tabs
+                const myTab = tabs.find((t) => t.id === myTabId)
+                const stillExists = Boolean(myTab)
+                const destinationMatchesAnotherTab = tabs.some(
+                    (t) => t.id !== myTabId && t.pathname === newLocation.pathname
+                )
+                if (stillExists && destinationMatchesAnotherTab) {
+                    return false
+                }
             }
 
             return true
