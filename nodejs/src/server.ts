@@ -240,16 +240,6 @@ export class PluginServer implements NodeServer {
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
-        if (capabilities.metricsIngestion) {
-            serviceLoaders.push(async () => {
-                const consumer = new MetricsIngestionConsumer(this.config, {
-                    teamManager,
-                    quotaLimiting: cdpLogsServices!.quotaLimiting,
-                })
-                await consumer.start()
-                return consumer.service
-            })
-        }
 
         if (capabilities.cdpBatchHogFlow) {
             serviceLoaders.push(async () => {
