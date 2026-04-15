@@ -11,6 +11,7 @@ import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelin
 import { IngestionWarningsOutput } from '../common/outputs'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { SplitFeatureFlagCallDebugConfig } from '../event-processing/split-feature-flag-call-debug-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper } from '../pipelines/extensions/tophog'
@@ -24,6 +25,7 @@ import {
     AiEventOutput,
     AsyncOutput,
     EventOutput,
+    FeatureFlagCallDebugOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonsOutput,
@@ -37,9 +39,16 @@ export type PerDistinctIdPipelineInput = EventSubpipelineInput &
 export interface PerDistinctIdPipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | AiEventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        | EventOutput
+        | AiEventOutput
+        | FeatureFlagCallDebugOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
+    splitFeatureFlagCallDebugConfig: SplitFeatureFlagCallDebugConfig
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -74,6 +83,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
         options,
         outputs,
         splitAiEventsConfig,
+        splitFeatureFlagCallDebugConfig,
         teamManager,
         groupTypeManager,
         hogTransformer,
@@ -120,6 +130,7 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             hogTransformer,
                             personsStore,
                             groupStore,
+                            splitFeatureFlagCallDebugConfig,
                             groupId,
                             topHog,
                         })

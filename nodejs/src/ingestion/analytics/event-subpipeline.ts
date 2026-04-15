@@ -20,6 +20,10 @@ import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '../event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../event-processing/process-persons-step'
+import {
+    SplitFeatureFlagCallDebugConfig,
+    createSplitFeatureFlagCallDebugStep,
+} from '../event-processing/split-feature-flag-call-debug-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
@@ -28,6 +32,7 @@ import {
     AsyncOutput,
     EVENTS_OUTPUT,
     EventOutput,
+    FeatureFlagCallDebugOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonsOutput,
@@ -43,13 +48,19 @@ export interface EventSubpipelineInput {
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions
     outputs: IngestionOutputs<
-        EventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+        | EventOutput
+        | FeatureFlagCallDebugOutput
+        | HeatmapsOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
+    splitFeatureFlagCallDebugConfig: SplitFeatureFlagCallDebugConfig
     groupId: string
     topHog: TopHogWrapper
 }
@@ -66,6 +77,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         hogTransformer,
         personsStore,
         groupStore,
+        splitFeatureFlagCallDebugConfig,
         groupId,
         topHog,
     } = config
@@ -116,6 +128,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createExtractHeatmapDataStep(outputs))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createSplitFeatureFlagCallDebugStep(splitFeatureFlagCallDebugConfig))
         .pipe(
             topHog(
                 createEmitEventStep({

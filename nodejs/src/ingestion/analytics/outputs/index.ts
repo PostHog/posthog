@@ -3,6 +3,9 @@ export { EVENTS_OUTPUT, EventOutput } from '../../common/outputs'
 export const AI_EVENTS_OUTPUT = 'ai_events' as const
 export type AiEventOutput = typeof AI_EVENTS_OUTPUT
 
+export const FEATURE_FLAG_CALL_DEBUG_OUTPUT = 'feature_flag_call_debug' as const
+export type FeatureFlagCallDebugOutput = typeof FEATURE_FLAG_CALL_DEBUG_OUTPUT
+
 export const HEATMAPS_OUTPUT = 'heatmaps' as const
 export type HeatmapsOutput = typeof HEATMAPS_OUTPUT
 

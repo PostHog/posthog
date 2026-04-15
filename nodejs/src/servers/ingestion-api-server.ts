@@ -46,6 +46,7 @@ import {
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
+import { parseSplitFeatureFlagCallDebugConfig } from '../ingestion/event-processing/split-feature-flag-call-debug-step'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
@@ -330,6 +331,11 @@ export class IngestionApiServer implements NodeServer {
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
                 this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+            ),
+            splitFeatureFlagCallDebugConfig: parseSplitFeatureFlagCallDebugConfig(
+                this.config.INGESTION_FF_CALL_DEBUG_SPLITTING_ENABLED,
+                this.config.INGESTION_FF_CALL_DEBUG_SPLITTING_TEAMS,
+                this.config.INGESTION_FF_CALL_DEBUG_STRIP_PROPERTIES
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,

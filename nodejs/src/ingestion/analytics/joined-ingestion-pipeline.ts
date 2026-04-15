@@ -20,6 +20,7 @@ import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
+import { SplitFeatureFlagCallDebugConfig } from '../event-processing/split-feature-flag-call-debug-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
@@ -30,6 +31,7 @@ import {
     AiEventOutput,
     AsyncOutput,
     EventOutput,
+    FeatureFlagCallDebugOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonsOutput,
@@ -55,6 +57,7 @@ export interface JoinedIngestionPipelineConfig {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
+        | FeatureFlagCallDebugOutput
         | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
@@ -66,6 +69,7 @@ export interface JoinedIngestionPipelineConfig {
         | AppMetricsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig
+    splitFeatureFlagCallDebugConfig: SplitFeatureFlagCallDebugConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
 }
 
@@ -124,6 +128,7 @@ export function createJoinedIngestionPipeline<
         groupId,
         outputs,
         splitAiEventsConfig,
+        splitFeatureFlagCallDebugConfig,
         perDistinctIdOptions,
     } = config
 
@@ -169,6 +174,7 @@ export function createJoinedIngestionPipeline<
         options: perDistinctIdOptions,
         outputs,
         splitAiEventsConfig,
+        splitFeatureFlagCallDebugConfig,
         teamManager,
         groupTypeManager,
         hogTransformer,

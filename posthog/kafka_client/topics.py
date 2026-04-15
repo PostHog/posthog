@@ -32,6 +32,7 @@ KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFF
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
+KAFKA_CLICKHOUSE_FEATURE_FLAG_CALL_DEBUG_JSON = f"{KAFKA_PREFIX}clickhouse_feature_flag_call_debug_json{SUFFIX}"
 
 # from capture to recordings consumer
 KAFKA_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}session_recording_events{SUFFIX}"

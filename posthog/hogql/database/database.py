@@ -84,6 +84,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
+from posthog.hogql.database.schema.feature_flag_call_debug import FeatureFlagCallDebugTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -273,6 +274,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     **clone_root_tables(),
                     # Add new tables here
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+                    "feature_flag_call_debug": TableNode(
+                        name="feature_flag_call_debug", table=FeatureFlagCallDebugTable()
+                    ),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
                 },

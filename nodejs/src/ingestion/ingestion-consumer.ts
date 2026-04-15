@@ -37,6 +37,7 @@ import {
     AiEventOutput,
     AsyncOutput,
     EventOutput,
+    FeatureFlagCallDebugOutput,
     HeatmapsOutput,
     PersonDistinctIdsOutput,
     PersonsOutput,
@@ -53,6 +54,7 @@ import {
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
+import { parseSplitFeatureFlagCallDebugConfig } from './event-processing/split-feature-flag-call-debug-step'
 import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { createOkContext } from './pipelines/helpers'
 import { TopHog } from './tophog'
@@ -70,6 +72,7 @@ export interface IngestionConsumerDeps {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
+        | FeatureFlagCallDebugOutput
         | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
@@ -262,6 +265,11 @@ export class IngestionConsumer {
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
                 this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+            ),
+            splitFeatureFlagCallDebugConfig: parseSplitFeatureFlagCallDebugConfig(
+                this.config.INGESTION_FF_CALL_DEBUG_SPLITTING_ENABLED,
+                this.config.INGESTION_FF_CALL_DEBUG_SPLITTING_TEAMS,
+                this.config.INGESTION_FF_CALL_DEBUG_STRIP_PROPERTIES
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,

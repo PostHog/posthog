@@ -2,6 +2,7 @@ import {
     AI_EVENTS_OUTPUT,
     ASYNC_OUTPUT,
     EVENTS_OUTPUT,
+    FEATURE_FLAG_CALL_DEBUG_OUTPUT,
     HEATMAPS_OUTPUT,
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
@@ -32,6 +33,12 @@ export function createOutputsRegistry() {
             producerKey: 'INGESTION_OUTPUT_AI_EVENTS_PRODUCER',
             secondaryTopicKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_TOPIC',
             secondaryProducerKey: 'INGESTION_OUTPUT_AI_EVENTS_SECONDARY_PRODUCER',
+        })
+        .registerDualWrite(FEATURE_FLAG_CALL_DEBUG_OUTPUT, {
+            topicKey: 'INGESTION_OUTPUT_FF_CALL_DEBUG_TOPIC',
+            producerKey: 'INGESTION_OUTPUT_FF_CALL_DEBUG_PRODUCER',
+            secondaryTopicKey: 'INGESTION_OUTPUT_FF_CALL_DEBUG_SECONDARY_TOPIC',
+            secondaryProducerKey: 'INGESTION_OUTPUT_FF_CALL_DEBUG_SECONDARY_PRODUCER',
         })
         .registerDualWrite(HEATMAPS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_HEATMAPS_TOPIC',
