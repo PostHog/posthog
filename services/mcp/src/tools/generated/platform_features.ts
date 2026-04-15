@@ -188,7 +188,7 @@ const activityLogList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: result.results.map((item: any) =>
+            results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, [
                     'id',
                     'user.id',
@@ -242,7 +242,7 @@ const advancedActivityLogsList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: result.results.map((item: any) =>
+            results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, [
                     'id',
                     'user.id',
