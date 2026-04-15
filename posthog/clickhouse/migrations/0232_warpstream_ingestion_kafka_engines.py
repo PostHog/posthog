@@ -18,7 +18,7 @@ from posthog.models.person.sql import (
 # consumer group to avoid conflicts with the MSK tables.
 #
 # New tables:
-# - kafka_events_json_ws + events_json_ws_mv (DATA)
+# - kafka_events_json_ws + events_json_ws_mv (INGESTION_EVENTS)
 # - kafka_groups_ws + groups_ws_mv (INGESTION_SMALL)
 # - kafka_person_ws + person_ws_mv (INGESTION_SMALL)
 # - kafka_person_distinct_id2_ws + person_distinct_id2_ws_mv (INGESTION_SMALL)
@@ -26,14 +26,14 @@ from posthog.models.person.sql import (
 # - kafka_heatmaps_ws + heatmaps_ws_mv (INGESTION_MEDIUM)
 
 operations = [
-    # events_json (DATA, matching existing MSK table)
+    # events_json (INGESTION_EVENTS — WS tables go to events ingestion nodes)
     run_sql_with_exceptions(
         KAFKA_EVENTS_TABLE_JSON_WS_SQL(),
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.INGESTION_EVENTS],
     ),
     run_sql_with_exceptions(
         EVENTS_TABLE_JSON_WS_MV_SQL(),
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.INGESTION_EVENTS],
     ),
     # groups (INGESTION_SMALL, matching existing MSK table)
     run_sql_with_exceptions(
