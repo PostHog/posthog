@@ -407,7 +407,7 @@ class TestLogoutRedirect(APIBaseTest):
         ]
     )
     def test_logout_skips_self_round_tripping_next_param(self, _name, skipped):
-        response = self.client.post("/logout", {"next": skipped})
+        response = self.client.post(f"/logout?next={skipped}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], settings.LOGIN_URL, f"Round-tripping next was preserved: {skipped}")
 
@@ -419,7 +419,7 @@ class TestLogoutRedirect(APIBaseTest):
         ]
     )
     def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
-        response = self.client.post("/logout", {"next": unsafe})
+        response = self.client.post(f"/logout?next={unsafe}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
 

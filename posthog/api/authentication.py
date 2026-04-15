@@ -113,7 +113,7 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
 
 def _get_post_logout_next(request: HttpRequest) -> str | None:
-    next_param = request.GET.get("next") or request.POST.get("next")
+    next_param = request.GET.get("next")
     if not next_param:
         return None
 
