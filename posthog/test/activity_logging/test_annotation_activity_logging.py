@@ -41,9 +41,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        self.assertIsNotNone(log.detail.get("context"))
+        detail = log.detail
+        self.assertIsNotNone(detail.get("context"))
 
-        context = log.detail["context"]
+        context = detail["context"]
         self.assertEqual(context["scope"], Annotation.Scope.PROJECT.value)
         self.assertIsNone(context.get("dashboard_id"))
         self.assertIsNone(context.get("dashboard_item_id"))
@@ -61,9 +62,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        self.assertIsNotNone(log.detail.get("context"))
+        detail = log.detail
+        self.assertIsNotNone(detail.get("context"))
 
-        context = log.detail["context"]
+        context = detail["context"]
         self.assertEqual(context["scope"], Annotation.Scope.ORGANIZATION.value)
         self.assertIsNone(context.get("dashboard_id"))
         self.assertIsNone(context.get("dashboard_item_id"))
@@ -84,9 +86,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        self.assertIsNotNone(log.detail.get("context"))
+        detail = log.detail
+        self.assertIsNotNone(detail.get("context"))
 
-        context = log.detail["context"]
+        context = detail["context"]
         self.assertEqual(context["scope"], Annotation.Scope.DASHBOARD.value)
         self.assertEqual(context["dashboard_id"], dashboard.id)
         self.assertEqual(context["dashboard_name"], dashboard.name)
@@ -110,9 +113,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        self.assertIsNotNone(log.detail.get("context"))
+        detail = log.detail
+        self.assertIsNotNone(detail.get("context"))
 
-        context = log.detail["context"]
+        context = detail["context"]
         self.assertEqual(context["scope"], Annotation.Scope.INSIGHT.value)
         self.assertEqual(context["dashboard_item_id"], insight.id)
         self.assertEqual(context["dashboard_item_short_id"], insight.short_id)

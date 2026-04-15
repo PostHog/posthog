@@ -41,9 +41,10 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        self.assertIsNotNone(log.detail.get("context"))
+        detail = log.detail
+        self.assertIsNotNone(detail.get("context"))
 
-        context = log.detail["context"]
+        context = detail["context"]
         self.assertEqual(context["insight_id"], insight["id"])
         self.assertEqual(context["insight_short_id"], insight["short_id"])
         self.assertEqual(context["insight_name"], insight["name"])
@@ -94,6 +95,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(disable_log)
         assert disable_log is not None
+        assert disable_log.detail is not None
         changes = disable_log.detail.get("changes", [])
         enabled_change = next((change for change in changes if change.get("field") == "enabled"), None)
         self.assertIsNotNone(enabled_change)
@@ -114,6 +116,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(name_log)
         assert name_log is not None
+        assert name_log.detail is not None
         changes = name_log.detail.get("changes", [])
         name_change = next((change for change in changes if change.get("field") == "name"), None)
         self.assertIsNotNone(name_change)
@@ -134,6 +137,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(interval_log)
         assert interval_log is not None
+        assert interval_log.detail is not None
         changes = interval_log.detail.get("changes", [])
         interval_change = next((change for change in changes if change.get("field") == "calculation_interval"), None)
         self.assertIsNotNone(interval_change)
@@ -157,7 +161,8 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(update_log)
         assert update_log is not None
         self.assertIsNotNone(update_log.detail)
-        self.assertIsNotNone(update_log.detail.get("context"))
+        detail = update_log.detail
+        self.assertIsNotNone(detail.get("context"))
 
     def test_alert_configuration_activity_log_properties(self):
         alert = self.create_alert_configuration("Test alert properties")
@@ -204,9 +209,10 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(threshold_update_log)
         assert threshold_update_log is not None
         self.assertIsNotNone(threshold_update_log.detail)
-        self.assertEqual(threshold_update_log.detail.get("type"), "threshold_change")
+        detail = threshold_update_log.detail
+        self.assertEqual(detail.get("type"), "threshold_change")
 
-        changes = threshold_update_log.detail.get("changes", [])
+        changes = detail.get("changes", [])
         config_change = next((change for change in changes if change.get("field") == "configuration"), None)
         self.assertIsNotNone(config_change)
         assert config_change is not None
@@ -264,6 +270,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         delete_log = delete_logs.first()
         self.assertIsNotNone(delete_log)
         assert delete_log is not None
+        assert delete_log.detail is not None
 
         context = delete_log.detail.get("context", {})
         self.assertEqual(context["subscriber_email"], other_user.email)
