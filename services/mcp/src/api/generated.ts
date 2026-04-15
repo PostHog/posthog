@@ -18601,6 +18601,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+     */
+    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
+
+
+    export const InitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+    } as const;
+
+    /**
      * @nullable
      */
     export type InsightResolvedDateRange = {
@@ -19606,6 +19622,8 @@ export namespace Schemas {
      * * `user_message` - user_message
     * `cancel` - cancel
     * `close` - close
+    * `permission_response` - permission_response
+    * `set_config_option` - set_config_option
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -19614,6 +19632,8 @@ export namespace Schemas {
       UserMessage: 'user_message',
       Cancel: 'cancel',
       Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
     } as const;
 
     export interface MinimalPerson {
@@ -31199,7 +31219,9 @@ export namespace Schemas {
 
     * `user_message` - user_message
     * `cancel` - cancel
-    * `close` - close */
+    * `close` - close
+    * `permission_response` - permission_response
+    * `set_config_option` - set_config_option */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -31278,6 +31300,13 @@ export namespace Schemas {
       signal_report_id?: string;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
+      /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+
+    * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions */
+      initial_permission_mode?: InitialPermissionModeEnum;
     }
 
     export interface TaskRunRelayMessageRequest {
