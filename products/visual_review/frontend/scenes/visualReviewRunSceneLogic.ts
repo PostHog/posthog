@@ -17,7 +17,6 @@ import {
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
 import type {
-    ApproveSnapshotInputApi,
     RepoApi,
     RunApi,
     SnapshotApi,
@@ -164,29 +163,15 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
         },
         approveChanges: async () => {
-            const { changedSnapshots, run } = values
-            if (!run || changedSnapshots.length === 0) {
+            const { run } = values
+            if (!run) {
                 return
-            }
-
-            // Only approve snapshots that have a current artifact with a hash
-            const approvableSnapshots = changedSnapshots.filter((s) => s.current_artifact?.content_hash)
-            if (approvableSnapshots.length === 0) {
-                lemonToast.error('No snapshots with artifacts to approve')
-                return
-            }
-
-            const approvalPayload = {
-                snapshots: approvableSnapshots.map(
-                    (s): ApproveSnapshotInputApi => ({
-                        identifier: s.identifier,
-                        new_hash: s.current_artifact!.content_hash,
-                    })
-                ),
             }
 
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
+                    approve_all: true,
+                })
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
