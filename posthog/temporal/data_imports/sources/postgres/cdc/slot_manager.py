@@ -79,24 +79,8 @@ def create_slot_and_publication(
         # creation in a transaction that has performed writes.
         conn.commit()
 
-        cur.execute(
-            sql.SQL("SELECT lsn FROM pg_create_logical_replication_slot({}, 'pgoutput')").format(
-                sql.Literal(slot_name),
-            )
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise RuntimeError(f"pg_create_logical_replication_slot returned no result for slot '{slot_name}'")
-
-        consistent_point: str = row[0]
-        conn.commit()
-
-    logger.info(
-        "Created publication '%s' and slot '%s' at LSN %s",
-        pub_name,
-        slot_name,
-        consistent_point,
-    )
+    consistent_point = create_slot(conn, slot_name)
+    logger.info("Created publication '%s' with slot '%s'", pub_name, slot_name)
     return consistent_point
 
 
