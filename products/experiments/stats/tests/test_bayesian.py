@@ -5,6 +5,8 @@ This module tests all Bayesian classes for correctness of calculations,
 validation, and edge case handling.
 """
 
+from typing import Any, cast
+
 import pytest
 from unittest import TestCase
 
@@ -235,6 +237,10 @@ class TestBayesianGaussianTest(TestCase):
 
 
 class TestBayesianMethod(TestCase):
+    @staticmethod
+    def _credible_interval(result_dict: dict[str, Any]) -> list[Any]:
+        return cast(list[Any], result_dict["credible_interval"])
+
     """Tests for BayesianMethod class."""
 
     def test_basic_method_usage(self):
@@ -304,7 +310,7 @@ class TestBayesianMethod(TestCase):
         result = method.run_test(treatment, control)
 
         result_dict = method.get_summary(result)
-        expected_dict = {
+        expected_dict: dict[str, Any] = {
             "effect_size": 0.63646,
             "credible_interval": [-0.0873, 1.36026],
             "chance_to_win": 0.95759,
@@ -313,8 +319,9 @@ class TestBayesianMethod(TestCase):
 
         # Compare the key values
         self.assertAlmostEqual(result_dict["effect_size"], expected_dict["effect_size"], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
+        credible_interval_result = self._credible_interval(result_dict)
+        self.assertAlmostEqual(credible_interval_result[0], expected_dict["credible_interval"][0], places=4)
+        self.assertAlmostEqual(credible_interval_result[1], expected_dict["credible_interval"][1], places=4)
         self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
 
     def test_two_sided_ttest_with_ratio_statistic(self):
@@ -340,7 +347,7 @@ class TestBayesianMethod(TestCase):
         result = method.run_test(treatment, control)
 
         result_dict = method.get_summary(result)
-        expected_dict = {
+        expected_dict: dict[str, Any] = {
             "effect_size": 0.041333,
             "credible_interval": [0.01378609, 0.0689],
             "chance_to_win": 0.99836,
@@ -350,8 +357,9 @@ class TestBayesianMethod(TestCase):
         # Compare the key values
         self.assertAlmostEqual(result_dict["effect_size"], expected_dict["effect_size"], places=4)
         self.assertAlmostEqual(result_dict["chance_to_win"], expected_dict["chance_to_win"], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][0], expected_dict["credible_interval"][0], places=4)
-        self.assertAlmostEqual(result_dict["credible_interval"][1], expected_dict["credible_interval"][1], places=4)
+        credible_interval_result = self._credible_interval(result_dict)
+        self.assertAlmostEqual(credible_interval_result[0], expected_dict["credible_interval"][0], places=4)
+        self.assertAlmostEqual(credible_interval_result[1], expected_dict["credible_interval"][1], places=4)
 
 
 class TestConvenienceFunctions:
