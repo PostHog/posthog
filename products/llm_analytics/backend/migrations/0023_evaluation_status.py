@@ -1,19 +1,11 @@
 from django.db import migrations, models
 
 
-def backfill_status(apps, schema_editor):
-    Evaluation = apps.get_model("llm_analytics", "Evaluation")
-    # We can't retroactively tell which disabled evals were system-disabled vs user-paused,
-    # so everything inactive starts as PAUSED. Future system transitions will set ERROR correctly.
-    Evaluation.objects.filter(enabled=True).update(status="active")
-    Evaluation.objects.filter(enabled=False).update(status="paused")
-
-
-def reverse_noop(apps, schema_editor):
-    pass
-
-
 class Migration(migrations.Migration):
+    """Additive-only schema change. All existing rows receive the default `paused` status; the
+    row-updating backfill that resets rows to `active` where `enabled=True` lives in 0024 so the
+    schema change can land and be rolled back independently of the data migration."""
+
     dependencies = [
         ("llm_analytics", "0022_reviewqueue_reviewqueueitem_and_more"),
     ]
@@ -46,5 +38,4 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.RunPython(backfill_status, reverse_noop),
     ]

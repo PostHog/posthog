@@ -339,9 +339,19 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     eval_obj.save(update_fields=["model_configuration"])
                     configs_updated += 1
 
+            # A key assignment resolves any `provider_key_deleted` / `model_not_allowed` error on the
+            # dependent evals — the cause no longer applies once they're attached to a live key. Clear
+            # the error-reason marker regardless of whether the caller also asked to re-enable.
+            Evaluation.objects.filter(
+                id__in=evaluation_ids,
+                team_id=self.team_id,
+                deleted=False,
+                status="error",
+            ).update(status="paused", status_reason=None)
+
             evals_enabled = 0
             if enable:
-                # Re-enabling via key assignment: clear any prior error state and transition back to ACTIVE.
+                # Re-enabling via key assignment: transition paused-or-just-cleared evals to ACTIVE.
                 evals_enabled = Evaluation.objects.filter(
                     id__in=evaluation_ids,
                     team_id=self.team_id,
@@ -394,9 +404,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 )
             )
             with transaction.atomic():
-                # Deleting the key leaves dependent evals unrunnable — mark them as errored, not paused.
+                # Deleting the key leaves dependent evals unrunnable. Only promote currently-active
+                # evals to the error state — user-paused evals should stay paused (the user's intent
+                # is preserved), and already-errored evals don't need their existing reason overwritten.
                 Evaluation.objects.filter(
-                    model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
+                    model_configuration_id__in=model_config_ids,
+                    team_id=self.team_id,
+                    deleted=False,
+                    status="active",
                 ).update(enabled=False, status="error", status_reason="provider_key_deleted")
                 return super().destroy(request, *args, **kwargs)
 
