@@ -18,7 +18,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
@@ -314,7 +314,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         cohorts: list[Cohort] = await get_cohorts()
 
         cohorts_count = 0
-        kafka_producer = KafkaProducer()
+        kafka_producer = get_producer(topic=KAFKA_COHORT_MEMBERSHIP_CHANGED)
 
         @database_sync_to_async
         def build_query(cohort_obj):

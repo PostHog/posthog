@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
@@ -61,7 +61,7 @@ def run(options, sync: bool = False):  # sync used for unittests
         run_group_sync(team_id, live_run, sync)
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
-    KafkaProducer().flush(5 * 60)
+    flush_all_producers(5 * 60)
     logger.info("Kafka producer queue flushed.")
 
 

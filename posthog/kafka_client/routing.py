@@ -176,6 +176,59 @@ async def async_producer_scope(
         await producer.close()
 
 
+def new_async_producer(
+    *,
+    profile: Optional[KafkaClusterProfile] = None,
+    topic: Optional[str] = None,
+) -> _AsyncKafkaProducer:
+    """Construct a fresh async producer the caller fully owns.
+
+    For long-lived consumers (e.g. the Temporal logger daemon) where the
+    producer outlives any single scope. The caller is responsible for closing
+    it. For per-call work prefer `async_producer_scope`.
+    """
+    resolved = _resolve_profile(topic, profile)
+    return _build_async_producer(resolved)
+
+
+def producer_for_config(
+    *,
+    hosts: list[str] | str,
+    security_protocol: Optional[str] = None,
+    acks: int | str = 1,
+    enable_idempotence: bool = False,
+    max_request_size: Optional[int] = None,
+    compression_type: Optional[str] = None,
+) -> _KafkaProducer:
+    """Construct a sync producer with explicit cluster config (no profile lookup).
+
+    For DLQ consumers that need to mirror the cluster they are reading from,
+    or other rare cases where hosts are only known at runtime. The returned
+    producer is not cached — the caller owns it and is responsible for flush.
+    """
+    return _KafkaProducer(
+        kafka_hosts=hosts,
+        kafka_security_protocol=security_protocol,
+        acks=acks,
+        enable_idempotence=enable_idempotence,
+        max_request_size=max_request_size,
+        compression_type=compression_type,
+    )
+
+
+def flush_all_producers(timeout: Optional[float] = None) -> None:
+    """Flush every cached sync producer.
+
+    Useful from management commands and other terminating contexts where the
+    process is about to exit and may have produced to several topics across
+    multiple profiles.
+    """
+    with _LOCK:
+        producers = list(_SYNC_PRODUCERS.values())
+    for producer in producers:
+        producer.flush(timeout)
+
+
 def reset_producers() -> None:
     """Drop cached producers. For test hygiene."""
     with _LOCK:

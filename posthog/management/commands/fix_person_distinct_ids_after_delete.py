@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.models.person.deletion import reset_all_deleted_person_distinct_ids, reset_deleted_person_distinct_ids
 
 logger = structlog.get_logger(__name__)
@@ -48,5 +48,5 @@ def run(options, sync: bool = False):
         reset_deleted_person_distinct_ids(team_id, distinct_id)
 
     logger.info("Waiting on Kafka producer flush, for up to 5 minutes")
-    KafkaProducer().flush(5 * 60)
+    flush_all_producers(5 * 60)
     logger.info("Kafka producer queue flushed.")

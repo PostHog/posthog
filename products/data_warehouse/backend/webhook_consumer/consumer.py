@@ -17,6 +17,7 @@ from confluent_kafka import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
+from posthog.kafka_client.routing import producer_for_config
 
 from products.data_warehouse.backend.webhook_consumer.buffer import BatchBuffer, SchemaBuffer
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
@@ -116,9 +117,9 @@ class WebhookS3Sink:
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:
-            self._dlq_producer = _KafkaProducer(
-                kafka_hosts=self._kafka_hosts,
-                kafka_security_protocol=self._kafka_security_protocol,
+            self._dlq_producer = producer_for_config(
+                hosts=self._kafka_hosts,
+                security_protocol=self._kafka_security_protocol,
             )
         return self._dlq_producer
 

@@ -3,7 +3,7 @@ from django.db import transaction
 import structlog
 import posthoganalytics
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
 from posthog.models import Team
 
@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 
 def _publish_to_kafka(event: NotificationEvent) -> None:
     try:
-        producer = KafkaProducer()
+        producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
         producer.produce(
             topic=KAFKA_NOTIFICATION_EVENTS,
             data={

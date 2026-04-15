@@ -1,3 +1,21 @@
+"""Low-level Kafka primitives.
+
+Most call sites should NOT import from this module directly. The public entry
+points for producing are in `posthog.kafka_client.routing`:
+
+* `get_producer(topic=...)` / `producer_scope(topic=...)` for sync producers
+* `async_producer_scope(topic=...)` for per-call async producers
+* `new_async_producer(topic=...)` for long-lived async producers
+* `producer_for_config(...)` for runtime-configured producers (e.g. DLQ that
+  mirrors the consumed cluster)
+
+`_KafkaProducer` and `_AsyncKafkaProducer` exist here so the router can build
+them; importing them from anywhere else is enforced against by semgrep.
+`ClickhouseProducer`, `KafkaProducerForTests`, `KafkaConsumerForTests`,
+`build_kafka_consumer`, `can_connect`, and `ProduceResult` are the supported
+public exports of this module.
+"""
+
 import os
 import json
 import asyncio
@@ -22,7 +40,6 @@ from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client import helper
-from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
 
@@ -280,7 +297,7 @@ class _KafkaProducer:
         data: Any,
         key: Any = None,
         value_serializer: Optional[Callable[[Any], Any]] = None,
-        headers: Optional[list[tuple[str, str]]] = None,
+        headers: Optional[list[tuple[str, str | bytes]]] = None,
     ) -> ProduceResult:
         if not value_serializer:
             value_serializer = self.json_serializer
@@ -291,7 +308,9 @@ class _KafkaProducer:
             else:
                 key = str(key).encode("utf-8")
         encoded_headers: list[tuple[str, str | bytes | None]] | None = (
-            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+            [(h[0], h[1] if isinstance(h[1], bytes) else h[1].encode("utf-8")) for h in headers]
+            if headers is not None
+            else None
         )
 
         result = ProduceResult(topic=topic)
@@ -375,7 +394,7 @@ class _AsyncKafkaProducer:
         data: Any,
         key: Any = None,
         value_serializer: Callable[[Any], Any] | None = None,
-        headers: list[tuple[str, str]] | None = None,
+        headers: list[tuple[str, str | bytes]] | None = None,
     ) -> asyncio.Future[Any]:
         if not value_serializer:
             value_serializer = self.json_serializer
@@ -384,7 +403,9 @@ class _AsyncKafkaProducer:
             if not isinstance(key, bytes):
                 key = str(key).encode("utf-8")
         encoded_headers: list[tuple[str, str | bytes | None]] | None = (
-            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+            [(h[0], h[1] if isinstance(h[1], bytes) else h[1].encode("utf-8")) for h in headers]
+            if headers is not None
+            else None
         )
 
         future = await self.producer.produce(
@@ -430,9 +451,6 @@ def can_connect():
     return True
 
 
-KafkaProducer = SingletonDecorator(_KafkaProducer)
-
-
 def build_kafka_consumer(
     topic: Optional[str],
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
@@ -475,13 +493,17 @@ def build_kafka_consumer(
 
 
 class ClickhouseProducer:
-    producer: Optional[_KafkaProducer]
+    """Writes a row to ClickHouse via Kafka in production, or directly via SQL in tests.
 
-    def __init__(self):
-        self.producer = KafkaProducer() if not settings.TEST else None
+    The Kafka producer is resolved per-call via the routing module so each topic
+    can target the cluster mapped in TOPIC_ROUTING.
+    """
 
     def produce(self, sql: str, topic: str, data: dict[str, Any], sync: bool = True):
-        if self.producer is not None:  # TODO: this should be not sync and
-            self.producer.produce(topic=topic, data=data)
-        else:
+        if settings.TEST:
             sync_execute(sql, data)
+            return
+        # Lazy import: routing imports from this module.
+        from posthog.kafka_client.routing import get_producer
+
+        get_producer(topic=topic).produce(topic=topic, data=data)

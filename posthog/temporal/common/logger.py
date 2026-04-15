@@ -24,7 +24,6 @@ Temporal context, like activity ID, workflow type, attempt number, and others, w
 automatically included.
 """
 
-import ssl
 import sys
 import json
 import typing
@@ -35,7 +34,6 @@ import collections.abc
 
 from django.conf import settings
 
-import aiokafka
 import structlog
 import temporalio.activity
 import temporalio.workflow
@@ -44,6 +42,9 @@ from structlog._log_levels import LEVEL_TO_NAME, NAME_TO_LEVEL
 from structlog.processors import EventRenamer
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+
+if typing.TYPE_CHECKING:
+    from posthog.kafka_client.client import _AsyncKafkaProducer
 
 BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
 
@@ -470,7 +471,7 @@ def filter_by_level(logger: Logger, method_name: str, event_dict: structlog.typi
 def configure_logger(
     extra_processors: list[structlog.types.Processor] | None = None,
     queue: LogQueue | None = None,
-    producer: aiokafka.AIOKafkaProducer | None = None,
+    producer: "_AsyncKafkaProducer | None" = None,
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
@@ -637,7 +638,7 @@ class KafkaLogProducerFromQueueAsync:
         queue: The queue we are listening to get log event_dicts to serialize and produce.
         topic: The topic to produce to. This should be left to the default KAFKA_LOG_ENTRIES.
         key: The key for Kafka partitioning. Default to None for random partition.
-        producer: Optionally, bring your own aiokafka.AIOKafkaProducer. This is mostly here for testing.
+        producer: Optionally, bring your own _AsyncKafkaProducer. This is mostly here for testing.
     """
 
     def __init__(
@@ -645,24 +646,15 @@ class KafkaLogProducerFromQueueAsync:
         queue: asyncio.Queue[bytes],
         topic: str = KAFKA_LOG_ENTRIES,
         key: str | None = None,
-        producer: aiokafka.AIOKafkaProducer | None = None,
+        producer: "_AsyncKafkaProducer | None" = None,
         loop: None | asyncio.AbstractEventLoop = None,
     ):
+        from posthog.kafka_client.routing import new_async_producer
+
         self.queue = queue
         self.topic = topic
         self.key = key
-        self.producer = (
-            producer
-            if producer is not None
-            else aiokafka.AIOKafkaProducer(
-                bootstrap_servers=settings.KAFKA_HOSTS,
-                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-                acks="all",
-                api_version="2.5.0",
-                ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
-                loop=loop,
-            )
-        )
+        self.producer = producer if producer is not None else new_async_producer(topic=topic)
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
 
     async def listen(self):
@@ -671,7 +663,6 @@ class KafkaLogProducerFromQueueAsync:
         This is designed to be ran as an asyncio.Task, as it will wait forever for the queue
         to have messages.
         """
-        await self.producer.start()
         try:
             while True:
                 msg = await self.queue.get()
@@ -679,7 +670,7 @@ class KafkaLogProducerFromQueueAsync:
 
         finally:
             await self.flush()
-            await self.producer.stop()
+            await self.producer.close()
 
     async def produce(self, msg: bytes):
         """Produce messages to configured topic and key.
@@ -687,7 +678,12 @@ class KafkaLogProducerFromQueueAsync:
         We catch any exceptions so as to continue processing the queue even if the broker is unavailable
         or we fail to produce for whatever other reason. We log the failure to not fail silently.
         """
-        fut = await self.producer.send(self.topic, msg, key=self.key)
+        fut = await self.producer.produce(
+            topic=self.topic,
+            data=msg,
+            key=self.key,
+            value_serializer=lambda v: v,
+        )
         fut.add_done_callback(self.mark_queue_done)
 
         try:
@@ -704,15 +700,6 @@ class KafkaLogProducerFromQueueAsync:
 
     def mark_queue_done(self, _=None):
         self.queue.task_done()
-
-
-def configure_default_ssl_context():
-    """Setup a default SSL context for Kafka."""
-    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_OPTIONAL
-    context.load_default_certs()
-    return context
 
 
 def get_temporal_activity_context() -> dict[str, str | int | None]:

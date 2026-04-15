@@ -96,11 +96,12 @@ async def queue():
 
 
 class CaptureKafkaProducer:
-    """A test aiokafka.AIOKafkaProducer that captures calls to send_and_wait."""
+    """A test producer matching the `_AsyncKafkaProducer` surface that captures calls to `produce`."""
 
     def __init__(self, *args, **kwargs):
         self.entries = []
         self._producer: None | aiokafka.AIOKafkaProducer = None
+        self._is_closed = False
 
     @property
     def producer(self) -> aiokafka.AIOKafkaProducer:
@@ -114,33 +115,37 @@ class CaptureKafkaProducer:
             )
         return self._producer
 
-    async def send(self, topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None):
+    async def produce(self, *, topic, data, key=None, value_serializer=None, headers=None):
         """Append an entry and delegate to aiokafka.AIOKafkaProducer."""
+        if value_serializer is not None:
+            data = value_serializer(data)
 
         self.entries.append(
             {
                 "topic": topic,
-                "value": value,
+                "value": data,
                 "key": key,
-                "partition": partition,
-                "timestamp_ms": timestamp_ms,
                 "headers": headers,
             }
         )
-        return await self.producer.send(topic, value, key, partition, timestamp_ms, headers)
+        if not self._is_closed and self._producer is None:
+            await self.producer.start()
+        return await self.producer.send(topic, data, key, headers=headers)
 
-    async def start(self):
-        await self.producer.start()
+    async def flush(self, timeout=None):
+        if self._producer is not None:
+            await self._producer.flush()
 
-    async def stop(self):
-        await self.producer.stop()
-
-    async def flush(self):
-        await self.producer.flush()
+    async def close(self):
+        if self._is_closed:
+            return
+        if self._producer is not None:
+            await self._producer.stop()
+        self._is_closed = True
 
     @property
     def _closed(self):
-        return self.producer._closed
+        return self._is_closed
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -155,7 +160,7 @@ async def producer():
     yield producer
 
     if producer._closed is False:
-        await producer.stop()
+        await producer.close()
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
