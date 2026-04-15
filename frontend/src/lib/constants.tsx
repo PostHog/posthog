@@ -141,12 +141,6 @@ export const RETENTION_RECURRING = 'retention_recurring'
 export const RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = 'retention_first_time'
 export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 
-export const WEBHOOK_SERVICES: Record<string, string> = {
-    Slack: 'slack.com',
-    Discord: 'discord.com',
-    Teams: 'office.com',
-}
-
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
 // or if you're running flox + phrocs you can also run the `sync-feature-flags` process
 //

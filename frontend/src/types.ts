@@ -662,7 +662,6 @@ export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
     recording_domains: string[]
-    slack_incoming_webhook: string
     autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
