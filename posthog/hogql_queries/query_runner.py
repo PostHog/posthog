@@ -309,7 +309,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "PathsQuery":
-        from .insights.paths_query_runner import PathsQueryRunner
+        from .insights.paths.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
