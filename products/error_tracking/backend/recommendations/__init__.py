@@ -1,5 +1,8 @@
-from . import cross_sell
+from .base import Recommendation
+from .cross_sell import CrossSellRecommendation
 
-REGISTRY = {
-    cross_sell.RECOMMENDATION_TYPE: cross_sell,
-}
+RECOMMENDATIONS: list[Recommendation] = [
+    CrossSellRecommendation(),
+]
+
+RECOMMENDATIONS_BY_TYPE: dict[str, Recommendation] = {r.type: r for r in RECOMMENDATIONS}

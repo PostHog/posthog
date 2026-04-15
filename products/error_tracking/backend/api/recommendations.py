@@ -13,7 +13,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
-from products.error_tracking.backend.recommendations import REGISTRY
+from products.error_tracking.backend.recommendations import RECOMMENDATIONS, RECOMMENDATIONS_BY_TYPE
 
 
 class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
@@ -25,24 +25,24 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_next_refresh_at(self, obj: ErrorTrackingRecommendation) -> str | None:
-        module = REGISTRY.get(obj.type)
-        if not module or not obj.computed_at:
+        rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
+        if not rec or not obj.computed_at:
             return None
-        return (obj.computed_at + module.REFRESH_INTERVAL).isoformat()
+        return (obj.computed_at + rec.refresh_interval).isoformat()
 
 
 def _compute_if_stale(team_id: int, team) -> None:
     now = timezone.now()
-    for rec_type, module in REGISTRY.items():
-        rec, created = ErrorTrackingRecommendation.objects.get_or_create(
+    for rec in RECOMMENDATIONS:
+        obj, created = ErrorTrackingRecommendation.objects.get_or_create(
             team_id=team_id,
-            type=rec_type,
-            defaults={"meta": module.compute(team), "computed_at": now},
+            type=rec.type,
+            defaults={"meta": rec.compute(team), "computed_at": now},
         )
-        if not created and (rec.computed_at is None or now >= rec.computed_at + module.REFRESH_INTERVAL):
-            rec.meta = module.compute(team)
-            rec.computed_at = now
-            rec.save(update_fields=["meta", "computed_at", "updated_at"])
+        if not created and (obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval):
+            obj.meta = rec.compute(team)
+            obj.computed_at = now
+            obj.save(update_fields=["meta", "computed_at", "updated_at"])
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
@@ -67,11 +67,11 @@ class ErrorTrackingRecommendationViewSet(
     @action(detail=True, methods=["post"])
     def refresh(self, request: Request, *args, **kwargs) -> Response:
         recommendation = self.get_object()
-        module = REGISTRY.get(recommendation.type)
-        if not module:
+        rec = RECOMMENDATIONS_BY_TYPE.get(recommendation.type)
+        if not rec:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         now = timezone.now()
-        recommendation.meta = module.compute(self.team)
+        recommendation.meta = rec.compute(self.team)
         recommendation.computed_at = now
         recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)

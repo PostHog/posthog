@@ -4,8 +4,7 @@ from typing import Any
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
-RECOMMENDATION_TYPE = "cross_sell"
-REFRESH_INTERVAL = timedelta(seconds=30)
+from .base import Recommendation
 
 
 def _team_has_logs(team_id: int) -> bool:
@@ -16,16 +15,20 @@ def _team_has_logs(team_id: int) -> bool:
     return len(result) > 0
 
 
-def compute(team: Team) -> dict[str, Any]:
-    products: list[dict[str, Any]] = [
-        {
-            "key": "session_replay",
-            "enabled": bool(team.session_recording_opt_in),
-        },
-        {
-            "key": "logs",
-            "enabled": _team_has_logs(team.id),
-        },
-    ]
+class CrossSellRecommendation(Recommendation):
+    type = "cross_sell"
+    refresh_interval = timedelta(seconds=30)
 
-    return {"products": products}
+    def compute(self, team: Team) -> dict[str, Any]:
+        return {
+            "products": [
+                {
+                    "key": "session_replay",
+                    "enabled": bool(team.session_recording_opt_in),
+                },
+                {
+                    "key": "logs",
+                    "enabled": _team_has_logs(team.id),
+                },
+            ]
+        }
