@@ -6,6 +6,19 @@ from posthog.slo.types import SloConfig
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 
+class DeliveryStatus:
+    """Mirrors SubscriptionDelivery.Status choices for use in Temporal workflows.
+
+    Plain string constants (not enum.Enum) for the same Temporal serialization
+    reason as SubscriptionTriggerType.
+    """
+
+    STARTING = "starting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class SubscriptionTriggerType:
     """How a subscription delivery was triggered.
 
@@ -23,6 +36,7 @@ class SubscriptionInfo:
     subscription_id: int
     team_id: int
     distinct_id: str
+    next_delivery_date: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -45,11 +59,14 @@ class CreateExportAssetsInputs:
 
 @dataclasses.dataclass
 class CreateExportAssetsResult:
+    """Export batch metadata plus per-insight snapshots aligned with exported_asset_ids order."""
+
     exported_asset_ids: list[int]
     total_insight_count: int
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    insight_snapshots: list[dict[str, typing.Any]] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -70,6 +87,7 @@ class ProcessSubscriptionWorkflowInputs:
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    scheduled_at: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -89,6 +107,43 @@ class TrackedSubscriptionInputs:
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
     trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    scheduled_at: typing.Optional[str] = None
+
+
+RecipientResultStatus = typing.Literal["success", "failed", "partial"]
+
+
+@dataclasses.dataclass
+class RecipientResult:
+    recipient: str
+    status: RecipientResultStatus
+    error: typing.Optional[dict[str, str]] = None  # {"message": str, "type": str}
+
+
+@dataclasses.dataclass
+class DeliverSubscriptionResult:
+    recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class CreateDeliveryRecordInputs:
+    subscription_id: int
+    team_id: int
+    trigger_type: str
+    temporal_workflow_id: str
+    idempotency_key: str
+    scheduled_at: typing.Optional[str] = None
+
+
+@dataclasses.dataclass
+class UpdateDeliveryRecordInputs:
+    delivery_id: int
+    status: str
+    exported_asset_ids: list[int] = dataclasses.field(default_factory=list)
+    content_snapshot: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
+    recipient_results: list[dict[str, typing.Any]] = dataclasses.field(default_factory=list)
+    error: typing.Optional[dict[str, typing.Any]] = None
+    finished: bool = False
 
 
 @dataclasses.dataclass

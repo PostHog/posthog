@@ -228,6 +228,7 @@ export const FEATURE_FLAGS = {
     WEB_EXPERIMENTS: 'web-experiments', // owner: #team-experiments
 
     // Temporary feature flags, still WIP, should be removed eventually
+    HACKATHONS_SUBSCRIPTIONS: 'hackathons_subscriptions', // owner: #team-analytics-platform, gates listing subscription delivery history (retrieve + Temporal persistence are not gated)
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics

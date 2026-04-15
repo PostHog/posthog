@@ -11,7 +11,7 @@ from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription
+from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -721,3 +721,162 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["id"] == sub_id
         assert results[0]["target_type"] == target_type
+
+
+class TestSubscriptionDeliveryAPI(APILicensedTest):
+    subscription: Subscription = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.insight = Insight.objects.create(
+            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            team=cls.team,
+            created_by=cls.user,
+        )
+        cls.subscription = Subscription.objects.create(
+            team=cls.team,
+            insight=cls.insight,
+            created_by=cls.user,
+            target_type="email",
+            target_value="test@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Test Sub",
+        )
+
+    def _create_delivery(self, **kwargs):
+        params = {
+            "subscription": self.subscription,
+            "team": self.team,
+            "temporal_workflow_id": f"wf-{kwargs.get('idempotency_key', 'default')}",
+            "idempotency_key": "default-key",
+            "trigger_type": "scheduled",
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "status": SubscriptionDelivery.Status.COMPLETED,
+        }
+        params.update(kwargs)
+        return SubscriptionDelivery.objects.create(**params)
+
+    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    def test_can_list_deliveries(self, _mock_feature):
+        d1 = self._create_delivery(idempotency_key="key-1")
+        d2 = self._create_delivery(idempotency_key="key-2")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        ids = {r["id"] for r in results}
+        assert ids == {d1.id, d2.id}
+
+    def test_can_retrieve_single_delivery(self):
+        delivery = self._create_delivery(
+            idempotency_key="retrieve-key",
+            recipient_results=[{"recipient": "test@posthog.com", "status": "success"}],
+            content_snapshot={
+                "dashboard": None,
+                "insights": [{"id": 1, "name": "Test", "short_id": "abc"}],
+                "total_insight_count": 1,
+            },
+            error={"message": "something failed", "type": "RuntimeError"},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == delivery.id
+        assert data["status"] == "completed"
+        assert data["recipient_results"] == [{"recipient": "test@posthog.com", "status": "success"}]
+        assert data["error"]["message"] == "something failed"
+        assert data["content_snapshot"]["insights"][0]["name"] == "Test"
+
+    def test_deliveries_are_read_only(self):
+        delivery = self._create_delivery(idempotency_key="readonly-key")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/",
+            {"status": "failed"},
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/",
+            {"status": "failed"},
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    def test_deliveries_scoped_to_subscription(self, _mock_feature):
+        other_subscription = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="email",
+            target_value="other@posthog.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Other Sub",
+        )
+        self._create_delivery(idempotency_key="this-sub")
+        self._create_delivery(
+            idempotency_key="other-sub",
+            subscription=other_subscription,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["subscription"] == self.subscription.id
+
+    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    def test_deliveries_ordered_by_created_at_desc(self, _mock_feature):
+        d1 = self._create_delivery(idempotency_key="older")
+        d2 = self._create_delivery(idempotency_key="newer")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        results = response.json()["results"]
+        assert results[0]["id"] == d2.id
+        assert results[1]["id"] == d1.id
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.subscription_delivery_rollout.hackathon_subscription_feature", return_value=True)
+    def test_deliveries_require_premium_feature(self, _mock_feature):
+        self.organization.available_product_features = []
+        self.organization.save()
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    def test_deliveries_not_available_on_legacy_project_path(self):
+        self._create_delivery(idempotency_key="legacy-test")
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliveries_list_not_found_when_feature_flag_off(self):
+        self._create_delivery(idempotency_key="flag-off")
+        with patch(
+            "posthog.subscription_delivery_rollout.hackathon_subscription_feature",
+            return_value=False,
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+            )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_deliveries_retrieve_ok_when_feature_flag_off(self):
+        delivery = self._create_delivery(idempotency_key="retrieve-flag-off")
+        with patch(
+            "posthog.subscription_delivery_rollout.hackathon_subscription_feature",
+            return_value=False,
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == delivery.id
