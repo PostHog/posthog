@@ -3616,6 +3616,18 @@ class ProductIntentContext(StrEnum):
     ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
 
 
+class ProductItemCategory(StrEnum):
+    ANALYTICS = "Analytics"
+    AI_ENGINEERING = "AI engineering"
+    BEHAVIOR = "Behavior"
+    FEATURES = "Features"
+    TOOLS = "Tools"
+    SCHEMA = "Schema"
+    PIPELINE = "Pipeline"
+    METADATA = "Metadata"
+    UNRELEASED = "Unreleased"
+
+
 class ProductKey(StrEnum):
     ACTIONS = "actions"
     ALERTS = "alerts"
@@ -7253,7 +7265,7 @@ class ProductItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    category: str | None = None
+    category: ProductItemCategory | None = None
     iconType: str | None = None
     intents: list[ProductKey]
     path: str
