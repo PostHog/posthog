@@ -283,7 +283,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
 
-        if prepared.repository and not prepared.used_snapshot and self.context.github_integration_id is not None:
+        if prepared.repository and not prepared.used_snapshot:
             await workflow.execute_activity(
                 clone_repository_in_sandbox,
                 CloneRepositoryInSandboxInput(
@@ -297,7 +297,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        if prepared.repository and prepared.branch and self.context.github_integration_id is not None:
+        if prepared.repository and prepared.branch:
             await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(

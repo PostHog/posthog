@@ -199,28 +199,26 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         "prepare_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        has_repo = ctx.repository is not None and ctx.github_integration_id is not None
+        has_repo = ctx.repository is not None
         repository = ctx.repository
 
         snapshot = None
         used_snapshot = False
-        if has_repo:
+        if has_repo and ctx.github_integration_id is not None:
             assert repository is not None
-            assert ctx.github_integration_id is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             increment_snapshot_usage(used_snapshot)
-        else:
+        elif not has_repo:
             emit_agent_log(ctx.run_id, "info", "Creating environment without repository")
 
         task = _load_task(ctx)
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         github_token = ""
-        if has_repo:
-            assert ctx.github_integration_id is not None
+        if has_repo and ctx.github_integration_id is not None:
             try:
                 github_token = (
                     get_sandbox_github_token(

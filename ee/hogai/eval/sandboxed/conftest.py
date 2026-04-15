@@ -191,7 +191,7 @@ def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_bl
             namespace=settings.TEMPORAL_NAMESPACE,
             task_queue=settings.TASKS_TASK_QUEUE,
             workflows=TASKS_WORKFLOWS,
-            activities=TASKS_ACTIVITIES,
+            activities=TASKS_ACTIVITIES,  # type: ignore[arg-type]
             max_concurrent_workflow_tasks=100,
             max_concurrent_activities=100,
             enable_combined_metrics_server=False,
@@ -430,7 +430,11 @@ class SandboxedDemoData:
             invite, _ = CodeInvite.objects.get_or_create(code="eval-harness", max_redemptions=0, is_active=True)
             CodeInviteRedemption.objects.get_or_create(invite_code=invite, user=user, organization=org)
         logger.info("Case %r assigned team_id=%d user_id=%d", case_label, team.id, user.id)
-        return CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+        return CustomPromptSandboxContext(
+            team_id=team.id,
+            user_id=user.id,
+            repository="posthog/hedgebox",
+        )
 
 
 @pytest.fixture(scope="session", autouse=True)
