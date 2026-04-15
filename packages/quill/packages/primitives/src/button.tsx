@@ -10,12 +10,12 @@ const buttonVariants = cva(
         variants: {
             variant: {
                 default:
-                    'hover:bg-fill-hover hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-fill-hover border-none not-hover:aria-selected:bg-fill-selected not-hover:aria-[checked=true]:bg-fill-selected data-highlighted:bg-fill-hover',
-                primary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
+                    'not-disabled:hover:bg-fill-hover hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-fill-hover border-none not-hover:aria-selected:bg-fill-selected not-hover:aria-[checked=true]:bg-fill-selected data-highlighted:bg-fill-hover',
+                primary: 'bg-secondary text-secondary-foreground not-disabled:hover:bg-secondary/80',
                 outline:
-                    'bg-accent/30 border-foreground/10 dark:border-foreground/15 hover:bg-fill-active hover:text-foreground dark:hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-input/50',
+                    'bg-accent/30 border-foreground/10 dark:border-foreground/15 not-disabled:hover:bg-accent/50 hover:text-foreground dark:hover:text-foreground aria-expanded:bg-fill-expanded aria-expanded:text-foreground data-[popup-open]:bg-input/50',
                 destructive:
-                    'bg-destructive/50 text-destructive-foreground hover:bg-destructive focus-visible:border-destructive/40 focus-visible:ring-destructive-foreground/60 data-[popup-open]:bg-destructive/20',
+                    'bg-destructive/50 text-destructive-foreground not-disabled:hover:bg-destructive focus-visible:border-destructive/40 focus-visible:ring-destructive-foreground/60 data-[popup-open]:bg-destructive/20',
                 link: 'text-primary underline-offset-4 hover:underline data-[popup-open]:underline',
                 'link-muted':
                     'text-muted-foreground underline-offset-4 hover:underline data-[popup-open]:underline',

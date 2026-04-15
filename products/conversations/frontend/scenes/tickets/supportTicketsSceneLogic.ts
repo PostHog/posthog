@@ -39,6 +39,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: Sorting | null) => ({ sorting }),
+        setSearchQuery: (query: string) => ({ query }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
@@ -121,6 +122,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 applyViewFilters: (state, { filters }) => filters.tags ?? state,
             },
         ],
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { query }) => query,
+                applyViewFilters: (state, { filters }) => filters.search ?? state,
+            },
+        ],
         dateFrom: [
             '-7d' as string | null,
             { persist: true },
@@ -174,6 +182,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.dateFrom,
                 s.dateTo,
                 s.sorting,
+                s.searchQuery,
             ],
             (
                 status: TicketStatus[],
@@ -184,7 +193,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 tags: string[],
                 dateFrom: string | null,
                 dateTo: string | null,
-                sorting: Sorting | null
+                sorting: Sorting | null,
+                search: string
             ): TicketViewFilters => ({
                 status,
                 priority,
@@ -195,6 +205,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 dateFrom,
                 dateTo,
                 sorting,
+                search: search || undefined,
             }),
         ],
     }),
@@ -229,6 +240,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.tagsFilter.length > 0) {
                 params.tags = JSON.stringify(values.tagsFilter)
             }
+            if (values.searchQuery) {
+                params.search = values.searchQuery
+            }
             if (values.dateFrom) {
                 params.date_from = values.dateFrom
             }
@@ -253,6 +267,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         },
         setCurrentPage: () => {
             actions.loadTickets()
+        },
+        setSearchQuery: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
         },
         setStatusFilter: () => {
             actions.clearActiveView()

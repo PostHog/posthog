@@ -278,6 +278,13 @@ class UserSerializer(serializers.ModelSerializer):
             **(instance.partial_notification_settings or {}),
         }
 
+        _dict_notification_keys = (
+            "project_weekly_digest_disabled",
+            "error_tracking_weekly_digest_project_enabled",
+            "web_analytics_weekly_digest_project_enabled",
+            "organization_member_join_email_disabled",
+        )
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
@@ -287,11 +294,7 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key in (
-                "project_weekly_digest_disabled",
-                "error_tracking_weekly_digest_project_enabled",
-                "organization_member_join_email_disabled",
-            ):
+            if key in _dict_notification_keys:
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
                         f"{key} must be a dictionary mapping IDs to boolean values",
@@ -485,6 +488,8 @@ class UserViewSet(
     scope_object = "user"
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
+    # Custom @action GETs that should map to user:read for OAuth / personal API keys
+    scope_object_read_actions = ["list", "retrieve", "github_login"]
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [

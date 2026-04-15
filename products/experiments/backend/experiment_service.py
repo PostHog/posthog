@@ -17,12 +17,13 @@ import pydantic
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentMetric
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
 from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
@@ -165,7 +166,14 @@ class ExperimentService:
 
             if kind == "ExperimentMetric":
                 try:
-                    ExperimentMetric.model_validate(metric)
+                    validated_metric = ExperimentMetric.model_validate(metric)
+
+                    # Additional validation for funnel metrics with DW steps
+                    # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
+                    actual_metric = validated_metric.root
+                    if isinstance(actual_metric, ExperimentFunnelMetric):
+                        FunnelDWValidator.validate_funnel_metric(actual_metric)
+
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
