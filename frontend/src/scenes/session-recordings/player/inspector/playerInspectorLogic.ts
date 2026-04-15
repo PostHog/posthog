@@ -43,6 +43,8 @@ import {
     PerformanceEvent,
     PropertyFilterType,
     PropertyOperator,
+    RRWebRecordingConsoleLogPayload,
+    RecordingConsoleLogV2,
     RecordingEventType,
 } from '~/types'
 
@@ -55,6 +57,37 @@ import {
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
+
+const MAX_LOG_ENTRIES = 5000
+
+function buildSessionLogsQuery(sessionId: string, start: Dayjs, end: Dayjs, cursor?: string): Record<string, any> {
+    return {
+        dateRange: {
+            date_from: start.toISOString(),
+            date_to: end.toISOString(),
+        },
+        filterGroup: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'session_id',
+                            value: sessionId,
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogAttribute,
+                        },
+                    ],
+                },
+            ],
+        },
+        severityLevels: [],
+        serviceNames: [],
+        limit: 1000,
+        ...(cursor ? { after: cursor } : {}),
+    }
+}
 
 const MAX_SEEKBAR_ITEMS = 100
 
@@ -171,6 +204,11 @@ export type InspectorListItemAppState = InspectorListItemBase & {
     stateEvent?: Record<string, any>
 }
 
+export type InspectorListItemLog = InspectorListItemBase & {
+    type: 'logs'
+    data: LogMessage
+}
+
 export type InspectorListItemSummary = InspectorListItemBase & {
     type: 'inspector-summary'
     clickCount: number | null
@@ -178,9 +216,11 @@ export type InspectorListItemSummary = InspectorListItemBase & {
     errorCount: number | null
 }
 
-export type InspectorListItemLog = InspectorListItemBase & {
-    type: 'logs'
-    data: LogMessage
+export type InspectorListItem =
+    | InspectorListItemEvent
+    | InspectorListItemConsole
+    | InspectorListItemPerformance
+    | InspectorListOfflineStatusChange
     | InspectorListItemDoctor
     | InspectorListBrowserVisibility
     | InspectorListItemComment
@@ -190,6 +230,14 @@ export type InspectorListItemLog = InspectorListItemBase & {
     | InspectorListItemAppState
     | InspectorListSessionChange
     | InspectorListItemLog
+
+export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
+    matchingEventsMatchType?: MatchingEventsMatchType
+}
+
+/** Merges adjacent inactivity items into one with a combined duration. */
+function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[] {
+    return items.reduce((acc, item) => {
         const previousItem = acc[acc.length - 1]
         if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
             acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
@@ -379,6 +427,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
         setLogsHasMore: (hasMore: boolean) => ({ hasMore }),
         setLogsNextCursor: (cursor: string | undefined) => ({ cursor }),
+        setLogsLoadError: (error: boolean) => ({ error }),
+    })),
+    reducers(() => ({
+        expandedItems: [
+            [] as number[],
+            {
+                setItemExpanded: (items, { index, expanded }) => {
+                    return expanded ? [...items, index] : items.filter((item) => item !== index)
+                },
+                setMiniFilter: () => [],
+                setSearchQuery: () => [],
                 setTrackedWindow: () => [],
             },
         ],
@@ -400,6 +459,19 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             undefined as string | undefined,
             {
                 setLogsNextCursor: (_, { cursor }) => cursor,
+            },
+        ],
+        logsInitialLoadRequested: [
+            false,
+            {
+                loadLogsSuccess: () => true,
+            },
+        ],
+        logsLoadError: [
+            false,
+            {
+                setLogsLoadError: (_, { error }) => error,
+                loadLogsSuccess: () => false,
             },
         ],
     })),
@@ -466,44 +538,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return []
                     }
 
-                    const sessionId = props.sessionRecordingId
-                    if (!sessionId || !values.start || !values.end) {
+                    if (!props.sessionRecordingId || !values.start || !values.end) {
                         return []
                     }
 
                     try {
                         const response = await api.logs.query({
-                            query: {
-                                dateRange: {
-                                    date_from: values.start.toISOString(),
-                                    date_to: values.end.toISOString(),
-                                },
-                                filterGroup: {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    key: 'session_id',
-                                                    value: sessionId,
-                                                    operator: PropertyOperator.Exact,
-                                                    type: PropertyFilterType.LogAttribute,
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                },
-                                severityLevels: [],
-                                serviceNames: [],
-                                limit: 1000,
-                            },
+                            query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end),
                         })
                         actions.setLogsHasMore(response.hasMore)
                         actions.setLogsNextCursor(response.nextCursor)
                         return response.results
                     } catch (error) {
                         console.error('Failed to load backend logs for session replay', error)
+                        actions.setLogsLoadError(true)
                         return []
                     }
                 },
@@ -513,42 +561,140 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return values.logs
                     }
 
+                    if (values.logs.length >= MAX_LOG_ENTRIES) {
+                        actions.setLogsHasMore(false)
+                        return values.logs
+                    }
+
                     try {
                         const response = await api.logs.query({
-                            query: {
-                                dateRange: {
-                                    date_from: values.start.toISOString(),
-                                    date_to: values.end.toISOString(),
-                                },
-                                filterGroup: {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    key: 'session_id',
-                                                    value: props.sessionRecordingId,
-                                                    operator: PropertyOperator.Exact,
-                                                    type: PropertyFilterType.LogAttribute,
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                },
-                                severityLevels: [],
-                                serviceNames: [],
-                                limit: 1000,
-                                after: cursor,
-                            },
+                            query: buildSessionLogsQuery(props.sessionRecordingId, values.start, values.end, cursor),
                         })
-                        actions.setLogsHasMore(response.hasMore)
-                        actions.setLogsNextCursor(response.nextCursor)
-                        return [...values.logs, ...response.results]
+                        const combined = [...values.logs, ...response.results]
+                        const capped = combined.length > MAX_LOG_ENTRIES
+                        actions.setLogsHasMore(capped ? false : response.hasMore)
+                        actions.setLogsNextCursor(capped ? undefined : response.nextCursor)
+                        return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
                     } catch (error) {
                         console.error('Failed to load more backend logs for session replay', error)
                         return values.logs
                     }
+                },
+            },
+        ],
+    })),
+    selectors(({ props }) => ({
+        allowMatchingEventsFilter: [
+            (s) => [s.miniFilters],
+            (miniFilters): boolean => {
+                return (
+                    miniFilters.some((mf) => mf.type === 'events' && mf.enabled) &&
+                    props.matchingEventsMatchType?.matchType !== 'none'
+                )
+            },
+        ],
+
+        windowNumberForID: [
+            (s) => [s.windowIds],
+            (windowIds) => {
+                // windowId is already 1-indexed from the registry
+                return (windowId: number | undefined): number | '?' | undefined => {
+                    if (windowIds.length <= 1) {
+                        return undefined
+                    }
+                    if (windowId === undefined) {
+                        return '?'
+                    }
+                    return windowId
+                }
+            },
+        ],
+
+        collapseInspectorItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS],
+        ],
+
+        processedSnapshotData: [
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID, s.collapseInspectorItems],
+            (
+                start,
+                sessionPlayerData,
+                windowNumberForID,
+                collapseInspectorItems
+            ): {
+                offlineStatusChanges: InspectorListOfflineStatusChange[]
+                browserVisibilityChanges: InspectorListBrowserVisibility[]
+                doctorEvents: InspectorListItemDoctor[]
+                consoleItems: InspectorListItemConsole[]
+                appStateItems: InspectorListItemAppState[]
+                contextItems: InspectorListItem[]
+                rawConsoleLogs: RecordingConsoleLogV2[]
+            } => {
+                const offlineStatusChanges: InspectorListOfflineStatusChange[] = []
+                const browserVisibilityChanges: InspectorListBrowserVisibility[] = []
+                const doctorEvents: InspectorListItemDoctor[] = []
+                const consoleLogs: RecordingConsoleLogV2[] = []
+                const consoleItems: InspectorListItemConsole[] = []
+                const appStateItems: InspectorListItemAppState[] = []
+                const snapshotCounts: Record<string, Record<string, number>> = {}
+                const consoleLogSeenCache = new Set<string>()
+                const sessionChangeItems: InspectorListSessionChange[] = []
+
+                // Single pass through all snapshots
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowIdStr, snapshots]) => {
+                    const windowId = Number(windowIdStr)
+                    if (!snapshotCounts[windowId]) {
+                        snapshotCounts[windowId] = {}
+                    }
+
+                    ;(snapshots as eventWithTime[]).forEach((snapshot: eventWithTime) => {
+                        // Track snapshot counts for doctor events
+                        const description = snapshotDescription(snapshot)
+                        snapshotCounts[windowId][description] = (snapshotCounts[windowId][description] || 0) + 1
+
+                        // Process custom events (type 5)
+                        if (_isCustomSnapshot(snapshot)) {
+                            const customEvent = snapshot as customEvent
+                            const tag = customEvent.data.tag
+                            const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start || dayjs())
+
+                            // Offline status changes
+                            if (['browser offline', 'browser online'].includes(tag)) {
+                                offlineStatusChanges.push({
+                                    type: 'offline-status',
+                                    offline: tag === 'browser offline',
+                                    timestamp: timestamp,
+                                    timeInRecording: timeInRecording,
+                                    search: tag,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    highlightColor: 'warning',
+                                    key: `${timestamp.valueOf()}-offline-status-${tag}`,
+                                } satisfies InspectorListOfflineStatusChange)
+                            }
+
+                            if (['$session_ending', '$session_starting'].includes(tag)) {
+                                const item: InspectorListSessionChange = {
+                                    type: 'session-change',
+                                    timestamp: timestamp,
+                                    timeInRecording: timeInRecording,
+                                    search: tag,
+                                    tag: tag as '$session_starting' | '$session_ending',
+                                    data: customEvent.data.payload as SessionChangePayload,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    key: `${timestamp.valueOf()}-session-change-${tag}`,
+                                }
+                                sessionChangeItems.push(item)
+                            }
+
+                            // Browser visibility changes
+                            if (['window hidden', 'window visible'].includes(tag)) {
+                                browserVisibilityChanges.push({
+                                    type: 'browser-visibility',
+                                    status: tag === 'window hidden' ? 'hidden' : 'visible',
+                                    timestamp: timestamp,
                                     timeInRecording: timeInRecording,
                                     search: tag,
                                     windowId: windowId,
@@ -897,3 +1043,544 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.miniFiltersByKey,
                 s.uuidToIndex,
                 s.logs,
+            ],
+            (
+                start,
+                performanceEvents,
+                processedSnapshotData,
+                eventsData,
+                matchingEvents,
+                windowNumberForID,
+                allContextItems,
+                commentItems,
+                notebookCommentItems,
+                sessionPlayerData,
+                miniFiltersByKey,
+                uuidToIndex,
+                logs
+            ): {
+                items: InspectorListItem[]
+                itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
+                itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
+            } => {
+                // Create a local copy of the window ID map for synchronous lookups
+                // New window IDs discovered here will be registered via listener
+                const localUuidToIndex: Record<string, number> = { ...uuidToIndex }
+                const getOrRegisterWindowId = (uuid: string): number => {
+                    if (uuid in localUuidToIndex) {
+                        return localUuidToIndex[uuid]
+                    }
+                    const index = Object.keys(localUuidToIndex).length + 1
+                    localUuidToIndex[uuid] = index
+                    return index
+                }
+
+                // Pre-compute categorizations during item creation
+                const items: InspectorListItem[] = []
+                const itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]> = {
+                    'events-posthog': [],
+                    'events-custom': [],
+                    'events-pageview': [],
+                    'events-autocapture': [],
+                    'events-exceptions': [],
+                    'console-info': [],
+                    'console-warn': [],
+                    'console-error': [],
+                    'console-app-state': [],
+                    'performance-fetch': [],
+                    'performance-document': [],
+                    'performance-assets-js': [],
+                    'performance-assets-css': [],
+                    'performance-assets-img': [],
+                    'performance-other': [],
+                    comment: [],
+                    doctor: [],
+                    'logs-info': [],
+                    'logs-warn': [],
+                    'logs-error': [],
+                }
+                const itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]> = {
+                    ['events']: [],
+                    ['console']: [],
+                    ['network']: [],
+                    ['doctor']: [],
+                    ['comment']: [],
+                    ['logs']: [],
+                    context: [],
+                }
+                let summaryItem: InspectorListItemSummary | undefined
+
+                // Helper function to add item and categorize it
+                const addItem = (item: InspectorListItem): void => {
+                    items.push(item)
+
+                    // Categorize by mini-filter
+                    const miniFilter = itemToMiniFilter(item, miniFiltersByKey)
+                    if (miniFilter) {
+                        itemsByMiniFilterKey[miniFilter.key].push(item)
+                    }
+
+                    // Categorize by type
+                    const itemType = ['events', 'console', 'network', 'doctor', 'comment', 'logs'].includes(
+                        item.type as FilterableInspectorListItemTypes
+                    )
+                        ? (item.type as FilterableInspectorListItemTypes | 'context')
+                        : 'context'
+                    itemsByType[itemType].push(item)
+                }
+
+                // PERFORMANCE EVENTS
+                const performanceEventsArr = performanceEvents || []
+                for (const event of performanceEventsArr) {
+                    const responseStatus = event.response_status || null
+
+                    if (event.entry_type === 'paint') {
+                        // We don't include paint events as they are covered in the navigation events
+                        continue
+                    }
+
+                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
+                    const windowId = event.window_id ? getOrRegisterWindowId(event.window_id) : undefined
+                    addItem({
+                        type: 'network',
+                        timestamp,
+                        timeInRecording,
+                        search: event.name || '',
+                        data: event,
+                        highlightColor: (responseStatus || 0) >= 400 ? 'danger' : undefined,
+                        windowId,
+                        windowNumber: windowNumberForID(windowId),
+                        key: `performance-${event.uuid ?? event.name ?? 'unknown'}-${timestamp.valueOf()}`,
+                    })
+                }
+
+                // CONSOLE LOGS (already processed)
+                for (const consoleItem of processedSnapshotData?.consoleItems || []) {
+                    addItem(consoleItem)
+                }
+
+                let errorCount = 0
+                for (const event of eventsData || []) {
+                    let isMatchingEvent = false
+
+                    if (event.event === '$exception') {
+                        errorCount += 1
+                    }
+
+                    if (matchingEvents?.length) {
+                        isMatchingEvent = !!matchingEvents.find(
+                            (x: MatchedRecordingEvent) => x.uuid === String(event.id)
+                        )
+                    } else if (props.matchingEventsMatchType?.matchType === 'name') {
+                        isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
+                    }
+
+                    const search = `${
+                        getCoreFilterDefinition(event.event, TaxonomicFilterGroupType.Events)?.label ??
+                        event.event ??
+                        ''
+                    } ${eventToDescription(event)}`.replace(/['"]+/g, '')
+
+                    const { timestamp, timeInRecording } = timeRelativeToStart(event, start)
+                    const rawWindowId = event.properties?.$window_id
+                    const windowId = rawWindowId ? getOrRegisterWindowId(rawWindowId) : undefined
+                    addItem({
+                        type: 'events',
+                        timestamp,
+                        timeInRecording,
+                        search: search,
+                        data: {
+                            ...event,
+                            distinct_id: sessionPlayerData.person?.distinct_ids?.[0] || event.distinct_id,
+                        },
+                        highlightColor: isMatchingEvent
+                            ? 'primary'
+                            : event.event === '$exception'
+                              ? 'danger'
+                              : undefined,
+                        windowId,
+                        windowNumber: windowNumberForID(windowId),
+                        key: `event-${event.id}`,
+                    })
+                }
+
+                for (const event of allContextItems || []) {
+                    if (event.type === 'inspector-summary') {
+                        summaryItem = event as InspectorListItemSummary
+                        summaryItem.errorCount = errorCount
+                    } else {
+                        addItem(event)
+                    }
+                }
+
+                for (const comment of commentItems || []) {
+                    addItem(comment)
+                }
+
+                for (const notebookComment of notebookCommentItems || []) {
+                    addItem(notebookComment)
+                }
+
+                for (const stateLogItem of processedSnapshotData?.appStateItems || []) {
+                    addItem(stateLogItem)
+                }
+
+                for (const logEntry of logs || []) {
+                    const logTimestamp = dayjs(logEntry.timestamp)
+                    if (!logTimestamp.isValid()) {
+                        continue
+                    }
+                    const timeInRecording = logTimestamp.valueOf() - (start?.valueOf() || 0)
+                    const level = logEntry.level || 'info'
+                    addItem({
+                        type: 'logs',
+                        timestamp: logTimestamp,
+                        timeInRecording,
+                        search: logEntry.body || '',
+                        data: logEntry,
+                        highlightColor:
+                            level === 'error' || level === 'fatal'
+                                ? 'danger'
+                                : level === 'warn'
+                                  ? 'warning'
+                                  : undefined,
+                        key: `log-${logEntry.uuid}`,
+                    } satisfies InspectorListItemLog)
+                }
+
+                // NOTE: Native JS sorting is relatively slow here - be careful changing this
+                items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+
+                // Add summary item at the beginning if it exists
+                if (summaryItem) {
+                    items.unshift(summaryItem)
+                    if (items.length > 1) {
+                        items[0].windowNumber = items[1]?.windowNumber
+                        items[0].windowId = items[1]?.windowId
+                    }
+                }
+
+                return {
+                    items,
+                    itemsByMiniFilterKey,
+                    itemsByType,
+                }
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        filteredItems: [
+            (s) => [
+                s.allItems,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.allowMatchingEventsFilter,
+                s.trackedWindow,
+                s.hasEventsToDisplay,
+            ],
+            (
+                allItemsData,
+                miniFiltersByKey,
+                showOnlyMatching,
+                allowMatchingEventsFilter,
+                trackedWindow,
+                hasEventsToDisplay
+            ): InspectorListItem[] => {
+                const filteredItems = filterInspectorListItems({
+                    allItems: allItemsData.items,
+                    miniFiltersByKey,
+                    allowMatchingEventsFilter,
+                    showOnlyMatching,
+                    trackedWindow,
+                    hasEventsToDisplay,
+                })
+
+                return mergeAdjacentInactivity(filteredItems)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        seekbarItems: [
+            (s) => [
+                s.allItems,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.allowMatchingEventsFilter,
+                s.trackedWindow,
+                s.hasEventsToDisplay,
+            ],
+            (
+                allItemsData,
+                miniFiltersByKey,
+                showOnlyMatching,
+                allowMatchingEventsFilter,
+                trackedWindow,
+                hasEventsToDisplay
+            ): (InspectorListItemEvent | InspectorListItemComment)[] => {
+                // Pre-filter to only events and comments, avoiding the full filterInspectorListItems call
+                const eventAndCommentItems: (InspectorListItemEvent | InspectorListItemComment)[] = []
+
+                for (const item of allItemsData.items) {
+                    // Only process events and comments
+                    if (item.type !== 'events' && item.type !== 'comment') {
+                        continue
+                    }
+
+                    // Skip events if there are no events to display
+                    if (item.type === 'events' && !hasEventsToDisplay) {
+                        continue
+                    }
+
+                    // Apply tracking window filter early
+                    if (trackedWindow && item.windowId !== trackedWindow) {
+                        continue
+                    }
+
+                    // Type assertion since we've already checked the type
+                    const typedItem = item as InspectorListItemEvent | InspectorListItemComment
+
+                    // Apply event-specific filters
+                    if (item.type === 'events') {
+                        // Skip if matching events filter is active and item doesn't match
+                        if (allowMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
+                            continue
+                        }
+
+                        // Apply mini-filters for events
+                        const eventKey = `events-${item.data.event}` as keyof typeof miniFiltersByKey
+                        const eventFilter = miniFiltersByKey[eventKey] || miniFiltersByKey['events-custom']
+                        if (eventFilter && !eventFilter.enabled) {
+                            continue
+                        }
+                    } else if (item.type === 'comment') {
+                        // Apply mini-filters for comments
+                        const commentFilter = miniFiltersByKey['comment']
+                        if (commentFilter && !commentFilter.enabled) {
+                            continue
+                        }
+                    }
+
+                    eventAndCommentItems.push(typedItem)
+                }
+
+                // If we have too many items, apply priority filtering and sampling
+                if (eventAndCommentItems.length > MAX_SEEKBAR_ITEMS) {
+                    // First pass: keep only high-priority items
+                    let priorityItems = eventAndCommentItems.filter((item) => {
+                        const isPrimary = item.highlightColor === 'primary'
+                        const isPageView = item.type === 'events' && item.data.event === '$pageview'
+                        const isComment = item.type === 'comment'
+                        return isPrimary || isPageView || isComment
+                    })
+
+                    // If still too many, sample them
+                    if (priorityItems.length > MAX_SEEKBAR_ITEMS) {
+                        const step = Math.ceil(priorityItems.length / MAX_SEEKBAR_ITEMS)
+                        priorityItems = priorityItems.filter((_, i) => i % step === 0)
+                    }
+
+                    return priorityItems
+                }
+
+                return eventAndCommentItems
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        inspectorDataState: [
+            (s) => [
+                s.sessionEventsDataLoading,
+                s.sessionPlayerMetaDataLoading,
+                s.snapshotsLoading,
+                s.sessionEventsData,
+                s.processedSnapshotData,
+                s.allPerformanceEvents,
+                s.sessionComments,
+                s.sessionCommentsLoading,
+                s.logsLoading,
+                s.logs,
+            ],
+            (
+                sessionEventsDataLoading: boolean,
+                sessionPlayerMetaDataLoading: boolean,
+                snapshotsLoading: boolean,
+                events: RecordingEventType[] | null,
+                processedSnapshotData: {
+                    offlineStatusChanges: InspectorListOfflineStatusChange[]
+                    browserVisibilityChanges: InspectorListBrowserVisibility[]
+                    doctorEvents: InspectorListItemDoctor[]
+                    consoleLogs: RecordingConsoleLogV2[]
+                    appStateItems: InspectorListItemAppState[]
+                } | null,
+                performanceEvents: PerformanceEvent[] | null,
+                sessionComments: CommentType[] | null,
+                sessionCommentsLoading: boolean,
+                logsLoading: boolean,
+                logs: LogMessage[]
+            ): Record<FilterableInspectorListItemTypes, 'loading' | 'ready' | 'empty'> => {
+                const dataForEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
+                const dataForConsoleState =
+                    sessionPlayerMetaDataLoading || snapshotsLoading || !processedSnapshotData
+                        ? 'loading'
+                        : processedSnapshotData?.consoleLogs?.length
+                          ? 'ready'
+                          : 'empty'
+                const dataForNetworkState =
+                    sessionPlayerMetaDataLoading || snapshotsLoading || !performanceEvents
+                        ? 'loading'
+                        : performanceEvents.length
+                          ? 'ready'
+                          : 'empty'
+                const dataForDoctorState =
+                    sessionPlayerMetaDataLoading || snapshotsLoading || !processedSnapshotData
+                        ? 'loading'
+                        : processedSnapshotData?.doctorEvents?.length
+                          ? 'ready'
+                          : 'empty'
+
+                // TODO include notebook comments here?
+                const dataForCommentState = sessionCommentsLoading
+                    ? 'loading'
+                    : sessionComments?.length
+                      ? 'ready'
+                      : 'empty'
+
+                const dataForLogsState = logsLoading ? 'loading' : logs?.length ? 'ready' : 'empty'
+
+                return {
+                    ['events']: dataForEventsState,
+                    ['console']: dataForConsoleState,
+                    ['network']: dataForNetworkState,
+                    ['comment']: dataForCommentState,
+                    ['doctor']: dataForDoctorState,
+                    ['logs']: dataForLogsState,
+                }
+            },
+        ],
+
+        isLoading: [
+            (s) => [s.inspectorDataState],
+            (inspectorDataState): boolean => Object.values(inspectorDataState).some((state) => state === 'loading'),
+        ],
+
+        isReady: [
+            (s) => [s.inspectorDataState],
+            (inspectorDataState): boolean => Object.values(inspectorDataState).every((state) => state === 'ready'),
+        ],
+
+        playbackIndicatorIndex: [
+            (s) => [s.currentPlayerTime, s.items, s.displayGroups],
+            (playerTime, items, displayGroups): number => {
+                if (!playerTime) {
+                    return 0
+                }
+                const timeSeconds = Math.floor(playerTime / 1000)
+                return displayGroups.findIndex(
+                    (g) => Math.floor(items[g.indices[0]].timeInRecording / 1000) >= timeSeconds
+                )
+            },
+        ],
+
+        playbackIndicatorIndexStop: [
+            (s) => [s.playbackIndicatorIndex, s.displayGroups],
+            (playbackIndicatorIndex, displayGroups): number =>
+                (displayGroups.length + playbackIndicatorIndex) % displayGroups.length,
+        ],
+
+        fuse: [
+            (s) => [s.filteredItems],
+            (filteredItems): Fuse =>
+                createFuse<InspectorListItem>(filteredItems, {
+                    keys: ['search'],
+                    findAllMatches: true,
+                    ignoreLocation: true,
+                    shouldSort: false,
+                    useExtendedSearch: true,
+                }),
+        ],
+
+        items: [
+            (s) => [s.filteredItems, s.fuse, s.searchQuery],
+            (filteredItems, fuse, searchQuery): InspectorListItem[] => {
+                if (searchQuery === '') {
+                    return filteredItems
+                }
+                return fuse.search(searchQuery).map((x) => x.item)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        displayGroups: [
+            (s) => [s.items, s.groupRepeatedItems, s.collapseInspectorItems],
+            (items, groupRepeatedItems, collapseInspectorItems): DisplayGroup[] => {
+                if (!collapseInspectorItems) {
+                    return items.map((_, i) => ({ indices: [i] }))
+                }
+                return computeDisplayGroups(items, groupRepeatedItems)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        allItemsList: [(s) => [s.allItems], (allItemsData): InspectorListItem[] => allItemsData.items],
+
+        /**
+         * All items by mini-filter key, not filtered items, so that we can count the unfiltered sets
+         */
+        allItemsByMiniFilterKey: [
+            (s) => [s.allItems],
+            (allItemsData): Record<MiniFilterKey, InspectorListItem[]> => allItemsData.itemsByMiniFilterKey,
+        ],
+
+        /**
+         * All items by item type, not filtered items, so that we can count the unfiltered sets
+         */
+        allItemsByItemType: [
+            (s) => [s.allItems],
+            (allItemsData): Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]> =>
+                allItemsData.itemsByType,
+        ],
+
+        hasEventsToDisplay: [
+            (s) => [s.allItemsByItemType],
+            (allItemsByItemType): boolean => allItemsByItemType['events']?.length > 0,
+        ],
+    })),
+    listeners(({ values, actions }) => ({
+        setItemExpanded: ({ index, expanded }) => {
+            if (expanded) {
+                const group = values.displayGroups[index]
+                const item = values.items[group.indices[0]]
+                actions.reportRecordingInspectorItemExpanded(item.type, index)
+
+                if (item.type === 'events') {
+                    const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
+                    actions.loadFullEventData(eventsToLoad)
+                }
+            }
+        },
+        loadEventsSuccess: () => {
+            // Register any window IDs from events that aren't already in the registry
+            const events = values.sessionEventsData || []
+            for (const event of events) {
+                const windowId = event.properties?.$window_id
+                if (windowId && !(windowId in values.uuidToIndex)) {
+                    actions.registerWindowId(windowId)
+                }
+            }
+
+            if (!values.logsInitialLoadRequested) {
+                actions.loadLogs()
+            }
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadMatchingEvents()
+        },
+    })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!equal(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+            actions.loadMatchingEvents()
+        }
+    }),
+])

@@ -15,6 +15,7 @@ import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
 import { DisplayGroup, InspectorListItem, playerInspectorLogic } from './playerInspectorLogic'
 
 export const DEFAULT_INSPECTOR_ROW_HEIGHT = 40
+const LOAD_MORE_INSET_STYLE: CSSProperties = { bottom: 36 }
 
 interface InspectorRowProps {
     items: InspectorListItem[]
@@ -116,7 +117,7 @@ export function PlayerInspectorList(): JSX.Element {
                 <>
                     <div
                         className="absolute inset-0"
-                        style={logsHasMore ? { bottom: 36 } : undefined}
+                        style={logsHasMore ? LOAD_MORE_INSET_STYLE : undefined}
                         onMouseEnter={() => (mouseHoverRef.current = true)}
                         onMouseLeave={() => (mouseHoverRef.current = false)}
                     >

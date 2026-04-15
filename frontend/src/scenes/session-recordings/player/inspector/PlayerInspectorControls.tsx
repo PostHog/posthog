@@ -31,8 +31,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
-import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
-
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
@@ -272,33 +270,16 @@ function CommentsFilterSettingsButton(): JSX.Element {
 
 function LogsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByItemType, logsLoading } = useValues(playerInspectorLogic(logicProps))
-    const { hasLogs } = useValues(logsIngestionLogic)
+    const { allItemsByItemType, logsLoading, logsLoadError } = useValues(playerInspectorLogic(logicProps))
 
     const hasLogItems = allItemsByItemType['logs']?.length > 0
 
-    const upsellAction: SideAction | undefined =
-        !hasLogs && !logsLoading
-            ? {
-                  icon: <IconChevronDown />,
-                  dropdown: {
-                      closeOnClickInside: false,
-                      overlay: (
-                          <>
-                              <LemonButton
-                                  data-attr="player-inspector-logs-upsell"
-                                  icon={<IconGear />}
-                                  fullWidth
-                                  size="xsmall"
-                                  to="https://posthog.com/docs/logs"
-                                  targetBlank
-                              >
-                                  Set up PostHog Logs
-                              </LemonButton>
-                          </>
-                      ),
-                  },
-              }
+    const disabledReason = logsLoading
+        ? 'Loading logs...'
+        : logsLoadError
+          ? 'Failed to load logs for this session'
+          : !hasLogItems
+            ? 'No logs found for this session'
             : undefined
 
     return (
@@ -306,10 +287,7 @@ function LogsFilterSettingsButton(): JSX.Element {
             data-attr="player-inspector-logs-toggle-all"
             type="logs"
             icon={<IconLive />}
-            disabledReason={
-                logsLoading ? 'Loading logs...' : !hasLogItems ? 'There are no logs for this session' : undefined
-            }
-            upsellSideAction={upsellAction}
+            disabledReason={disabledReason}
             label="Logs"
         />
     )

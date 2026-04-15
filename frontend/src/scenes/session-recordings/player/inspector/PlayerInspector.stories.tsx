@@ -136,7 +136,10 @@ export const WithLogsFilter: Story = {
     },
     decorators: [
         (Story) => {
-            setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS])
+            useEffect(() => {
+                setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS])
+                return () => setFeatureFlags([])
+            }, [])
             return <Story />
         },
     ],
@@ -144,11 +147,14 @@ export const WithLogsFilter: Story = {
 
 export const WithLogsFilterUpsell: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS],
+        featureFlags: [],
     },
     decorators: [
         (Story) => {
-            setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS])
+            useEffect(() => {
+                setFeatureFlags([])
+                return () => setFeatureFlags([])
+            }, [])
             return <Story />
         },
     ],
