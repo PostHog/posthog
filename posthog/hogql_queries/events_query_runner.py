@@ -76,7 +76,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _validate(self) -> None:
         super()._validate()
-        self.source_runner._validate()
+        if self.query.source is not None:
+            self.source_runner._validate()
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
