@@ -81,6 +81,14 @@ class Evaluation(UUIDTModel):
         instance._initial_status = instance.status
         return instance
 
+    def refresh_from_db(self, *args, **kwargs) -> None:
+        # Refreshing replaces the in-memory state with DB state — the change-tracking baseline must
+        # follow, otherwise a subsequent caller-side edit would be compared against stale initials and
+        # the coerce step could misinterpret which field moved.
+        super().refresh_from_db(*args, **kwargs)
+        self._initial_enabled = self.enabled
+        self._initial_status = self.status
+
     def __str__(self):
         return self.name
 
