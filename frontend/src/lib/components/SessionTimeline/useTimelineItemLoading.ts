@@ -21,6 +21,10 @@ function countVisibleItems(items: TimelineItem[], activeCategorySet: Set<ItemCat
     return items.filter((item) => activeCategorySet.has(item.category)).length
 }
 
+function ignoreLoadingError(): void {
+    // Keep timeline interactions resilient when one background load fails.
+}
+
 async function loadAvailableDirections(
     collector: ItemCollector,
     batch: number
@@ -41,6 +45,36 @@ async function loadAvailableDirections(
     }
 
     return { loadedBefore, loadedAfter }
+}
+
+async function loadAndSyncViewport({
+    collector,
+    el,
+    batch,
+    applyItems,
+}: {
+    collector: ItemCollector
+    el: HTMLDivElement
+    batch: number
+    applyItems: (items: TimelineItem[]) => void
+}): Promise<{ loadedBefore: boolean; loadedAfter: boolean; nextItems: TimelineItem[] }> {
+    const scrollTop = el.scrollTop
+    const scrollHeight = el.scrollHeight
+    const { loadedBefore, loadedAfter } = await loadAvailableDirections(collector, batch)
+    const nextItems = collector.collectItems()
+
+    if (!loadedBefore && !loadedAfter) {
+        return { loadedBefore, loadedAfter, nextItems }
+    }
+
+    applyItems(nextItems)
+    await nextFrame()
+
+    if (loadedBefore) {
+        el.scrollTop = scrollTop + (el.scrollHeight - scrollHeight)
+    }
+
+    return { loadedBefore, loadedAfter, nextItems }
 }
 
 export interface UseTimelineItemLoadingProps {
@@ -77,6 +111,21 @@ export function useTimelineItemLoading({
     useEffect(() => {
         selectedItemIdRef.current = selectedItemId
     }, [selectedItemId])
+
+    const runWithScrollLoading = useCallback(
+        async (direction: 'before' | 'after', operation: () => Promise<void>): Promise<void> => {
+            scrollLoadingRef.current = direction
+            setScrollLoading(direction)
+
+            try {
+                await operation()
+            } finally {
+                scrollLoadingRef.current = null
+                setScrollLoading(null)
+            }
+        },
+        []
+    )
 
     // Initial load + auto-fill
     useEffect(() => {
@@ -121,30 +170,23 @@ export function useTimelineItemLoading({
                     break
                 }
 
-                const scrollTop = el.scrollTop
-                const scrollHeight = el.scrollHeight
-                const { loadedBefore, loadedAfter } = await loadAvailableDirections(collector, batch)
+                const { loadedBefore, loadedAfter } = await loadAndSyncViewport({
+                    collector,
+                    el,
+                    batch,
+                    applyItems: setItems,
+                })
                 if (!loadedBefore && !loadedAfter) {
                     break
                 }
                 if (cancelled) {
                     return
                 }
-
-                setItems(collector.collectItems())
-                await nextFrame()
-                if (cancelled) {
-                    return
-                }
-
-                if (loadedBefore) {
-                    el.scrollTop = scrollTop + (el.scrollHeight - scrollHeight)
-                }
             }
         }
 
         void loadInitialItems()
-            .catch(() => undefined)
+            .catch(ignoreLoadingError)
             .finally(() => {
                 if (!cancelled) {
                     setLoading(false)
@@ -199,10 +241,13 @@ export function useTimelineItemLoading({
                     break
                 }
 
-                const scrollTop = el.scrollTop
-                const scrollHeight = el.scrollHeight
                 const batch = calculateBatchSize(el)
-                const { loadedBefore, loadedAfter } = await loadAvailableDirections(collector, batch)
+                const { loadedBefore, loadedAfter, nextItems } = await loadAndSyncViewport({
+                    collector,
+                    el,
+                    batch,
+                    applyItems: setItems,
+                })
                 if (!loadedBefore && !loadedAfter) {
                     break
                 }
@@ -210,29 +255,18 @@ export function useTimelineItemLoading({
                     return
                 }
 
-                const nextItems = collector.collectItems()
                 const nextFilteredItemCount = countVisibleItems(nextItems, activeCategorySet)
-                setItems(nextItems)
 
                 // Safety valve: avoid spinning when no new visible items are produced.
                 if (nextFilteredItemCount <= previousFilteredItemCount) {
                     break
                 }
                 previousFilteredItemCount = nextFilteredItemCount
-
-                await nextFrame()
-                if (cancelled) {
-                    return
-                }
-
-                if (loadedBefore) {
-                    el.scrollTop = scrollTop + (el.scrollHeight - scrollHeight)
-                }
             }
         }
 
         void refillAfterFilter()
-            .catch(() => undefined)
+            .catch(ignoreLoadingError)
             .finally(() => {
                 if (!cancelled) {
                     filterRefillInProgressRef.current = false
@@ -250,10 +284,7 @@ export function useTimelineItemLoading({
             return
         }
 
-        scrollLoadingRef.current = 'before'
-        setScrollLoading('before')
-
-        try {
+        await runWithScrollLoading('before', async () => {
             const el = containerRef.current
             const scrollTop = el?.scrollTop || 0
             const scrollHeight = el?.scrollHeight || 0
@@ -268,29 +299,20 @@ export function useTimelineItemLoading({
                     el.scrollTop = scrollTop + (newScrollHeight - scrollHeight)
                 }
             })
-        } finally {
-            scrollLoadingRef.current = null
-            setScrollLoading(null)
-        }
-    }, [collector, containerRef, loading])
+        })
+    }, [collector, containerRef, loading, runWithScrollLoading])
 
     const handleScrollBottom = useCallback(async (): Promise<void> => {
         if (loading || !collector.hasMoreAfter || scrollLoadingRef.current) {
             return
         }
 
-        scrollLoadingRef.current = 'after'
-        setScrollLoading('after')
-
-        try {
+        await runWithScrollLoading('after', async () => {
             const batch = calculateBatchSize(containerRef.current)
             await collector.loadAfter(batch)
             setItems(collector.collectItems())
-        } finally {
-            scrollLoadingRef.current = null
-            setScrollLoading(null)
-        }
-    }, [collector, containerRef, loading])
+        })
+    }, [collector, containerRef, loading, runWithScrollLoading])
 
     return {
         items,
