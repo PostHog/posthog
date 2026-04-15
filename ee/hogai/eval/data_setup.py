@@ -6,20 +6,32 @@ agent evals can reuse the same demo data creation logic.
 
 from __future__ import annotations
 
+import uuid
+import logging
 import datetime
 
+from django.db import transaction
 from django.test import override_settings
 
+from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import GroupTypeMapping, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
+from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 from products.dashboards.backend.models import Dashboard, DashboardTile
 
 from ee.models.assistant import CoreMemory
 
+logger = logging.getLogger(__name__)
+
 EVAL_SEED = "b1ef3c66-5f43-488a-98be-6b46d92fbcef"
 EVAL_USER_FULL_NAME = "Karen Smith"
+
+MASTER_ORG_NAME = "Hedgebox Master Seed"
+MASTER_USER_EMAIL = "eval-master-seed@posthog.test"
 
 
 def create_isolated_demo_data(
@@ -45,7 +57,7 @@ def create_isolated_demo_data(
         # Check for existing data from today
         existing_org = Organization.objects.filter(name=org_name).order_by("-created_at").first()
         if existing_org and existing_org.created_at.date() == today:
-            print(f"Using existing demo data for '{label}'...")  # noqa: T201
+            logger.info("Using existing demo data for %r", label)
             team = existing_org.teams.first()
             assert team is not None
             membership = existing_org.memberships.first()
@@ -56,7 +68,7 @@ def create_isolated_demo_data(
                 user.save(update_fields=["email"])
             return existing_org, team, user
 
-        print(f"Generating demo data for '{label}'...")  # noqa: T201
+        logger.info("Generating demo data for %r", label)
         matrix = HedgeboxMatrix(
             seed=EVAL_SEED,
             days_past=120,
@@ -77,6 +89,126 @@ def create_isolated_demo_data(
 def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, User]:
     """Create or reuse demo data for CI evals. Thin wrapper for backward compat."""
     return create_isolated_demo_data(django_db_blocker, label="ci")
+
+
+def ensure_master_demo_team(django_db_blocker) -> int:
+    """Ensure a master Hedgebox demo team exists with events in both PSQL and CH.
+
+    Reuses the master team across sessions when it has CH events. Rebuilds from
+    scratch when either side is empty. Returns the master team id (autoincrement,
+    not ``MatrixManager.MASTER_TEAM_ID`` — we own this team's lifecycle).
+    """
+
+    with django_db_blocker.unblock():
+        existing_org = Organization.objects.filter(name=MASTER_ORG_NAME).order_by("-created_at").first()
+        if existing_org is not None:
+            team = existing_org.teams.first()
+            if team is not None:
+                ch_event_count = sync_execute(
+                    "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                    {"team_id": team.id},
+                )[0][0]
+                if ch_event_count > 0:
+                    logger.info("Reusing master demo team id=%d (events=%d)", team.id, ch_event_count)
+                    return team.id
+                logger.warning("Master demo team id=%d has no CH events — regenerating", team.id)
+            User.objects.filter(organization_membership__organization=existing_org).delete()
+            existing_org.delete()
+            User.objects.filter(email=MASTER_USER_EMAIL).delete()
+
+        User.objects.filter(email=MASTER_USER_EMAIL, organization_membership__isnull=True).delete()
+
+        logger.info("Generating master demo team")
+        matrix = HedgeboxMatrix(
+            seed=EVAL_SEED,
+            days_past=120,
+            days_future=30,
+            n_clusters=500,
+            group_type_index_offset=0,
+        )
+        # use_pre_save=False: we are the master — save simulation directly to this team
+        # without going through MatrixManager._is_demo_data_pre_saved (which only checks PSQL
+        # and lies when CH has been wiped independently).
+        matrix_manager = MatrixManager(matrix, use_pre_save=False, print_steps=True)
+        with override_settings(TEST=False):
+            _org, team, _user = matrix_manager.ensure_account_and_save(
+                MASTER_USER_EMAIL, EVAL_USER_FULL_NAME, MASTER_ORG_NAME
+            )
+        return team.id
+
+
+def copy_demo_data_to_new_team(
+    master_team_id: int,
+    django_db_blocker,
+    *,
+    label: str,
+) -> tuple[Organization, Team, User]:
+    """Create a fresh org/team/user and copy master's demo data into it.
+
+    Copies CH rows (persons, distinct_ids, events, groups) via server-side
+    ``INSERT ... SELECT`` SQL, mirrors ``GroupTypeMapping`` rows into the new
+    project, backfills PSQL persons from CH, and runs
+    ``HedgeboxMatrix.set_project_up`` on the new team so it gets the usual
+    actions, cohorts, and feature flags.
+    """
+
+    suffix = uuid.uuid4().hex[:8]
+    org_name = f"Hedgebox ({label}-{suffix})"
+    email = f"eval-{label}-{suffix}@posthog.test"
+
+    with django_db_blocker.unblock():
+        master_team = Team.objects.get(id=master_team_id)
+
+        with transaction.atomic():
+            org = Organization.objects.create(name=org_name)
+            user = User.objects.create_and_join(
+                org,
+                email,
+                None,
+                EVAL_USER_FULL_NAME,
+                OrganizationMembership.Level.ADMIN,
+                theme_mode="system",
+                role_at_organization="engineering",
+            )
+            team = Team.objects.create(
+                organization=org,
+                ingested_event=True,
+                completed_snippet_onboarding=True,
+                is_demo=True,
+            )
+
+        copy_params = {"source_team_id": master_team_id, "target_team_id": team.id}
+        sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
+
+        GroupTypeMapping.objects.filter(project_id=team.project_id).delete()
+        GroupTypeMapping.objects.bulk_create(
+            GroupTypeMapping(team_id=team.id, project_id=team.project_id, **record)
+            for record in GroupTypeMapping.objects.filter(project_id=master_team.project_id).values(
+                "group_type", "group_type_index", "name_singular", "name_plural"
+            )
+        )
+
+        MatrixManager._sync_postgres_with_clickhouse_data(master_team_id, team.id)
+
+        # Lightweight matrix instance: constructor is cheap — we skip simulate().
+        # set_project_up creates Actions / Cohorts / FeatureFlags scoped to this team.
+        matrix = HedgeboxMatrix(
+            seed=EVAL_SEED,
+            days_past=120,
+            days_future=30,
+            n_clusters=500,
+            group_type_index_offset=0,
+        )
+        with override_settings(TEST=False):
+            matrix.set_project_up(team, user)
+
+        team.save()
+        team.project.save()
+
+    return org, team, user
 
 
 def create_core_memory(team: Team, django_db_blocker) -> CoreMemory:

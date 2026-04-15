@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import uuid
+import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -108,7 +109,7 @@ async def SandboxedEval(
     cases: Sequence[SandboxedEvalCase],
     scorers: Sequence[Any],
     pytestconfig: pytest.Config,
-    sandbox_context: CustomPromptSandboxContext,
+    sandbox_context_factory: Callable[[str], CustomPromptSandboxContext],
     is_public: bool = False,
     no_send_logs: bool = True,
     posthog_client: Posthog | None = None,
@@ -118,6 +119,10 @@ async def SandboxedEval(
     For each ``SandboxedEvalCase``, creates a Task, triggers the temporal workflow
     (sandbox provisioning, agent-server, prompt delivery, cleanup), polls S3 logs
     for results, and feeds parsed artifacts to the scorers.
+
+    ``sandbox_context_factory`` is invoked once per case with the case name,
+    returning a freshly isolated ``CustomPromptSandboxContext`` (own org/team/user)
+    so cases can't pollute each other's state.
     """
     # Generate a unique experiment ID per eval run
     experiment_id = str(uuid.uuid4())
@@ -166,6 +171,10 @@ async def SandboxedEval(
         )
 
         try:
+            # The factory does Django ORM work (fresh org/team/user, ClickHouse
+            # copy SQL, PSQL person sync). Django's async-safety guard rejects
+            # sync ORM calls from async contexts, so run it in a worker thread.
+            sandbox_context = await asyncio.to_thread(sandbox_context_factory, eval_case.name)
             result = await run_eval_case(eval_case, sandbox_context)
 
             # Store trace_id in metadata so evaluation events can link to the trace
@@ -229,6 +238,7 @@ async def SandboxedEval(
                 "raw_log": result.raw_log,
             }
         except Exception as e:
+            logger.exception("Eval task failed for '%s'", input.get("name", "?"))
             return AgentArtifacts(
                 exit_code=-1,
                 stderr=f"Eval runner error: {e}",

@@ -7,14 +7,13 @@ import asyncio
 import logging
 import threading
 import subprocess
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 
 import pytest
 
 from django.conf import settings
 
-from posthog.models import Organization, Team, User
 from posthog.temporal.common.worker import create_worker
 
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
@@ -25,8 +24,7 @@ from products.tasks.backend.temporal import (
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
-from ee.hogai.eval.data_setup import create_core_memory, create_isolated_demo_data
-from ee.models.assistant import CoreMemory
+from ee.hogai.eval.data_setup import copy_demo_data_to_new_team, create_core_memory, ensure_master_demo_team
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +231,7 @@ def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_bl
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _llm_gateway(_django_live_server, demo_org_team_user):
+def _llm_gateway(_django_live_server, _master_demo_data):
     """Start the LLM gateway as a subprocess.
 
     Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
@@ -410,39 +408,55 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def demo_org_team_user(
+def _master_demo_data(
     set_up_evals,  # noqa: F811
     django_db_blocker,
-) -> Generator[tuple[Organization, Team, User], None, None]:
-    yield create_isolated_demo_data(django_db_blocker, label="sandboxed")
+) -> int:
+    """Ensure a master Hedgebox team exists (PSQL + CH) and return its id.
 
-
-@pytest.fixture(scope="session", autouse=True)
-def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
-    yield create_core_memory(demo_org_team_user[1], django_db_blocker)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _tasks_access(demo_org_team_user, django_db_blocker):
-    """Grant the eval user access to the tasks API.
-
-    Creates a ``CodeInviteRedemption`` so that ``TasksAccessPermission`` passes
-    without relying on the ``tasks`` feature flag (which requires a mock that
-    doesn't survive across threads reliably).
+    Seed data is created once per test database: the HedgeboxMatrix simulation
+    runs against this master team, and each eval case later copies from it into
+    its own isolated org/team/user via ``sandbox_context_factory``.
     """
-    from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
+    from posthog.clickhouse.client import sync_execute
 
-    org, _team, user = demo_org_team_user
+    master_team_id = ensure_master_demo_team(django_db_blocker)
+
     with django_db_blocker.unblock():
-        invite, _ = CodeInvite.objects.get_or_create(code="eval-harness", max_redemptions=0, is_active=True)
-        CodeInviteRedemption.objects.get_or_create(invite_code=invite, user=user, organization=org)
+        rows = sync_execute(
+            "SELECT event, count() FROM events WHERE team_id = %(team_id)s GROUP BY event ORDER BY 2 DESC LIMIT 20",
+            {"team_id": master_team_id},
+        )
+    logger.info("Master demo ready: team_id=%d event_counts=%s", master_team_id, rows)
+
+    return master_team_id
 
 
 @pytest.fixture(scope="session")
-def sandbox_context(demo_org_team_user) -> CustomPromptSandboxContext:
-    """Build a sandbox context for the eval harness using the demo team/user."""
-    _org, team, user = demo_org_team_user
-    return CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+def sandbox_context_factory(
+    _master_demo_data,
+    django_db_blocker,
+) -> Callable[[str], CustomPromptSandboxContext]:
+    """Return a callable that materializes a fresh isolated team per eval case.
+
+    Each call copies the master Hedgebox data into a new org/team/user, sets up
+    core memory, and grants tasks-API access. Concurrent invocations are safe —
+    Django creation and CH copy SQL are independent per case.
+    """
+    from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
+
+    master_team_id = _master_demo_data
+
+    def _factory(case_label: str) -> CustomPromptSandboxContext:
+        org, team, user = copy_demo_data_to_new_team(master_team_id, django_db_blocker, label=case_label)
+        create_core_memory(team, django_db_blocker)
+        with django_db_blocker.unblock():
+            invite, _ = CodeInvite.objects.get_or_create(code="eval-harness", max_redemptions=0, is_active=True)
+            CodeInviteRedemption.objects.get_or_create(invite_code=invite, user=user, organization=org)
+        logger.info("Case %r assigned team_id=%d user_id=%d", case_label, team.id, user.id)
+        return CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+
+    return _factory
 
 
 @pytest.fixture(scope="session")
