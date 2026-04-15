@@ -249,6 +249,66 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int, reason: 
 
 
 @dataclass
+class SendEvaluationDisabledEmailInputs:
+    team_id: int
+    evaluation_id: str
+    evaluation_name: str
+    disabled_reason: str
+
+
+@temporalio.activity.defn
+async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
+    """Send an email to org members when an evaluation is automatically disabled by the system."""
+
+    def _send():
+        from posthog.email import EmailMessage, is_email_available
+
+        if not is_email_available(with_absolute_urls=True):
+            logger.info(
+                "Email not available, skipping evaluation disabled notification",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
+            return
+
+        try:
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
+        evaluation_url = f"/project/{team.pk}/llm-analytics/evaluations/{inputs.evaluation_id}"
+        campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f'Your evaluation "{inputs.evaluation_name}" has been disabled',
+            template_name="llm_analytics_evaluation_disabled",
+            template_context={
+                "evaluation_name": inputs.evaluation_name,
+                "disabled_reason": inputs.disabled_reason,
+                "settings_url": settings_url,
+                "evaluation_url": evaluation_url,
+            },
+        )
+
+        for user in team.organization.members.all():
+            message.add_user_recipient(user)
+
+        if message.to:
+            message.send()
+            logger.info(
+                "Sent evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+                recipient_count=len(message.to),
+            )
+
+    await database_sync_to_async(_send)()
+
+
+@dataclass
 class SendTrialUsageEmailInputs:
     team_id: int
     threshold_pct: int
@@ -934,20 +994,42 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
-                            if temporalio.workflow.patched("trial-usage-email"):
-                                try:
-                                    await temporalio.workflow.execute_activity(
-                                        send_trial_usage_email_activity,
-                                        SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
-                                        activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
-                                        schedule_to_close_timeout=timedelta(seconds=30),
-                                        retry_policy=RetryPolicy(maximum_attempts=2),
-                                    )
-                                except Exception:
-                                    temporalio.workflow.logger.exception(
-                                        "Failed to send trial exhausted email",
-                                        team_id=evaluation["team_id"],
-                                    )
+                            if error_type == "trial_limit_reached":
+                                if temporalio.workflow.patched("trial-usage-email"):
+                                    try:
+                                        await temporalio.workflow.execute_activity(
+                                            send_trial_usage_email_activity,
+                                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                                            activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                                            schedule_to_close_timeout=timedelta(seconds=30),
+                                            retry_policy=RetryPolicy(maximum_attempts=2),
+                                        )
+                                    except Exception:
+                                        temporalio.workflow.logger.exception(
+                                            "Failed to send trial exhausted email",
+                                            team_id=evaluation["team_id"],
+                                        )
+                            else:
+                                if temporalio.workflow.patched("eval-disabled-email"):
+                                    try:
+                                        await temporalio.workflow.execute_activity(
+                                            send_evaluation_disabled_email_activity,
+                                            SendEvaluationDisabledEmailInputs(
+                                                team_id=evaluation["team_id"],
+                                                evaluation_id=evaluation["id"],
+                                                evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                                                disabled_reason=disable_reason,
+                                            ),
+                                            activity_id=f"send-eval-disabled-email-{evaluation['id']}",
+                                            schedule_to_close_timeout=timedelta(seconds=30),
+                                            retry_policy=RetryPolicy(maximum_attempts=2),
+                                        )
+                                    except Exception:
+                                        temporalio.workflow.logger.exception(
+                                            "Failed to send evaluation disabled email",
+                                            evaluation_id=evaluation["id"],
+                                            team_id=evaluation["team_id"],
+                                        )
                         return {
                             "verdict": None,
                             "skipped": True,
