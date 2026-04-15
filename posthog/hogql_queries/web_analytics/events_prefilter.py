@@ -11,6 +11,8 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryResponse
 
+    from posthog.hogql.database.models import Table
+
 
 class _EventsFieldCollector(TraversingVisitor):
     """Collects events-table field names and property accesses from the entire query."""
@@ -134,9 +136,12 @@ class EventsPrefilterTransformer(TraversingVisitor):
         it on the events table schema and returns the name. If any property
         lacks a mat column, keeps `properties` in events_columns for JSONExtractRaw.
         """
+        from typing import cast
+
         from posthog.hogql.database.models import StringDatabaseField
 
         from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
+        from posthog.models.property import TableColumn
 
         if not property_accesses:
             events_columns.discard("properties")
@@ -146,8 +151,8 @@ class EventsPrefilterTransformer(TraversingVisitor):
         mat_column_names: set[str] = set()
         has_unmaterialized = False
 
-        for prop_name, table_column in property_accesses:
-            key = (prop_name, table_column)
+        for prop_name, table_col in property_accesses:
+            key = (prop_name, cast(TableColumn, table_col))
             if key in mat_cols_map:
                 ch_name = mat_cols_map[key].name
                 mat_column_names.add(ch_name)
@@ -165,11 +170,14 @@ class EventsPrefilterTransformer(TraversingVisitor):
 
         return mat_column_names
 
-    def _get_events_table(self, table_type: ast.Type) -> object | None:
+    @staticmethod
+    def _get_events_table(table_type: ast.Type) -> Table | None:
+        from posthog.hogql.database.models import Table as TableModel
+
         if isinstance(table_type, ast.TableType):
-            return table_type.table
+            return table_type.table if isinstance(table_type.table, TableModel) else None
         if isinstance(table_type, ast.TableAliasType):
-            return self._get_events_table(table_type.table_type)
+            return EventsPrefilterTransformer._get_events_table(table_type.table_type)
         return None
 
     def cleanup_temp_schema_fields(self):
