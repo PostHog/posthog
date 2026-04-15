@@ -70,15 +70,15 @@ class TestCheckLogs:
         assert empty_end_turn is False
         assert total == len(turn_1)
 
-    def test_empty_end_turn_not_flagged_when_skip_lines_is_zero(self):
-        """On a fresh run (initial turn), end_turn without agent_message is a parser edge case,
-        not an SDK short-circuit we want to retry on."""
+    def test_empty_end_turn_flagged_on_first_turn_too(self):
+        """SDK short-circuit on the very first turn must surface as empty_end_turn too.
+        Otherwise run_prompt / MultiTurnSession.start silently poll until timeout."""
         log = "\n".join([_end_turn_line()])
         with patch("posthog.storage.object_storage.read", return_value=log):
             finished, text, _, _, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=0)
-        assert finished is True
+        assert finished is False
         assert text is None
-        assert empty_end_turn is False
+        assert empty_end_turn is True
 
     def test_usage_updates_alone_between_prompt_and_end_turn_flags_empty(self):
         """This is the exact pattern seen in the production incident:

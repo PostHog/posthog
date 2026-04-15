@@ -352,11 +352,8 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else None
-
     # If we found end_turn but no agent message in the new lines, flag it as an empty turn.
-    # Caller decides whether to retry (multi-turn sessions) or keep polling (initial turn,
-    # where skip_lines == 0 and a rescan could pull a previous turn's message).
-    if agent_finished and latest_text is None and skip_lines > 0:
+    if agent_finished and latest_text is None:
         return False, None, log_content, total_lines, True
     return agent_finished, latest_text, log_content, total_lines, False
 
