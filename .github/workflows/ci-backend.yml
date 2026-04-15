@@ -162,7 +162,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
-                        - posthog/schema.py
                         - rust/feature-flags/src/properties/property_models.rs
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
