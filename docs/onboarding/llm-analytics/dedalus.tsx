@@ -13,7 +13,7 @@ export const getDedalusSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             badge: 'required',
             content: (
                 <>
-                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                    <CalloutBox type="fyi" icon="IconInfo" title="Full working examples">
                         <Markdown>
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-dedalus) and

@@ -13,7 +13,7 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
             badge: 'required',
             content: (
                 <>
-                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                    <CalloutBox type="fyi" icon="IconInfo" title="Full working examples">
                         <Markdown>
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-cloudflare-ai-gateway)
@@ -123,11 +123,13 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
             content: (
                 <>
                     <Markdown>
-                        Cloudflare AI Gateway exposes a unified OpenAI-compatible `compat` endpoint at
-                        `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat`. You route the standard
-                        OpenAI SDK at it and specify models as `provider/model-id`, for example `openai/gpt-5-mini` or
-                        `anthropic/claude-sonnet-4-5`. The API key should be the upstream provider's key (for example,
-                        your OpenAI key when calling `openai/*` models).
+                        {dedent`
+                            Cloudflare AI Gateway exposes a unified OpenAI-compatible \`compat\` endpoint at
+                            \`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat\`. You route the standard
+                            OpenAI SDK at it and specify models as \`provider/model-id\`, for example \`openai/gpt-5-mini\` or
+                            \`anthropic/claude-sonnet-4-5\`. The API key should be the upstream provider's key (for example,
+                            your OpenAI key when calling \`openai/*\` models).
+                        `}
                     </Markdown>
 
                     <CodeBlock
