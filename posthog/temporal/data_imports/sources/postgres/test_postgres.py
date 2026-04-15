@@ -946,7 +946,7 @@ class TestGetTable:
             )
             dj_cursor.execute("INSERT INTO test_get_table_unconstrained_numeric VALUES (2, 0::numeric)")
 
-            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_numeric", logger)
+            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_numeric", logger)  # type: ignore[arg-type]
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_scale == 20, (
                 f"expected probed scale 20, got {val_col.numeric_scale} (would have been {DEFAULT_NUMERIC_SCALE} without probe)"
@@ -961,7 +961,7 @@ class TestGetTable:
 
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_empty (id INTEGER PRIMARY KEY, val NUMERIC)")
-            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_empty", logger)
+            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_empty", logger)  # type: ignore[arg-type]
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
 
@@ -975,7 +975,7 @@ class TestGetTable:
                 "CREATE TABLE test_get_table_constrained_numeric (id INTEGER PRIMARY KEY, val NUMERIC(10, 2))"
             )
             # Even though there's no data, the declared scale is used — no probe attempted.
-            table = _get_table(dj_cursor, "public", "test_get_table_constrained_numeric", logger)
+            table = _get_table(dj_cursor, "public", "test_get_table_constrained_numeric", logger)  # type: ignore[arg-type]
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_precision == 10
             assert val_col.numeric_scale == 2
@@ -993,7 +993,7 @@ class TestGetTable:
             dj_cursor.execute(
                 "INSERT INTO test_get_table_clamp_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_clamp_scale", logger)
+            table = _get_table(dj_cursor, "public", "test_get_table_clamp_scale", logger)  # type: ignore[arg-type]
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_scale == MAX_NUMERIC_SCALE
 
@@ -1011,7 +1011,7 @@ class TestGetTable:
                 "INSERT INTO test_get_table_multi_numeric VALUES "
                 "(1, 0.12345::numeric, 0.1234567890::numeric, 1.23::numeric(5,2))"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_multi_numeric", logger)
+            table = _get_table(dj_cursor, "public", "test_get_table_multi_numeric", logger)  # type: ignore[arg-type]
             cols_by_name = {c.name: c for c in table.columns}
             assert cols_by_name["a"].numeric_scale == 5
             assert cols_by_name["b"].numeric_scale == 10
