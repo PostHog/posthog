@@ -1474,10 +1474,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
                 // FeatureFlag only has `team_id`, but not `project_id`
                 return organizationFeatureFlags.sort((a, b) => {
-                    if (teamIdsInCurrentProject.includes(a.team_id)) {
+                    if (a.team_id !== null && teamIdsInCurrentProject.includes(a.team_id)) {
                         return -1
                     }
-                    if (teamIdsInCurrentProject.includes(b.team_id)) {
+                    if (b.team_id !== null && teamIdsInCurrentProject.includes(b.team_id)) {
                         return 1
                     }
                     return 0
