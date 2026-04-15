@@ -10,12 +10,12 @@ import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { TraceViewMode, llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 
-interface EvalSummary {
+export interface EvalSummary {
     latestRun: EvaluationRun
     runCount: number
 }
 
-function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
+export function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
     const sorted = [...runs].sort((a, b) => dayjs(b.timestamp).valueOf() - dayjs(a.timestamp).valueOf())
     const byEvalId = new Map<string, EvalSummary>()
     for (const run of sorted) {
@@ -29,7 +29,7 @@ function getEvalSummaries(runs: EvaluationRun[]): EvalSummary[] {
     return Array.from(byEvalId.values())
 }
 
-function getEvalBadgeProps(run: EvaluationRun): {
+export function getEvalBadgeProps(run: EvaluationRun): {
     type: LemonTagProps['type']
     icon: JSX.Element
     label: string
