@@ -121,6 +121,8 @@ jobs:
                         - posthog/schema.py
                         # Operator parity check
                         - rust/feature-flags/src/properties/property_models.rs
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -162,6 +164,12 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
+<<<<<<< HEAD
+=======
+                        - frontend/src/queries/schema.json
+                        - frontend/src/products.json
+                        - 'products/*/manifest.tsx'
+>>>>>>> master
                         - rust/feature-flags/src/properties/property_models.rs
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
