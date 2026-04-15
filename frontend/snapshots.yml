@@ -4500,10 +4500,10 @@ snapshots:
         hash: v1.k794b7964.9f3a438b1b36f45458b50b7aa6004459e1c30bed5423702c197f5aa59179f970.Kj2J49r2mUt2vYhaRnLpdUj4ciSHdbEqKEtlCzBLQbU
     scenes-app-insights-funnels--funnel-with-inline-events-edit--light:
         hash: v1.k794b7964.fbbc63aeaa7878e3226cf084a256900bed449d69265f08d01dbe32364252bd1f.khVueKkU0XntHgbPKR7iH1Uw2z-EPhpHnES0vIt77-U
-    scenes-app-insights-insight-options--default--dark:
-        hash: v1.k794b7964.f4e808b42bddee00d78ab953a2ed20dc96cefbf03f4d556d5f4966cbfe808855.oi2URujF0wtXMcWWOOW43Ln0YBY5sN7HKGPFPiWTGyw
-    scenes-app-insights-insight-options--default--light:
-        hash: v1.k794b7964.be865b26ab211fcfa7128574e2ef626c67c9311ede34a7ebb4c971d64f87d67a.IIyUlUEIN_uJx6W7gXJKR80K2tYtnfQaE1aoHx_xE0Q
+    scenes-app-insights-insight-quick-start--default--dark:
+        hash: v1.k794b7964.f4e808b42bddee00d78ab953a2ed20dc96cefbf03f4d556d5f4966cbfe808855.SRmlWApf8zbB8txZz0hTIxuIfL2dYKqzn08g28DfCns
+    scenes-app-insights-insight-quick-start--default--light:
+        hash: v1.k794b7964.be865b26ab211fcfa7128574e2ef626c67c9311ede34a7ebb4c971d64f87d67a.MLipTldzGAjKcwJRDJeo7OmYwHMBSihbxpMxVeBvhCk
     scenes-app-insights-lifecycle--lifecycle--dark:
         hash: v1.k794b7964.60035b0571abfe5f8a983ca40b0a1ffa501c7f66dba1dc13a173cb84a19516d0.8kNU5Na-KnoBQjOcPW3AvbieJXapvfhqAfm9XuckdQ8
     scenes-app-insights-lifecycle--lifecycle--light:
