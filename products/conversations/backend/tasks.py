@@ -27,6 +27,7 @@ from products.conversations.backend.formatting import (
 )
 from products.conversations.backend.mailgun import get_smtp_connection
 from products.conversations.backend.models import EmailMessageMapping
+from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
 
@@ -520,11 +521,11 @@ def wake_snoozed_tickets() -> None:
                 old_status = ticket.status
                 ticket.snoozed_until = None
 
-                if old_status == "on_hold":
-                    ticket.status = "open"
+                if old_status == Status.ON_HOLD:
+                    ticket.status = Status.OPEN
                     ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
                     try:
-                        capture_ticket_status_changed(ticket, old_status, "open")
+                        capture_ticket_status_changed(ticket, old_status, Status.OPEN)
                     except Exception:
                         logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
                 else:
