@@ -284,6 +284,7 @@ class ExperimentQueryRunner(QueryRunner):
             if (
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
+                and not self._get_breakdowns_for_builder()
                 and self.team.id in _METRIC_EVENTS_PRECOMPUTATION_TEAM_IDS
             ):
                 try:
