@@ -93,6 +93,7 @@ export async function tryBothRegions(request: Request, path: string): Promise<{ 
     })
 
     if (usResponse.ok) {
+        console.info(JSON.stringify({ fn: 'tryBothRegions', path, resolved: 'us', us_status: usResponse.status }))
         return { response: usResponse, region: 'us' }
     }
 
@@ -106,9 +107,27 @@ export async function tryBothRegions(request: Request, path: string): Promise<{ 
     })
 
     if (euResponse.ok) {
+        console.info(
+            JSON.stringify({
+                fn: 'tryBothRegions',
+                path,
+                resolved: 'eu',
+                us_status: usResponse.status,
+                eu_status: euResponse.status,
+            })
+        )
         return { response: euResponse, region: 'eu' }
     }
 
+    console.info(
+        JSON.stringify({
+            fn: 'tryBothRegions',
+            path,
+            resolved: 'none',
+            us_status: usResponse.status,
+            eu_status: euResponse.status,
+        })
+    )
     return {
         response: new Response(
             JSON.stringify({ error: 'invalid_request', error_description: 'Unable to determine region' }),

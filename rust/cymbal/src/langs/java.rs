@@ -157,6 +157,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             lang: "java".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             release: None,
@@ -184,7 +185,7 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolved_name: None,
             lang: "java".to_string(),
             resolved: false,
-            resolve_failure: Some(error.to_string()),
+            resolve_failure: Some(FrameError::from(error)),
             junk_drawer: None,
             code_variables: None,
             release: None,

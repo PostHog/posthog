@@ -9,16 +9,17 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.ai.session_summary.types.group import (
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.session_replay.session_summary.types.group import (
     SessionProgressStreamData,
     SessionStatusChange,
     SessionSummaryStreamUpdate,
 )
-from posthog.temporal.common.heartbeat import Heartbeater
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
@@ -286,10 +287,11 @@ class SummarizeSessionsTool(MaxTool):
 
         # Execute the query to get session IDs
         try:
-            query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=replay_filters, hogql_query_modifiers=None
-            )
-            results = query_runner.run()
+            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+                query_runner = SessionRecordingListFromQuery(
+                    team=self._team, query=replay_filters, hogql_query_modifiers=None
+                )
+                results = query_runner.run()
         except Exception as e:
             logger.exception(
                 f"Error getting session ids for session summarization with filters query "

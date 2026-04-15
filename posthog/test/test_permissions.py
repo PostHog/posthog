@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -17,6 +18,8 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.user_access_control import UserAccessControl
+
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -620,6 +623,23 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
         self.assertEqual(response.status_code, 200)
 
+    def test_allows_custom_error_tracking_write_action(self):
+        """OAuth token can access custom error tracking write actions via scope_object_write_actions"""
+        self.access_token.scope = "error_tracking:write"
+        self.access_token.save()
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        response = self.client.generic(
+            "PATCH",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            json.dumps({"assignee": None}),
+            content_type="application/json",
+            headers={"authorization": f"Bearer {self.access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True})
+
     def test_forbids_action_with_other_scope(self):
         """OAuth token cannot access endpoints requiring different scopes"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
@@ -815,8 +835,8 @@ class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
     def test_denies_access_to_other_team_in_scoped_org(self):
         """OAuth token with both org and team scopes denies access to other teams in the same org"""
         response = self._do_request(f"/api/projects/{self.team2.id}/feature_flags/")
-        # Returns 404 because the user is a member of the org but the token is scoped to a different team
-        self.assertEqual(response.status_code, 404)
+        # Returns 403 because the token is scoped to a different team
+        self.assertEqual(response.status_code, 403)
 
     def test_denies_access_to_team_in_non_scoped_org(self):
         """OAuth token with both org and team scopes denies access to teams in other orgs"""

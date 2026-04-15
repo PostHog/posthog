@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import Mapping, Sequence
-from typing import Literal, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 from uuid import uuid4
+
+from django.conf import settings
 
 import structlog
 import posthoganalytics
@@ -15,6 +17,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Send
+from opentelemetry import trace
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
 
@@ -30,6 +33,7 @@ from posthog.schema import (
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.prompts import (
@@ -44,6 +48,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.feature_flags import has_llm_gateway_feature_flag
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -60,6 +65,7 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 
 class BaseAgentLoopExecutable(BaseAgentExecutable[AssistantState, PartialAssistantState]):
@@ -218,6 +224,25 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             for tool_call in last_message.tool_calls
         ]
 
+    def _get_llm_gateway_product(self) -> str:
+        return "django"
+
+    def _get_bedrock_kwargs(self) -> dict[str, Any]:
+        if not has_llm_gateway_feature_flag(self._team, self._user):
+            return {}
+        if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+            logger.warning(
+                "llm_gateway settings are not configured",
+                product=self._get_llm_gateway_product(),
+                team_id=self._team.id,
+            )
+            return {}
+        return {
+            "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
+            "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
+            "default_headers": {"X-PostHog-Provider": "bedrock"},
+        }
+
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         model_name = "claude-sonnet-4-6"
         if self._has_legacy_summarize_sessions_messages(state.messages):
@@ -233,7 +258,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             team=self._team,
             betas=[
                 "interleaved-thinking-2025-05-14",
-                "context-1m-2025-08-07",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
             max_tokens=8192 if is_sonnet_4_5 else 16384,
@@ -243,6 +267,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
             conversation_start_dt=state.start_dt,
             billable=True,
+            **self._get_bedrock_kwargs(),
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
@@ -423,15 +448,17 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             # Track successful tool execution
             user_distinct_id = self._get_user_distinct_id(config)
             if user_distinct_id:
-                posthoganalytics.capture(
-                    distinct_id=user_distinct_id,
-                    event="ai tool executed",
-                    properties={
-                        **self._get_debug_props(config),
-                        "tool_name": tool_call.name,
-                    },
-                    groups=groups(None, self._team),
-                )
+                with _tracer.start_as_current_span("posthoganalytics.capture"):
+                    await database_sync_to_async(posthoganalytics.capture)(
+                        distinct_id=user_distinct_id,
+                        event="ai tool executed",
+                        properties={
+                            **self._get_debug_props(config),
+                            "tool_name": tool_call.name,
+                        },
+                        groups=groups(None, self._team),
+                        send_feature_flags=True,
+                    )
         except MaxToolError as e:
             logger.exception(
                 "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
@@ -523,16 +550,18 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             agent_mode = result.artifact
             user_distinct_id = self._get_user_distinct_id(config)
             if user_distinct_id:
-                posthoganalytics.capture(
-                    distinct_id=user_distinct_id,
-                    event="ai mode executed",
-                    properties={
-                        **self._get_debug_props(config),
-                        "mode": agent_mode,
-                        "previous_mode": state.agent_mode_or_default,
-                    },
-                    groups=groups(None, self._team),
-                )
+                with _tracer.start_as_current_span("posthoganalytics.capture"):
+                    await database_sync_to_async(posthoganalytics.capture)(
+                        distinct_id=user_distinct_id,
+                        event="ai mode executed",
+                        properties={
+                            **self._get_debug_props(config),
+                            "mode": agent_mode,
+                            "previous_mode": state.agent_mode_or_default,
+                        },
+                        groups=groups(None, self._team),
+                        send_feature_flags=True,
+                    )
 
         return PartialAssistantState(
             messages=[tool_message],

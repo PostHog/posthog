@@ -93,6 +93,65 @@ export interface DashboardCollaboratorApi {
 }
 
 /**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+
+export const DashboardTemplateScopeEnumApi = {
+    Team: 'team',
+    Global: 'global',
+    FeatureFlag: 'feature_flag',
+} as const
+
+export interface DashboardTemplateApi {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at: string | null
+    readonly created_by: UserBasicApi
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
+}
+
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
+
+/**
  * * `default` - Default
  * `template` - Template
  * `duplicate` - Duplicate
@@ -128,9 +187,14 @@ export const EffectivePrivilegeLevelEnumApi = {
  */
 export interface DashboardBasicApi {
     readonly id: number
-    /** @nullable */
+    /**
+     * Name of the dashboard.
+     * @nullable
+     */
     readonly name: string | null
+    /** Description of the dashboard. */
     readonly description: string
+    /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -142,6 +206,10 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
     tags?: unknown[]
+    /** Controls who can edit the dashboard.
+
+* `21` - Everyone in the project can edit
+* `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: DashboardRestrictionLevelApi
     readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -208,8 +276,12 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
+    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /** @nullable */
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
     data_color_theme_id?: number | null
     tags?: unknown[]
     /**
@@ -232,13 +304,35 @@ export interface DashboardApi {
     /** @nullable */
     readonly persisted_variables: DashboardApiPersistedVariables
     readonly team_id: number
+    /**
+     * List of quick filter IDs associated with this dashboard
+     * @nullable
+     */
+    quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /** @nullable */
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
     use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
 }
 
 export interface SharingConfigurationApi {
@@ -248,7 +342,7 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -294,8 +388,12 @@ export interface PatchedDashboardApi {
     readonly filters?: PatchedDashboardApiFilters
     /** @nullable */
     readonly variables?: PatchedDashboardApiVariables
+    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /** @nullable */
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
     data_color_theme_id?: number | null
     tags?: unknown[]
     /**
@@ -318,13 +416,43 @@ export interface PatchedDashboardApi {
     /** @nullable */
     readonly persisted_variables?: PatchedDashboardApiPersistedVariables
     readonly team_id?: number
+    /**
+     * List of quick filter IDs associated with this dashboard
+     * @nullable
+     */
+    quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /** @nullable */
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
     use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface CopyDashboardTileRequestApi {
+    /** Dashboard id the tile currently belongs to. */
+    fromDashboardId: number
+    /** Dashboard tile id to copy. */
+    tileId: number
+}
+
+export interface DashboardGeneratedMetadataApi {
+    name: string
+    description: string
+}
+
+export interface ReorderTilesRequestApi {
+    /**
+     * Array of tile IDs in the desired display order (top to bottom, left to right).
+     * @minItems 1
+     */
+    tile_order: number[]
 }
 
 export interface DataColorThemeApi {
@@ -332,7 +460,7 @@ export interface DataColorThemeApi {
     /** @maxLength 100 */
     name: string
     colors?: unknown
-    readonly is_global: string
+    readonly is_global: boolean
     /** @nullable */
     readonly created_at: string | null
     readonly created_by: UserBasicApi
@@ -352,11 +480,42 @@ export interface PatchedDataColorThemeApi {
     /** @maxLength 100 */
     name?: string
     colors?: unknown
-    readonly is_global?: string
+    readonly is_global?: boolean
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+export type DashboardTemplatesListParams = {
+    /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
+     */
+    ordering?: string
+    /**
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     */
+    scope?: DashboardTemplatesListScope
+}
+
+export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[keyof typeof DashboardTemplatesListScope]
+
+export const DashboardTemplatesListScope = {
+    FeatureFlag: 'feature_flag',
+    Global: 'global',
+    Team: 'team',
+} as const
 
 export type DashboardsListParams = {
     format?: DashboardsListFormat
@@ -445,6 +604,30 @@ export const DashboardsAnalyzeRefreshResultCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsCopyTileCreateParams = {
+    format?: DashboardsCopyTileCreateFormat
+}
+
+export type DashboardsCopyTileCreateFormat =
+    (typeof DashboardsCopyTileCreateFormat)[keyof typeof DashboardsCopyTileCreateFormat]
+
+export const DashboardsCopyTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGenerateMetadataCreateParams = {
+    format?: DashboardsGenerateMetadataCreateFormat
+}
+
+export type DashboardsGenerateMetadataCreateFormat =
+    (typeof DashboardsGenerateMetadataCreateFormat)[keyof typeof DashboardsGenerateMetadataCreateFormat]
+
+export const DashboardsGenerateMetadataCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat
 }
@@ -453,6 +636,18 @@ export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
 export const DashboardsMoveTilePartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsReorderTilesCreateParams = {
+    format?: DashboardsReorderTilesCreateFormat
+}
+
+export type DashboardsReorderTilesCreateFormat =
+    (typeof DashboardsReorderTilesCreateFormat)[keyof typeof DashboardsReorderTilesCreateFormat]
+
+export const DashboardsReorderTilesCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

@@ -243,14 +243,23 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const floatingContainer = useFloatingContainer()
 
-    const handleExited = (): void => {
+    const onExited = useCallback((): void => {
         setFloatingElement(null)
         floatingRef.current = null
         if (extraFloatingRef) {
             extraFloatingRef.current = null
         }
         setShouldRenderPortal(false)
-    }
+    }, [extraFloatingRef]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        return () => {
+            floatingRef.current = null
+            if (extraFloatingRef) {
+                extraFloatingRef.current = null
+            }
+        }
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
@@ -291,7 +300,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 </PopoverReferenceContext.Provider>
             )}
             {shouldRenderPortal && (
-                <FloatingPortal root={floatingContainer}>
+                // floating-ui@0.27 changed null to suppress the portal entirely
+                <FloatingPortal root={floatingContainer ?? undefined}>
                     <CSSTransition
                         nodeRef={floatingRef as React.RefObject<HTMLDivElement>}
                         in={visible}
@@ -300,7 +310,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         appear
                         mountOnEnter
                         unmountOnExit
-                        onExited={handleExited}
+                        onExited={onExited}
                     >
                         <PopoverReferenceContext.Provider
                             value={null /* Resetting the reference, since there's none */}

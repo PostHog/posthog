@@ -6,6 +6,8 @@ const config: StorybookConfig = {
     stories: [
         '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../common/mosaic/storybook/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
     addons: [
@@ -49,6 +51,12 @@ const config: StorybookConfig = {
     framework: {
         name: '@storybook/react-webpack5',
         options: { builder: { useSWC: true } },
+    },
+
+    build: {
+        test: {
+            disableSourcemaps: !!process.env.CI,
+        },
     },
 
     docs: {

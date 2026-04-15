@@ -11,7 +11,7 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Data warehouse"],
     code_language="hog",
     code="""\
-if(request.method != 'POST') {
+if (request.method != 'POST') {
   return {
     'httpResponse': {
       'status': 405,
@@ -75,7 +75,29 @@ if (not inputs.bypass_signature_check) {
   }
 }
 
-return request.body""",
+let objectType := request.body.data?.object?.object
+
+if (empty(objectType)) {
+  return {
+    'httpResponse': {
+      'status': 200,
+      'body': 'No object type found, skipping'
+    }
+  }
+}
+
+let schemaId := inputs.schema_mapping?.[objectType]
+
+if (empty(schemaId)) {
+  return {
+    'httpResponse': {
+      'status': 200,
+      'body': f'No schema mapping for object type: {objectType}, skipping'
+    }
+  }
+}
+
+produceToWarehouseWebhooks(request.body, schemaId)""",
     inputs_schema=[
         {
             "type": "string",
@@ -94,6 +116,24 @@ return request.body""",
             "default": False,
             "required": False,
             "secret": False,
+        },
+        {
+            "type": "json",
+            "key": "schema_mapping",
+            "label": "Schema mapping",
+            "description": "Maps Stripe object types to ExternalDataSchema IDs",
+            "required": True,
+            "secret": False,
+            "hidden": True,
+        },
+        {
+            "type": "string",
+            "key": "source_id",
+            "label": "Source ID",
+            "description": "The ExternalDataSource ID this webhook is associated with",
+            "required": True,
+            "secret": False,
+            "hidden": True,
         },
     ],
 )

@@ -347,7 +347,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.boxplot_data[0].max == expected_max
 
     @snapshot_clickhouse_queries
-    def test_only_first_series_is_used(self):
+    def test_multiple_series_returns_data_for_each(self):
         self._create_events(
             data=[("user1", [("2023-12-02 10:00:00", {"revenue": "100"})])],
         )
@@ -365,9 +365,17 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        assert len(response.boxplot_data) == 1
-        assert response.boxplot_data[0].min == 100.0
-        assert response.boxplot_data[0].max == 100.0
+        assert len(response.boxplot_data) == 2
+        series_0 = [d for d in response.boxplot_data if d.series_index == 0]
+        series_1 = [d for d in response.boxplot_data if d.series_index == 1]
+        assert len(series_0) == 1
+        assert len(series_1) == 1
+        assert series_0[0].min == 100.0
+        assert series_0[0].max == 100.0
+        assert series_0[0].series_label is not None
+        assert series_1[0].min == 9999.0
+        assert series_1[0].max == 9999.0
+        assert series_1[0].series_label is not None
 
     @parameterized.expand(
         [

@@ -67,9 +67,15 @@ export interface UserBasicApi {
 }
 
 export interface InsightsThresholdBoundsApi {
-    /** @nullable */
+    /**
+     * Alert fires when the value drops below this number.
+     * @nullable
+     */
     lower?: number | null
-    /** @nullable */
+    /**
+     * Alert fires when the value exceeds this number.
+     * @nullable
+     */
     upper?: number | null
 }
 
@@ -82,14 +88,16 @@ export const InsightThresholdTypeApi = {
 
 export interface InsightThresholdApi {
     bounds?: InsightsThresholdBoundsApi | null
+    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
     type: InsightThresholdTypeApi
 }
 
 export interface ThresholdApi {
     readonly id: string
     readonly created_at: string
-    /** @maxLength 255 */
+    /** Optional name for the threshold. */
     name?: string
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
     configuration: InsightThresholdApi
 }
 
@@ -111,9 +119,9 @@ export interface AlertConditionApi {
  * `Errored` - Errored
  * `Snoozed` - Snoozed
  */
-export type State66aEnumApi = (typeof State66aEnumApi)[keyof typeof State66aEnumApi]
+export type AlertCheckStateEnumApi = (typeof AlertCheckStateEnumApi)[keyof typeof AlertCheckStateEnumApi]
 
-export const State66aEnumApi = {
+export const AlertCheckStateEnumApi = {
     Firing: 'Firing',
     NotFiring: 'Not firing',
     Errored: 'Errored',
@@ -125,8 +133,14 @@ export interface AlertCheckApi {
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
-    readonly state: State66aEnumApi
+    readonly state: AlertCheckStateEnumApi
     readonly targets_notified: boolean
+    readonly anomaly_scores: unknown | null
+    readonly triggered_points: unknown | null
+    readonly triggered_dates: unknown | null
+    /** @nullable */
+    readonly interval: string | null
+    readonly triggered_metadata: unknown | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -136,11 +150,392 @@ export const TrendsAlertConfigApiType = {
 } as const
 
 export interface TrendsAlertConfigApi {
-    /** @nullable */
+    /**
+     * When true, evaluate the current (still incomplete) time interval in addition to completed ones.
+     * @nullable
+     */
     check_ongoing_interval?: boolean | null
+    /** Zero-based index of the series in the insight's query to monitor. */
     series_index: number
     type?: TrendsAlertConfigApiType
 }
+
+export interface PreprocessingConfigApi {
+    /**
+     * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
+     * @nullable
+     */
+    diffs_n?: number | null
+    /**
+     * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
+     * @nullable
+     */
+    lags_n?: number | null
+    /**
+     * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
+     * @nullable
+     */
+    smooth_n?: number | null
+}
+
+export type ZScoreDetectorConfigApiType = (typeof ZScoreDetectorConfigApiType)[keyof typeof ZScoreDetectorConfigApiType]
+
+export const ZScoreDetectorConfigApiType = {
+    Zscore: 'zscore',
+} as const
+
+export interface ZScoreDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: ZScoreDetectorConfigApiType
+    /**
+     * Rolling window size for calculating mean/std (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type MADDetectorConfigApiType = (typeof MADDetectorConfigApiType)[keyof typeof MADDetectorConfigApiType]
+
+export const MADDetectorConfigApiType = {
+    Mad: 'mad',
+} as const
+
+export interface MADDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: MADDetectorConfigApiType
+    /**
+     * Rolling window size for calculating median/MAD (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type IQRDetectorConfigApiType = (typeof IQRDetectorConfigApiType)[keyof typeof IQRDetectorConfigApiType]
+
+export const IQRDetectorConfigApiType = {
+    Iqr: 'iqr',
+} as const
+
+export interface IQRDetectorConfigApi {
+    /**
+     * IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)
+     * @nullable
+     */
+    multiplier?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    type?: IQRDetectorConfigApiType
+    /**
+     * Rolling window size for calculating quartiles (default: 30)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type ThresholdDetectorConfigApiType =
+    (typeof ThresholdDetectorConfigApiType)[keyof typeof ThresholdDetectorConfigApiType]
+
+export const ThresholdDetectorConfigApiType = {
+    Threshold: 'threshold',
+} as const
+
+export interface ThresholdDetectorConfigApi {
+    /**
+     * Lower bound - values below this are anomalies
+     * @nullable
+     */
+    lower_bound?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    type?: ThresholdDetectorConfigApiType
+    /**
+     * Upper bound - values above this are anomalies
+     * @nullable
+     */
+    upper_bound?: number | null
+}
+
+export type ECODDetectorConfigApiType = (typeof ECODDetectorConfigApiType)[keyof typeof ECODDetectorConfigApiType]
+
+export const ECODDetectorConfigApiType = {
+    Ecod: 'ecod',
+} as const
+
+export interface ECODDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: ECODDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type COPODDetectorConfigApiType = (typeof COPODDetectorConfigApiType)[keyof typeof COPODDetectorConfigApiType]
+
+export const COPODDetectorConfigApiType = {
+    Copod: 'copod',
+} as const
+
+export interface COPODDetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: COPODDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type IsolationForestDetectorConfigApiType =
+    (typeof IsolationForestDetectorConfigApiType)[keyof typeof IsolationForestDetectorConfigApiType]
+
+export const IsolationForestDetectorConfigApiType = {
+    IsolationForest: 'isolation_forest',
+} as const
+
+export interface IsolationForestDetectorConfigApi {
+    /**
+     * Number of trees in the forest (default: 100)
+     * @nullable
+     */
+    n_estimators?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: IsolationForestDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
+
+export const MethodApi = {
+    Largest: 'largest',
+    Mean: 'mean',
+    Median: 'median',
+} as const
+
+export type KNNDetectorConfigApiType = (typeof KNNDetectorConfigApiType)[keyof typeof KNNDetectorConfigApiType]
+
+export const KNNDetectorConfigApiType = {
+    Knn: 'knn',
+} as const
+
+export interface KNNDetectorConfigApi {
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: MethodApi | null
+    /**
+     * Number of neighbors to consider (default: 5)
+     * @nullable
+     */
+    n_neighbors?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: KNNDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type HBOSDetectorConfigApiType = (typeof HBOSDetectorConfigApiType)[keyof typeof HBOSDetectorConfigApiType]
+
+export const HBOSDetectorConfigApiType = {
+    Hbos: 'hbos',
+} as const
+
+export interface HBOSDetectorConfigApi {
+    /**
+     * Number of histogram bins (default: 10)
+     * @nullable
+     */
+    n_bins?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: HBOSDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type LOFDetectorConfigApiType = (typeof LOFDetectorConfigApiType)[keyof typeof LOFDetectorConfigApiType]
+
+export const LOFDetectorConfigApiType = {
+    Lof: 'lof',
+} as const
+
+export interface LOFDetectorConfigApi {
+    /**
+     * Number of neighbors for LOF (default: 20)
+     * @nullable
+     */
+    n_neighbors?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: LOFDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type OCSVMDetectorConfigApiType = (typeof OCSVMDetectorConfigApiType)[keyof typeof OCSVMDetectorConfigApiType]
+
+export const OCSVMDetectorConfigApiType = {
+    Ocsvm: 'ocsvm',
+} as const
+
+export interface OCSVMDetectorConfigApi {
+    /**
+     * SVM kernel type (default: "rbf")
+     * @nullable
+     */
+    kernel?: string | null
+    /**
+     * Upper bound on training errors fraction (default: 0.1)
+     * @nullable
+     */
+    nu?: number | null
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: OCSVMDetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type PCADetectorConfigApiType = (typeof PCADetectorConfigApiType)[keyof typeof PCADetectorConfigApiType]
+
+export const PCADetectorConfigApiType = {
+    Pca: 'pca',
+} as const
+
+export interface PCADetectorConfigApi {
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfigApi | null
+    /**
+     * Anomaly probability threshold (default: 0.9)
+     * @nullable
+     */
+    threshold?: number | null
+    type?: PCADetectorConfigApiType
+    /**
+     * Rolling window size — how many historical data points to train on (default: based on calculation interval)
+     * @nullable
+     */
+    window?: number | null
+}
+
+export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
+
+export const EnsembleOperatorApi = {
+    And: 'and',
+    Or: 'or',
+} as const
+
+export type EnsembleDetectorConfigApiType =
+    (typeof EnsembleDetectorConfigApiType)[keyof typeof EnsembleDetectorConfigApiType]
+
+export const EnsembleDetectorConfigApiType = {
+    Ensemble: 'ensemble',
+} as const
+
+export interface EnsembleDetectorConfigApi {
+    /** Sub-detector configurations (minimum 2) */
+    detectors: (
+        | ZScoreDetectorConfigApi
+        | MADDetectorConfigApi
+        | IQRDetectorConfigApi
+        | ThresholdDetectorConfigApi
+        | ECODDetectorConfigApi
+        | COPODDetectorConfigApi
+        | IsolationForestDetectorConfigApi
+        | KNNDetectorConfigApi
+        | HBOSDetectorConfigApi
+        | LOFDetectorConfigApi
+        | OCSVMDetectorConfigApi
+        | PCADetectorConfigApi
+    )[]
+    /** How to combine sub-detector results */
+    operator: EnsembleOperatorApi
+    type?: EnsembleDetectorConfigApiType
+}
+
+/**
+ * Detector configuration types
+ */
+export type DetectorConfigApi =
+    | EnsembleDetectorConfigApi
+    | ZScoreDetectorConfigApi
+    | MADDetectorConfigApi
+    | IQRDetectorConfigApi
+    | ThresholdDetectorConfigApi
+    | ECODDetectorConfigApi
+    | COPODDetectorConfigApi
+    | IsolationForestDetectorConfigApi
+    | KNNDetectorConfigApi
+    | HBOSDetectorConfigApi
+    | LOFDetectorConfigApi
+    | OCSVMDetectorConfigApi
+    | PCADetectorConfigApi
 
 /**
  * * `hourly` - hourly
@@ -157,19 +552,35 @@ export const CalculationIntervalEnumApi = {
     Monthly: 'monthly',
 } as const
 
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
 export interface AlertApi {
     readonly id: string
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
-    /** @maxLength 255 */
+    /** Human-readable name for the alert. */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users: number[]
+    /** Threshold configuration with bounds and type for evaluating the alert. */
     threshold: ThresholdApi
+    /** Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease. */
     condition?: AlertConditionApi | null
-    readonly state: State66aEnumApi
+    /** Current alert state: Firing, Not firing, Errored, or Snoozed. */
+    readonly state: string
+    /** Whether the alert is actively being evaluated. */
     enabled?: boolean
     /** @nullable */
     readonly last_notified_at: string | null
@@ -177,14 +588,34 @@ export interface AlertApi {
     readonly last_checked_at: string | null
     /** @nullable */
     readonly next_check_at: string | null
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
     readonly checks: readonly AlertCheckApi[]
+    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
-    calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
+    detector_config?: DetectorConfigApi | null
+    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+
+* `hourly` - hourly
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly */
+    calculation_interval?: CalculationIntervalEnumApi
+    /**
+     * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+     * @nullable
+     */
     snoozed_until?: string | null
-    /** @nullable */
+    /**
+     * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
+     * @nullable
+     */
     skip_weekend?: boolean | null
-    /** @nullable */
+    /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * The last calculated value from the most recent alert check.
+     * @nullable
+     */
     readonly last_value: number | null
 }
 
@@ -203,13 +634,17 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
-    /** @maxLength 255 */
+    /** Human-readable name for the alert. */
     name?: string
     /** User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object. */
     subscribed_users?: number[]
+    /** Threshold configuration with bounds and type for evaluating the alert. */
     threshold?: ThresholdApi
+    /** Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease. */
     condition?: AlertConditionApi | null
-    readonly state?: State66aEnumApi
+    /** Current alert state: Firing, Not firing, Errored, or Snoozed. */
+    readonly state?: string
+    /** Whether the alert is actively being evaluated. */
     enabled?: boolean
     /** @nullable */
     readonly last_notified_at?: string | null
@@ -217,15 +652,100 @@ export interface PatchedAlertApi {
     readonly last_checked_at?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
+    /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, and checks_limit to control the maximum returned (default 5, max 500). Only populated on retrieve. */
     readonly checks?: readonly AlertCheckApi[]
+    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
-    calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
+    detector_config?: DetectorConfigApi | null
+    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+
+* `hourly` - hourly
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly */
+    calculation_interval?: CalculationIntervalEnumApi
+    /**
+     * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+     * @nullable
+     */
     snoozed_until?: string | null
-    /** @nullable */
+    /**
+     * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
+     * @nullable
+     */
     skip_weekend?: boolean | null
-    /** @nullable */
+    /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * The last calculated value from the most recent alert check.
+     * @nullable
+     */
     readonly last_value?: number | null
+}
+
+export interface AlertSimulateApi {
+    /** Insight ID to simulate the detector on. */
+    insight: number
+    /** Detector configuration to simulate. */
+    detector_config: DetectorConfigApi
+    /** Zero-based index of the series to analyze. */
+    series_index?: number
+    /**
+     * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+     * @nullable
+     */
+    date_from?: string | null
+}
+
+export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
+
+export type BreakdownSimulationResultApiSubDetectorScoresItem = { [key: string]: unknown }
+
+export interface BreakdownSimulationResultApi {
+    /** Breakdown value label. */
+    label: string
+    /** Data values for each point. */
+    data: number[]
+    /** Date labels for each point. */
+    dates: string[]
+    /** Anomaly score for each point. */
+    scores: (number | null)[]
+    /** Indices of points flagged as anomalies. */
+    triggered_indices: number[]
+    /** Dates of points flagged as anomalies. */
+    triggered_dates: string[]
+    /** Total number of data points analyzed. */
+    total_points: number
+    /** Number of anomalies detected. */
+    anomaly_count: number
+    /** Per-sub-detector scores for ensemble detectors. */
+    sub_detector_scores?: BreakdownSimulationResultApiSubDetectorScoresItem[]
+}
+
+export interface AlertSimulateResponseApi {
+    /** Data values for each point. */
+    data: number[]
+    /** Date labels for each point. */
+    dates: string[]
+    /** Anomaly score for each point (null if insufficient data). */
+    scores: (number | null)[]
+    /** Indices of points flagged as anomalies. */
+    triggered_indices: number[]
+    /** Dates of points flagged as anomalies. */
+    triggered_dates: string[]
+    /**
+     * Interval of the trends query (hour, day, week, month).
+     * @nullable
+     */
+    interval: string | null
+    /** Total number of data points analyzed. */
+    total_points: number
+    /** Number of anomalies detected. */
+    anomaly_count: number
+    /** Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields. */
+    sub_detector_scores?: AlertSimulateResponseApiSubDetectorScoresItem[]
+    /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
+    breakdown_results?: BreakdownSimulationResultApi[]
 }
 
 export type AlertsListParams = {
@@ -237,4 +757,19 @@ export type AlertsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AlertsRetrieveParams = {
+    /**
+     * Relative date string for the start of the check history window (e.g. '-24h', '-7d', '-14d'). Returns checks created after this time. Max retention is 14 days.
+     */
+    checks_date_from?: string
+    /**
+     * Relative date string for the end of the check history window (e.g. '-1h', '-1d'). Defaults to now if not specified.
+     */
+    checks_date_to?: string
+    /**
+     * Maximum number of check results to return (default 5, max 500). Applied after date filtering.
+     */
+    checks_limit?: number
 }

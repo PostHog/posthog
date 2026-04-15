@@ -56,6 +56,40 @@ class TestIsHostSafe(SimpleTestCase):
         valid, _ = _is_host_safe("10.0.0.1", team_id=1)
         assert valid
 
+    @parameterized.expand(
+        [
+            ("localhost", "localhost"),
+            ("loopback", "127.0.0.1"),
+            ("private_ip", "10.0.0.1"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="E2E", E2E_TESTING=True)
+    def test_allows_internal_hosts_in_e2e(self, _name: str, host: str):
+        valid, error = _is_host_safe(host, team_id=999)
+        assert valid
+        assert error is None
+
+    @parameterized.expand(
+        [
+            ("postwh_us", "entirely-chief-wildcat.us.postwh.com"),
+            ("postwh_eu", "my-db.eu.postwh.com"),
+            ("postwh_bare", "something.postwh.com"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allows_postwh_hosts(self, _name: str, host: str):
+        valid, _ = _is_host_safe(host, team_id=999)
+        assert valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_blocks_fake_postwh_suffix(self):
+        with patch(
+            "posthog.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",
+            return_value=[(None, None, None, None, ("10.0.0.1", 0))],
+        ):
+            valid, error = _is_host_safe("evil.postwh.com.evil.example.com", team_id=999)
+            assert not valid
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_dns_resolving_to_internal_ip_blocked(self):
         with patch(

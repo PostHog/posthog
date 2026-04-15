@@ -23,13 +23,16 @@ class ResearchAgentExecutable(PlanModeExecutable):
     MAX_TOKENS = 16_384
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+        is_research_mode = state.supermode == AgentMode.RESEARCH
+        model_name = "claude-opus-4-6" if is_research_mode else "claude-sonnet-4-6"
+
         base_model = MaxChatAnthropic(
-            model="claude-opus-4-5-20251101",
+            model=model_name,
             streaming=True,
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
+            betas=["interleaved-thinking-2025-05-14"],
             max_tokens=self.MAX_TOKENS,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,

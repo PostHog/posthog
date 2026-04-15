@@ -196,6 +196,24 @@ COST_FALLBACK_DEFAULT = Counter(
     labelnames=["provider", "model", "product"],
 )
 
+BEDROCK_FALLBACK_TRIGGERED = Counter(
+    "llm_gateway_bedrock_fallback_triggered_total",
+    "Times Bedrock fallback was triggered after Anthropic failure",
+    labelnames=["model", "product", "original_error_type"],
+)
+
+BEDROCK_FALLBACK_SUCCESS = Counter(
+    "llm_gateway_bedrock_fallback_success_total",
+    "Times Bedrock fallback succeeded",
+    labelnames=["model", "product"],
+)
+
+BEDROCK_FALLBACK_FAILURE = Counter(
+    "llm_gateway_bedrock_fallback_failure_total",
+    "Times Bedrock fallback also failed",
+    labelnames=["model", "product"],
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(

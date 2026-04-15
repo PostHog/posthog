@@ -1,129 +1,160 @@
-import json
-import math
+import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, TypedDict
+from typing import Any
 
 from django.conf import settings
 
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
+import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    BackfillPrecalculatedPersonPropertiesWorkflow,
-    CohortFilters,
 )
 
-LOGGER = get_logger(__name__)
+
+@dataclasses.dataclass
+class PersonIdRangesPageInputs:
+    """Inputs for fetching a page of person ID ranges."""
+
+    team_id: int
+    batch_size: int  # persons per range
+    page_size: int  # number of ranges to return per page
+    after_person_id: str | None  # cursor: fetch persons with ID > this value, None for first page
+    person_id: str | None = None  # Optional specific person ID to filter for
 
 
-class ChildWorkflowConfig(TypedDict):
-    """Type definition for child workflow configuration."""
+@dataclasses.dataclass
+class PersonIdRangesPageResult:
+    """Result from fetching a page of person ID ranges."""
 
-    id: str
-    inputs: BackfillPrecalculatedPersonPropertiesInputs
-    offset: int
-    limit: int
-    index: int
+    ranges: list[tuple[str, str]]  # (start_id, end_id) pairs
+    cursor: str | None  # last person ID in this page, None if no more data
+
+
+@temporalio.activity.defn
+async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -> PersonIdRangesPageResult:
+    """Fetch a page of person ID ranges for a team using cursor-based pagination."""
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+
+    if inputs.batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {inputs.batch_size}")
+    if inputs.page_size <= 0:
+        raise ValueError(f"page_size must be positive, got {inputs.page_size}")
+
+    limit = inputs.batch_size * inputs.page_size
+    # Fetch one extra row to check if there's more data
+    query_limit = limit + 1
+
+    after_clause = "AND id > %(after_person_id)s" if inputs.after_person_id is not None else ""
+    person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
+    query = f"""
+        SELECT id as person_id
+        FROM person FINAL
+        WHERE team_id = %(team_id)s
+          AND is_deleted = 0
+          {after_clause}
+          {person_filter_clause}
+        ORDER BY id
+        LIMIT %(limit)s
+        FORMAT JSONEachRow
+    """
+    query_params: dict[str, object] = {"team_id": inputs.team_id, "limit": query_limit}
+    if inputs.after_person_id is not None:
+        query_params["after_person_id"] = inputs.after_person_id
+    if inputs.person_id is not None:
+        query_params["person_id"] = inputs.person_id
+
+    ranges: list[tuple[str, str]] = []
+    current_batch_start: str | None = None
+    current_batch_count = 0
+    total_count = 0
+    last_person_id: str | None = None
+    has_more_data = False
+
+    with tags_context(
+        team_id=inputs.team_id,
+        feature=Feature.BEHAVIORAL_COHORTS,
+        product=Product.MESSAGING,
+        query_type="person_id_ranges_page",
+    ):
+        async with get_client(team_id=inputs.team_id) as client:
+            async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
+                person_id = str(row["person_id"])
+
+                # If we hit the limit + 1, we know there's more data, but don't process this row
+                if total_count >= limit:
+                    has_more_data = True
+                    break
+
+                last_person_id = person_id
+
+                if current_batch_start is None:
+                    current_batch_start = person_id
+                    current_batch_count = 1
+                else:
+                    current_batch_count += 1
+
+                total_count += 1
+
+                if current_batch_count >= inputs.batch_size:
+                    ranges.append((current_batch_start, person_id))
+                    current_batch_start = None
+                    current_batch_count = 0
+                    # Heartbeat after each completed range to ensure regular heartbeats
+                    temporalio.activity.heartbeat(f"Page: processed {total_count} persons, {len(ranges)} ranges")
+
+            # Handle final partial batch
+            if current_batch_start is not None and current_batch_count > 0 and last_person_id is not None:
+                ranges.append((current_batch_start, last_person_id))
+
+            # Final heartbeat to report completion
+            if total_count > 0:
+                temporalio.activity.heartbeat(f"Page: processed {total_count} persons, {len(ranges)} ranges")
+
+    # Set cursor only if we know there's more data
+    cursor = last_person_id if has_more_data else None
+
+    return PersonIdRangesPageResult(ranges=ranges, cursor=cursor)
 
 
 @dataclasses.dataclass
 class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
-    """Inputs for the coordinator workflow that spawns child workflows."""
+    """Inputs for the coordinator workflow using ID-range based batching."""
 
     team_id: int
-    cohort_filters: list[CohortFilters]  # All cohorts and their filters
-    parallelism: int = 10  # Number of child workflows to spawn
-    batch_size: int = 1000  # Persons per batch within each worker
-    workflows_per_batch: int = 5  # Number of workflows to start per batch
-    batch_delay_minutes: int = 5  # Delay between batches in minutes
-    _cohort_ids: list[int] | None = dataclasses.field(default=None, init=False, repr=False)
-    _total_filters: int | None = dataclasses.field(default=None, init=False, repr=False)
-
-    @property
-    def cohort_ids(self) -> list[int]:
-        """Cached list of cohort IDs."""
-        if self._cohort_ids is None:
-            self._cohort_ids = [cf.cohort_id for cf in self.cohort_filters]
-        return self._cohort_ids
-
-    @property
-    def total_filters(self) -> int:
-        """Cached total number of filters across all cohorts."""
-        if self._total_filters is None:
-            self._total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
-        return self._total_filters
+    filter_storage_key: str  # Redis key containing the filters
+    cohort_ids: list[int]  # All cohort IDs being processed
+    batch_size: int = 1000  # Persons per batch
+    concurrent_workflows: int = 5  # Number of concurrent workflows to run
+    person_id: str | None = None  # Optional specific person ID to filter for
+    single_cohort_mode: bool = False  # True when --cohort-id was explicitly provided
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "cohort_count": len(self.cohort_filters),
+            "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
-            "filter_count": self.total_filters,
-            "parallelism": self.parallelism,
+            "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
-            "workflows_per_batch": self.workflows_per_batch,
-            "batch_delay_minutes": self.batch_delay_minutes,
+            "concurrent_workflows": self.concurrent_workflows,
         }
-
-
-@dataclasses.dataclass
-class PersonCountResult:
-    """Result from counting total persons."""
-
-    count: int
-
-
-@temporalio.activity.defn
-async def get_person_count_activity(
-    inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
-) -> PersonCountResult:
-    """Get the total count of non-deleted persons for the team."""
-
-    query = """
-        SELECT count() as count
-        FROM (
-            SELECT id
-            FROM person
-            WHERE team_id = %(team_id)s
-            GROUP BY id
-            HAVING max(is_deleted) = 0
-        )
-        FORMAT JSONEachRow
-    """
-
-    query_params = {"team_id": inputs.team_id}
-
-    # Execute query using async ClickHouse client
-    async with get_client(team_id=inputs.team_id) as client:
-        response = await client.read_query(query, query_parameters=query_params)
-        for line in response.decode("utf-8").splitlines():
-            if line.strip():
-                try:
-                    row = json.loads(line)
-                    return PersonCountResult(count=int(row["count"]))
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    LOGGER.exception("Failed to parse person count result", line=line)
-                    raise
-
-    return PersonCountResult(count=0)
 
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties-coordinator")
 class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
-    """Coordinator workflow that spawns multiple child workflows for parallel person processing.
+    """Coordinator workflow that processes persons using ID-range based batching.
 
-    Key behavioral change: Child workflow IDs are now based on the coordinator workflow ID
-    rather than individual cohort IDs. This allows a single set of child workflows to process
-    multiple cohorts together, improving efficiency and reducing Temporal overhead.
+    First fetches all person IDs for the team, then splits them into ranges
+    and processes multiple ranges concurrently using child workflows.
+    This approach provides better parallelism and predictable batch sizes.
 
-    Child workflow ID format: {coordinator_workflow_id}-child-{worker_index}
+    Child workflow ID format: {coordinator_workflow_id}-batch-{batch_number}
     """
 
     @staticmethod
@@ -131,133 +162,154 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         """Parse inputs from the management command CLI."""
         raise NotImplementedError("Use start_workflow() to trigger this workflow programmatically")
 
+    async def _start_child_workflow_for_range(
+        self,
+        inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
+        workflow_logger,
+        batch_number: int,
+        start_person_id: str,
+        end_person_id: str,
+        child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle],
+    ) -> None:
+        """Helper to start a child workflow for a person ID range."""
+        child_workflow_id = f"{temporalio.workflow.info().workflow_id}-batch-{batch_number}"
+        child_inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=inputs.team_id,
+            filter_storage_key=inputs.filter_storage_key,
+            cohort_ids=inputs.cohort_ids,
+            batch_size=inputs.batch_size,
+            start_person_id=start_person_id,
+            end_person_id=end_person_id,
+            person_id=inputs.person_id,
+            single_cohort_mode=inputs.single_cohort_mode,
+        )
+
+        # Start child workflow
+        child_handle = await temporalio.workflow.start_child_workflow(
+            "backfill-precalculated-person-properties",
+            child_inputs,
+            id=child_workflow_id,
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+        )
+        child_workflow_handles.append(child_handle)
+
+        workflow_logger.info(
+            f"Started batch {batch_number}: processing person IDs {start_person_id} to {end_person_id}"
+        )
+
+    async def _drain_completed(
+        self,
+        done: set[temporalio.workflow.ChildWorkflowHandle],
+        child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle],
+        workflow_logger,
+    ) -> tuple[int, int]:
+        """Await completed handles and return (completed_count, failed_count) delta."""
+        completed = 0
+        failed = 0
+        for handle in done:
+            try:
+                await handle
+                completed += 1
+                workflow_logger.info("Child workflow completed successfully")
+            except Exception as e:
+                failed += 1
+                workflow_logger.exception(f"Child workflow failed: {e}")
+            finally:
+                child_workflow_handles.remove(handle)
+        return completed, failed
+
     @temporalio.workflow.run
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs) -> None:
-        """Run the coordinator workflow that spawns child workflows."""
+        """Run the coordinator workflow using paginated ID-range discovery.
+
+        Fetches person ID ranges page by page and starts child workflows as
+        ranges are discovered, respecting the concurrency limit throughout.
+        """
+        if inputs.batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {inputs.batch_size}")
+        if inputs.concurrent_workflows <= 0:
+            raise ValueError(f"concurrent_workflows must be positive, got {inputs.concurrent_workflows}")
+
         workflow_logger = temporalio.workflow.logger
         cohort_ids = inputs.cohort_ids
-        total_filters = inputs.total_filters
         workflow_logger.info(
             f"Starting person properties precalculation coordinator for {len(cohort_ids)} cohorts "
-            f"(team {inputs.team_id}, cohorts {cohort_ids}) with parallelism={inputs.parallelism}, "
-            f"processing {total_filters} total filters"
+            f"(team {inputs.team_id}, cohorts {cohort_ids}) with {inputs.concurrent_workflows} concurrent workflows"
         )
 
-        # Step 1: Get total count of persons for this team
-        count_result = await temporalio.workflow.execute_activity(
-            get_person_count_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-        )
+        child_workflow_handles: list[temporalio.workflow.ChildWorkflowHandle] = []
+        batch_number = 0
+        workflows_scheduled = 0
+        completed_count = 0
+        failed_count = 0
+        cursor: str | None = None
+        has_more = True
 
-        total_persons = count_result.count
-        if total_persons == 0:
-            workflow_logger.warning(f"No persons found for team {inputs.team_id}")
-            return
+        while has_more:
+            page = await temporalio.workflow.execute_activity(
+                get_person_id_ranges_page_activity,
+                PersonIdRangesPageInputs(
+                    team_id=inputs.team_id,
+                    batch_size=inputs.batch_size,
+                    page_size=inputs.concurrent_workflows,
+                    after_person_id=cursor,
+                    person_id=inputs.person_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
 
-        workflow_logger.info(
-            f"Scheduling {total_persons} persons across {inputs.parallelism} child workflows "
-            f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
-        )
-
-        # Step 2: Calculate ranges for each child workflow
-        persons_per_workflow = math.ceil(total_persons / inputs.parallelism)
-
-        # Step 3: Prepare all workflow configs first
-        workflow_configs: list[ChildWorkflowConfig] = []
-        for i in range(inputs.parallelism):
-            offset = i * persons_per_workflow
-            limit = min(persons_per_workflow, total_persons - offset)
-
-            if limit <= 0:
+            if not page.ranges:
+                if batch_number == 0:
+                    workflow_logger.info("No persons found for team, nothing to process")
                 break
 
-            workflow_configs.append(
-                ChildWorkflowConfig(
-                    id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
-                    inputs=BackfillPrecalculatedPersonPropertiesInputs(
-                        team_id=inputs.team_id,
-                        cohort_filters=inputs.cohort_filters,  # Pass all cohort filters
-                        batch_size=inputs.batch_size,
-                        offset=offset,
-                        limit=limit,
-                    ),
-                    offset=offset,
-                    limit=limit,
-                    index=i + 1,
-                )
-            )
-
-        total_workflows = len(workflow_configs)
-        workflow_logger.info(f"Prepared {total_workflows} workflow configurations")
-
-        # Step 4: Launch workflows in jittered batches
-        workflows_scheduled = 0
-        workflow_logger.info(
-            f"About to start launching {total_workflows} workflows in batches of {inputs.workflows_per_batch}"
-        )
-
-        for batch_start in range(0, total_workflows, inputs.workflows_per_batch):
-            batch_end = min(batch_start + inputs.workflows_per_batch, total_workflows)
-            batch_configs = workflow_configs[batch_start:batch_end]
-            batch_number = (batch_start // inputs.workflows_per_batch) + 1
-            total_batches = math.ceil(total_workflows / inputs.workflows_per_batch)
-
             workflow_logger.info(
-                f"Starting batch {batch_number}/{total_batches}: scheduling {len(batch_configs)} workflows"
+                f"Fetched page with {len(page.ranges)} ranges "
+                f"(cursor: {cursor} -> {page.cursor}, total batches so far: {batch_number})"
             )
 
-            # Start all workflows in current batch concurrently
-            start_tasks = []
-            for config in batch_configs:
-                task = temporalio.workflow.start_child_workflow(
-                    BackfillPrecalculatedPersonPropertiesWorkflow.run,
-                    config["inputs"],
-                    id=config["id"],
-                    task_queue=settings.MESSAGING_TASK_QUEUE,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+            for start_person_id, end_person_id in page.ranges:
+                batch_number += 1
+
+                # Respect concurrency limit - wait for a slot before starting
+                if len(child_workflow_handles) >= inputs.concurrent_workflows:
+                    done, _ = await asyncio.wait(child_workflow_handles, return_when=asyncio.FIRST_COMPLETED)
+                    c, f = await self._drain_completed(done, child_workflow_handles, workflow_logger)
+                    completed_count += c
+                    failed_count += f
+
+                await self._start_child_workflow_for_range(
+                    inputs, workflow_logger, batch_number, start_person_id, end_person_id, child_workflow_handles
                 )
-                start_tasks.append((task, config))
+                workflows_scheduled += 1
 
-            # Await all starts in this batch concurrently
-            # Note: start_child_workflow returns a coroutine that resolves when the child is started
-            workflow_logger.info(f"Awaiting {len(start_tasks)} child workflow starts concurrently")
+            cursor = page.cursor
+            if cursor is None:
+                has_more = False
 
-            for task, config in start_tasks:
-                try:
-                    # Await the child workflow start (not completion, due to ABANDON policy)
-                    await task
-                    workflows_scheduled += 1
-                    workflow_logger.info(
-                        f"Scheduled workflow {config['index']} for persons {config['offset']}-{config['offset'] + config['limit'] - 1}"
-                    )
-                except Exception as e:
-                    workflow_logger.error(
-                        f"Failed to start workflow {config['index']}: {e}",
-                        exc_info=True,
-                    )
+        # Wait for all remaining child workflows
+        workflow_logger.info(
+            f"All workflows scheduled ({workflows_scheduled}), waiting for remaining {len(child_workflow_handles)}"
+        )
+        while child_workflow_handles:
+            done, _ = await asyncio.wait(child_workflow_handles, return_when=asyncio.FIRST_COMPLETED)
+            c, f = await self._drain_completed(done, child_workflow_handles, workflow_logger)
+            completed_count += c
+            failed_count += f
 
-            workflow_logger.info(
-                f"Batch {batch_number}/{total_batches} completed: {len(batch_configs)} workflows started "
-                f"({workflows_scheduled}/{total_workflows} total)"
+        if failed_count > 0:
+            workflow_logger.warning(
+                f"Coordinator completed with {failed_count} failed child workflows out of {workflows_scheduled} total"
+            )
+            raise temporalio.exceptions.ApplicationError(
+                f"{failed_count} child workflows failed; some person ID ranges were not processed.",
+                non_retryable=False,
             )
 
-            # Wait before starting next batch (unless this is the last batch)
-            if batch_end < total_workflows:
-                delay_seconds = inputs.batch_delay_minutes * 60
-                workflow_logger.info(f"Waiting {inputs.batch_delay_minutes} minutes before starting next batch...")
-                await temporalio.workflow.sleep(delay_seconds)
-
         workflow_logger.info(
-            f"Coordinator completed: scheduled {workflows_scheduled} child workflows in jittered batches"
+            f"Coordinator workflow completed successfully for team {inputs.team_id}: "
+            f"processed {batch_number} ranges with {inputs.concurrent_workflows} concurrent workflows"
         )
-
-        # Explicitly log completion before returning
-        workflow_logger.info(
-            f"Coordinator workflow completed successfully for team {inputs.team_id} "
-            f"with {len(inputs.cohort_ids)} cohorts {inputs.cohort_ids}. "
-            f"Total workflows scheduled: {workflows_scheduled}"
-        )
-
-        return None

@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,6 +19,7 @@ import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
+const EMPTY_MANUAL_FUNCTIONS: HogFunctionType[] = []
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionType> {}
 
@@ -151,7 +153,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     selectors({
         loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
-            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? []],
+            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? EMPTY_MANUAL_FUNCTIONS],
             (hogFunctions, manualFunctions): HogFunctionType[] => {
                 const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
                     (a, b) => Number(b.enabled) - Number(a.enabled)
@@ -168,9 +170,8 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         hogFunctionsFuse: [
             (s) => [s.sortedHogFunctions],
             (hogFunctions): Fuse => {
-                return new FuseClass(hogFunctions || [], {
+                return createFuse(hogFunctions || [], {
                     keys: ['name', 'description'],
-                    threshold: 0.3,
                 })
             },
         ],

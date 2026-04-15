@@ -21,6 +21,7 @@ import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialB
 import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
+import { WebhookSetupForm } from '../external/forms/WebhookSetupForm'
 import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
@@ -104,6 +105,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         selectedConnector,
         connectors,
         isSelfManagedSource,
+        source,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -190,13 +192,17 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         <div>
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
                             <p className="text-sm text-muted-alt mb-0">
-                                Import data directly from {selectedConnector.label ?? selectedConnector.name}
+                                {source.access_method === 'direct'
+                                    ? `Query ${selectedConnector.label ?? selectedConnector.name} directly from PostHog without warehouse syncs.`
+                                    : `Sync data from ${selectedConnector.label ?? selectedConnector.name} into the PostHog data warehouse.`}
                             </p>
                         </div>
                     </div>
                 )}
 
-                {selectedConnector && <FreeHistoricalSyncsBanner hideGetStarted={true} />}
+                {selectedConnector && source.access_method !== 'direct' && (
+                    <FreeHistoricalSyncsBanner hideGetStarted={true} />
+                )}
 
                 {currentStep === 1 ? (
                     <FirstStep allowedSources={props.allowedSources} />
@@ -205,7 +211,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 3 ? (
                     <ThirdStep />
                 ) : currentStep === 4 ? (
-                    <FourthStep />
+                    <WebhookSetupStep />
+                ) : currentStep === 5 ? (
+                    <ProgressStep />
                 ) : (
                     <div>Something went wrong...</div>
                 )}
@@ -252,7 +260,7 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 }
 
 function SecondStep(): JSX.Element {
-    const { selectedConnector } = useValues(sourceWizardLogic)
+    const { selectedConnector, source } = useValues(sourceWizardLogic)
 
     return selectedConnector ? (
         <div className="space-y-4">
@@ -283,7 +291,7 @@ function SecondStep(): JSX.Element {
 
             <LemonDivider />
 
-            <SourceForm sourceConfig={selectedConnector} />
+            <SourceForm sourceConfig={selectedConnector} initialAccessMethod={source.access_method} />
         </div>
     ) : (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id: 'new' }}>
@@ -296,6 +304,28 @@ function ThirdStep(): JSX.Element {
     return <SchemaForm />
 }
 
-function FourthStep(): JSX.Element {
+function WebhookSetupStep(): JSX.Element {
+    const { webhookResult, webhookCreating, selectedConnector, databaseSchema } = useValues(sourceWizardLogic)
+    const { createWebhook } = useActions(sourceWizardLogic)
+
+    const webhookTables = databaseSchema
+        .filter((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync)
+        .map((s) => ({ name: s.table }))
+
+    return (
+        <WebhookSetupForm
+            sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
+            sourceConfig={selectedConnector}
+            webhookTables={webhookTables}
+            webhookResult={webhookResult}
+            webhookCreating={webhookCreating}
+            onCreateWebhook={createWebhook}
+            formLogic={sourceWizardLogic}
+            formKey="webhookFieldInputs"
+        />
+    )
+}
+
+function ProgressStep(): JSX.Element {
     return <SyncProgressStep />
 }

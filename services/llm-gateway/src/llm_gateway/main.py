@@ -110,12 +110,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     if settings.anthropic_api_key:
         os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+    if settings.bedrock_region_name:
+        os.environ["AWS_REGION"] = settings.bedrock_region_name
     if settings.openai_api_key:
         os.environ["OPENAI_API_KEY"] = settings.openai_api_key
     if settings.openai_api_base_url:
         os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
     if settings.gemini_api_key:
         os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
+    if settings.openrouter_api_key:
+        os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
+    if settings.fireworks_api_key:
+        os.environ["FIREWORKS_API_KEY"] = settings.fireworks_api_key
 
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(

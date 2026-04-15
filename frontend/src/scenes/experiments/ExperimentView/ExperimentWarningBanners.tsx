@@ -41,7 +41,7 @@ function WarningDetail({
             return (
                 <>
                     Variant <strong>"{warning.variantKey}"</strong> is rolled out to 100% of users. The experiment is
-                    not comparing variants. End the experiment with a conclusion, or adjust the variant distribution in
+                    not comparing variants. End the experiment with a conclusion, or adjust the variant distribution in{' '}
                     {flagLink} to resume proper A/B testing.
                 </>
             )
@@ -78,13 +78,7 @@ export function ExperimentWarningBanner(): JSX.Element | null {
         if (experimentWarning) {
             reportExperimentInconsistencyWarningShown(experiment, experimentWarning.key)
         }
-    }, [
-        experimentWarning?.key,
-        experimentWarning?.variantKey,
-        reportExperimentInconsistencyWarningShown,
-        experimentWarning,
-        experiment,
-    ])
+    }, [reportExperimentInconsistencyWarningShown, experimentWarning, experiment])
 
     if (!experimentWarning) {
         return null

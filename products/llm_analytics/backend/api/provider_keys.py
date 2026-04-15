@@ -1,12 +1,10 @@
 import logging
-from typing import cast
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -14,8 +12,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
@@ -127,7 +124,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [TeamMemberStrictManagementPermission]
     serializer_class = LLMProviderKeySerializer
     queryset = LLMProviderKey.objects.all()
 
@@ -137,7 +134,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def perform_create(self, serializer):
         instance = serializer.save()
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key created",
             {
                 "provider_key_id": str(instance.id),
@@ -158,7 +155,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
         if changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma provider key updated",
                 {
                     "provider_key_id": str(instance.id),
@@ -171,7 +168,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
     def perform_destroy(self, instance):
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key deleted",
             {
                 "provider_key_id": str(instance.id),
@@ -201,7 +198,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance.save(update_fields=["state", "error_message"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma provider key validated",
             {
                 "provider_key_id": str(instance.id),
@@ -275,6 +272,98 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             }
         )
 
+    @action(detail=False, methods=["get"])
+    @llma_track_latency("llma_provider_keys_trial_evaluations")
+    @monitor(feature=None, endpoint="llma_provider_keys_trial_evaluations", method="GET")
+    def trial_evaluations(self, request: Request, **_kwargs) -> Response:
+        """List enabled evaluations currently using trial credits for a given provider."""
+        provider = request.query_params.get("provider")
+        if not provider:
+            return Response({"detail": "provider query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if provider not in [choice[0] for choice in LLMProvider.choices]:
+            return Response({"detail": f"Unsupported provider: {provider}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Evaluations on trial: model_configuration has matching provider but no pinned key
+        trial_filter = Q(
+            model_configuration__provider=provider,
+            model_configuration__provider_key__isnull=True,
+        )
+        # Legacy evaluations (no model_configuration) default to OpenAI
+        if provider == "openai":
+            trial_filter |= Q(model_configuration__isnull=True)
+
+        trial_evals = Evaluation.objects.filter(trial_filter, team_id=self.team_id, deleted=False).values(
+            "id", "name", "enabled"
+        )[:50]
+
+        return Response({"evaluations": list(trial_evals)})
+
+    @action(detail=True, methods=["post"])
+    @llma_track_latency("llma_provider_keys_assign")
+    @monitor(feature=None, endpoint="llma_provider_keys_assign", method="POST")
+    def assign(self, request: Request, **_kwargs) -> Response:
+        """Assign this key to evaluations and optionally re-enable them."""
+        instance = self.get_object()
+        evaluation_ids = request.data.get("evaluation_ids", [])
+        enable = request.data.get("enable", False)
+
+        if not evaluation_ids:
+            return Response({"detail": "evaluation_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Update model configurations to use this key
+            configs_updated = LLMModelConfiguration.objects.filter(
+                evaluations__id__in=evaluation_ids,
+                evaluations__team_id=self.team_id,
+                evaluations__deleted=False,
+                provider=instance.provider,
+            ).update(provider_key=instance)
+
+            # Handle legacy evaluations (no model_configuration) — these are always
+            # OpenAI, so only create a config if the key matches.
+            if instance.provider == "openai":
+                legacy_evals = Evaluation.objects.filter(
+                    id__in=evaluation_ids,
+                    team_id=self.team_id,
+                    model_configuration__isnull=True,
+                    deleted=False,
+                )
+                for eval_obj in legacy_evals:
+                    mc = LLMModelConfiguration.objects.create(
+                        team_id=self.team_id,
+                        provider="openai",
+                        model="gpt-5-mini",
+                        provider_key=instance,
+                    )
+                    eval_obj.model_configuration = mc
+                    eval_obj.save(update_fields=["model_configuration"])
+                    configs_updated += 1
+
+            evals_enabled = 0
+            if enable:
+                evals_enabled = Evaluation.objects.filter(
+                    id__in=evaluation_ids,
+                    team_id=self.team_id,
+                    deleted=False,
+                    enabled=False,
+                ).update(enabled=True)
+
+        report_user_action(
+            request.user,
+            "llma provider key assigned to evaluations",
+            {
+                "provider_key_id": str(instance.id),
+                "provider": instance.provider,
+                "evaluation_ids": [str(eid) for eid in evaluation_ids],
+                "configs_updated": configs_updated,
+                "evals_enabled": evals_enabled,
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+        return Response({"configs_updated": configs_updated, "evals_enabled": evals_enabled})
+
     @llma_track_latency("llma_provider_keys_destroy")
     @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")
     def destroy(self, request, *args, **kwargs):
@@ -314,7 +403,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Validate LLM provider API keys without persisting them"""
 
     scope_object = "llm_provider_key"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [TeamMemberStrictManagementPermission]
 
     @llma_track_latency("llma_provider_key_validations_create")
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")

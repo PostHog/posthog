@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -17,12 +17,12 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_hog_eval
 
+from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -89,7 +89,30 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     )
                 except ValueError as e:
                     raise serializers.ValidationError({"config": str(e)})
+
+        # Prevent re-enabling an evaluation that uses trial credits when quota is exhausted.
+        if data.get("enabled") and self.instance and not self.instance.enabled:
+            has_byok = self._has_byok_key(data)
+            if not has_byok:
+                team = self.context["get_team"]()
+                config = EvaluationConfig.objects.filter(team=team).first()
+                if config and config.trial_limit_reached:
+                    raise serializers.ValidationError(
+                        {
+                            "enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."
+                        }
+                    )
+
         return data
+
+    def _has_byok_key(self, data: dict) -> bool:
+        """Check if the evaluation will have a BYOK key after this update."""
+        model_config_data = data.get("model_configuration")
+        if model_config_data is not None:
+            return bool(model_config_data.get("provider_key_id"))
+        if self.instance and self.instance.model_configuration:
+            return self.instance.model_configuration.provider_key_id is not None
+        return False
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int
@@ -221,7 +244,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         # Track evaluation created
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma evaluation created",
             {
                 "evaluation_id": str(instance.id),
@@ -291,7 +314,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         # Track appropriate event
         if is_deletion:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma evaluation deleted",
                 {
                     "evaluation_id": str(instance.id),
@@ -317,7 +340,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 event_properties["config_content_changed"] = True
 
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma evaluation updated",
                 event_properties,
                 team=self.team,
@@ -349,7 +372,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @action(detail=False, methods=["post"], url_path="test_hog")
+    @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
         serializer = TestHogRequestSerializer(data=request.data)
@@ -366,6 +389,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         from posthog.hogql.query import execute_hogql_query
 
         from posthog.cdp.validation import compile_hog
+        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
         from posthog.models.team import Team
 
         try:
@@ -423,9 +447,27 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             limit=ast.Constant(value=sample_count),
         )
 
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:
+            report_user_action(
+                request.user,
+                "llma evaluation hog code tested",
+                {
+                    "sample_count": sample_count,
+                    "allows_na": allows_na,
+                    "condition_count": len(conditions),
+                    "result_count": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                    "error_count": 0,
+                    "na_count": 0,
+                    "no_events": True,
+                },
+                team=self.team,
+                request=self.request,
+            )
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
 
         results = []
@@ -462,6 +504,23 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "error": result["error"],
                 }
             )
+
+        report_user_action(
+            request.user,
+            "llma evaluation hog code tested",
+            {
+                "sample_count": sample_count,
+                "allows_na": allows_na,
+                "condition_count": len(conditions),
+                "result_count": len(results),
+                "pass_count": sum(1 for r in results if r["result"] is True),
+                "fail_count": sum(1 for r in results if r["result"] is False),
+                "error_count": sum(1 for r in results if r["error"]),
+                "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+            },
+            team=self.team,
+            request=self.request,
+        )
 
         return Response({"results": results})
 

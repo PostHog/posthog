@@ -11,7 +11,6 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import { JudgeHog, StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -19,6 +18,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { couponLogic } from 'scenes/coupons/couponLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -50,6 +50,7 @@ export function Billing(): JSX.Element {
         showBillingSummary,
         showCreditCTAHero,
         showBillingHero,
+        minimumBillingAccessLevel,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -57,9 +58,10 @@ export function Billing(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
     const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
+    const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        minimumAccessLevel: minimumBillingAccessLevel,
         scope: RestrictionScope.Organization,
     })
 
@@ -231,7 +233,7 @@ export function Billing(): JSX.Element {
                 <h2>Products</h2>
             </div>
 
-            {(featureFlags[FEATURE_FLAGS.REORDER_PLATFORM_ADDON_BILLING_SECTION] === 'test-top-of-page'
+            {(memberCount >= 5
                 ? [
                       platformAndSupportProduct,
                       ...(products?.filter((product) => product.type !== ProductKey.PLATFORM_AND_SUPPORT) ?? []),

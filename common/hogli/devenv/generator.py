@@ -35,7 +35,10 @@ class DevenvConfig(BaseModel):
 
 
 # Docker compose command building
-DOCKER_COMPOSE_BASE = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+
+def _get_docker_compose_base() -> str:
+    return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -48,10 +51,11 @@ def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> 
     Returns:
         Complete docker compose command string
     """
+    base = _get_docker_compose_base()
     if profiles:
         profile_flags = " ".join(f"--profile {p}" for p in profiles)
-        return f"{DOCKER_COMPOSE_BASE} {profile_flags} {action}"
-    return f"{DOCKER_COMPOSE_BASE} {action}"
+        return f"{base} {profile_flags} {action}"
+    return f"{base} {action}"
 
 
 class ConfigGenerator(ABC):
@@ -161,9 +165,15 @@ class MprocsGenerator(ConfigGenerator):
             if name == "nodejs":
                 proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
 
-            # Special handling for backend - wire up personhog env vars when capability is active
+            # Special handling for backend/nodejs - wire up personhog env vars when capability is active
             if name == "backend":
                 proc_config = self._add_personhog_env(proc_config, resolved)
+            if name == "nodejs":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+
+            # Special handling for temporal-worker - install uv groups when capabilities require them
+            if name == "temporal-worker":
+                proc_config = self._add_uv_groups(proc_config, resolved)
 
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
@@ -221,7 +231,10 @@ echo ''
 printf '{gray}  ─────────────────────────────────────{reset}\\n'
 printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
 printf '  {bold}Processes:{reset} {process_count} active\\n'
-printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'"""
+echo ''
+printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
+"""
         return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
@@ -254,6 +267,8 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         Returns:
             Process configuration dict with modified shell command
         """
+        profiles = sorted(profiles)
+
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
             message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "
@@ -261,10 +276,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
-        logs_cmd = build_docker_compose_command(profiles, "logs --tail=0 -f")
+        logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
 
         return {
-            "shell": f"{message}{up_cmd} && {logs_cmd}",
+            "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
+            "ready_pattern": "docker-compose ready",
         }
 
     def _add_nodejs_capability_groups(
@@ -306,6 +322,29 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         return proc_config
 
+    def _add_uv_groups(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Prepend uv sync --group and model download commands when uv_groups are resolved.
+
+        Currently handles the sentiment group (installs torch/optimum and downloads the ONNX model).
+        """
+        if not resolved.uv_groups:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if not original_shell:
+            return proc_config
+
+        # Build uv sync command with all resolved groups
+        group_flags = " ".join(f"--group {g}" for g in sorted(resolved.uv_groups))
+        prefix = f"uv sync {group_flags} --inexact"
+
+        # Add model download for sentiment group
+        if "sentiment" in resolved.uv_groups:
+            prefix += " && uv run --group sentiment bin/download-sentiment-model"
+
+        proc_config["shell"] = f"{prefix} && {original_shell}"
+        return proc_config
+
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
         """Wrap shell command to log output to /tmp/posthog-{name}.log.
 
@@ -331,6 +370,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             # Add header comment for log mode
             if config.posthog_config and config.posthog_config.log_to_files:
                 f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
+
             yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 

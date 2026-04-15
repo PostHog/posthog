@@ -29,11 +29,20 @@ import {
     OpenAICompletionMessage,
     OpenAIFileMessage,
     OpenAIImageURLMessage,
+    OpenAIResponsesBuiltinToolCall,
+    OpenAIResponsesFunctionCall,
+    OpenAIResponsesFunctionCallOutput,
+    OpenAIResponsesReasoning,
     OpenAIToolCall,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
+    VercelSDKToolCallFunctionMessage,
+    VercelSDKToolCallMessage,
+    VercelSDKToolCallToolNameMessage,
+    VercelSDKToolResultMessage,
+    MultiModalContentItem,
 } from './types'
 
 export interface PagedSearchOrderFilters {
@@ -58,6 +67,7 @@ export function sanitizeTraceUrlSearchParams(
     delete sanitizedSearchParams.line
     delete sanitizedSearchParams.tab
     delete sanitizedSearchParams.back_to
+    delete sanitizedSearchParams.msg
 
     if (options.removeSearch) {
         delete sanitizedSearchParams.search
@@ -256,6 +266,17 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
     )
 }
 
+function parseToolArguments(args: string | Record<string, unknown>): Record<string, unknown> | string {
+    if (typeof args === 'string') {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return args
+        }
+    }
+    return args
+}
+
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
     const toolsWithParsedArguments = toolCalls.map((toolCall) => {
         let parsedArguments = toolCall.function.arguments
@@ -308,6 +329,76 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
     )
 }
 
+// LangChain/LangGraph type guard
+// LangChain messages use `type` (human, ai, tool, system, context) instead of `role`
+const LANGCHAIN_MESSAGE_TYPES = new Set(['human', 'ai', 'tool', 'system', 'context'])
+
+interface LangChainMessage {
+    type: string
+    content: unknown
+    tool_calls?: unknown
+    tool_call_id?: string
+    [key: string]: unknown
+}
+
+export function isLangChainMessage(input: unknown): input is LangChainMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        !('role' in input) &&
+        'type' in input &&
+        typeof input.type === 'string' &&
+        LANGCHAIN_MESSAGE_TYPES.has(input.type) &&
+        'content' in input
+    )
+}
+
+// OpenAI Responses API type guards
+const OPENAI_RESPONSES_BUILTIN_TOOL_TYPES = new Set([
+    'web_search_call',
+    'code_interpreter_call',
+    'image_generation_call',
+    'mcp_call',
+    'file_search_call',
+    'computer_call',
+])
+
+export function isOpenAIResponsesFunctionCall(input: unknown): input is OpenAIResponsesFunctionCall {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'function_call' &&
+        'name' in input &&
+        'call_id' in input
+    )
+}
+
+export function isOpenAIResponsesFunctionCallOutput(input: unknown): input is OpenAIResponsesFunctionCallOutput {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'function_call_output' &&
+        'call_id' in input &&
+        'output' in input
+    )
+}
+
+export function isOpenAIResponsesBuiltinToolCall(input: unknown): input is OpenAIResponsesBuiltinToolCall {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        typeof input.type === 'string' &&
+        OPENAI_RESPONSES_BUILTIN_TOOL_TYPES.has(input.type)
+    )
+}
+
+export function isOpenAIResponsesReasoning(input: unknown): input is OpenAIResponsesReasoning {
+    return !!input && typeof input === 'object' && 'type' in input && input.type === 'reasoning'
+}
+
 export function isVercelSDKTextMessage(input: unknown): input is VercelSDKTextMessage {
     return (
         !!input &&
@@ -352,6 +443,45 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
         input.type === 'input_text' &&
         'text' in input &&
         typeof input.text === 'string'
+    )
+}
+
+function isVercelSDKToolCallFunctionMessage(input: unknown): input is VercelSDKToolCallFunctionMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-call' &&
+        'function' in input &&
+        typeof input.function === 'object' &&
+        input.function !== null
+    )
+}
+
+function isVercelSDKToolCallToolNameMessage(input: unknown): input is VercelSDKToolCallToolNameMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-call' &&
+        'toolName' in input &&
+        typeof input.toolName === 'string' &&
+        !('function' in input && typeof input.function === 'object' && input.function !== null)
+    )
+}
+
+export function isVercelSDKToolCallMessage(input: unknown): input is VercelSDKToolCallMessage {
+    return isVercelSDKToolCallFunctionMessage(input) || isVercelSDKToolCallToolNameMessage(input)
+}
+
+export function isVercelSDKToolResultMessage(input: unknown): input is VercelSDKToolResultMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-result' &&
+        'toolName' in input &&
+        typeof input.toolName === 'string'
     )
 }
 
@@ -630,6 +760,7 @@ export const roleMap: Record<string, string> = {
 
     system: 'system',
     instructions: 'system',
+    context: 'system',
 }
 
 export function normalizeRole(rawRole: unknown, fallback: string): string {
@@ -638,6 +769,48 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
     }
     const lowercased = rawRole.toLowerCase()
     return roleMap[lowercased] || lowercased
+}
+
+const STRUCTURED_CONTENT_TYPES = new Set([
+    'text',
+    'output_text',
+    'input_text',
+    'function',
+    'image',
+    'input_image',
+    'image_url',
+    'file',
+    'audio',
+    'document',
+])
+
+function parseStringifiedStructuredContent(content: string): string | MultiModalContentItem[] {
+    const trimmed = content.trim()
+    if (!trimmed.startsWith('[')) {
+        return content
+    }
+
+    try {
+        const parsed = JSON.parse(trimmed)
+        if (
+            Array.isArray(parsed) &&
+            (parsed.length === 0 ||
+                parsed.every(
+                    (item) =>
+                        item &&
+                        typeof item === 'object' &&
+                        'type' in item &&
+                        typeof item.type === 'string' &&
+                        STRUCTURED_CONTENT_TYPES.has(item.type)
+                ))
+        ) {
+            return parsed as MultiModalContentItem[]
+        }
+    } catch {
+        // Keep the original text when it's not valid JSON.
+    }
+
+    return content
 }
 
 /**
@@ -653,7 +826,13 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     const roleToUse =
         rawMessage && typeof rawMessage === 'object' && 'role' in rawMessage && typeof rawMessage.role === 'string'
             ? normalizeRole(rawMessage.role, defaultRole)
-            : defaultRole
+            : rawMessage &&
+                typeof rawMessage === 'object' &&
+                'type' in rawMessage &&
+                typeof rawMessage.type === 'string' &&
+                Object.hasOwn(roleMap, rawMessage.type)
+              ? normalizeRole(rawMessage.type, defaultRole)
+              : defaultRole
 
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
@@ -736,7 +915,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             {
                 ...rawMessage,
                 role: roleToUse,
-                content: rawMessage.content,
+                content:
+                    typeof rawMessage.content === 'string'
+                        ? parseStringifiedStructuredContent(rawMessage.content)
+                        : rawMessage.content,
                 tool_calls: isOpenAICompatToolCallsArray(rawMessage.tool_calls)
                     ? parseOpenAIToolCalls(rawMessage.tool_calls)
                     : undefined,
@@ -804,6 +986,129 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         ]
     }
 
+    // OpenAI Responses API
+    // Function call (role-less, uses `type` instead)
+    if (isOpenAIResponsesFunctionCall(rawMessage)) {
+        return [
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.call_id,
+                        function: {
+                            name: rawMessage.name,
+                            arguments: parseToolArguments(rawMessage.arguments),
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Function call output
+    if (isOpenAIResponsesFunctionCallOutput(rawMessage)) {
+        return [
+            {
+                role: normalizeRole('assistant (tool result)', roleToUse),
+                content: rawMessage.output,
+                tool_call_id: rawMessage.call_id,
+            },
+        ]
+    }
+    // Reasoning
+    if (isOpenAIResponsesReasoning(rawMessage)) {
+        let summaryText = ''
+        if (Array.isArray(rawMessage.summary)) {
+            summaryText = rawMessage.summary.map((s) => s.text).join('\n')
+        } else if (typeof rawMessage.text === 'string') {
+            summaryText = rawMessage.text
+        }
+        return [
+            {
+                role: normalizeRole('assistant (thinking)', roleToUse),
+                content: summaryText,
+            },
+        ]
+    }
+    // Vercel AI SDK tool call (function variant)
+    if (isVercelSDKToolCallFunctionMessage(rawMessage)) {
+        return [
+            {
+                role: roleToUse,
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.id,
+                        function: {
+                            name: rawMessage.function.name,
+                            arguments: parseToolArguments(rawMessage.function.arguments),
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Vercel AI SDK tool call (toolName variant)
+    if (isVercelSDKToolCallToolNameMessage(rawMessage)) {
+        return [
+            {
+                role: roleToUse,
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.toolCallId,
+                        function: {
+                            name: rawMessage.toolName,
+                            arguments: parseToolArguments(rawMessage.input ?? {}),
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Vercel AI SDK tool result
+    if (isVercelSDKToolResultMessage(rawMessage)) {
+        let content = ''
+        if (typeof rawMessage.output === 'string') {
+            content = rawMessage.output
+        } else if (rawMessage.output !== undefined) {
+            try {
+                content = JSON.stringify(rawMessage.output)
+            } catch {
+                content = String(rawMessage.output)
+            }
+        }
+        return [
+            {
+                role: normalizeRole('assistant (tool result)', roleToUse),
+                content,
+                tool_call_id: rawMessage.toolCallId,
+            },
+        ]
+    }
+    // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
+    if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
+        return [
+            {
+                role: 'assistant',
+                content: JSON.stringify(rawMessage),
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.id,
+                        function: {
+                            name: rawMessage.type,
+                            arguments: {},
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+
     // Input message
     if (isAnthropicRoleBasedMessage(rawMessage)) {
         // Check for top-level tool_calls (already normalized by SDK)
@@ -843,8 +1148,27 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         return normalizeOTelPartsMessage(rawMessage, roleToUse)
     }
 
-    // Unsupported message.
-    console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
+    // LangChain/LangGraph format: uses `type` (human, ai, tool, system, context) instead of `role`
+    if (isLangChainMessage(rawMessage)) {
+        return [
+            {
+                role: roleToUse,
+                content:
+                    typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
+                tool_calls:
+                    'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                        ? parseOpenAIToolCalls(rawMessage.tool_calls)
+                        : undefined,
+                tool_call_id:
+                    'tool_call_id' in rawMessage && typeof rawMessage.tool_call_id === 'string'
+                        ? rawMessage.tool_call_id
+                        : undefined,
+            },
+        ]
+    }
+
+    // Unsupported message — log at debug level to avoid flooding the console
+
     posthog.capture('llma message normalization failed', {
         message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
         message_type: typeof rawMessage,

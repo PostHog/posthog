@@ -9,12 +9,19 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    MessageCategoryApi,
-    MessageTemplateApi,
-    MessagingCategoriesListParams,
-    MessagingTemplatesListParams,
-    PaginatedMessageCategoryListApi,
-    PaginatedMessageTemplateListApi,
+    BlastRadiusApi,
+    BlastRadiusRequestApi,
+    HogFlowApi,
+    HogFlowTemplateApi,
+    HogFlowTemplatesListParams,
+    HogFlowsListParams,
+    HogFlowsSchedulesCreateParams,
+    HogFlowsSchedulesListParams,
+    PaginatedHogFlowMinimalListApi,
+    PaginatedHogFlowScheduleListApi,
+    PaginatedHogFlowTemplateListApi,
+    PatchedHogFlowApi,
+    PatchedHogFlowTemplateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -34,7 +41,10 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getMessagingCategoriesListUrl = (projectId: string, params?: MessagingCategoriesListParams) => {
+/**
+ * Override list to include global templates from files alongside team templates from DB.
+ */
+export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -46,126 +56,120 @@ export const getMessagingCategoriesListUrl = (projectId: string, params?: Messag
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/messaging_categories/?${stringifiedParams}`
-        : `/api/environments/${projectId}/messaging_categories/`
+        ? `/api/projects/${projectId}/hog_flow_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flow_templates/`
 }
 
-export const messagingCategoriesList = async (
+export const hogFlowTemplatesList = async (
     projectId: string,
-    params?: MessagingCategoriesListParams,
+    params?: HogFlowTemplatesListParams,
     options?: RequestInit
-): Promise<PaginatedMessageCategoryListApi> => {
-    return apiMutator<PaginatedMessageCategoryListApi>(getMessagingCategoriesListUrl(projectId, params), {
+): Promise<PaginatedHogFlowTemplateListApi> => {
+    return apiMutator<PaginatedHogFlowTemplateListApi>(getHogFlowTemplatesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getMessagingCategoriesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/`
+export const getHogFlowTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/`
 }
 
-export const messagingCategoriesCreate = async (
+export const hogFlowTemplatesCreate = async (
     projectId: string,
-    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    hogFlowTemplateApi: NonReadonly<HogFlowTemplateApi>,
     options?: RequestInit
-): Promise<MessageCategoryApi> => {
-    return apiMutator<MessageCategoryApi>(getMessagingCategoriesCreateUrl(projectId), {
+): Promise<HogFlowTemplateApi> => {
+    return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(messageCategoryApi),
+        body: JSON.stringify(hogFlowTemplateApi),
     })
 }
 
 /**
- * Import subscription topics and globally unsubscribed users from Customer.io API
+ * Check file-based global templates first, then DB team templates.
+The queryset excludes all global templates from DB, so this only returns team templates from DB.
  */
-export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
+export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
-export const messagingCategoriesImportFromCustomerioCreate = async (
+export const hogFlowTemplatesRetrieve = async (
     projectId: string,
-    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    id: string,
     options?: RequestInit
-): Promise<MessageCategoryApi> => {
-    return apiMutator<MessageCategoryApi>(getMessagingCategoriesImportFromCustomerioCreateUrl(projectId), {
+): Promise<HogFlowTemplateApi> => {
+    return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesRetrieveUrl(projectId, id), {
         ...options,
-        method: 'POST',
+        method: 'GET',
+    })
+}
+
+export const getHogFlowTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/${id}/`
+}
+
+export const hogFlowTemplatesUpdate = async (
+    projectId: string,
+    id: string,
+    hogFlowTemplateApi: NonReadonly<HogFlowTemplateApi>,
+    options?: RequestInit
+): Promise<HogFlowTemplateApi> => {
+    return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(messageCategoryApi),
+        body: JSON.stringify(hogFlowTemplateApi),
     })
 }
 
-/**
- * Import customer preferences from CSV file
-Expected CSV columns: id, email, cio_subscription_preferences
- */
-export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_preferences_csv/`
+export const getHogFlowTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
-export const messagingCategoriesImportPreferencesCsvCreate = async (
+export const hogFlowTemplatesPartialUpdate = async (
     projectId: string,
-    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    id: string,
+    patchedHogFlowTemplateApi: NonReadonly<PatchedHogFlowTemplateApi>,
     options?: RequestInit
-): Promise<MessageCategoryApi> => {
-    const formData = new FormData()
-    formData.append(`key`, messageCategoryApi.key)
-    formData.append(`name`, messageCategoryApi.name)
-    if (messageCategoryApi.description !== undefined) {
-        formData.append(`description`, messageCategoryApi.description)
-    }
-    if (messageCategoryApi.public_description !== undefined) {
-        formData.append(`public_description`, messageCategoryApi.public_description)
-    }
-    if (messageCategoryApi.category_type !== undefined) {
-        formData.append(`category_type`, messageCategoryApi.category_type)
-    }
-    if (messageCategoryApi.deleted !== undefined) {
-        formData.append(`deleted`, messageCategoryApi.deleted.toString())
-    }
-
-    return apiMutator<MessageCategoryApi>(getMessagingCategoriesImportPreferencesCsvCreateUrl(projectId), {
+): Promise<HogFlowTemplateApi> => {
+    return apiMutator<HogFlowTemplateApi>(getHogFlowTemplatesPartialUpdateUrl(projectId, id), {
         ...options,
-        method: 'POST',
-        body: formData,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowTemplateApi),
     })
 }
 
-/**
- * Generate an unsubscribe link for the current user's email address
- */
-export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/generate_link/`
+export const getHogFlowTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/${id}/`
 }
 
-export const messagingPreferencesGenerateLinkCreate = async (
+export const hogFlowTemplatesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getHogFlowTemplatesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+}
+
+export const hogFlowTemplatesLogsRetrieve = async (
     projectId: string,
+    id: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getMessagingPreferencesGenerateLinkCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-/**
- * Get opt-outs filtered by category or overall opt-outs if no category specified
- */
-export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/opt_outs/`
-}
-
-export const messagingPreferencesOptOutsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getMessagingPreferencesOptOutsRetrieveUrl(projectId), {
+    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getMessagingTemplatesListUrl = (projectId: string, params?: MessagingTemplatesListParams) => {
+export const getHogFlowsListUrl = (projectId: string, params?: HogFlowsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -177,34 +181,312 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/messaging_templates/?${stringifiedParams}`
-        : `/api/environments/${projectId}/messaging_templates/`
+        ? `/api/projects/${projectId}/hog_flows/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/`
 }
 
-export const messagingTemplatesList = async (
+export const hogFlowsList = async (
     projectId: string,
-    params?: MessagingTemplatesListParams,
+    params?: HogFlowsListParams,
     options?: RequestInit
-): Promise<PaginatedMessageTemplateListApi> => {
-    return apiMutator<PaginatedMessageTemplateListApi>(getMessagingTemplatesListUrl(projectId, params), {
+): Promise<PaginatedHogFlowMinimalListApi> => {
+    return apiMutator<PaginatedHogFlowMinimalListApi>(getHogFlowsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getMessagingTemplatesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_templates/`
+export const getHogFlowsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/`
 }
 
-export const messagingTemplatesCreate = async (
+export const hogFlowsCreate = async (
     projectId: string,
-    messageTemplateApi: NonReadonly<MessageTemplateApi>,
+    hogFlowApi: NonReadonly<HogFlowApi>,
     options?: RequestInit
-): Promise<MessageTemplateApi> => {
-    return apiMutator<MessageTemplateApi>(getMessagingTemplatesCreateUrl(projectId), {
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(messageTemplateApi),
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/`
+}
+
+export const hogFlowsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/`
+}
+
+export const hogFlowsUpdate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/`
+}
+
+export const hogFlowsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowApi),
+    })
+}
+
+export const getHogFlowsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/`
+}
+
+export const hogFlowsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getHogFlowsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getHogFlowsBatchJobsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
+}
+
+export const hogFlowsBatchJobsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsBatchJobsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsBatchJobsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
+}
+
+export const hogFlowsBatchJobsCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsBatchJobsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
+}
+
+export const hogFlowsInvocationsCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsInvocationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+}
+
+export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsMetricsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/metrics/`
+}
+
+export const hogFlowsMetricsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getHogFlowsMetricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsMetricsTotalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/metrics/totals/`
+}
+
+export const hogFlowsMetricsTotalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSchedulesListUrl = (projectId: string, id: string, params?: HogFlowsSchedulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/schedules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/schedules/`
+}
+
+export const hogFlowsSchedulesList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsSchedulesListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowScheduleListApi> => {
+    return apiMutator<PaginatedHogFlowScheduleListApi>(getHogFlowsSchedulesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSchedulesCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsSchedulesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/schedules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/schedules/`
+}
+
+export const hogFlowsSchedulesCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    params?: HogFlowsSchedulesCreateParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowScheduleListApi> => {
+    return apiMutator<PaginatedHogFlowScheduleListApi>(getHogFlowsSchedulesCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsSchedulesPartialUpdateUrl = (projectId: string, id: string, scheduleId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
+}
+
+export const hogFlowsSchedulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    scheduleId: string,
+    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowApi),
+    })
+}
+
+export const getHogFlowsSchedulesDestroyUrl = (projectId: string, id: string, scheduleId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/schedules/${scheduleId}/`
+}
+
+export const hogFlowsSchedulesDestroy = async (
+    projectId: string,
+    id: string,
+    scheduleId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsSchedulesDestroyUrl(projectId, id, scheduleId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getHogFlowsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/bulk_delete/`
+}
+
+export const hogFlowsBulkDeleteCreate = async (
+    projectId: string,
+    hogFlowApi: NonReadonly<HogFlowApi>,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
+}
+
+export const hogFlowsUserBlastRadiusCreate = async (
+    projectId: string,
+    blastRadiusRequestApi: BlastRadiusRequestApi,
+    options?: RequestInit
+): Promise<BlastRadiusApi> => {
+    return apiMutator<BlastRadiusApi>(getHogFlowsUserBlastRadiusCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(blastRadiusRequestApi),
     })
 }

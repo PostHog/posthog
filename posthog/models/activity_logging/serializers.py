@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema_serializer
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.models import User
@@ -44,9 +44,7 @@ class DetailSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="ActivityLogEntry")
 class ActivityLogSerializer(serializers.Serializer):
-    class Meta:
-        exclude = ["team_id, organization_id"]
-
+    id = serializers.UUIDField(read_only=True)
     user = serializers.SerializerMethodField()
     activity = serializers.CharField(read_only=True)
     scope = serializers.CharField(read_only=True)
@@ -54,6 +52,7 @@ class ActivityLogSerializer(serializers.Serializer):
     detail = DetailSerializer(required=False)
     created_at = serializers.DateTimeField(read_only=True)
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_user(self, activity_log: ActivityLog):
         if activity_log.is_system:
             return {"first_name": "System", "email": None, "is_system": True}

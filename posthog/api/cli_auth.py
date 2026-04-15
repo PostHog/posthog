@@ -24,8 +24,7 @@ from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600

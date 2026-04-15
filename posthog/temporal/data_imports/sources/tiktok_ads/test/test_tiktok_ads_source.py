@@ -108,6 +108,7 @@ class TestTikTokAdsSource:
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
+            source_id="source-id",
             team_id=self.team_id,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime.now() - timedelta(days=1),
@@ -116,6 +117,7 @@ class TestTikTokAdsSource:
             incremental_field_type=IncrementalFieldType.DateTime,
             job_id=self.job_id,
             logger=structlog.get_logger(),
+            reset_pipeline=False,
         )
 
         mock_response = Mock()
@@ -142,6 +144,7 @@ class TestTikTokAdsSource:
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
+            source_id="source-id",
             team_id=self.team_id,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
@@ -150,6 +153,7 @@ class TestTikTokAdsSource:
             incremental_field_type=None,
             job_id=self.job_id,
             logger=structlog.get_logger(),
+            reset_pipeline=False,
         )
 
         self.mock_integration.access_token = None

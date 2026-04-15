@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
 import {
@@ -11,7 +12,10 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { TASK_STATUS_CONFIG } from '../lib/task-status'
 import { tasksLogic } from '../logics/tasksLogic'
@@ -26,20 +30,22 @@ export function TasksList(): JSX.Element {
     const { tasksLoading, repositories } = useValues(tasksLogic)
     const { setSearchQuery, setRepository, setStatus, openCreateModal, closeCreateModal } =
         useActions(taskTrackerSceneLogic)
-    const { openTask } = useActions(tasksLogic)
-
     const columns: LemonTableColumn<Task, keyof Task | undefined>[] = [
         {
             title: 'Task',
             key: 'title',
             width: '40%',
             render: (_: any, task: Task) => (
-                <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                        <span className="font-semibold text-link cursor-pointer" onClick={() => openTask(task.id)}>
+                <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <Link
+                            to={urls.taskDetail(task.id)}
+                            className="font-semibold text-link shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             {task.slug}
-                        </span>
-                        <span className="text-default">{task.title}</span>
+                        </Link>
+                        <span className="text-default truncate">{task.title}</span>
                     </div>
                     {task.description && <div className="text-muted text-xs line-clamp-1">{task.description}</div>}
                 </div>
@@ -77,21 +83,7 @@ export function TasksList(): JSX.Element {
             title: 'Created',
             key: 'created_at',
             width: '10%',
-            render: (_: any, task: Task) => {
-                const date = new Date(task.created_at)
-                const now = new Date()
-                const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
-
-                if (diffInHours < 1) {
-                    return <span className="text-sm">Just now</span>
-                }
-                if (diffInHours < 24) {
-                    const hours = Math.floor(diffInHours)
-                    return <span className="text-sm">{hours}h ago</span>
-                }
-                const days = Math.floor(diffInHours / 24)
-                return <span className="text-sm">{days}d ago</span>
-            },
+            render: (_: any, task: Task) => <TZLabel time={task.created_at} showSeconds className="text-sm" />,
         },
     ]
 
@@ -156,7 +148,14 @@ export function TasksList(): JSX.Element {
                     columns={columns}
                     rowKey="id"
                     onRow={(task) => ({
-                        onClick: () => openTask(task.id),
+                        onClick: (e) => {
+                            const url = urls.taskDetail(task.id)
+                            if (e.metaKey || e.ctrlKey || e.button === 1) {
+                                window.open(url, '_blank')
+                            } else {
+                                router.actions.push(url)
+                            }
+                        },
                         className: 'cursor-pointer hover:bg-bg-light',
                     })}
                     emptyState={

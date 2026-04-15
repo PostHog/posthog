@@ -12,7 +12,7 @@
 
 ## How did you test this code?
 
-<!-- Briefly describe the steps you took. -->
+<!-- Briefly describe the steps you took, and what steps reviewers must take to get to where changes are, and what is the expected behavior. -->
 <!-- Include automated tests if possible, otherwise describe the manual testing routine. -->
 <!-- If you are an agent writing this, do NOT include manual tasks you have NOT completed. You can clearly outline you're simply an agent and you haven't tested this manually except for code-based unit/integration tests -->
 
@@ -25,6 +25,10 @@
 <!-- If publishing, you must provide changelog details in the #changelog Slack channel. You will receive a follow-up PR comment or notification. -->
 
 <!-- If not, write "no" or "do not publish to changelog" to explicitly opt-out of posting to #changelog. Removing this entire section will not prevent posting. -->
+
+## Docs update
+
+<!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
 
 <!-- ## 🤖 LLM context -->
 

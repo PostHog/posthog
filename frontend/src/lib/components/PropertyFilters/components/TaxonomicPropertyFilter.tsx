@@ -90,7 +90,8 @@ export function TaxonomicPropertyFilter({
         selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
-            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters ||
+            (taxonomicGroup.type === TaxonomicFilterGroupType.RecentFilters && item?._recentContext?.propertyFilter)
         ) {
             onComplete?.()
         }
@@ -219,6 +220,11 @@ export function TaxonomicPropertyFilter({
             groupTypeIndex={
                 isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
                     ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
+            groupKeyNames={
+                isGroupPropertyFilter(filter) && 'group_key_names' in filter
+                    ? (filter as any).group_key_names
                     : undefined
             }
             operatorAllowlist={operatorAllowlist}

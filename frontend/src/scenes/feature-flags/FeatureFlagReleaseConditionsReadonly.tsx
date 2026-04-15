@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
+import { IconFlag, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -10,14 +10,30 @@ import { IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
+    FeatureFlagGroupType,
+    PropertyFilterType,
+} from '~/types'
 
+import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
     filters: FeatureFlagFilters
     isDisabled?: boolean
+    evaluationRuntime?: FeatureFlagEvaluationRuntime
+}
+
+/** Extract server-provided group_key_names from a property, if present. */
+function getGroupKeyNames(property: AnyPropertyFilter): Record<string, string> {
+    if (property.type === PropertyFilterType.Group && 'group_key_names' in property) {
+        return (property as any).group_key_names ?? {}
+    }
+    return {}
 }
 
 function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JSX.Element {
@@ -30,19 +46,22 @@ function PropertyValueDisplay({ property }: { property: AnyPropertyFilter }): JS
     }
 
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+    const groupKeyNames = property.key === '$group_key' ? getGroupKeyNames(property) : {}
 
     return (
         <>
-            {propertyValues.map((val, idx) => (
-                <LemonSnack key={idx}>{String(val)}</LemonSnack>
-            ))}
+            {propertyValues.map((val, idx) => {
+                const strVal = String(val)
+                const display = groupKeyNames[strVal] || strVal
+                return <LemonSnack key={idx}>{display}</LemonSnack>
+            })}
         </>
     )
 }
 
 function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter; isFirst: boolean }): JSX.Element {
     const propertyLabel =
-        property.type === PropertyFilterType.Cohort
+        property.type === PropertyFilterType.Cohort || property.type === PropertyFilterType.Flag
             ? null
             : getFilterLabel(
                   property.key,
@@ -60,8 +79,15 @@ function PropertyFilterRow({ property, isFirst }: { property: AnyPropertyFilter;
             ) : (
                 <LemonButton icon={<span className="text-xs font-medium">&</span>} size="small" noPadding />
             )}
-            {propertyLabel && <span className="text-muted">{propertyLabel}</span>}
-            <LemonSnack>{property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}</LemonSnack>
+            {propertyLabel && propertyLabel !== property.key && <span className="text-muted">{propertyLabel}</span>}
+            {property.type === PropertyFilterType.Flag ? (
+                <LemonSnack>
+                    <IconFlag className="mr-1" />
+                    {property.label || property.key}
+                </LemonSnack>
+            ) : (
+                <LemonSnack>{property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}</LemonSnack>
+            )}
             <span className="text-muted">{operator}</span>
             <PropertyValueDisplay property={property} />
         </div>
@@ -72,6 +98,7 @@ export function FeatureFlagReleaseConditionsReadonly({
     id,
     filters,
     isDisabled,
+    evaluationRuntime,
 }: FeatureFlagReleaseConditionsReadonlyProps): JSX.Element {
     // Use readOnly: true to prevent the logic from triggering blast radius API calls.
     // In readonly mode, we don't need live blast radius calculations - the display is static.
@@ -81,7 +108,7 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName } = useValues(releaseConditionsLogic)
+    const { filterGroups, aggregationTargetName, properties } = useValues(releaseConditionsLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -98,6 +125,8 @@ export function FeatureFlagReleaseConditionsReadonly({
                 Condition sets are evaluated top to bottom — the first match wins.
             </p>
 
+            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
+
             <div className={isDisabled ? 'opacity-60' : ''}>
                 {filterGroups.map((group, index) => (
                     <div key={group.sort_key ?? index}>
@@ -106,7 +135,11 @@ export function FeatureFlagReleaseConditionsReadonly({
                                 OR
                             </div>
                         )}
-                        <ConditionSetCard group={group} index={index} aggregationTargetName={aggregationTargetName} />
+                        <ConditionSetCard
+                            group={group}
+                            index={index}
+                            aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                        />
                     </div>
                 ))}
 
@@ -241,12 +274,13 @@ export function FeatureFlagSuperConditionsReadonly({
                             <div className="text-sm">
                                 {group.properties?.length ? (
                                     <>
-                                        Match <b>{aggregationTargetName}</b> against value set on{' '}
-                                        <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
+                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
+                                        value set on <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
                                     </>
                                 ) : (
                                     <>
-                                        Condition set will match <b>all {aggregationTargetName}</b>
+                                        Condition set will match{' '}
+                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
                                     </>
                                 )}
                             </div>

@@ -74,7 +74,10 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         resource = self._get_source_resource(data["resource_kind"], data["resource_id"], source_team)
 
-        graph = list(build_resource_duplication_graph(resource, set()))
+        try:
+            graph = list(build_resource_duplication_graph(resource, set()))
+        except (ValueError, TypeError) as e:
+            raise exceptions.ValidationError(str(e))
         dag = dag_sort_duplication_graph(graph)
 
         self._check_access_controls(user, source_team, destination_team, dag)
@@ -132,7 +135,10 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         resource = self._get_source_resource(data["resource_kind"], data["resource_id"], source_team)
 
-        graph = list(build_resource_duplication_graph(resource, set()))
+        try:
+            graph = list(build_resource_duplication_graph(resource, set()))
+        except (ValueError, TypeError) as e:
+            raise exceptions.ValidationError(str(e))
         dag = dag_sort_duplication_graph(graph)
 
         self._check_access_controls(user, source_team, destination_team, dag)
@@ -249,9 +255,15 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _get_team_in_org(self, team_id: int) -> Team:
         try:
-            return Team.objects.get(id=team_id, organization_id=self.organization_id)
+            team = Team.objects.get(id=team_id, organization_id=self.organization_id)
         except Team.DoesNotExist:
             raise exceptions.ValidationError(f"Team {team_id} not found in this organization")
+
+        uac = UserAccessControl(user=cast(User, self.request.user), team=team)
+        if not uac.check_access_level_for_object(team, required_level="member"):
+            raise exceptions.PermissionDenied("You don't have access to this project.")
+
+        return team
 
     def _get_source_resource(self, resource_kind: str, resource_id: str, source_team: Team) -> Any:
         visitor = ResourceTransferVisitor.get_visitor(resource_kind)

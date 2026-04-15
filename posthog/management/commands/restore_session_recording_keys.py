@@ -7,7 +7,6 @@ import boto3
 from botocore.exceptions import ClientError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 LIVE_TABLE_NAME = "session-recording-keys"
@@ -288,7 +287,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"\nDone: {restored} restored, {skipped} skipped{suffix}"))
 
     def _undelete_metadata(self, session_ids: list[tuple[str, int]]) -> None:
-        self.stdout.write("\nUndeleting metadata in ClickHouse and Postgres...")
+        self.stdout.write("\nUndeleting metadata in ClickHouse...")
 
         session_id_list = [sid for sid, _ in session_ids]
         team_ids = {tid for _, tid in session_ids}
@@ -304,12 +303,6 @@ class Command(BaseCommand):
             settings={"mutations_sync": 2},
         )
         self.stdout.write(f"  ClickHouse: undeleted {len(session_id_list)} sessions")
-
-        # Postgres: bulk update
-        updated = SessionRecording.objects.filter(
-            session_id__in=session_id_list, team_id__in=team_ids, deleted=True
-        ).update(deleted=None)
-        self.stdout.write(f"  Postgres: undeleted {updated} recordings")
 
     def _cleanup(self, dynamodb_client, restored_table_name: str) -> None:
         self.stdout.write(f"Deleting restored table: {restored_table_name}")

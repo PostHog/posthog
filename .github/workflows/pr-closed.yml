@@ -5,6 +5,10 @@ on:
         types:
             - closed
 
+permissions:
+    contents: read
+    pull-requests: read
+
 jobs:
     cleanup-hobby-preview:
         name: Cleanup hobby preview deployment
@@ -17,9 +21,39 @@ jobs:
             pr_number: '${{ github.event.pull_request.number }}'
         secrets: inherit
 
+    disable-canary-flags:
+        name: Disable feature flags canary
+        if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+
+            - name: Dispatch canary disable to charts repo
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  github-token: ${{ steps.deployer.outputs.token }}
+                  script: |
+                      await github.rest.repos.createDispatchEvent({
+                          owner: 'PostHog',
+                          repo: 'charts',
+                          event_type: 'disable-canary-flags',
+                          client_payload: {
+                              pr_number: process.env.PR_NUMBER
+                          }
+                      });
+
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.merged == true
         steps:
             - name: Calculate PR age
@@ -29,17 +63,24 @@ jobs:
                   PR_TITLE: ${{ github.event.pull_request.title }}
               run: |
                   pr_age=$((($(date '+%s') - $(date -d "$PR_CREATED_AT" '+%s'))))
-                  echo pr_age=$pr_age >> $GITHUB_ENV
+                  echo "pr_age=$pr_age" >> $GITHUB_ENV
+
                   first_commit_message_in_pr=$(curl -s "$PR_HREF" | jq '.[0].commit.message')
-                  echo first_commit_message_in_pr=$first_commit_message_in_pr >> $GITHUB_ENV
+                  echo "first_commit_message_in_pr<<EOF" >> $GITHUB_ENV
+                  echo "$first_commit_message_in_pr" >> $GITHUB_ENV
+                  echo "EOF" >> $GITHUB_ENV
+
                   if [[ $first_commit_message_in_pr =~ Revert[[:space:]] ]]; then
-                      echo is_revert=true >> $GITHUB_ENV
+                      echo "is_revert=true" >> $GITHUB_ENV
                   else
-                      echo is_revert=false >> $GITHUB_ENV
+                      echo "is_revert=false" >> $GITHUB_ENV
                   fi
+
                   # Escape the PR title for JSON
                   pr_title_escaped=$(echo "$PR_TITLE" | jq -R .)
-                  echo "pr_title_escaped=${pr_title_escaped}" >> $GITHUB_ENV
+                  echo "pr_title_escaped<<EOF" >> $GITHUB_ENV
+                  echo "$pr_title_escaped" >> $GITHUB_ENV
+                  echo "EOF" >> $GITHUB_ENV
             - name: Capture PR age to PostHog
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:

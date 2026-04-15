@@ -91,6 +91,7 @@ export interface BatchExportDestinationApi {
  * `day` - day
  * `week` - week
  * `every 5 minutes` - every 5 minutes
+ * `every 15 minutes` - every 15 minutes
  */
 export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
 
@@ -99,6 +100,7 @@ export const IntervalEnumApi = {
     Day: 'day',
     Week: 'week',
     Every5Minutes: 'every 5 minutes',
+    Every15Minutes: 'every 15 minutes',
 } as const
 
 /**
@@ -153,6 +155,13 @@ export interface BatchExportRunApi {
      * @nullable
      */
     records_completed?: number | null
+    /**
+     * The number of records that failed downstream processing (e.g. hog function execution errors).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_failed?: number | null
     /**
      * The latest error that occurred during this run.
      * @nullable
@@ -353,9 +362,22 @@ export const BatchExportBackfillStatusEnumApi = {
     Starting: 'Starting',
 } as const
 
+/**
+ * @nullable
+ */
+export type BatchExportBackfillApiProgress = {
+    /** @nullable */
+    readonly total_runs?: number | null
+    /** @nullable */
+    readonly finished_runs?: number | null
+    /** @nullable */
+    readonly progress?: number | null
+} | null | null
+
 export interface BatchExportBackfillApi {
     readonly id: string
-    readonly progress: string
+    /** @nullable */
+    readonly progress: BatchExportBackfillApiProgress
     /**
      * The start of the data interval.
      * @nullable

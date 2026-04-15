@@ -19,6 +19,7 @@ import {
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { filterSearchItems } from 'lib/components/Search/utils'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -38,7 +39,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -145,7 +146,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
         error_tracking: 'Error tracking',
-        data_warehouse: 'Data warehouse',
+        data_warehouse: 'Data ops',
         data_pipeline: 'Data pipeline',
         annotation: 'Annotation',
         event_definition: 'Event',
@@ -275,6 +276,13 @@ function SearchRoot({
     const { updateUser } = useActions(userLogic)
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
+
+    useEffect(() => {
+        if (defaultSearchValue) {
+            setSearchValue(defaultSearchValue)
+        }
+    }, [defaultSearchValue])
+
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
@@ -292,19 +300,14 @@ function SearchRoot({
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
         if (searchValue.trim()) {
-            const searchLower = searchValue.toLowerCase()
-            items = allItems.filter((item) => {
-                // Filter recents and apps by name (client-side filtering)
-                if (item.category === 'recents' || item.category === 'apps') {
-                    const name = (item.displayName || item.name || '').toLowerCase()
-                    return name.includes(searchLower)
-                }
-                // Other categories come from server search, keep all
-                return true
-            })
+            // Client-side fuzzy filter for recents/apps/starred; keep server results as-is
+            const clientItems = allItems.filter((item) => ['recents', 'apps', 'starred'].includes(item.category))
+            const serverItems = allItems.filter((item) => !['recents', 'apps', 'starred'].includes(item.category))
+            const filteredClientItems = filterSearchItems(clientItems, searchValue)
+            items = [...filteredClientItems, ...serverItems]
         } else {
-            // When not searching, show recents and apps
-            items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
+            // When not searching, show recents, starred, and apps
+            items = allItems.filter((item) => ['recents', 'starred', 'apps'].includes(item.category))
         }
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
@@ -410,8 +413,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: ai first (when searching), then recents, apps, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'apps', 'create']
+        // Fixed order: ai first (when searching), then recents, starred, apps, create, then everything else
+        const orderedCategories = ['suggested', 'recents', 'starred', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -419,11 +422,14 @@ function SearchRoot({
             const isLoading = loadingByCategory.get(category) ?? false
 
             // When searching: hide empty groups (unless still loading)
-            // When not searching: always show recents/apps (with skeleton if loading)
+            // When not searching: always show recents/apps (with skeleton if loading); starred only when items or loading
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) ||
+                  category === 'recents' ||
+                  category === 'apps' ||
+                  (category === 'starred' && (items.length > 0 || isLoading))
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -440,12 +446,17 @@ function SearchRoot({
         return groups
     }, [filteredItems, allCategories, searchValue])
 
+    // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
+    // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
+    // breaks at group boundaries where the two orderings diverge.
+    const orderedItems = useMemo(() => groupedItems.flatMap((g) => g.items), [groupedItems])
+
     const contextValue: SearchContextValue = useMemo(
         () => ({
             logicKey,
             searchValue,
             setSearchValue,
-            filteredItems,
+            filteredItems: orderedItems,
             groupedItems,
             isSearching,
             isActive,
@@ -458,7 +469,7 @@ function SearchRoot({
         [
             logicKey,
             searchValue,
-            filteredItems,
+            orderedItems,
             groupedItems,
             isSearching,
             isActive,
@@ -474,8 +485,8 @@ function SearchRoot({
                 className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
             >
                 <Autocomplete.Root
-                    items={filteredItems}
-                    filter={null}
+                    items={orderedItems}
+                    mode="none"
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
                     inline
@@ -671,7 +682,12 @@ function SearchResults({
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
 
     return (
-        <ScrollableShadows direction="vertical" styledScrollbars className={cn('flex-1 overflow-y-auto', className)}>
+        <ScrollableShadows
+            direction="vertical"
+            styledScrollbars
+            className={cn('flex-1 overflow-y-auto', className)}
+            innerClassName="scroll-pt-12 scroll-pb-8"
+        >
             {!isAnyLoading && (
                 <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
                     <span>
@@ -698,7 +714,12 @@ function SearchResults({
                                 {group.isLoading && !isSearching ? (
                                     <>
                                         {Array.from({
-                                            length: group.category === 'recents' ? RECENTS_LIMIT : 10,
+                                            length:
+                                                group.category === 'recents'
+                                                    ? RECENTS_LIMIT
+                                                    : group.category === 'starred'
+                                                      ? Math.min(STARRED_LIMIT, 5)
+                                                      : 10,
                                         }).map((_, i) => (
                                             // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
                                             <div key={i} className="px-2 h-[30px] py-px">
@@ -745,9 +766,10 @@ function SearchResults({
                                                                         >
                                                                             {icon}
                                                                             <span className="truncate">
-                                                                                {item.displayName || item.name}
+                                                                                {String(item.displayName || item.name)}
                                                                             </span>
                                                                             {(group.category === 'recents' ||
+                                                                                group.category === 'starred' ||
                                                                                 group.category === 'groups') &&
                                                                                 (item.groupNoun || typeLabel) && (
                                                                                     <span className="text-xs text-tertiary shrink-0 mt-[2px]">
@@ -852,11 +874,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut escape /> to close
                     </span>
-                    {searchValue.trim() && (
-                        <span>
-                            <KeyboardShortcut tab /> to ask AI
-                        </span>
-                    )}
                 </>
             )}
         </div>

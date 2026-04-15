@@ -1,5 +1,6 @@
 import importlib
 from types import SimpleNamespace
+from typing import ClassVar
 
 from unittest.mock import patch
 
@@ -11,7 +12,10 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.models import Task, TaskRun
+
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
+
 forward_pending_user_message = _module.forward_pending_user_message
 
 
@@ -22,32 +26,37 @@ def _command_result(**kwargs):
 
 
 class TestForwardPendingUserMessage(TestCase):
-    def setUp(self):
-        self.Task = apps.get_model("tasks", "Task")
-        self.TaskRun = apps.get_model("tasks", "TaskRun")
-        self.org = Organization.objects.create(name="TestOrg")
-        self.team = Team.objects.create(organization=self.org, name="TestTeam")
-        self.user = User.objects.create(email="alice@test.com")
-        self.task = self.Task.objects.create(
-            team=self.team,
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    slack_integration: ClassVar[Integration]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organization.objects.create(name="TestOrg")
+        cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
+        cls.user = User.objects.create(email="alice@test.com")
+        cls.task = Task.objects.create(
+            team=cls.team,
             title="Test task",
             description="desc",
-            origin_product=self.Task.OriginProduct.SLACK,
-            created_by=self.user,
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=cls.user,
             repository="org/repo",
         )
-        self.slack_integration = Integration.objects.create(
-            team=self.team,
-            kind="slack-twig",
+        cls.slack_integration = Integration.objects.create(
+            team=cls.team,
+            kind="slack-posthog-code",
             integration_id="T123",
             config={},
         )
 
     def _make_run(self, state=None):
-        return self.TaskRun.objects.create(
+        return TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            status=self.TaskRun.Status.IN_PROGRESS,
+            status=TaskRun.Status.IN_PROGRESS,
             state=state or {},
         )
 
@@ -128,7 +137,7 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_posts_reply_and_cleans_progress(
@@ -174,7 +183,7 @@ class TestForwardPendingUserMessage(TestCase):
         assert "pending_user_message" not in run.state
         assert "pending_user_message_ts" not in run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_non_retryable_failure_posts_error(
@@ -218,7 +227,7 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_posts_fallback_when_reply_text_missing(self, mock_send, mock_token, mock_enqueue_relay):

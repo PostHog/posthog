@@ -8,7 +8,7 @@ from posthog.models.duplicate_events.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(DUPLICATE_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DUPLICATE_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DUPLICATE_EVENTS_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(KAFKA_DUPLICATE_EVENTS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(DUPLICATE_EVENTS_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),

@@ -1,11 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
-import { LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -13,6 +12,8 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 
+import { CustomerJourneySelect } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneySelect'
+import { CustomerJourneysEmptyState } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneysEmptyState'
 import { customerJourneysLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/customerJourneysLogic'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
@@ -44,7 +45,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
         if (activeJourney) {
             setTitlePlaceholder(`Customer journey - ${activeJourney.name}`)
         }
-    }, [activeJourney?.name])
+    }, [setTitlePlaceholder, activeJourney])
 
     useOnMountEffect(() => {
         setMenuItems([
@@ -71,14 +72,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
     }
 
     if (journeyOptions.length === 0) {
-        return (
-            <EmptyMessage
-                title="No customer journeys configured"
-                description="Add funnel insights as customer journeys to see how this customer moves through your product."
-                buttonText="Configure journeys"
-                buttonTo={urls.customerAnalyticsJourneys()}
-            />
-        )
+        return <CustomerJourneysEmptyState embedded />
     }
 
     if (!isJourneysEnabled || !expanded || !filteredQuery) {
@@ -105,14 +99,13 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodeCustomerJourneyAttributes>): JSX.Element => {
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const logicKey = getLogicKey({ personId, groupKey, tabId })
-    const logic = customerJourneysLogic({ key: logicKey, personId, groupKey, groupTypeIndex })
-    const { journeyOptions, activeJourneyId } = useValues(logic)
-    const { setActiveJourneyId } = useActions(logic)
 
     return (
-        <div className="flex items-center gap-2 p-2">
-            <LemonSelect value={activeJourneyId} onChange={setActiveJourneyId} options={journeyOptions} size="small" />
-        </div>
+        <BindLogic logic={customerJourneysLogic} props={{ key: logicKey, personId, groupKey, groupTypeIndex }}>
+            <div className="flex items-center gap-2 p-2">
+                <CustomerJourneySelect type="secondary" />
+            </div>
+        </BindLogic>
     )
 }
 

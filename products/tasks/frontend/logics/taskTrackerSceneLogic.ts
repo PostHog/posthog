@@ -89,7 +89,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 description: '',
                 repositoryConfig: {
                     integrationId: undefined,
-                    organization: undefined,
                     repository: undefined,
                 },
             } as TaskCreateForm,
@@ -99,7 +98,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     description: '',
                     repositoryConfig: {
                         integrationId: undefined,
-                        organization: undefined,
                         repository: undefined,
                     },
                 }),
@@ -161,7 +159,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskFailure('Description is required')
                 return
             }
-            if (!repositoryConfig.integrationId || !repositoryConfig.organization || !repositoryConfig.repository) {
+            if (!repositoryConfig.integrationId || !repositoryConfig.repository) {
                 lemonToast.error('Repository is required')
                 actions.submitNewTaskFailure('Repository is required')
                 return
@@ -172,7 +170,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     title: '',
                     description,
                     origin_product: OriginProduct.USER_CREATED,
-                    repository: `${repositoryConfig.organization}/${repositoryConfig.repository}`,
+                    repository: repositoryConfig.repository,
                     github_integration: repositoryConfig.integrationId ?? null,
                 }
 

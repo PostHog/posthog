@@ -33,10 +33,11 @@ Table | Description
 `system.exports` | Export jobs
 `system.feature_flags` | Feature flags for controlling rollouts
 `system.groups` | Group entities
-`system.group_type_mappings` | Group type definitions
 `system.ingestion_warnings` | Data ingestion issues
 `system.insight_variables` | SQL, dashboard, and insight variables for dynamic query filtering
 `system.insights` | Visual and textual representations of aggregated data
+`system.logs_alerts` | Log alert configurations and their states
+`system.logs_views` | Saved log filter views
 `system.notebooks` | Collaborative documents with embedded insights
 `system.surveys` | Questionnaires and feedback forms
 `system.teams` | Team/project settings
@@ -56,8 +57,8 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Dashboards, Tiles & Insights](references/models-dashboards-insights.md)
 - [Data Warehouse](references/models-data-warehouse.md)
 - [Error Tracking](references/models-error-tracking.md)
+- [Logs](references/models-logs.md)
 - [Flags & Experiments](references/models-flags-experiments.md)
-- [Groups](references/models-groups.md)
 - [Notebooks](references/models-notebooks.md)
 - [Surveys](references/models-surveys.md)
 - [SQL Variables](references/models-variables.md)
@@ -69,7 +70,6 @@ Experiment | 1:1 | FeatureFlag | `feature_flag_id`
 Experiment | N:1 | Cohort | `exposure_cohort_id`
 Survey | N:1 | FeatureFlag | `linked_flag_id`, `targeting_flag_id`
 Survey | N:1 | Insight | `linked_insight_id`
-Group | N:1 | GroupTypeMapping | `group_type_index` (logical)
 Cohort | M:N | Person | via `cohortpeople`
 Person | 1:N | PersonDistinctId | `person_id`
 
@@ -105,6 +105,23 @@ WHERE event = '$pageview'
 GROUP BY week
 ORDER BY week DESC
 ```
+
+##### 3. Document Embeddings (Semantic Search)
+
+The `document_embeddings` table stores text content with vector embeddings, partitioned by `model_name`. To discover what kinds of data are available:
+
+```sql
+SELECT product, document_type, count() as cnt
+FROM document_embeddings
+WHERE model_name = 'text-embedding-3-small-1536'
+  AND timestamp >= now() - INTERVAL 1 MONTH
+GROUP BY product, document_type
+ORDER BY cnt DESC
+```
+
+Run separately for each model. Available models: `'text-embedding-3-small-1536'`, `'text-embedding-3-large-3072'`. You MUST filter on exactly one `model_name` per query — it routes to the correct underlying ClickHouse table. `IN` clauses and cross-model queries will fail.
+
+Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 
 #### Querying guidelines
 

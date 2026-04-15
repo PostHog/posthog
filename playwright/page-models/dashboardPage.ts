@@ -28,29 +28,48 @@ export class DashboardPage {
     }
 
     async createNew(dashboardName?: string): Promise<DashboardPage> {
-        await this.page.goto(urls.dashboards())
+        // CI occasionally hits net::ERR_NETWORK_CHANGED on goto; retry the navigation only.
+        await expect(async () => {
+            await this.page.goto(urls.dashboards())
+        }).toPass({ timeout: 60000 })
         await this.page.getByTestId('new-dashboard').click()
         await this.page.getByTestId('create-dashboard-blank').click()
         await expect(this.page.locator('.dashboard')).toBeVisible()
         await this.dismissQuickStartIfVisible()
 
         if (dashboardName) {
-            const textarea = this.page.locator('.scene-title-section textarea')
-            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            const nameButton = this.page.locator('[data-attr="scene-name"] button').first()
+            const textarea = this.page.locator('[data-attr="scene-title-textarea"]')
+            // Click the title button to enter edit mode, retrying if loading resets the state
+            await expect(async () => {
+                if (!(await textarea.isVisible().catch(() => false))) {
+                    await nameButton.click()
+                }
+                await expect(textarea).toBeVisible({ timeout: 3000 })
+            }).toPass({ timeout: 30000 })
             await textarea.fill(dashboardName)
+            await textarea.blur()
         }
 
         return this
     }
 
     async createFromTemplate(): Promise<DashboardPage> {
-        await this.page.goto(urls.dashboards())
+        await expect(async () => {
+            await this.page.goto(urls.dashboards())
+        }).toPass({ timeout: 60000 })
         await this.page.getByTestId('new-dashboard').click()
 
-        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Create a dashboard' })
-        await expect(modal).toBeVisible()
+        // New dashboard modal uses DialogPrimitive, not LemonModal (see NewDashboardModal.tsx).
+        await expect(this.page.getByTestId('new-dashboard-chooser')).toBeVisible()
 
-        const templateOption = this.page.getByTestId('create-dashboard-from-template').first()
+        // Pick a template with no variables — `.first()` can hit e.g. AARRR or Product Analytics,
+        // which open the variable picker instead of creating and never leave #newDashboard=modal.
+        const templateOption = this.page
+            .locator(
+                '[data-attr="create-dashboard-from-template"], [data-attr="create-dashboard-from-template-featured"]'
+            )
+            .filter({ hasText: 'Website Metrics' })
         await expect(templateOption).toBeVisible()
         await templateOption.click()
 
@@ -59,7 +78,7 @@ export class DashboardPage {
     }
 
     async addInsightToNewDashboard(insightName?: string): Promise<void> {
-        await this.page.getByRole('button', { name: 'Add insight' }).first().click()
+        await this.page.getByTestId('dashboard-add-graph-header').click()
         const row = insightName
             ? this.page.locator('.LemonModal .LemonTable tbody tr').filter({ hasText: insightName }).first()
             : this.page.locator('.LemonModal .LemonTable tbody tr').first()
@@ -68,15 +87,25 @@ export class DashboardPage {
     }
 
     async addTextCard(text: string): Promise<void> {
-        await this.page.getByTestId('add-text-tile-to-dashboard').click()
+        await this.page.getByTestId('dashboard-add-tile').click()
+        const addTextTileButton = this.page.getByTestId('dashboard-add-text-tile')
+        await expect(addTextTileButton).toBeVisible()
+        await addTextTileButton.click()
 
-        const modal = this.page.locator('.LemonModal')
+        await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
+
+        // Text card edit UI uses DialogPrimitive, not LemonModal (see TextCardModal.tsx).
+        const modal = this.page.getByTestId('text-card-modal')
         await expect(modal).toBeVisible()
 
-        const textArea = modal.locator('textarea')
-        await expect(textArea).toBeVisible()
-        await textArea.fill(text)
-        await this.page.getByTestId('save-new-text-tile').click()
+        const textEditor = modal
+            .locator(
+                'textarea[data-attr="text-card-edit-area"], [data-attr="text-card-edit-area"][contenteditable="true"], [data-attr="text-card-edit-area"] [contenteditable="true"]'
+            )
+            .first()
+        await expect(textEditor).toBeVisible()
+        await textEditor.fill(text)
+        await modal.getByTestId('save-new-text-tile').click()
 
         await expect(this.textCards.filter({ hasText: text })).toBeVisible()
     }
@@ -107,7 +136,10 @@ export class DashboardPage {
     }
 
     async closeInfoPanel(): Promise<void> {
-        await this.page.getByTestId('context-panel-close-button').click()
+        const closeButton = this.page.getByTestId('context-panel-close-button')
+        if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await closeButton.click()
+        }
     }
 
     async duplicate(): Promise<void> {
@@ -209,14 +241,7 @@ export class DashboardPage {
             .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
         await editLink.click()
     }
-}
 
-/**
- * Extends DashboardPage with helpers for the compact card redesign.
- * Requires the 'dashboard-tile-redesign' feature flag — mock it via mockFeatureFlags before use.
- * Merge these into DashboardPage when the flag is fully rolled out.
- */
-export class CompactDashboardPage extends DashboardPage {
     async enterEditMode(): Promise<void> {
         await this.page.getByTestId('dashboard-edit-mode-button').click()
         await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
@@ -228,8 +253,8 @@ export class CompactDashboardPage extends DashboardPage {
     }
 
     async hoverFirstCard(): Promise<void> {
-        const title = this.insightCards.first().locator('[data-attr="insight-card-title"]')
-        await title.hover()
+        const infoButton = this.insightCards.first().locator('[data-attr="card-meta-info"]')
+        await infoButton.click()
     }
 
     get tilePopover(): Locator {

@@ -9,10 +9,14 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
+use k8s_awareness::K8sAwareness;
+
 use crate::consumer_registry::{ConsumerConnection, ConsumerRegistry};
 use crate::grpc::convert;
 use crate::store::KafkaAssignerStore;
-use crate::types::{AssignmentEvent, ConsumerStatus, RegisteredConsumer, TopicConfig};
+use crate::types::{
+    AssignmentEvent, ConsumerStatus, HandoffPhase, RegisteredConsumer, TopicConfig,
+};
 
 /// Kafka connection settings for admin metadata lookups.
 #[derive(Clone)]
@@ -32,6 +36,8 @@ pub struct KafkaAssignerService {
     stream_channel_size: usize,
     consumer_lease_ttl: i64,
     consumer_keepalive_interval: Duration,
+    /// Optional K8s awareness for controller discovery and departure classification.
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl KafkaAssignerService {
@@ -45,9 +51,10 @@ impl KafkaAssignerService {
             store,
             registry,
             kafka_config,
-            64,
+            1024,
             30,
             Duration::from_secs(10),
+            None,
         )
     }
 
@@ -55,6 +62,7 @@ impl KafkaAssignerService {
         store: Arc<KafkaAssignerStore>,
         registry: Arc<ConsumerRegistry>,
         config: &crate::config::Config,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         let kafka_config = KafkaConfig {
             hosts: config.kafka_hosts.clone(),
@@ -68,6 +76,7 @@ impl KafkaAssignerService {
             config.stream_channel_size,
             config.consumer_lease_ttl_secs,
             config.consumer_keepalive_interval(),
+            k8s_awareness,
         )
     }
 
@@ -78,6 +87,7 @@ impl KafkaAssignerService {
         stream_channel_size: usize,
         consumer_lease_ttl: i64,
         consumer_keepalive_interval: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             registry,
@@ -87,6 +97,7 @@ impl KafkaAssignerService {
             stream_channel_size,
             consumer_lease_ttl,
             consumer_keepalive_interval,
+            k8s_awareness,
         }
     }
 
@@ -123,8 +134,14 @@ impl KafkaAssignerService {
                     )
                 })
                 .await
-                .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
-                .map_err(|e| Status::internal(format!("failed to fetch partition count: {e}")))?;
+                .map_err(|e| {
+                    tracing::error!(topic, error = %e, "metadata fetch task panicked");
+                    Status::internal(format!("metadata fetch task panicked: {e}"))
+                })?
+                .map_err(|e| {
+                    tracing::error!(topic, error = %e, "failed to fetch partition count");
+                    Status::internal("failed to fetch Kafka metadata")
+                })?;
 
                 let config = TopicConfig {
                     topic: topic.to_string(),
@@ -174,10 +191,38 @@ impl KafkaAssigner for KafkaAssignerService {
 
         // Register the consumer in etcd (keyed to the lease).
         let now = assignment_coordination::util::now_seconds();
+        // If K8s awareness is enabled, discover the consumer's controller
+        // and generation hash. This is a one-time lookup per consumer.
+        let (generation, controller) = if let Some(k8s) = &self.k8s_awareness {
+            match k8s.discover_controller(&consumer_name).await {
+                Ok(pod_info) => {
+                    tracing::info!(
+                        consumer = %consumer_name,
+                        controller = %pod_info.controller,
+                        generation = %pod_info.generation,
+                        "discovered K8s controller for consumer"
+                    );
+                    (pod_info.generation, Some(pod_info.controller))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        consumer = %consumer_name,
+                        error = %e,
+                        "failed to discover K8s controller, proceeding without"
+                    );
+                    (String::new(), None)
+                }
+            }
+        } else {
+            (String::new(), None)
+        };
+
         let consumer = RegisteredConsumer {
             consumer_name: consumer_name.clone(),
             status: ConsumerStatus::Ready,
             registered_at: now,
+            generation,
+            controller,
         };
         self.store
             .register_consumer(&consumer, lease_id)
@@ -187,31 +232,76 @@ impl KafkaAssigner for KafkaAssignerService {
         // Create the channel that bridges the registry to the gRPC stream.
         let (event_tx, event_rx) = mpsc::channel::<AssignmentEvent>(self.stream_channel_size);
 
-        // If the consumer already owns partitions (e.g. reconnecting), send them
-        // as the first message. New consumers get an empty set — skip the no-op.
+        // Always send an Assignment snapshot as the first message to satisfy
+        // the stream contract (service.proto). Consumers rely on receiving a
+        // snapshot before any Warm/Release commands.
         let assignments = self
             .store
             .list_assignments()
             .await
             .map_err(|e| Status::internal(format!("failed to list assignments: {e}")))?;
         let owned = convert::consumer_partitions(&consumer_name, &assignments);
-        if !owned.is_empty() {
-            let initial = AssignmentEvent::Assignment {
-                assigned: owned,
-                unassigned: vec![],
-            };
-            event_tx
-                .send(initial)
-                .await
-                .map_err(|_| Status::internal("failed to send initial assignment"))?;
-        }
+        let initial = AssignmentEvent::Assignment {
+            assigned: owned,
+            unassigned: vec![],
+        };
+        event_tx
+            .send(initial)
+            .await
+            .map_err(|_| Status::internal("failed to send initial assignment"))?;
 
-        // Register in the local consumer registry.
+        // Register in the local consumer registry BEFORE replaying
+        // handoffs. This ensures there is no window where a live handoff
+        // PUT from the relay is dropped (no sender) AND is also absent
+        // from the replay snapshot. Duplicates are safe since warm/release
+        // handling is idempotent.
         self.registry.register(ConsumerConnection {
             consumer_name: consumer_name.clone(),
-            command_tx: event_tx,
+            command_tx: event_tx.clone(),
             lease_id,
         });
+
+        // Replay pending handoffs that involve this consumer.
+        // The relay only forwards etcd watch events, so if a handoff was
+        // created or advanced while this consumer was disconnected (e.g.
+        // during a rolling restart), the command was never delivered.
+        let handoffs = self
+            .store
+            .list_handoffs()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list handoffs: {e}")))?;
+        let pending_warms: Vec<_> = handoffs
+            .iter()
+            .filter(|h| h.phase == HandoffPhase::Warming && h.new_owner == consumer_name)
+            .cloned()
+            .collect();
+        let pending_releases: Vec<_> = handoffs
+            .iter()
+            .filter(|h| h.phase == HandoffPhase::Complete && h.old_owner == consumer_name)
+            .cloned()
+            .collect();
+        if !pending_warms.is_empty() {
+            tracing::info!(
+                consumer = %consumer_name,
+                count = pending_warms.len(),
+                "replaying pending Warming handoffs on reconnect"
+            );
+            event_tx
+                .send(AssignmentEvent::Warm(pending_warms))
+                .await
+                .map_err(|_| Status::internal("failed to send pending warms"))?;
+        }
+        if !pending_releases.is_empty() {
+            tracing::info!(
+                consumer = %consumer_name,
+                count = pending_releases.len(),
+                "replaying pending Complete handoffs (releases) on reconnect"
+            );
+            event_tx
+                .send(AssignmentEvent::Release(pending_releases))
+                .await
+                .map_err(|_| Status::internal("failed to send pending releases"))?;
+        }
 
         tracing::info!(consumer = %consumer_name, "consumer registered via gRPC");
 
@@ -233,8 +323,14 @@ impl KafkaAssigner for KafkaAssignerService {
             async move {
                 let mut event_rx = event_rx;
                 while let Some(event) = event_rx.recv().await {
-                    let cmd = proto::AssignmentCommand::from(&event);
-                    if proto_tx.send(Ok(cmd)).await.is_err() {
+                    let mut failed = false;
+                    for cmd in convert::to_proto_commands(&event) {
+                        if proto_tx.send(Ok(cmd)).await.is_err() {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    if failed {
                         break;
                     }
                 }
@@ -259,13 +355,19 @@ impl KafkaAssigner for KafkaAssignerService {
                 );
             }
 
-            // Cleanup: unregister from local registry and revoke the etcd lease.
+            // Unregister from the local in-memory registry so the server stops
+            // trying to send commands on the dead channel.
+            //
+            // We intentionally do NOT revoke the etcd lease here. Letting it
+            // expire naturally (after consumer_lease_ttl) gives the consumer a
+            // grace period to reconnect — e.g. during a rolling deployment —
+            // without triggering a rebalance. If the consumer reconnects before
+            // the TTL elapses, it overwrites the key with a fresh lease and no
+            // partition movement occurs. If it doesn't come back, the lease
+            // expires and the assigner reassigns its partitions.
             registry.unregister(&name);
-            if let Err(e) = store.revoke_lease(lease_id).await {
-                tracing::warn!(consumer = %name, error = %e, "failed to revoke lease on cleanup");
-            }
 
-            tracing::info!(consumer = %name, "consumer disconnected, cleaned up");
+            tracing::info!(consumer = %name, lease_id, "consumer disconnected, lease will expire via TTL");
         });
 
         Ok(Response::new(ReceiverStream::new(proto_rx)))
@@ -339,6 +441,93 @@ impl KafkaAssigner for KafkaAssignerService {
         );
 
         Ok(Response::new(proto::PartitionReleasedResponse {}))
+    }
+
+    async fn deregister(
+        &self,
+        request: Request<proto::DeregisterRequest>,
+    ) -> Result<Response<proto::DeregisterResponse>, Status> {
+        let req = request.into_inner();
+        let consumer_name = &req.consumer_name;
+
+        assignment_coordination::util::validate_identifier(consumer_name)
+            .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
+
+        // Look up the consumer's lease ID from the local registry.
+        let lease_id = self
+            .registry
+            .get_lease_id(consumer_name)
+            .ok_or_else(|| Status::not_found(format!("consumer {consumer_name} not connected")))?;
+
+        // Transition the consumer to Draining in etcd. The assigner's
+        // consumer watch loop will see this change and exclude the consumer
+        // from new partition assignments. On the next rebalance (triggered
+        // when all in-flight handoffs complete), the consumer's partitions
+        // will be handed off to other Ready consumers.
+        self.store
+            .update_consumer_status(consumer_name, ConsumerStatus::Draining, lease_id)
+            .await
+            .map_err(|e| {
+                Status::internal(format!("failed to update consumer status to Draining: {e}"))
+            })?;
+
+        // Determine the appropriate action based on K8s awareness.
+        let action = if let Some(k8s) = &self.k8s_awareness {
+            // Look up this consumer's controller and generation from etcd.
+            let consumer = self
+                .store
+                .get_consumer(consumer_name)
+                .await
+                .map_err(|e| Status::internal(format!("failed to get consumer: {e}")))?
+                .ok_or_else(|| {
+                    Status::not_found(format!("consumer {consumer_name} not found in etcd"))
+                })?;
+
+            match &consumer.controller {
+                Some(controller) => {
+                    let reason = k8s
+                        .classify_departure(controller, &consumer.generation)
+                        .await;
+                    tracing::info!(
+                        consumer = %consumer_name,
+                        controller = %controller,
+                        generation = %consumer.generation,
+                        reason = %reason,
+                        "classified departure reason via K8s awareness"
+                    );
+                    match reason {
+                        // StatefulSet rollout: same pod name comes back, shut down immediately
+                        k8s_awareness::DepartureReason::Rollout
+                            if controller.kind
+                                == k8s_awareness::types::ControllerKind::StatefulSet =>
+                        {
+                            proto::DeregisterAction::ShutdownNow
+                        }
+                        // Deployment rollout or downscale: drain partitions first
+                        k8s_awareness::DepartureReason::Rollout
+                        | k8s_awareness::DepartureReason::Downscale => {
+                            proto::DeregisterAction::WaitForDrain
+                        }
+                        // Crash or unknown: shut down immediately
+                        _ => proto::DeregisterAction::ShutdownNow,
+                    }
+                }
+                // No controller info: fall back to default
+                None => proto::DeregisterAction::ShutdownNow,
+            }
+        } else {
+            proto::DeregisterAction::ShutdownNow
+        };
+
+        tracing::info!(
+            consumer = %consumer_name,
+            action = ?action,
+            "consumer deregistered via gRPC, status set to Draining"
+        );
+
+        Ok(Response::new(proto::DeregisterResponse {
+            action: action.into(),
+        }))
     }
 }
 

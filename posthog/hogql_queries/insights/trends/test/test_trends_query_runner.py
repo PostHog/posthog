@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import (
@@ -69,7 +70,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.team.team import Team
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -7149,3 +7150,220 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             for day_str in result["days"]:
                 parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
                 assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"
+
+    def test_hide_weekends_with_formula(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,  # 2020-01-09 (Thu)
+            self.default_date_to,  # 2020-01-19 (Sun)
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            trends_filters=TrendsFilter(
+                hideWeekends=True,
+                formulaNodes=[TrendsFormulaNode(formula="A+B")],
+            ),
+        )
+
+        # Formula queries return only the formula result
+        assert len(response.results) == 1
+
+        formula_result = response.results[0]
+        for day_str in formula_result["days"]:
+            parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
+            assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"
+
+        # 11 days Thu-Sun, weekend days removed leaves 7 weekdays
+        assert len(formula_result["days"]) == 7
+        # Formula result has action=None and should not crash
+        assert formula_result["action"] is None
+        assert len(formula_result["data"]) == len(formula_result["days"])
+        assert formula_result["count"] == sum(formula_result["data"])
+
+    @parameterized.expand(
+        [
+            (
+                "event_property_filter_on_browser",
+                EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT, type="event"),
+                # Chrome $pageview = 6 (p1), all $pageleave = 6 → 12
+                12,
+            ),
+            (
+                "person_property_filter_on_name",
+                PersonPropertyFilter(key="name", value="p1", operator=PropertyOperator.EXACT, type="person"),
+                # p1 $pageview = 6, all $pageleave = 6 → 12
+                12,
+            ),
+            (
+                "event_property_filter_on_browser_firefox",
+                EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT, type="event"),
+                # Firefox $pageview = 2 (p2), all $pageleave = 6 → 8
+                8,
+            ),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_group_node_property_filter_types(self, _name, property_filter, expected_count):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[property_filter],
+                ),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count
+
+    def test_trends_breakdown_with_multibyte_value_at_truncation_boundary(self):
+        """Regression test: ClickHouse's left() operates on bytes, not UTF-8 characters.
+        When BREAKDOWN_VALUE_MAX_LENGTH (400) truncation lands in the middle of a multi-byte
+        character, the result is invalid UTF-8 and clickhouse-driver returns bytes instead
+        of str, causing TypeError in _format_breakdown_label.
+
+        Fix: HogQL's left() now maps to leftUTF8() so truncation respects character boundaries."""
+        # 401 Cyrillic chars = 802 bytes in UTF-8, well over the 400-char limit.
+        # With the old byte-based left(..., 400), this would truncate at byte 400
+        # (middle of a 2-byte char) producing invalid UTF-8.
+        # With leftUTF8(..., 400), it truncates at 400 complete characters.
+        long_value = "Б" * 401
+        _create_person(team_id=self.team.pk, distinct_ids=["user1"], properties={"name": "user1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"query": long_value},
+        )
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(type=MultipleBreakdownType.EVENT, property="query"),
+                ]
+            ),
+        )
+
+        assert len(response.results) == 1
+        label = response.results[0]["label"]
+        assert isinstance(label, str)
+        # Verify truncation happened at character boundary, not byte boundary
+        assert len(label) == 400
+        assert label == "Б" * 400
+        assert response.results[0]["count"] == 1
+
+    @parameterized.expand(
+        [
+            ("avg", PropertyMathType.AVG),
+            ("sum", PropertyMathType.SUM),
+            ("median", PropertyMathType.MEDIAN),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_session_duration_math_with_event_property_filter(self, _name, math_type):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=math_type,
+                    math_property="$session_duration",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$browser",
+                            value="Chrome",
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                )
+            ],
+            None,
+            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+
+        # Should return exactly 1 breakdown group (Chrome, from the event property filter).
+        # The filter restricts to Chrome-only events, so only the Chrome breakdown group appears.
+        # Session duration values are 0 since test events lack real session data,
+        # but getting exactly 1 result with the correct breakdown proves the filter propagated
+        # through the session WHERE clause extractor without crashing or being dropped.
+        assert len(response.results) == 1
+        assert response.results[0]["breakdown_value"] == "Chrome"
+        assert response.results[0]["count"] == 0.0
+        assert len(response.results[0]["data"]) == 12  # 12 days from Jan 9 to Jan 20
+
+    @parameterized.expand(
+        [
+            (
+                "mid_week_monday_start",
+                "2020-01-14",
+                "2020-01-19",
+                WeekStartDay.MONDAY,
+                # Events on or after Jan 14: Jan 15 (2), Jan 17 (1), Jan 19 (1) = 4
+                4,
+            ),
+            (
+                "mid_week_sunday_start",
+                "2020-01-14",
+                "2020-01-19",
+                WeekStartDay.SUNDAY,
+                # Events on or after Jan 14: Jan 15 (2), Jan 17 (1), Jan 19 (1) = 4
+                4,
+            ),
+            (
+                "week_boundary_monday",
+                "2020-01-13",
+                "2020-01-19",
+                WeekStartDay.MONDAY,
+                # Events on or after Jan 13: Jan 13 (1), Jan 15 (2), Jan 17 (1), Jan 19 (1) = 5
+                5,
+            ),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_week_interval_boundaries_with_week_start_day(
+        self, _name, date_from, date_to, week_start_day, expected_count
+    ):
+        self._create_test_events()
+
+        self.team.week_start_day = week_start_day
+        self.team.save()
+
+        response = self._run_trends_query(
+            date_from,
+            date_to,
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count

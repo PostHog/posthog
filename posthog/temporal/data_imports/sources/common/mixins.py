@@ -28,10 +28,18 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
         return True, None
 
     region = get_instance_region()
+    if region == "E2E":
+        return True, None
+
     if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
         return True, None
 
     normalized = host.lower().strip().rstrip(".")
+
+    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
+    if normalized.endswith(".postwh.com"):
+        return True, None
+
     if normalized in {"localhost"}:
         return False, "Hosts with internal IP addresses are not allowed"
 

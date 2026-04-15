@@ -3,13 +3,13 @@ import datetime
 from typing import Any
 
 import dagster
+import requests
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DATA_BACKFILL_SQL, EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.security.outbound_proxy import external_requests
 
 OPEN_EXCHANGE_RATES_API_BASE_URL = "https://openexchangerates.org/api"
 
@@ -42,14 +42,17 @@ def get_date_partition_from_hourly_partition(hourly_partition: str) -> str:
     return "-".join(hourly_partition.split("-", 3)[0:3])
 
 
-@dagster.op(
-    retry_policy=dagster.RetryPolicy(
-        max_retries=5,
-        delay=0.2,  # 200ms
-        backoff=dagster.Backoff.EXPONENTIAL,
-        jitter=dagster.Jitter.PLUS_MINUS,
-    )
+# Retry policy for transient errors (API timeouts, network issues, etc.)
+# Retries up to 4 times with 2 minute delays (exponential backoff)
+TRANSIENT_ERROR_RETRY_POLICY = dagster.RetryPolicy(
+    max_retries=4,
+    delay=120,  # 2 minutes
+    backoff=dagster.Backoff.EXPONENTIAL,
+    jitter=dagster.Jitter.PLUS_MINUS,
 )
+
+
+@dagster.op(retry_policy=TRANSIENT_ERROR_RETRY_POLICY)
 def fetch_exchange_rates(
     context: dagster.OpExecutionContext, date_str: str, app_id: str, api_base_url: str
 ) -> dict[str, Any]:
@@ -64,7 +67,7 @@ def fetch_exchange_rates(
 
     # Make the API request
     context.log.info(f"Fetching exchange rates for {date_str} with params {params}")
-    response = external_requests.get(url, params=params)
+    response = requests.get(url, params=params)
 
     if response.status_code != 200:
         error_msg = f"Failed to fetch exchange rates: {response.status_code} - {response.text}"
@@ -85,7 +88,7 @@ def fetch_exchange_rates(
     return data.get("rates")
 
 
-@dagster.asset(partitions_def=DAILY_PARTITION_DEFINITION)
+@dagster.asset(partitions_def=DAILY_PARTITION_DEFINITION, retry_policy=TRANSIENT_ERROR_RETRY_POLICY)
 def daily_exchange_rates(
     context: dagster.AssetExecutionContext, config: ExchangeRateConfig
 ) -> dagster.Output[dict[str, Any]]:
@@ -114,7 +117,7 @@ def daily_exchange_rates(
     )
 
 
-@dagster.asset(partitions_def=HOURLY_PARTITION_DEFINITION)
+@dagster.asset(partitions_def=HOURLY_PARTITION_DEFINITION, retry_policy=TRANSIENT_ERROR_RETRY_POLICY)
 def hourly_exchange_rates(
     context: dagster.AssetExecutionContext, config: ExchangeRateConfig
 ) -> dagster.Output[dict[str, Any]]:
@@ -213,6 +216,7 @@ def store_exchange_rates_in_clickhouse(
 @dagster.asset(
     partitions_def=DAILY_PARTITION_DEFINITION,
     ins={"exchange_rates": dagster.AssetIn(key=daily_exchange_rates.key)},
+    retry_policy=TRANSIENT_ERROR_RETRY_POLICY,
 )
 def daily_exchange_rates_in_clickhouse(
     context: dagster.AssetExecutionContext,
@@ -254,6 +258,7 @@ def daily_exchange_rates_in_clickhouse(
 @dagster.asset(
     partitions_def=HOURLY_PARTITION_DEFINITION,
     ins={"exchange_rates": dagster.AssetIn(key=hourly_exchange_rates.key)},
+    retry_policy=TRANSIENT_ERROR_RETRY_POLICY,
 )
 def hourly_exchange_rates_in_clickhouse(
     context: dagster.AssetExecutionContext,

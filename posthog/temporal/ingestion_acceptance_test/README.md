@@ -1,6 +1,6 @@
 # Ingestion Acceptance Tests
 
-End-to-end tests that verify the PostHog ingestion pipeline is functioning correctly. These tests capture real events via the PostHog SDK and query them back via the HogQL API to ensure the full pipeline works as expected.
+End-to-end tests that verify the PostHog ingestion pipeline is functioning correctly. These tests capture real events via the PostHog SDK and query them back via direct ClickHouse queries to ensure events land in ClickHouse as expected.
 
 ## Goal
 
@@ -28,7 +28,7 @@ Detect ingestion pipeline issues in production before users notice them. The tes
                     ┌───────────────┴───────────────┐
                     ▼                               ▼
            ┌──────────────┐                ┌──────────────┐
-           │ PostHog SDK  │                │  HogQL API   │
+           │ PostHog SDK  │                │  ClickHouse  │
            │  (capture)   │                │   (query)    │
            └──────────────┘                └──────────────┘
                     │                               │
@@ -69,12 +69,12 @@ class TestExample(AcceptanceTest):
 
 **Available client methods:**
 
-- `capture_event(name, distinct_id, properties)` - Send an event
-- `alias(alias, distinct_id)` - Create an alias
-- `merge_dangerously(into_id, from_id)` - Merge two persons
-- `query_event_by_uuid(uuid)` - Poll for an event by UUID
-- `query_person_by_distinct_id(distinct_id)` - Poll for a person
-- `query_events_by_person_id(person_id, expected_event_uuids)` - Poll for events by person
+- `capture_event(name, distinct_id, properties)` - Send an event via SDK
+- `alias(alias, distinct_id)` - Create an alias via SDK
+- `merge_dangerously(into_id, from_id)` - Merge two persons via SDK
+- `query_event_by_uuid(uuid)` - Poll ClickHouse for an event by UUID
+- `query_person_by_distinct_id(distinct_id)` - Poll ClickHouse for a person
+- `query_events_by_person_id(person_id, expected_event_uuids)` - Poll ClickHouse for events by person
 
 **Available assertion methods:**
 
@@ -89,8 +89,7 @@ All configuration is loaded from environment variables with the `INGESTION_ACCEP
 | ----------------------- | -------- | ------- | ------------------------------------------------- |
 | `API_HOST`              | Yes      | -       | PostHog API host (e.g., `https://us.posthog.com`) |
 | `PROJECT_API_KEY`       | Yes      | -       | Project token for capturing events                |
-| `PROJECT_ID`            | Yes      | -       | Project ID for querying events                    |
-| `PERSONAL_API_KEY`      | Yes      | -       | Personal API key for HogQL queries                |
+| `TEAM_ID`               | Yes      | -       | Team ID for ClickHouse queries                    |
 | `EVENT_TIMEOUT_SECONDS` | No       | 90      | Max time to wait for events to appear             |
 | `POLL_INTERVAL_SECONDS` | No       | 10.0    | Interval between query attempts                   |
 | `SLACK_WEBHOOK_URL`     | No       | -       | Slack incoming webhook for failure notifications  |
@@ -101,10 +100,9 @@ All configuration is loaded from environment variables with the `INGESTION_ACCEP
 # Set required environment variables
 export INGESTION_ACCEPTANCE_TEST_API_HOST="https://us.posthog.com"
 export INGESTION_ACCEPTANCE_TEST_PROJECT_API_KEY="phc_xxx"
-export INGESTION_ACCEPTANCE_TEST_PROJECT_ID="12345"
-export INGESTION_ACCEPTANCE_TEST_PERSONAL_API_KEY="phx_xxx"
+export INGESTION_ACCEPTANCE_TEST_TEAM_ID="12345"
 
-# Run directly
+# Run directly (requires ClickHouse connection via Django settings)
 python -m posthog.temporal.ingestion_acceptance_test
 ```
 
@@ -115,7 +113,7 @@ ingestion_acceptance_test/
 ├── __init__.py
 ├── __main__.py              # CLI entry point for local runs
 ├── activities.py            # Temporal activity definition
-├── client.py                # PostHog SDK wrapper with HTTP retry and HogQL queries
+├── client.py                # PostHog SDK wrapper with retry and direct ClickHouse queries
 ├── config.py                # Pydantic settings for environment config
 ├── results.py               # Test result dataclasses
 ├── runner.py                # Test execution engine
@@ -134,15 +132,12 @@ ingestion_acceptance_test/
 
 Unit tests are located at `posthog/temporal/tests/ingestion_acceptance_test/`.
 
-## HTTP Resilience
+## SDK Capture Resilience
 
-The client includes automatic retry for transient HTTP failures:
+The client includes automatic retry for transient SDK capture failures:
 
-- **Timeout:** 30 seconds per request
-- **Retries:** 3 attempts with exponential backoff
-- **Retry on:** 500, 502, 503, 504 (server errors)
-- **Retry on:** Connection errors and read timeouts
-- **No retry on:** 429 (rate limiting) - retrying immediately won't help
+- **Retries:** 5 attempts with exponential backoff
+- **Retry on:** Connection errors and timeouts
 
 ## ClickHouse Query Optimization
 

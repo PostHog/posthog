@@ -24,7 +24,6 @@ import geminiImage from './logos/gemini.svg'
 import goImage from './logos/go.svg'
 import gtmImage from './logos/gtm.svg'
 import honoImage from './logos/hono.svg'
-import htmlImage from './logos/html.svg'
 import { IOSLogo } from './logos/IOSLogo'
 import javaImage from './logos/java.svg'
 import jsImage from './logos/javascript_web.svg'
@@ -43,6 +42,7 @@ import pythonImage from './logos/python.svg'
 import railsImage from './logos/rails.svg'
 import reactImage from './logos/react.svg'
 import reactNativeImage from './logos/react.svg'
+import { ReactRouterLogo } from './logos/ReactRouterLogo'
 import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import rubyImage from './logos/ruby.svg'
@@ -71,15 +71,7 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
     {
-        name: 'HTML snippet',
-        key: SDKKey.HTML_SNIPPET,
-        recommended: true,
-        tags: [SDKTag.POPULAR, SDKTag.WEB],
-        image: htmlImage,
-        docsLink: 'https://posthog.com/docs/libraries/js',
-    },
-    {
-        name: 'JavaScript web',
+        name: 'Web',
         key: SDKKey.JS_WEB,
         recommended: true,
         tags: [SDKTag.POPULAR, SDKTag.WEB],
@@ -268,6 +260,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/ollama',
     },
     {
+        name: 'AWS Bedrock',
+        key: SDKKey.AWS_BEDROCK,
+        tags: [SDKTag.MODEL_PROVIDER],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/bedrock_5c06698148.png',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/aws-bedrock',
+    },
+    {
         name: 'Azure OpenAI',
         key: SDKKey.AZURE_OPENAI,
         tags: [SDKTag.MODEL_PROVIDER],
@@ -401,6 +400,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/mirascope',
     },
     {
+        name: 'Convex',
+        key: SDKKey.CONVEX,
+        tags: [SDKTag.FRAMEWORK],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/convex_d8dcddcd63.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/convex',
+    },
+    {
         name: 'Cerebras',
         key: SDKKey.CEREBRAS,
         tags: [SDKTag.MODEL_PROVIDER],
@@ -503,6 +509,14 @@ export const ALL_SDKS: SDK[] = [
         recommended: true,
         image: pythonImage,
         docsLink: 'https://posthog.com/docs/libraries/python',
+    },
+    {
+        name: 'React Router',
+        key: SDKKey.REACT_ROUTER,
+        tags: [SDKTag.WEB],
+        searchTerms: ['remix'],
+        image: <ReactRouterLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
     },
     {
         name: 'Remix',

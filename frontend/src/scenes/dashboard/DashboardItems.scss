@@ -1,5 +1,6 @@
 .dashboard-items-wrapper {
     width: 100%; // This provides the width for the dashboard items grid
+    padding-top: 0.5rem;
 
     .InsightCard__viz .InsightVizDisplay .LineGraph {
         padding: 0.25rem;
@@ -31,14 +32,16 @@
 }
 
 .react-grid-item.react-draggable .CardMeta,
-.react-grid-item.react-draggable .TextCard__body {
-    // .CardMeta is the draggable handle of insight cards. Text cards are draggable as a whole
-    cursor: move;
+.react-grid-item.react-draggable .TextCard__body,
+.react-grid-item.react-draggable .ButtonTileCard__body {
+    // .CardMeta is the draggable handle of insight cards. Text/button cards are draggable as a whole
+    cursor: grab;
     user-select: none; // Prevent accidental text selection while dragging
 }
 
 .react-grid-item.react-draggable-dragging {
     z-index: 105;
+    cursor: grabbing;
     transition: none;
     will-change: transform;
 }
@@ -92,5 +95,47 @@
         left: 0;
         width: auto;
         cursor: ns-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-n {
+        top: -0.5rem;
+        right: 3rem;
+        left: 3rem;
+        width: auto;
+        height: 1rem;
+        cursor: ns-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-w {
+        top: 0;
+        bottom: 2rem;
+        left: -0.5rem;
+        width: 2rem;
+        height: auto;
+        cursor: ew-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-nw {
+        top: -0.5rem;
+        left: -0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: nw-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-ne {
+        top: -0.5rem;
+        right: -0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: ne-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-sw {
+        bottom: -0.5rem;
+        left: -0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: sw-resize;
     }
 }

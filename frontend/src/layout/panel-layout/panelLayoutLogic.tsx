@@ -15,6 +15,8 @@ export type PanelLayoutNavIdentifier =
     | 'Shortcuts'
     | 'DataManagement'
     | 'DataAndPeople'
+    | 'Chat'
+export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
@@ -44,6 +46,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setMainContentRect: (rect: DOMRect) => ({ rect }),
         setSidePanelWidth: (width: number) => ({ width }),
         toggleNavSection: (section: string) => ({ section }),
+        setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -146,8 +149,15 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setSidePanelWidth: (_, { width }) => width,
             },
         ],
+        navExperimentActiveTab: [
+            'home' as NavExperimentTab,
+            { persist: true },
+            {
+                setNavExperimentTab: (_, { tab }) => tab,
+            },
+        ],
         expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: false, apps: false } as Record<string, boolean>,
+            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
             { persist: true },
             {
                 toggleNavSection: (state, { section }) => ({

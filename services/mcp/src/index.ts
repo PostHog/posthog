@@ -65,17 +65,30 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
 }
 
 // Detect error codes and return appropriate responses
-const errorHandler = async (response: Response): Promise<Response> => {
+const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
-        } else if (body.includes(ErrorCode.INVALID_API_KEY)) {
-            return new Response('Invalid API key', { status: 401 })
+        const errorResponse = generateErrorResponse(body)
+        if (errorResponse) {
+            return errorResponse
         }
     }
 
     return response
+}
+
+const onCatchErrorHandler = async (error: Error): Promise<Response> => {
+    return generateErrorResponse(error.message) || new Response('Internal server error', { status: 500 })
+}
+
+const generateErrorResponse = (message: string): Response | null => {
+    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+        return new Response('OAuth token is inactive', { status: 401 })
+    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
+        return new Response('Invalid API key', { status: 401 })
+    }
+
+    return null
 }
 
 const handleRequest = async (
@@ -214,6 +227,7 @@ const handleRequest = async (
         organizationId,
         projectId,
         clientUserAgent,
+        requestStartTime: Date.now(),
     })
 
     // Search params are used to build up the list of available tools. If no features are provided, all tools are available.
@@ -223,21 +237,33 @@ const handleRequest = async (
     const featuresParam = url.searchParams.get('features')
     const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
 
+    const toolsParam = url.searchParams.get('tools')
+    const tools = toolsParam ? toolsParam.split(',').filter(Boolean) : undefined
+
     // Region param is used to route API calls to the correct PostHog instance (US or EU).
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    Object.assign(ctx.props, { features, region: regionParam, version })
-    log.extend({ features, version })
+    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    Object.assign(ctx.props, extraContextProps)
+    log.extend(extraContextProps)
+
+    let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        return MCP.serve('/mcp').fetch(request, env, ctx).then(errorHandler)
+        Object.assign(ctx.props, { transport: 'streamable-http' })
+        server = MCP.serve('/mcp').fetch(request, env, ctx)
+    } else if (url.pathname.startsWith('/sse')) {
+        Object.assign(ctx.props, { transport: 'sse' })
+        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
-    if (url.pathname.startsWith('/sse')) {
-        return MCP.serveSSE('/sse').fetch(request, env, ctx).then(errorHandler)
+    if (server !== null) {
+        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
     }
 
     log.extend({ error: 'route_not_found' })

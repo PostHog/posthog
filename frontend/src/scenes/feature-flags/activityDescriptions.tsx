@@ -339,26 +339,26 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
-    evaluation_tags: function onEvaluationTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+    evaluation_contexts: function onEvaluationContexts(change) {
+        const contextsBefore = (change?.before as string[]) || []
+        const contextsAfter = (change?.after as string[]) || []
+        const addedContexts = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
+        const removedContexts = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
 
         const changes: Description[] = []
-        if (addedTags.length) {
+        if (addedContexts.length) {
             changes.push(
                 <>
-                    added {pluralize(addedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                    added {pluralize(addedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
+                    <ObjectTags tags={addedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
         }
-        if (removedTags.length) {
+        if (removedContexts.length) {
             changes.push(
                 <>
-                    removed {pluralize(removedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                    removed {pluralize(removedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
+                    <ObjectTags tags={removedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
                 </>
             )
         }
@@ -371,6 +371,7 @@ const featureFlagActionsMapping: Record<
     created_by: () => null,
     updated_at: () => null,
     experiment_set: () => null,
+    experiment_set_metadata: () => null,
     features: () => null,
     usage_dashboard: () => null,
     can_edit: () => null,

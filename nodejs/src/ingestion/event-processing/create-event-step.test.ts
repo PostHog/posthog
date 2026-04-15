@@ -5,9 +5,9 @@ import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
+import { EVENTS_OUTPUT } from '../analytics/outputs'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
-import { EVENTS_OUTPUT } from './ingestion-outputs'
 
 describe('create-event-step', () => {
     let mockPerson: Person
@@ -359,6 +359,114 @@ describe('create-event-step', () => {
                 if (isOkResult(result)) {
                     const event = result.value.eventsToEmit[0].event
                     expect(event.person_mode).toBe(expected)
+                }
+            })
+        })
+
+        describe('optional person (undefined)', () => {
+            it('should generate deterministic person_id from distinct_id when person is undefined', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const input = {
+                    person: undefined,
+                    preparedEvent: mockPreparedEvent,
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.person_id).toBeDefined()
+                    expect(event.person_id).toMatch(/^[0-9a-f-]{36}$/)
+                }
+            })
+
+            it('should return empty person_properties when person is undefined', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const input = {
+                    person: undefined,
+                    preparedEvent: mockPreparedEvent,
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.person_properties).toEqual({})
+                }
+            })
+
+            it('should set person_created_at to null when person is undefined', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const input = {
+                    person: undefined,
+                    preparedEvent: mockPreparedEvent,
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.person_created_at).toBeNull()
+                }
+            })
+
+            it('should set person_mode to full when person is undefined and processPerson=true', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const input = {
+                    person: undefined,
+                    preparedEvent: mockPreparedEvent,
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.person_mode).toBe('full')
+                }
+            })
+
+            it('should set person_mode to propertyless when person is undefined and processPerson=false', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const input = {
+                    person: undefined,
+                    preparedEvent: mockPreparedEvent,
+                    processPerson: false,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                }
+
+                const result = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.person_mode).toBe('propertyless')
                 }
             })
         })

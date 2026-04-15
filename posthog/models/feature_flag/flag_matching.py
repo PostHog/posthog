@@ -225,17 +225,10 @@ class FeatureFlagMatcher:
                     payload=payload,
                 )
 
-        # Match for holdout super condition
-        # TODO: Flags shouldn't have both super_groups and holdout_groups
-        # TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
-        # this will shoot ourselves in the foot when we extend early access to support variants as well.
-        # TODO: Validate holdout variant should have 0% default rollout %?
-        # TODO: All this validation we need to do suggests the modelling is imperfect here. Carrying forward for now, we'll only enable
-        # in beta, and potentially rework representation before rolling out to everyone. Probably the problem is holdout groups are an
-        # experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
-        # Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
-        # a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
-        if feature_flag.filters.get("holdout_groups", None):
+        # Match for holdout condition
+        # TODO: Flags shouldn't have both super_groups and holdout
+        # TODO: Validate only multivariant flags to have holdouts
+        if feature_flag.filters.get("holdout", None):
             (
                 is_match,
                 holdout_value,
@@ -367,31 +360,16 @@ class FeatureFlagMatcher:
             return None
 
     def is_holdout_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, str | None, FeatureFlagMatchReason]:
-        # TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+        holdout = feature_flag.holdout
+        if not holdout:
+            return False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH
 
-        # Evaluate if properties are empty
-        if feature_flag.holdout_conditions and len(feature_flag.holdout_conditions) > 0:
-            condition = feature_flag.holdout_conditions[0]
+        percentage = holdout.get("exclusion_percentage")
+        if percentage is not None and self.get_holdout_hash(feature_flag) > (percentage / 100):
+            return False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
 
-            # TODO: Check properties and match based on them
-
-            if not condition.get("properties"):
-                rollout_percentage = condition.get("rollout_percentage")
-
-                if rollout_percentage is not None and self.get_holdout_hash(feature_flag) > (rollout_percentage / 100):
-                    return False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND
-
-                # rollout_percentage is None (=100%), or we are inside holdout rollout bound.
-                # Thus, we match. Now get the variant override for the holdout condition.
-                variant_override = condition.get("variant")
-                if variant_override:
-                    variant = variant_override
-                else:
-                    variant = self.get_matching_variant(feature_flag)
-
-                return (True, variant, FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE)
-
-        return False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH
+        variant = f"holdout-{holdout['id']}"
+        return True, variant, FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE
 
     def is_super_condition_match(self, feature_flag: FeatureFlag) -> tuple[bool, bool, FeatureFlagMatchReason]:
         # TODO: Right now super conditions with property overrides bork when the database is down,

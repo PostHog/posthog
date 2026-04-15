@@ -2,8 +2,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pydantic
+import temporalio.exceptions
 
 from products.signals.backend.api import emit_signal
+from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
 
 @pytest.fixture
@@ -74,8 +78,16 @@ class TestEmitSignalValidation:
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
+        # Buffer workflow already running
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            AsyncMock(),  # emitter start
+        ]
 
-        with patch("products.signals.backend.api.async_connect", return_value=client):
+        with (
+            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
             await emit_signal(
                 team=team_stub,
                 source_product=source_product,
@@ -85,7 +97,11 @@ class TestEmitSignalValidation:
                 extra=extra,
             )
 
-        client.start_workflow.assert_awaited_once()
+        assert client.start_workflow.await_count == 2
+        # First call: buffer workflow ensure
+        assert client.start_workflow.call_args_list[0].args[0] == BufferSignalsWorkflow.run
+        # Second call: emitter workflow
+        assert client.start_workflow.call_args_list[1].args[0] == SignalEmitterWorkflow.run
 
     @pytest.mark.parametrize(
         "source_product, source_type, extra",
@@ -100,7 +116,10 @@ class TestEmitSignalValidation:
     async def test_emit_signal_rejects_invalid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
 
-        with patch("products.signals.backend.api.async_connect", return_value=client):
+        with (
+            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
             with pytest.raises(pydantic.ValidationError):
                 await emit_signal(
                     team=team_stub,

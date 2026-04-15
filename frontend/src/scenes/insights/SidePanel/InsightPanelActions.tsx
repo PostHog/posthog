@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconPencil, IconPeople } from '@posthog/icons'
+import { IconCode2, IconCopy, IconEndpoints, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -19,6 +19,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
@@ -38,7 +39,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { duplicateInsight, setInsightMetadata } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
-    const { query, hogQL, exportContext, hogQLVariables } = useValues(theInsightDataLogic)
+    const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor } = useValues(theInsightDataLogic)
 
     const { createStaticCohort } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -46,10 +47,10 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
+
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
-    const canEditInSqlEditor =
-        hogQL != null && !isHogQLQuery(query) && !(isDataVisualizationNode(query) && isHogQLQuery(query.source))
     const showCohort =
         hogQL != null &&
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
@@ -60,6 +61,17 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
             />
+            {isSavedInsight && canCopyToProject && (
+                <ButtonPrimitive
+                    menuItem
+                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                    data-attr="insight-copy-to-project"
+                    tooltip="Copy this insight to another project"
+                >
+                    <IconCopy />
+                    Copy to another project
+                </ButtonPrimitive>
+            )}
             <SceneFavorite
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
@@ -158,14 +170,14 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                             : undefined
                     }
                 >
-                    <IconCode2 />
+                    <IconEndpoints />
                     Create endpoint
                 </ButtonPrimitive>
             ) : null}
 
             {canEditInSqlEditor && (
                 <Link
-                    to={urls.sqlEditor({ query: hogQL })}
+                    to={urls.sqlEditor({ query: hogQL ?? undefined })}
                     buttonProps={{
                         'data-attr': `${RESOURCE_TYPE}-edit-sql`,
                         menuItem: true,

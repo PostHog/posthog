@@ -11,6 +11,7 @@ use tracing::{info, warn};
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
+pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -39,6 +40,9 @@ pub struct Config {
 
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
     pub issue_overrides_topic: String,
+
+    #[envconfig(default = "clickhouse_error_tracking_fingerprint_issue_state")]
+    pub fingerprint_issue_state_topic: String,
 
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
@@ -114,11 +118,29 @@ pub struct Config {
     #[envconfig(default = "15")]
     pub context_line_count: usize,
 
+    // Maximum number of in-flight futures for a single `Batch::apply_func` call.
+    // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
+    #[envconfig(default = "64")]
+    pub batch_apply_concurrency: usize,
+
+    // Global maximum number of concurrent symbol resolution operations.
+    // This limiter is shared across frame and exception symbol resolution paths.
+    #[envconfig(default = "64")]
+    pub symbol_resolution_concurrency: usize,
+
     #[envconfig(default = "1000")]
     pub max_events_per_batch: usize,
 
+    // Maximum number of in-flight /process requests accepted by the API.
+    // Requests above this limit are rejected with 429 to apply backpressure.
+    #[envconfig(default = "128")]
+    pub process_max_in_flight_requests: usize,
+
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
+
+    #[envconfig(default = "60000")]
+    pub process_slow_log_threshold_ms: u64,
 
     #[envconfig(default = "300")]
     pub team_cache_ttl_secs: u64,
@@ -139,6 +161,13 @@ pub struct Config {
     #[envconfig(default = "100000")]
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_grouping_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
+    pub suppression_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_suppression_rule_cache_size: u64,
 
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,
@@ -168,6 +197,13 @@ pub struct Config {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
+
+    // Internal API for signal emission
+    #[envconfig(default = "")]
+    pub signals_api_base_url: String,
+
+    #[envconfig(default = "")]
+    pub internal_api_secret: String,
 }
 
 impl Config {
@@ -190,6 +226,7 @@ impl Config {
 
 pub fn init_global_state(config: &Config) {
     FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
+    BATCH_APPLY_CONCURRENCY.store(config.batch_apply_concurrency.max(1), Ordering::Relaxed);
 }
 
 fn default_maxmind_db_path() -> PathBuf {

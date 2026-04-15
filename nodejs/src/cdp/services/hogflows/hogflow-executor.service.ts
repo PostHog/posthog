@@ -1,6 +1,8 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
+import { RedisV2 } from '~/common/redis/redis-v2'
+
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
@@ -14,6 +16,7 @@ import {
     LogEntryLevel,
     MinimalAppMetric,
     MinimalLogEntry,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -37,6 +40,10 @@ import {
 } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+// 1 day in seconds - ghost runs reach the same action step within minutes of each other,
+// so this TTL has large margin. Also covers potential Kafka at-least-once redelivery.
+const DEDUP_TTL_SECONDS = 24 * 60 * 60
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -77,11 +84,14 @@ export function createHogFlowInvocation(
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
+    private readonly redis: RedisV2 | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
-        recipientPreferencesService: RecipientPreferencesService
+        recipientPreferencesService: RecipientPreferencesService,
+        redis?: RedisV2
     ) {
+        this.redis = redis ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -154,6 +164,7 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
+        const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -170,7 +181,7 @@ export class HogFlowExecutorService {
 
             if (result.finished) {
                 if (result.error) {
-                    this.log(result, 'error', `Workflow encountered an error: ${result.error}`)
+                    this.log(result, 'error', this.logExecutionErrorInfo(result, result.error))
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
@@ -181,6 +192,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -190,6 +202,7 @@ export class HogFlowExecutorService {
         result.logs = logs
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
+        result.warehouseWebhookPayloads = warehouseWebhookPayloads
 
         return result
     }
@@ -304,7 +317,7 @@ export class HogFlowExecutorService {
             })
             earlyExitResult.metrics.push({
                 team_id: hogFlow.team_id,
-                app_source_id: hogFlow.id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
                 instance_id: invocation.state?.currentAction?.id || 'exit_condition',
                 metric_kind: 'other',
                 metric_name: 'early_exit',
@@ -332,6 +345,11 @@ export class HogFlowExecutorService {
                 this.goToNextAction(result, currentAction, findContinueAction(invocation), 'filtered')
 
                 return result
+            }
+
+            const dedupResult = await this.checkActionDeduplication(invocation, currentAction)
+            if (dedupResult) {
+                return dedupResult
             }
 
             result.logs.push({
@@ -401,6 +419,70 @@ export class HogFlowExecutorService {
         }
 
         return result
+    }
+
+    /**
+     * Prevents the same action from executing twice for the same event across
+     * different workflow invocations. This handles ghost runs from the March 18-19
+     * Cyclotron cross-routing incident where duplicate invocations were created.
+     *
+     * Returns a finished result if this is a duplicate execution, null otherwise.
+     * Legitimate retries (same invocation ID) are allowed through.
+     */
+    private async checkActionDeduplication(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
+        if (!this.redis) {
+            return null
+        }
+
+        const eventUuid = invocation.state?.event?.uuid
+        if (!eventUuid) {
+            return null
+        }
+
+        const dedupKey = `hogflow:dedup:${invocation.functionId}:${eventUuid}:${currentAction.id}`
+        const invocationId = invocation.id
+
+        try {
+            const isDuplicate = await this.redis.useClient(
+                { name: 'hogflow-dedup', failOpen: true },
+                async (client) => {
+                    // Atomically set the key only if it doesn't exist
+                    const wasSet = await client.set(dedupKey, invocationId, 'EX', DEDUP_TTL_SECONDS, 'NX')
+                    if (wasSet) {
+                        // We're the first invocation to reach this action for this event
+                        return false
+                    }
+
+                    // Key exists - check if it's our own invocation (legitimate retry)
+                    const existingId = await client.get(dedupKey)
+                    if (existingId === null) {
+                        // Key expired between SET and GET - fail open
+                        return false
+                    }
+                    return existingId !== invocationId
+                }
+            )
+
+            if (isDuplicate) {
+                const dedupResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+                dedupResult.finished = true
+                this.logAction(
+                    dedupResult,
+                    currentAction,
+                    'warn',
+                    `Skipped: duplicate execution detected for event ${eventUuid}. Another invocation already executed this action.`
+                )
+                return dedupResult
+            }
+        } catch (error) {
+            // On Redis failure, allow execution to proceed rather than blocking legitimate runs
+            logger.warn('🦔', '[HogFlowExecutor] Action deduplication check failed, allowing execution', { error })
+        }
+
+        return null
     }
 
     private goToNextAction(
@@ -508,7 +590,7 @@ export class HogFlowExecutorService {
     ): void {
         result.metrics.push({
             team_id: result.invocation.hogFlow.team_id,
-            app_source_id: result.invocation.hogFlow.id,
+            app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
             instance_id: action.id,
             metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
             metric_name: metricName,
@@ -621,9 +703,25 @@ export class HogFlowExecutorService {
             : ''
 
         return {
-            level: 'debug',
+            level: 'info',
             message: `${hasCurrentAction ? 'Resuming' : 'Starting'} ${isBatchWorkflow ? 'batch ' : ''}workflow execution at ${currentAction}${triggeredForActor}${triggeredByEvent}`,
             timestamp: DateTime.now(),
         }
+    }
+
+    private logExecutionErrorInfo(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        error: Error
+    ): string {
+        const invocation = result.invocation
+        const currentActionId = invocation.state.currentAction?.id
+        const currentAction = currentActionId ? invocation.hogFlow.actions.find((a) => a.id === currentActionId) : null
+
+        const hasAssociatedEvent = Boolean(invocation.state.event)
+        const triggeredByEvent = hasAssociatedEvent
+            ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
+            : ''
+
+        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

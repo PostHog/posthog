@@ -75,7 +75,7 @@ describe.skip('Organizations', { concurrent: false }, () => {
             const targetOrg = orgs[0]
             const setResult = await setTool.handler(context, { orgId: targetOrg.id })
 
-            expect(setResult.content[0].text).toBe(`Switched to organization ${targetOrg.id}`)
+            expect(setResult.content[0]!.text).toBe(`Switched to organization ${targetOrg.id}`)
         })
 
         it('should handle invalid organization ID', async () => {
@@ -131,7 +131,7 @@ describe.skip('Organizations', { concurrent: false }, () => {
             const targetOrg = orgs.find((org: any) => org.id === TEST_ORG_ID) || orgs[0]
 
             const setResult = await setTool.handler(context, { orgId: targetOrg.id })
-            expect(setResult.content[0].text).toBe(`Switched to organization ${targetOrg.id}`)
+            expect(setResult.content[0]!.text).toBe(`Switched to organization ${targetOrg.id}`)
 
             await context.cache.set('orgId', targetOrg.id)
         })

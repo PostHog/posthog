@@ -12,14 +12,19 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
+import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { parseConnectionString } from './parseConnectionString'
 
 export interface SourceFormProps {
@@ -27,6 +32,7 @@ export interface SourceFormProps {
     showPrefix?: boolean
     showDescription?: boolean
     jobInputs?: Record<string, any>
+    initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
@@ -35,7 +41,7 @@ const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Redshift: 5439,
 }
 
-const sourceFieldToElement = (
+export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
@@ -177,6 +183,7 @@ const sourceFieldToElement = (
                         value={value}
                         onChange={onChange}
                         integration={field.kind}
+                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                     />
                 )}
             </LemonField>
@@ -209,6 +216,11 @@ const sourceFieldToElement = (
         )
     }
 
+    if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
+        // Special case, this is the GitHub repository field
+        return <GitHubRepositorySelector key={field.name} />
+    }
+
     return (
         <LemonField
             key={field.name}
@@ -230,6 +242,191 @@ const sourceFieldToElement = (
     )
 }
 
+function CDCConfigSection(): JSX.Element {
+    // showAdvanced is purely local UI toggle — not a form field
+    const [showAdvanced, setShowAdvanced] = React.useState(false)
+
+    return (
+        <Group name="payload">
+            <div className="space-y-4 mt-4">
+                <LemonField name="cdc_enabled" label="Change data capture (CDC)">
+                    {({ value: cdcEnabled, onChange }) => (
+                        <>
+                            <p className="text-xs text-secondary mb-2">
+                                CDC captures inserts, updates, and deletes via PostgreSQL logical replication.
+                            </p>
+                            <LemonSwitch checked={!!cdcEnabled} onChange={onChange} />
+                        </>
+                    )}
+                </LemonField>
+
+                <LemonField name="cdc_enabled">
+                    {({ value: cdcEnabled }) =>
+                        cdcEnabled ? (
+                            <>
+                                <LemonField name="cdc_management_mode" label="Slot management">
+                                    {({ value: managementMode, onChange }) => (
+                                        <LemonRadio
+                                            value={managementMode || 'posthog'}
+                                            onChange={onChange}
+                                            options={[
+                                                {
+                                                    value: 'posthog',
+                                                    label: (
+                                                        <div>
+                                                            <div>PostHog-managed</div>
+                                                            <div className="text-xs text-secondary">
+                                                                PostHog creates and manages the replication slot and
+                                                                publication. Requires a database user with REPLICATION
+                                                                privileges.
+                                                            </div>
+                                                        </div>
+                                                    ),
+                                                },
+                                                {
+                                                    value: 'self_managed',
+                                                    label: (
+                                                        <div>
+                                                            <div>Self-managed</div>
+                                                            <div className="text-xs text-secondary">
+                                                                You manage your own replication slot and publication.
+                                                                PostHog only needs SELECT access.
+                                                            </div>
+                                                        </div>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                    )}
+                                </LemonField>
+
+                                <LemonField name="cdc_management_mode">
+                                    {({ value: managementMode }) =>
+                                        managementMode === 'self_managed' ? (
+                                            <div className="space-y-4">
+                                                <LemonField name="cdc_slot_name" label="Replication slot name">
+                                                    {({ value, onChange }) => (
+                                                        <LemonInput
+                                                            placeholder="posthog_slot"
+                                                            value={value || ''}
+                                                            onChange={onChange}
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                                <LemonField name="cdc_publication_name" label="Publication name">
+                                                    {({ value, onChange }) => (
+                                                        <LemonInput
+                                                            placeholder="posthog_pub"
+                                                            value={value || ''}
+                                                            onChange={onChange}
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                                <LemonBanner type="info">
+                                                    <p className="font-semibold mb-1">Setup SQL</p>
+                                                    <p className="text-xs mb-2">
+                                                        Run these commands on your PostgreSQL database before
+                                                        connecting:
+                                                    </p>
+                                                    <pre className="text-xs bg-surface-primary p-2 rounded overflow-x-auto whitespace-pre-wrap">
+                                                        {`CREATE PUBLICATION posthog_pub FOR TABLE public.your_table
+  WITH (publish_via_partition_root = true);
+
+SELECT pg_create_logical_replication_slot('posthog_slot', 'pgoutput');`}
+                                                    </pre>
+                                                </LemonBanner>
+                                            </div>
+                                        ) : (
+                                            <></>
+                                        )
+                                    }
+                                </LemonField>
+
+                                <div>
+                                    <button
+                                        type="button"
+                                        className="text-xs text-secondary hover:text-default cursor-pointer"
+                                        onClick={() => setShowAdvanced((v) => !v)}
+                                    >
+                                        {showAdvanced ? '▾' : '▸'} Advanced settings
+                                    </button>
+
+                                    {showAdvanced && (
+                                        <div className="space-y-4 mt-3 pl-3 border-l-2 border-border">
+                                            <LemonField name="cdc_management_mode">
+                                                {({ value: managementMode }) =>
+                                                    (managementMode || 'posthog') === 'posthog' ? (
+                                                        <LemonField
+                                                            name="cdc_auto_drop_slot"
+                                                            label="Automatic slot protection"
+                                                            info="When enabled, PostHog will automatically drop the replication slot if WAL lag exceeds the critical threshold, preventing disk exhaustion on your database."
+                                                        >
+                                                            {({ value: autoDropSlot, onChange }) => (
+                                                                <>
+                                                                    <LemonSwitch
+                                                                        checked={autoDropSlot ?? true}
+                                                                        onChange={onChange}
+                                                                    />
+                                                                    {(autoDropSlot ?? true) && (
+                                                                        <div className="space-y-4 mt-4">
+                                                                            <LemonField
+                                                                                name="cdc_lag_warning_threshold_mb"
+                                                                                label="WAL lag warning threshold (MB)"
+                                                                                info="PostHog will log a warning when replication slot lag exceeds this value."
+                                                                            >
+                                                                                {({
+                                                                                    value: warnVal,
+                                                                                    onChange: warnOnChange,
+                                                                                }) => (
+                                                                                    <LemonInput
+                                                                                        type="number"
+                                                                                        value={warnVal ?? 1024}
+                                                                                        onChange={warnOnChange}
+                                                                                        min={1}
+                                                                                    />
+                                                                                )}
+                                                                            </LemonField>
+                                                                            <LemonField
+                                                                                name="cdc_lag_critical_threshold_mb"
+                                                                                label="WAL lag critical threshold (MB)"
+                                                                                info="PostHog will drop the replication slot when lag exceeds this value (requires automatic slot protection to be enabled)."
+                                                                            >
+                                                                                {({
+                                                                                    value: critVal,
+                                                                                    onChange: critOnChange,
+                                                                                }) => (
+                                                                                    <LemonInput
+                                                                                        type="number"
+                                                                                        value={critVal ?? 10240}
+                                                                                        onChange={critOnChange}
+                                                                                        min={1}
+                                                                                    />
+                                                                                )}
+                                                                            </LemonField>
+                                                                        </div>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </LemonField>
+                                                    ) : (
+                                                        <></>
+                                                    )
+                                                }
+                                            </LemonField>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <></>
+                        )
+                    }
+                </LemonField>
+            </div>
+        </Group>
+    )
+}
+
 export default function SourceFormContainer(props: SourceFormProps): JSX.Element {
     return (
         <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" enableFormOnSubmit>
@@ -243,12 +440,27 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     jobInputs,
+    initialAccessMethod,
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
+    const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
+        initialAccessMethod ?? 'warehouse'
+    )
+    const isPostgresDirectQuery =
+        sourceConfig.name === 'Postgres' &&
+        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
+        selectedAccessMethod === 'direct'
+
+    useEffect(() => {
+        if (initialAccessMethod) {
+            setSelectedAccessMethod(initialAccessMethod)
+        }
+    }, [initialAccessMethod])
 
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
@@ -265,7 +477,78 @@ export function SourceFormComponent({
     }
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="space-y-4 ph-no-capture">
+            {!isUpdateMode &&
+                sourceConfig.name === 'Postgres' &&
+                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
+                    <LemonField name="access_method" label="How should PostHog query this source?">
+                        {({ value, onChange }) => (
+                            <LemonRadio
+                                data-attr="postgres-access-method"
+                                value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
+                                onChange={(newValue) => {
+                                    const nextValue = newValue as 'warehouse' | 'direct'
+                                    setSelectedAccessMethod(nextValue)
+                                    onChange(nextValue)
+                                }}
+                                options={[
+                                    {
+                                        value: 'warehouse',
+                                        label: (
+                                            <div>
+                                                <div>Sync to warehouse</div>
+                                                <div className="text-xs text-secondary">
+                                                    Sync selected tables into PostHog-managed storage for querying.
+                                                </div>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        value: 'direct',
+                                        label: (
+                                            <div>
+                                                <div>Query directly</div>
+                                                <div className="text-xs text-secondary">
+                                                    Run queries live against this Postgres connection. Data from this
+                                                    source can&apos;t be joined with PostHog data.
+                                                </div>
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        )}
+                    </LemonField>
+                )}
+            {isPostgresDirectQuery && (
+                <LemonField
+                    name="prefix"
+                    label="Name"
+                    help="Required. This name is shown in the query editor when selecting a Postgres connection."
+                >
+                    {({ value, onChange }) => {
+                        const validationError = value && !value.trim() ? 'Name cannot be empty whitespace' : ''
+                        const displayValue = value?.trim() || 'My Postgres database'
+
+                        return (
+                            <>
+                                <LemonInput
+                                    className="ph-ignore-input"
+                                    data-attr="prefix"
+                                    placeholder="e.g. Production database"
+                                    value={value}
+                                    onChange={onChange}
+                                    status={validationError ? 'danger' : undefined}
+                                />
+                                {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
+                                <p className="mb-0">
+                                    Shown as: <strong>{displayValue} (Postgres)</strong>
+                                </p>
+                            </>
+                        )
+                    }}
+                </LemonField>
+            )}
             {shouldShowDescription && (
                 <LemonField
                     name="description"
@@ -284,11 +567,15 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {availableSources[sourceConfig.name].fields.map((field) =>
-                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
-                )}
+                {availableSources[sourceConfig.name].fields
+                    .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
             </Group>
-            {showPrefix && (
+            {!isUpdateMode &&
+                sourceConfig.name === 'Postgres' &&
+                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
+                selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
+            {showPrefix && !isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"

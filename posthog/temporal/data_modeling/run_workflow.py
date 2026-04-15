@@ -13,6 +13,7 @@ import collections.abc
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 import pyarrow as pa
 import deltalake
@@ -24,6 +25,7 @@ import temporalio.workflow
 import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.hogql import ast
@@ -284,8 +286,8 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
             if len(failed) + len(ancestor_failed) + len(completed) == len(inputs.dag):
                 break
 
-        await logger.adebug(
-            f"run_dag_activity finished. completed={len(completed)}. failed={len(failed)}. ancestor_failed={len(ancestor_failed)}"
+        await logger.ainfo(
+            f"DAG run finished. completed={len(completed)}. failed={len(failed)}. ancestor_failed={len(ancestor_failed)}"
         )
         return Results(completed, failed, ancestor_failed, ducklake_models)
 
@@ -399,6 +401,7 @@ async def handle_error(
         await logger.ainfo("Marking job %s as failed", job.id)
         await logger.aerror(f"handle_error: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.FAILED
+        job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
     await queue.put(
@@ -418,6 +421,7 @@ async def handle_cancelled(
     if job:
         await logger.aerror(f"handle_cancelled: error={error_str}. error_message={error_message}")
         job.status = DataModelingJob.Status.CANCELLED
+        job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
         await database_sync_to_async(job.save)()
     await queue.put(
@@ -474,7 +478,7 @@ async def materialize_model(
         saved_query: The saved query to materialize.
         job: The DataModelingJob record for this run that tracks the lifecycle and rows of the run.
     """
-    await logger.adebug(f"Starting materialize_model for {model_label}. saved_query.name={saved_query.name}")
+    await logger.ainfo(f"Starting materialization for model: label={model_label} name={saved_query.name}")
 
     query_columns = saved_query.columns
     if not query_columns:
@@ -551,11 +555,15 @@ async def materialize_model(
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
-            job.rows_materialized = row_count
-
             save_start = dt.datetime.now()
-            await database_sync_to_async(job.save)()
+            updated = await database_sync_to_async(
+                DataModelingJob.objects.filter(id=job.id, status=DataModelingJob.Status.RUNNING).update
+            )(rows_materialized=row_count)
             save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            if updated == 0:
+                await logger.awarning("Job %s is no longer running, stopping materialization", job.id)
+                raise DataModelingCancelledException("Job was cancelled or preempted during materialization")
 
             await logger.adebug(
                 f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
@@ -564,9 +572,11 @@ async def materialize_model(
             # Explicitly delete batch to free memory after writing
             del batch, ch_types
 
-        await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
+        await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
 
     except ObjectDoesNotExist:
+        raise
+    except DataModelingCancelledException:
         raise
     except Exception as e:
         error_message = str(e)
@@ -654,9 +664,9 @@ async def materialize_model(
         await database_sync_to_async(job.save)()
         return (saved_query.normalized_name, delta_table, job.id)
 
-    await logger.adebug("Compacting delta table")
+    await logger.ainfo("Compacting delta table")
     delta_table.optimize.compact()
-    await logger.adebug("Vacuuming delta table")
+    await logger.ainfo("Vacuuming delta table")
     delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
 
     file_uris = delta_table.file_uris()
@@ -665,7 +675,7 @@ async def materialize_model(
     if saved_query.table_id:
         saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
-    await logger.adebug("Copying query files in S3")
+    await logger.ainfo("Preparing queryable table in S3")
     folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
@@ -678,8 +688,9 @@ async def materialize_model(
     saved_query.is_materialized = True
     await database_sync_to_async(saved_query.save)()
 
-    await logger.adebug("Creating DataWarehouseTable model")
-    dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+    await logger.ainfo("Creating table")
+    create_result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+    dwh_table = create_result.table
 
     await database_sync_to_async(saved_query.refresh_from_db)()
     saved_query.table_id = dwh_table.id
@@ -696,6 +707,7 @@ async def materialize_model(
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
+    await logger.ainfo("Materialization completed")
     return (saved_query.normalized_name, delta_table, job.id)
 
 
@@ -710,6 +722,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     await logger.aerror(f"mark_job_as_failed: {error_message}")
     await logger.ainfo("Marking job %s as failed", job.id)
     job.status = DataModelingJob.Status.FAILED
+    job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
     await database_sync_to_async(job.save)()
 
@@ -796,7 +809,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_client(allow_experimental_analyzer=1) as client:
+    async with get_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -857,7 +870,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Query for types first, check for any types ArrowStream doesn't support
     # and rewrite the query wrapping those columns in a `toString(..)`
-    async with get_client(allow_experimental_analyzer=1) as client:
+    async with get_client(enable_analyzer=1) as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
 
@@ -950,7 +963,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
     # Set max block size to 50,000 rows
-    async with get_client(max_block_size=50_000, allow_experimental_analyzer=1) as client:
+    async with get_client(max_block_size=50_000, enable_analyzer=1) as client:
         batches = []
         batches_size = 0
         batch_count = 0
@@ -1351,6 +1364,10 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     workflow_id = temporalio.activity.info().workflow_id
     workflow_run_id = temporalio.activity.info().workflow_run_id
 
+    # Will always be defined if this activity was started by a workflow
+    assert workflow_id
+    assert workflow_run_id
+
     if len(inputs.select) != 0:
         label = inputs.select[0].label
         saved_query = await get_saved_query(team, label)
@@ -1364,29 +1381,74 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
 @dataclasses.dataclass
 class CleanupRunningJobsActivityInputs:
     team_id: int
+    saved_query_ids: list[str] = dataclasses.field(default_factory=list)
+
+
+@database_sync_to_async
+def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None) -> list[DataModelingJob]:
+    """Atomically fetch and mark orphaned RUNNING jobs as FAILED.
+
+    When saved_query_ids is provided, only jobs belonging to those saved queries
+    are preempted (self-preemption). Otherwise, falls back to team-wide cleanup
+    for backwards compatibility.
+
+    The SELECT and UPDATE run inside a single transaction with row-level locks
+    so concurrent cleanups cannot process the same jobs twice.
+    """
+    with transaction.atomic():
+        filters: dict[str, typing.Any] = {
+            "team_id": team_id,
+            "status": DataModelingJob.Status.RUNNING,
+            "engine": DataModelingJob.Engine.CLICKHOUSE,
+        }
+        if saved_query_ids:
+            resolved_uuids: list[uuid.UUID] = []
+            for label in saved_query_ids:
+                try:
+                    resolved_uuids.append(uuid.UUID(label))
+                except ValueError:
+                    try:
+                        sq = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(team_id=team_id, name=label)
+                        resolved_uuids.append(sq.id)
+                    except DataWarehouseSavedQuery.DoesNotExist:
+                        pass
+            if resolved_uuids:
+                filters["saved_query_id__in"] = resolved_uuids
+
+        orphaned_jobs = list(DataModelingJob.objects.select_for_update().filter(**filters))
+
+        if not orphaned_jobs:
+            return []
+
+        DataModelingJob.objects.filter(id__in=[job.id for job in orphaned_jobs]).update(
+            status=DataModelingJob.Status.FAILED,
+            rows_materialized=0,
+            error="Preempted: This job did not complete before the next scheduled job was triggered.",
+            updated_at=dt.datetime.now(dt.UTC),
+        )
+
+        return orphaned_jobs
 
 
 @temporalio.activity.defn
 async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
-    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
-    Since only one job can run at a time per team, any existing RUNNING jobs
-    are orphaned when a new run starts.
-    """
+    """Marks orphaned RUNNING DataModelingJobs for this saved query as FAILED when starting a new run."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    orphaned_count = await database_sync_to_async(
-        DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
-    )(
-        status=DataModelingJob.Status.FAILED,
-        error="Job timed out",
-        updated_at=dt.datetime.now(dt.UTC),
-    )
+    orphaned_jobs = await _preempt_running_jobs(inputs.team_id, inputs.saved_query_ids or None)
 
-    if orphaned_count > 0:
-        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
-    else:
+    if not orphaned_jobs:
         await logger.adebug("No orphaned jobs found")
+        return
+
+    await logger.ainfo(
+        f"Cleaned up {len(orphaned_jobs)} orphaned jobs",
+        orphaned_count=len(orphaned_jobs),
+        orphaned_job_ids=[str(job.id) for job in orphaned_jobs],
+        orphaned_saved_query_ids=[str(job.saved_query_id) for job in orphaned_jobs if job.saved_query_id is not None],
+        orphaned_workflow_ids=[job.workflow_id for job in orphaned_jobs if job.workflow_id],
+    )
 
 
 @temporalio.activity.defn
@@ -1503,7 +1565,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED)
+    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0)
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )
@@ -1557,7 +1619,7 @@ class RunWorkflow(PostHogWorkflow):
     makes up the model, and the path or paths to the model through all of its ancestors.
     """
 
-    ducklake_copy_inputs: DataModelingDuckLakeCopyInputs | None = None
+    ducklake_copy_inputs: list[DataModelingDuckLakeCopyInputs] = []
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
@@ -1567,9 +1629,10 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        saved_query_ids = [s.label for s in inputs.select]
         await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
-            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id, saved_query_ids=saved_query_ids),
             start_to_close_timeout=dt.timedelta(minutes=20),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
@@ -1671,16 +1734,19 @@ class RunWorkflow(PostHogWorkflow):
 
         completed, failed, ancestor_failed, ducklake_models = results
 
-        self.ducklake_copy_inputs = DataModelingDuckLakeCopyInputs(
-            team_id=inputs.team_id,
-            job_id=job_id,
-            models=ducklake_models,
-        )
+        self.ducklake_copy_inputs = [
+            DataModelingDuckLakeCopyInputs(
+                team_id=inputs.team_id,
+                job_id=job_id,
+                models=[DuckLakeCopyModelInput(**model) if isinstance(model, dict) else model],
+            )
+            for model in ducklake_models
+        ]
         temporalio.workflow.logger.debug(
             "Prepared DuckLake copy inputs",
-            team_id=self.ducklake_copy_inputs.team_id,
-            job_id=self.ducklake_copy_inputs.job_id,
-            models=len(self.ducklake_copy_inputs.models),
+            team_id=inputs.team_id,
+            job_id=job_id,
+            models=len(self.ducklake_copy_inputs),
         )
 
         # publish metrics
@@ -1706,23 +1772,24 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        if self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
-            temporalio.workflow.logger.info(
-                "Triggering DuckLake copy child workflow",
-                job_id=job_id,
-                models=len(self.ducklake_copy_inputs.models),
-            )
-            # Start DuckLake copy workflow as a child (fire-and-forget)
-            await temporalio.workflow.start_child_workflow(
-                DuckLakeCopyDataModelingWorkflow.run,
-                self.ducklake_copy_inputs,
-                id=f"ducklake-copy-data-modeling-{job_id}",
-                task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            )
+        for copy_inputs in self.ducklake_copy_inputs:
+            model = copy_inputs.models[0]
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    DuckLakeCopyDataModelingWorkflow.run,
+                    copy_inputs,
+                    id=f"ducklake-copy-data-modeling-{inputs.team_id}-{model.saved_query_id}",
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=1,
+                        non_retryable_error_types=["NondeterminismError"],
+                    ),
+                )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.warning(
+                    "DuckLake copy already running, skipping",
+                    saved_query_id=model.saved_query_id,
+                )
 
         return results

@@ -32,12 +32,6 @@ from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
-from posthog.models.message_category import MessageCategory
-from posthog.models.message_preferences import (
-    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-    MessageRecipientPreference,
-    PreferenceStatus,
-)
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
@@ -55,6 +49,13 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
     render_template,
+)
+
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import (
+    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    MessageRecipientPreference,
+    PreferenceStatus,
 )
 
 logger = structlog.get_logger(__name__)
@@ -169,9 +170,9 @@ def render_query(request: HttpRequest) -> HttpResponse:
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    twig_slack_config = SlackIntegration.twig_slack_config()
-    twig_slack_client_id = twig_slack_config.get("SLACK_TWIG_CLIENT_ID")
-    twig_slack_signing_secret = twig_slack_config.get("SLACK_TWIG_SIGNING_SECRET")
+    posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
+    posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
+    posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -195,11 +196,11 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
         },
-        "twig_slack_service": {
-            "available": bool(twig_slack_client_id)
-            and bool(twig_slack_signing_secret)
-            and bool(twig_slack_config.get("SLACK_TWIG_CLIENT_SECRET")),
-            "client_id": twig_slack_client_id or None,
+        "posthog_code_slack_service": {
+            "available": bool(posthog_code_slack_client_id)
+            and bool(posthog_code_slack_signing_secret)
+            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
+            "client_id": posthog_code_slack_client_id or None,
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},

@@ -1,16 +1,12 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { EventHeaders, PreIngestionEvent, Team } from '../../types'
-import { TeamManager } from '../../utils/team-manager'
+import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '../../types'
+import { sanitizeEventName } from '../../utils/db/utils'
 import { invalidTimestampCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { EventPipelineRunnerOptions } from './event-pipeline-options'
 
 export type PrepareEventStepInput = {
     normalizedEvent: PluginEvent
@@ -24,19 +20,11 @@ export type PrepareEventStepResult<TInput> = Omit<TInput, 'normalizedEvent'> & {
     historicalMigration: boolean
 }
 
-export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
-    teamManager: TeamManager,
-    groupTypeManager: GroupTypeManager,
-    groupStore: BatchWritingGroupStore,
-    options: Pick<EventPipelineRunnerOptions, 'SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP'>
-): ProcessingStep<TInput, PrepareEventStepResult<TInput>> {
-    const eventsProcessor = new EventsProcessor(
-        teamManager,
-        groupTypeManager,
-        options.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP
-    )
-
-    return async function prepareEventStep(input: TInput) {
+export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): ProcessingStep<
+    TInput,
+    PrepareEventStepResult<TInput>
+> {
+    return function prepareEventStep(input: TInput) {
         const { normalizedEvent, ...rest } = input
 
         const warnings: PipelineWarning[] = []
@@ -45,25 +33,37 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
             warnings.push({ type, details })
         }
 
-        const preparedEvent = await eventsProcessor.processEvent(
-            String(normalizedEvent.distinct_id),
-            normalizedEvent,
-            input.team,
-            parseEventTimestamp(normalizedEvent, invalidTimestampCallback),
-            normalizedEvent.uuid,
-            input.processPerson,
-            groupStore
-        )
+        const properties = normalizedEvent.properties!
+        const sanitizedEventName = sanitizeEventName(normalizedEvent['event'])
+
+        if (properties['$ip'] && input.team.anonymize_ips) {
+            delete properties['$ip']
+        }
+
+        const timestamp = parseEventTimestamp(normalizedEvent, invalidTimestampCallback)
+
+        const preparedEvent: PreIngestionEvent = {
+            eventUuid: normalizedEvent.uuid,
+            event: sanitizedEventName,
+            distinctId: String(normalizedEvent.distinct_id),
+            properties,
+            timestamp: timestamp.toISO() as ISOTimestamp,
+            teamId: input.team.id,
+            projectId: input.team.project_id,
+        }
+
         const historicalMigration = input.headers.historical_migration ?? false
 
-        return ok(
-            {
-                ...rest,
-                preparedEvent,
-                historicalMigration,
-            },
-            [],
-            warnings
+        return Promise.resolve(
+            ok(
+                {
+                    ...rest,
+                    preparedEvent,
+                    historicalMigration,
+                },
+                [],
+                warnings
+            )
         )
     }
 }

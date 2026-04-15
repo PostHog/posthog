@@ -1,9 +1,9 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
-import { Textfit } from './Textfit'
+import { Textfit, TextfitProps } from './Textfit'
 
-type Story = StoryObj<typeof Textfit>
-const meta: Meta<typeof Textfit> = {
+type Story = StoryObj<TextfitProps>
+const meta: Meta<TextfitProps> = {
     title: 'Lemon UI/TextFit',
     component: Textfit,
     tags: ['autodocs'],
@@ -12,15 +12,16 @@ const meta: Meta<typeof Textfit> = {
         max: 150,
         children: '10000000',
     },
+    render: (props) => {
+        return (
+            <div className="resize w-100 h-50 overflow-hidden border rounded">
+                <Textfit {...props} />
+            </div>
+        )
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof Textfit> = (props) => {
-    return (
-        <div className="resize w-100 h-50 overflow-hidden border rounded">
-            <Textfit {...props} />
-        </div>
-    )
+export const Basic: Story = {
+    args: {},
 }
-
-export const Basic: Story = Template.bind({})

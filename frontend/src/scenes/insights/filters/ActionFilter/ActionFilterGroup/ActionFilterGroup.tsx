@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
+import { IconPencil, IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
@@ -34,6 +34,7 @@ import {
     MathSelector,
     taxonomicFilterGroupTypeToEntityType,
 } from '../ActionFilterRow/ActionFilterRow'
+import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'
 import { LocalFilter, entityFilterLogic } from '../entityFilterLogic'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 import { nestedFilterLogic } from './nestedFilterLogic'
@@ -88,12 +89,12 @@ export function ActionFilterGroup({
     ].filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
-    const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { removeLocalFilter, splitLocalFilter, showModal, selectFilter } = useActions(entityFilterLogic({ typeKey }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const groupLogic = actionFilterGroupLogic({ filterUuid: filter.uuid, typeKey, groupIndex: index })
-    const { nestedFilters, operator, isHogQLDropdownVisible } = useValues(groupLogic)
+    const { nestedFilters, operator, isHogQLDropdownVisible, groupFilter } = useValues(groupLogic)
     const {
         addNestedFilter,
         updateNestedFilterProperties,
@@ -102,6 +103,7 @@ export function ActionFilterGroup({
         setMathHogQL,
         setHogQLDropdownVisible,
     } = useActions(groupLogic)
+    const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
     return (
         <li
@@ -116,25 +118,25 @@ export function ActionFilterGroup({
             }}
         >
             <div
-                className={clsx('flex flex-col overflow-hidden', {
+                className={clsx('flex flex-col overflow-hidden min-w-0', {
                     'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
                 })}
             >
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
-                        'ActionFilterGroup--header flex flex-wrap items-center justify-between gap-2 px-4 border-b border-primary',
-                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-3'
+                        'ActionFilterGroup--header flex items-start gap-x-2 gap-y-1 px-2 @min-[500px]/editor-panel:px-4 border-b border-primary',
+                        insightType === InsightType.FUNNELS ? 'py-4' : 'py-2 @min-[500px]/editor-panel:py-3'
                     )}
                 >
-                    <div className="flex flex-wrap items-center gap-0 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2 min-w-0">
                         {sortable && filterCount > 1 && (
                             <span className="ActionFilterRowDragHandle" {...listeners}>
                                 <SortableDragIcon />
                             </span>
                         )}
                         {showSeriesIndicator && (
-                            <div className="shrink-0 mr-2">
+                            <div className="shrink-0">
                                 {seriesIndicatorType === 'numeric' ? (
                                     <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>
                                         {index + 1}
@@ -151,20 +153,32 @@ export function ActionFilterGroup({
 
                         {mathAvailability !== MathAvailability.None &&
                             mathAvailability !== MathAvailability.FunnelsOnly && (
-                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                // we use flex-wrap when the math name is long so "Math:" and the
+                                // select can stack, but flex-nowrap for short names so they stay together.
+                                // CSS can't solve this because the select width varies by content.
+                                // Remove after insight-editor-panel experiment ends
+                                <div
+                                    className={clsx(
+                                        'flex items-center gap-2',
+                                        (mathDefinitions[filter.math || BaseMathType.TotalCount]?.name?.length ?? 0) >
+                                            25
+                                            ? 'flex-wrap'
+                                            : ''
+                                    )}
+                                >
                                     <span className="font-medium text-secondary whitespace-nowrap">Math:</span>
                                     <MathSelector
                                         size="small"
                                         math={filter.math}
                                         mathGroupTypeIndex={filter.math_group_type_index}
                                         index={index}
-                                        onMathSelect={(_, math) => setMath(math)}
+                                        onMathSelect={(_, math) => setMath(math, defaultMathHogQLExpression)}
                                         disabled={disabled || readOnly}
                                         mathAvailability={mathAvailability}
                                         trendsDisplayCategory={trendsDisplayCategory}
                                     />
-                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                        ?.category === MathCategory.PropertyValue && (
+                                    {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.PropertyValue && (
                                         <TaxonomicStringPopover
                                             size="small"
                                             groupType={
@@ -189,9 +203,7 @@ export function ActionFilterGroup({
                                                         currentValue === '$session_duration' ? (
                                                             <>
                                                                 Calculate{' '}
-                                                                {(mathDefinitions as Record<string, any>)[
-                                                                    filter.math ?? ''
-                                                                ].name.toLowerCase()}{' '}
+                                                                {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
                                                                 of the session duration. This is based on the{' '}
                                                                 <code>$session_id</code> property associated with
                                                                 events. The duration is derived from the time difference
@@ -201,9 +213,7 @@ export function ActionFilterGroup({
                                                         ) : (
                                                             <>
                                                                 Calculate{' '}
-                                                                {(mathDefinitions as Record<string, any>)[
-                                                                    filter.math ?? ''
-                                                                ].name.toLowerCase()}{' '}
+                                                                {mathDefinitions[filter.math ?? '']?.name.toLowerCase()}{' '}
                                                                 from property <code>{currentValue}</code>. Note that
                                                                 only event occurrences where <code>{currentValue}</code>{' '}
                                                                 is set with a numeric value will be taken into account.
@@ -222,8 +232,8 @@ export function ActionFilterGroup({
                                         />
                                     )}
                                     {/* HogQL expression selector */}
-                                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
-                                        ?.category === MathCategory.HogQLExpression && (
+                                    {mathDefinitions[filter.math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.HogQLExpression && (
                                         <LemonDropdown
                                             visible={isHogQLDropdownVisible}
                                             closeOnClickInside={false}
@@ -232,7 +242,7 @@ export function ActionFilterGroup({
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                                     <HogQLEditor
-                                                        value={filter.math_hogql || 'count()'}
+                                                        value={filter.math_hogql || defaultMathHogQLExpression}
                                                         onChange={(currentValue) => {
                                                             setMathHogQL(currentValue)
                                                             setHogQLDropdownVisible(false)
@@ -248,7 +258,7 @@ export function ActionFilterGroup({
                                                 data-attr={`math-hogql-select-${index}`}
                                                 onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
                                             >
-                                                <code>{filter.math_hogql || 'count()'}</code>
+                                                <code>{filter.math_hogql || defaultMathHogQLExpression}</code>
                                             </LemonButton>
                                         </LemonDropdown>
                                     )}
@@ -257,7 +267,18 @@ export function ActionFilterGroup({
                     </div>
 
                     {!readOnly && (
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 gap-0.5 ml-auto @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-height:1.75rem] @max-[500px]/editor-panel:[&_.LemonButton]:[--lemon-button-icon-size:1rem]">
+                            <Tooltip title="Rename group series">
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconPencil />}
+                                    onClick={() => {
+                                        selectFilter(groupFilter ?? null)
+                                        showModal()
+                                    }}
+                                    data-attr={`group-filter-rename-${index}`}
+                                />
+                            </Tooltip>
                             <Tooltip title="Remove group">
                                 <LemonButton
                                     size="small"

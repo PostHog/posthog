@@ -77,7 +77,7 @@ pub fn start_assigner_with_config(
     cancel: CancellationToken,
 ) -> JoinHandle<Result<()>> {
     let strategy = Arc::new(StickyBalancedStrategy);
-    let assigner = Assigner::new(store, config, strategy);
+    let assigner = Assigner::new(store, config, strategy, None);
     let token = cancel.child_token();
     tokio::spawn(async move { assigner.run(token).await })
 }
@@ -100,6 +100,8 @@ pub async fn register_consumer(
         consumer_name: name.to_string(),
         status: ConsumerStatus::Ready,
         registered_at: assignment_coordination::util::now_seconds(),
+        generation: String::new(),
+        controller: None,
     };
     store.register_consumer(&consumer, lease_id).await.unwrap();
 
@@ -230,9 +232,13 @@ pub async fn start_grpc_server(
     cancel: CancellationToken,
 ) -> GrpcTestServer {
     let registry = Arc::new(ConsumerRegistry::new());
-    let config = Config::init_with_defaults().expect("default config should parse");
+    let mut config = Config::init_with_defaults().expect("default config should parse");
+    // Use short lease TTL in tests so crash recovery doesn't take 30s.
+    // Keepalive must be shorter than TTL to avoid expiring healthy consumers.
+    config.consumer_lease_ttl_secs = 5;
+    config.consumer_keepalive_interval_secs = 1;
     let service =
-        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config);
+        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config, None);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

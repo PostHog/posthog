@@ -16,6 +16,7 @@ import {
     IconHide,
     IconLeave,
     IconLive,
+    IconMessage,
     IconNight,
     IconPieChart,
     IconQuestion,
@@ -38,6 +39,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
@@ -47,6 +49,7 @@ import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToo
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
+import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
@@ -319,6 +322,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
 
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const showSurveys = surveysFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -333,6 +339,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
+    ) : visibleMenu === 'surveys' && showSurveys ? (
+        <SurveysToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -378,8 +386,8 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
-    const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
-    const { authenticate } = useActions(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
+    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal } = useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
@@ -387,6 +395,9 @@ export function Toolbar(): JSX.Element | null {
 
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const showSurveys = surveysFlag
 
     useEffect(() => {
         setElement(ref.current)
@@ -434,8 +445,12 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-1':
+                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2':
+                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3':
+                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -454,7 +469,7 @@ export function Toolbar(): JSX.Element | null {
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
                     <AnimatedLogomark
-                        animate={isLoading}
+                        animate={isLoading || authStatus === 'checking' || authStatus === 'authenticating'}
                         animateOnce={isExiting ? completeGracefulExit : undefined}
                         className="Toolbar__logomark"
                     />
@@ -489,12 +504,34 @@ export function Toolbar(): JSX.Element | null {
                                 <IconSpotlight />
                             </ToolbarButton>
                         )}
+                        {showSurveys && (
+                            <ToolbarButton menuId="surveys" title="Surveys">
+                                <IconMessage />
+                            </ToolbarButton>
+                        )}
                     </>
+                ) : authStatus === 'checking' || authStatus === 'authenticating' ? (
+                    <ToolbarButton flex>
+                        <span className="flex items-center gap-1">
+                            <Spinner /> {authStatus === 'authenticating' ? 'Authenticating…' : 'Checking…'}
+                        </span>
+                    </ToolbarButton>
+                ) : authStatus === 'error' ? (
+                    <ToolbarButton
+                        flex
+                        onClick={openUiHostConfigModal}
+                        title="PostHog app unreachable — click for help"
+                    >
+                        <span className="flex items-center gap-1">
+                            Authenticate <IconWarning className="text-warning" />
+                        </span>
+                    </ToolbarButton>
                 ) : (
                     <ToolbarButton flex onClick={authenticate}>
                         Authenticate
                     </ToolbarButton>
                 )}
+                <UiHostConfigModal visible={uiHostConfigModalVisible} onClose={closeUiHostConfigModal} />
 
                 <MoreMenu />
             </div>

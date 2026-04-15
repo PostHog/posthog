@@ -16,6 +16,7 @@ env:
 jobs:
     ensure-pinned-actions:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
@@ -29,8 +30,9 @@ jobs:
 
     semgrep-python:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -54,8 +56,9 @@ jobs:
 
     semgrep-go:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -77,8 +80,9 @@ jobs:
 
     semgrep-rust:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -102,8 +106,9 @@ jobs:
 
     semgrep-js:
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -125,8 +130,9 @@ jobs:
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -161,8 +167,9 @@ jobs:
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         container:
-            image: returntocorp/semgrep
+            image: semgrep/semgrep
 
         steps:
             - name: Checkout
@@ -176,6 +183,7 @@ jobs:
         needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general, semgrep-test-rules]
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check matrix outcome

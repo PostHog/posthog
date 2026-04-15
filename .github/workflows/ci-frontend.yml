@@ -26,6 +26,7 @@ jobs:
         name: Determine need to run frontend checks
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -45,6 +46,7 @@ jobs:
                         - 'common/esbuilder/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
+                        - 'products/**/*.json'
                         - 'playwright/**'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
@@ -64,12 +66,36 @@ jobs:
                         - '**/*.yaml'
                         - '**/*.yml'
                         - .config/.markdownlint-cli2.jsonc
+                      # Like `frontend` but excludes doc/config-only files that don't affect
+                      # compiled output — used to skip Jest, bundle-size, and TypeScript checks
+                      # when only markdown or YAML files change.
+                      frontend_code:
+                        - 'bin/**'
+                        - 'frontend/**'
+                        - 'ee/frontend/**'
+                        - 'common/esbuilder/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/*.json'
+                        - 'playwright/**'
+                        - .github/workflows/ci-frontend.yml
+                        - .oxlintrc.json
+                        - .oxfmtrc*
+                        - babel.config.js
+                        - package.json
+                        - pnpm-lock.yaml
+                        - jest.*.ts
+                        - tsconfig.json
+                        - tsconfig.*.json
+                        - webpack.config.js
+                        - stylelint*
 
     frontend-format:
         name: Frontend formatting
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
 
@@ -82,8 +108,11 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
-                  cache: 'pnpm'
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-frontend.yml
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -111,10 +140,13 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
-        runs-on: depot-ubuntu-24.04-4
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
+              with:
+                  filter: blob:none
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
@@ -124,8 +156,11 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
-                  cache: 'pnpm'
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-frontend.yml
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -180,8 +215,9 @@ jobs:
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        if: needs.changes.outputs.frontend_code == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@v6
 
@@ -194,8 +230,11 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
-                  cache: 'pnpm'
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-frontend.yml
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -238,14 +277,17 @@ jobs:
 
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+              env:
+                  NODE_OPTIONS: --max-old-space-size=8192
 
             - name: Validate SetupTaskId completions
               run: node bin/validate-setup-tasks.mjs
 
     jest:
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
         needs: changes
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
@@ -253,7 +295,7 @@ jobs:
             fail-fast: false
             matrix:
                 segment: ['FOSS', 'EE']
-                chunk: [1, 2, 3]
+                chunk: [1, 2]
 
         steps:
             - uses: actions/checkout@v6
@@ -271,26 +313,30 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-frontend.yml
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend -- --runInBand
+              run: bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: 2
 
     calculate-running-time:
         name: Calculate running time
         needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
-            needs.changes.outputs.frontend == 'true' && (
+            needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
@@ -303,12 +349,13 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Frontend Tests Pass'
-                  runner: 'depot'
+                  runner: 'github'
 
     frontend_tests:
         needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

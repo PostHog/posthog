@@ -18,18 +18,27 @@ export type KafkaConfigTarget =
     | 'METRICS_PRODUCER'
     | 'WAREHOUSE_PRODUCER'
 
-export const getKafkaConfigFromEnv = (prefix: KafkaConfigTarget): GlobalConfig => {
-    // NOTE: We have learnt that having as much exposed config to the env as possible is really useful
-    // That said we also want to be able to add defaults on the global config object
-    // So what we do is we first find all values from the default config object and then in addition we add the env ones.
-
-    const PREFIX = `KAFKA_${prefix}_`
+/**
+ * Parse env vars with the given prefix into an rdkafka GlobalConfig.
+ * Strips the prefix, converts underscores to dots, lowercases the key,
+ * and coerces numeric/boolean values.
+ *
+ * @param skipKeysInDefaultConfig - when true, skips env vars whose key
+ *   exists in defaultConfig (legacy behavior for KAFKA_* prefixed vars).
+ */
+export function parseEnvToRdkafkaConfig(
+    prefix: string,
+    options: { skipKeysInDefaultConfig?: boolean } = {}
+): GlobalConfig {
+    const { skipKeysInDefaultConfig = false } = options
     return Object.entries(process.env)
-        .filter(([key]) => key.startsWith(PREFIX))
+        .filter(([key]) => key.startsWith(prefix))
         .reduce(
             (acc, [key, value]) => {
-                // If there is an explicit config value then we don't override it
-                if (!value || key in defaultConfig) {
+                if (!value) {
+                    return acc
+                }
+                if (skipKeysInDefaultConfig && key in defaultConfig) {
                     return acc
                 }
 
@@ -48,10 +57,17 @@ export const getKafkaConfigFromEnv = (prefix: KafkaConfigTarget): GlobalConfig =
                     parsedValue = false
                 }
 
-                const rdkafkaKey = key.replace(PREFIX, '').replace(/_/g, '.').toLowerCase()
+                const rdkafkaKey = key.replace(prefix, '').replace(/_/g, '.').toLowerCase()
                 acc[rdkafkaKey] = parsedValue
                 return acc
             },
             {} as Record<string, any>
         )
+}
+
+export const getKafkaConfigFromEnv = (target: KafkaConfigTarget): GlobalConfig => {
+    // NOTE: We have learnt that having as much exposed config to the env as possible is really useful
+    // That said we also want to be able to add defaults on the global config object
+    // So what we do is we first find all values from the default config object and then in addition we add the env ones.
+    return parseEnvToRdkafkaConfig(`KAFKA_${target}_`, { skipKeysInDefaultConfig: true })
 }

@@ -1,9 +1,8 @@
 import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
+import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
-
-import { Optional } from '~/types'
 
 import { HogFlowAction } from '../types'
 
@@ -25,8 +24,8 @@ const _commonActionFields = {
     name: z.string(),
     description: z.string(),
     on_error: z.enum(['continue', 'abort']).optional().nullable(),
-    created_at: z.number(),
-    updated_at: z.number(),
+    created_at: z.number().optional(),
+    updated_at: z.number().optional(),
     filters: ActionFiltersSchema.optional().nullable(),
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .union([
@@ -69,6 +68,8 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'integration_field',
         'email',
         'native_email',
+        'posthog_assignee',
+        'posthog_ticket_tags',
     ]),
     key: z.string(),
     label: z.string(),
@@ -134,21 +135,17 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('schedule'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
-        template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
-        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
-        // Future: recurring schedule fields can be added here
     }),
     z.object({
         type: z.literal('batch'),
         filters: z.object({
             properties: z.array(z.any()),
         }),
-        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
-        // Future: recurring schedule fields can be added here
     }),
 ])
+
+/** Trigger types that use HogFlowSchedule for recurring execution */
+export const SCHEDULED_TRIGGER_TYPES: readonly string[] = ['batch', 'schedule'] as const
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
@@ -278,6 +275,10 @@ export const isOptOutEligibleAction = (
     return ['function_email', 'function_sms'].includes(action.type)
 }
 
+export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
+    return ['function_email'].includes(action.type)
+}
+
 export const isFunctionAction = (
     action: HogFlowAction
 ): action is Extract<HogFlowAction, { type: 'function' | 'function_sms' | 'function_email' }> => {
@@ -286,15 +287,12 @@ export const isFunctionAction = (
 
 export const isTriggerFunction = (
     action: HogFlowAction
-): action is Extract<
-    HogFlowAction,
-    { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' | 'manual' | 'schedule' } }
-> => {
+): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' | 'manual' } }> => {
     if (action.type !== 'trigger') {
         return false
     }
     const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
-    return ['webhook', 'tracking_pixel', 'manual', 'schedule'].includes(trigger.config.type)
+    return ['webhook', 'tracking_pixel', 'manual'].includes(trigger.config.type)
 }
 
 export interface HogflowTestResult {

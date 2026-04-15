@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -34,9 +35,9 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -1152,6 +1153,18 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
+    def test_password_reset_is_case_insensitive(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        # User registered as "user1@posthog.com", request reset with different casing
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL.upper()})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Email should still be sent
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
@@ -1465,6 +1478,36 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
+    def test_cant_reset_password_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.post("/api/reset/confirm/", {"token": token, "password": "a12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    def test_cant_validate_token_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.get(f"/api/reset/confirm/?token={token}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
@@ -1507,6 +1550,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T22:10:14.252"):
@@ -1529,6 +1573,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2022-08-25T22:00:14.252"):
@@ -1551,6 +1596,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-26T22:00:14.252"):
@@ -1568,7 +1614,9 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
         self.client.logout()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"]
+        )
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
@@ -1590,6 +1638,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T21:14:14.252"):
@@ -1611,6 +1660,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-24T21:14:14.252"):
@@ -1733,7 +1783,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
     def test_user_can_update_scene_personalisation_without_recent_authentication(self):
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
         now = datetime.now()
@@ -1858,6 +1908,25 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("non_prefixed_token", "some_random_token_without_prefix"),
+            ("empty_string", ""),
+            ("integer_value", 12345),
+        ]
+    )
+    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
+        data = json.dumps({"secret_api_key": token_value})
+        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 @override_settings(

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { ConversationStatus, ConversationType } from '~/types'
@@ -23,12 +24,13 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     }
 
     return (
-        <div className="max-w-120 w-full self-center flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 -mr-2">
+        <div className={cn('max-w-120 w-full self-center flex flex-col gap-2', sidePanel && 'px-3')}>
+            <div className={cn('flex items-center justify-between gap-2', !sidePanel && '-mr-2')}>
                 <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
                 <LemonButton
                     size="small"
                     onClick={() => toggleConversationHistory()}
+                    data-attr="max-view-all-chat-history"
                     tooltip="Open chat history"
                     tooltipPlacement="bottom"
                 >
@@ -46,6 +48,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                     <span key={conversation.id} className="flex items-center gap-2">
                         <Link
                             className="grow text-sm text-primary hover:text-accent-hover active:text-accent-active"
+                            data-attr="max-open-conversation"
                             to={urls.ai(conversation.id)}
                             onClick={(e) => {
                                 if (sidePanel) {

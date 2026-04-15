@@ -35,7 +35,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--server-root-ca-cert",
-            default=settings.TEMPORAL_CLIENT_ROOT_CA,
+            default=None,
             help="Optional root server CA cert",
         )
         parser.add_argument(

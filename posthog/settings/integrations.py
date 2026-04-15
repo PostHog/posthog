@@ -9,9 +9,13 @@ SNAPCHAT_APP_CLIENT_SECRET = get_from_env("SNAPCHAT_APP_CLIENT_SECRET", "")
 INTERCOM_APP_CLIENT_ID = get_from_env("INTERCOM_APP_CLIENT_ID", "")
 INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 
-SLACK_TWIG_CLIENT_ID = get_from_env("SLACK_TWIG_CLIENT_ID", "")
-SLACK_TWIG_CLIENT_SECRET = get_from_env("SLACK_TWIG_CLIENT_SECRET", "")
-SLACK_TWIG_SIGNING_SECRET = get_from_env("SLACK_TWIG_SIGNING_SECRET", "")
+SLACK_POSTHOG_CODE_CLIENT_ID = get_from_env("SLACK_POSTHOG_CODE_CLIENT_ID", get_from_env("SLACK_TWIG_CLIENT_ID", ""))
+SLACK_POSTHOG_CODE_CLIENT_SECRET = get_from_env(
+    "SLACK_POSTHOG_CODE_CLIENT_SECRET", get_from_env("SLACK_TWIG_CLIENT_SECRET", "")
+)
+SLACK_POSTHOG_CODE_SIGNING_SECRET = get_from_env(
+    "SLACK_POSTHOG_CODE_SIGNING_SECRET", get_from_env("SLACK_TWIG_SIGNING_SECRET", "")
+)
 
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
@@ -31,6 +35,10 @@ LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
+# OAuth credentials for the GitHub App's user authorization flow (different from the App ID / private key above).
+# Used to exchange an authorization code for a user access token during "Request user authorization during installation".
+GITHUB_APP_OAUTH_CLIENT_ID = get_from_env("GITHUB_APP_OAUTH_CLIENT_ID", "")
+GITHUB_APP_OAUTH_CLIENT_SECRET = get_from_env("GITHUB_APP_OAUTH_CLIENT_SECRET", "")
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
 ZENDESK_API_TOKEN = get_from_env("ZENDESK_API_TOKEN", "")
@@ -71,10 +79,15 @@ STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
+STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
 
 # WorkOS Radar (bot/fraud detection for auth flows)
 WORKOS_RADAR_API_KEY = get_from_env("WORKOS_RADAR_API_KEY", "")
 WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str_to_bool)
+
+# Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
+CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")
+CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", "")
 
 # Recall.ai (for desktop recordings product)
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")

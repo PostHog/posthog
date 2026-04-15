@@ -46,6 +46,7 @@ export function EntityFilterInfo({
               id: String(filter.id ?? ''),
               name: filter.name || String(filter.id ?? ''),
               is_action: filter.type === EntityTypes.ACTIONS,
+              is_data_warehouse: filter.type === EntityTypes.DATA_WAREHOUSE,
           })
         : null
 
@@ -53,15 +54,16 @@ export function EntityFilterInfo({
         // eslint-disable-next-line react/forbid-dom-props
         <span
             className={clsx(
-                !allowWrap && 'truncate',
-                isColumn ? 'flex flex-col items-start gap-0.5' : !allowWrap && 'flex items-center gap-1'
+                isColumn
+                    ? 'flex flex-col items-start gap-0.5'
+                    : !allowWrap && 'block overflow-hidden text-ellipsis whitespace-nowrap'
             )}
             style={style}
         >
-            <span className={clsx(icon && 'inline-flex items-center gap-1')}>
+            <span className={clsx(icon && 'inline-flex items-center gap-1 max-w-full')}>
                 {icon}
                 <span
-                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                    className={clsx('EntityFilterInfo max-w-full', !allowWrap && 'whitespace-nowrap truncate')}
                     title={customName ?? name}
                 >
                     {customName ?? name}
@@ -75,7 +77,7 @@ export function EntityFilterInfo({
             {customName && !showSingleName && (
                 <span
                     className={clsx(
-                        'EntityFilterInfo max-w-100 text-secondary text-xs',
+                        'EntityFilterInfo max-w-full text-secondary text-xs',
                         isColumn ? (icon ? 'ml-5' : '') : 'ml-1',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}

@@ -17,7 +17,7 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
-const INITIAL_DATE_FROM = '-1h' as string | null
+const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface LLMEvaluationsLogicProps {
@@ -41,7 +41,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     props({} as LLMEvaluationsLogicProps),
     key((props) => props.tabId ?? 'default'),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys']],
+        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -237,6 +237,18 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 )
             },
         ],
+        canEnableEvaluation: [
+            (s) => [s.isTrialLimitReached],
+            (isTrialLimitReached: boolean) => {
+                return (evaluation: EvaluationConfig): boolean => {
+                    if (!isTrialLimitReached) {
+                        return true
+                    }
+                    return !!evaluation.model_configuration?.provider_key_id
+                }
+            },
+        ],
+
         unhealthyProviderKeysUsedByEvaluations: [
             (s) => [s.evaluations, s.providerKeys],
             (evaluations: EvaluationConfig[], providerKeys: LLMProviderKey[]): LLMProviderKey[] => {

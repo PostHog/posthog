@@ -1,12 +1,16 @@
 from typing import Literal
 
+from django.conf import settings
+
 from drf_spectacular.utils import extend_schema
+from opentelemetry import trace
 from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ProductKey
 
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.clickhouse.client import sync_execute
@@ -17,9 +21,18 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
 
+tracer = trace.get_tracer(__name__)
+
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
     "How long does it take to get element stats?",
+)
+
+ELEMENT_STATS_RESULT_COUNT_HISTOGRAM = Histogram(
+    "element_stats_result_count",
+    "Number of results returned by element stats endpoint",
+    labelnames=["limit"],
+    buckets=[100, 500, 1000, 5000, 10000, 25000, 50000, 100000],
 )
 
 
@@ -77,7 +90,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 date_params.update(date_to_params)
 
                 try:
-                    limit = int(request.query_params.get("limit", 10_000))
+                    limit = int(request.query_params.get("limit", settings.ELEMENT_STATS_DEFAULT_LIMIT))
                 except ValueError:
                     raise ValidationError("Limit must be an integer")
 
@@ -136,6 +149,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with timer("serialize_elements"):
                 serialized_elements = ElementStatsSerializer(elements_data, many=True).data
 
+            ELEMENT_STATS_RESULT_COUNT_HISTOGRAM.labels(limit=limit).observe(len(serialized_elements))
+
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
             previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
@@ -170,34 +185,44 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        key = request.GET.get("key")
-        value = request.GET.get("value")
-        select_regex = '[:|"]{}="(.*?)"'.format(key)
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="element").time(),
+            tracer.start_as_current_span("elements_api_property_values") as span,
+        ):
+            key = request.GET.get("key")
+            value = request.GET.get("value")
 
-        # Make sure key exists, otherwise could lead to sql injection lower down
-        if key not in self.serializer_class.Meta.fields:
-            return response.Response([])
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
 
-        if key == "tag_name":
-            select_regex = r"^([-_a-zA-Z0-9]*?)[\.|:]"
-            filter_regex = select_regex
-            if value:
-                filter_regex = r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(value)
-        else:
-            if value:
-                filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, value)
-            else:
+            select_regex = '[:|"]{}="(.*?)"'.format(key)
+
+            # Make sure key exists, otherwise could lead to sql injection lower down
+            if key not in self.serializer_class.Meta.fields:
+                return response.Response([])
+
+            if key == "tag_name":
+                select_regex = r"^([-_a-zA-Z0-9]*?)[\.|:]"
                 filter_regex = select_regex
+                if value:
+                    filter_regex = r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(value)
+            else:
+                if value:
+                    filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, value)
+                else:
+                    filter_regex = select_regex
 
-        result = sync_execute(
-            GET_VALUES.format(),
-            {
-                "team_id": self.team.id,
-                "regex": select_regex,
-                "filter_regex": filter_regex,
-            },
-        )
-        return response.Response([{"name": value[0]} for value in result])
+            result = sync_execute(
+                GET_VALUES.format(),
+                {
+                    "team_id": self.team.id,
+                    "regex": select_regex,
+                    "filter_regex": filter_regex,
+                },
+            )
+            span.set_attribute("result_count", len(result))
+            return response.Response([{"name": value[0]} for value in result])
 
 
 class LegacyElementViewSet(ElementViewSet):

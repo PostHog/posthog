@@ -2,6 +2,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { resetKafka } from '~/tests/helpers/kafka'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { buildInlineFiltersForCohorts, createCohort, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
@@ -160,9 +161,9 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
 
         mockProducerObserver.resetKafkaProducer()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpPrecalculatedFiltersConsumer(hub, hub)
+        processor = new CdpPrecalculatedFiltersConsumer(hub, createCdpConsumerDeps(hub))
         await processor.start()
     })
 
@@ -234,7 +235,6 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             expect(precalculatedEvents).toHaveLength(1)
 
             const preCalculatedEvent = precalculatedEvents[0]
-            expect(preCalculatedEvent.key).toBe(distinctId) // Partitioned by distinct_id
 
             expect(preCalculatedEvent.payload).toMatchObject({
                 uuid: eventUuid,
@@ -254,7 +254,6 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             expect(kafkaMessages).toHaveLength(1)
 
             const publishedMessage = kafkaMessages[0]
-            expect(publishedMessage.key).toBe(distinctId)
             expect(publishedMessage.value).toEqual(preCalculatedEvent.payload)
         })
 
@@ -442,12 +441,10 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             // First event should be for pageview filter
             expect(event1.payload.condition).toBe(conditionHash1)
             expect(event1.payload.source).toBe(`cohort_filter_${conditionHash1}`)
-            expect(event1.key).toBe(distinctId)
 
             // Second event should be for Chrome + pageview filter
             expect(event2.payload.condition).toBe(conditionHash2)
             expect(event2.payload.source).toBe(`cohort_filter_${conditionHash2}`)
-            expect(event2.key).toBe(distinctId)
         })
 
         it('should handle complex billing cohort filter with OR/AND structure', async () => {
@@ -547,7 +544,6 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             expect(events1).toHaveLength(1)
 
             const preCalculatedEvent1 = events1[0]
-            expect(preCalculatedEvent1.key).toBe(distinctId1)
             expect(preCalculatedEvent1.payload).toMatchObject({
                 uuid: eventUuid1,
                 team_id: team.id,
@@ -690,7 +686,6 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
             expect(precalculatedEvents).toHaveLength(1)
 
             const preCalculatedEvent = precalculatedEvents[0]
-            expect(preCalculatedEvent.key).toBe(distinctId)
             expect(preCalculatedEvent.payload).toMatchObject({
                 uuid: eventUuid,
                 team_id: team.id,

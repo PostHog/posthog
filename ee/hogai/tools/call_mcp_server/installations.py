@@ -8,14 +8,13 @@ from products.mcp_store.backend.oauth import refresh_installation_token
 
 def _get_installations(team: Team, user: User) -> list[dict]:
     return list(
-        MCPServerInstallation.objects.filter(team=team, user=user)  # type: ignore[arg-type]
+        MCPServerInstallation.objects.filter(team=team, user=user, is_enabled=True)  # type: ignore[arg-type]
         .select_related("server")
         .values(
             "id",
             "display_name",
             "url",
             "auth_type",
-            "server__oauth_provider_kind",
             "server__oauth_metadata",
             "server__oauth_client_id",
             "sensitive_configuration",

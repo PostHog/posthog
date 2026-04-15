@@ -4,8 +4,7 @@ import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -23,6 +22,7 @@ import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/Lifecycle
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
@@ -108,32 +108,73 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsDataLogic(insightProps)
     )
 
+    const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
-        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
+        ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
         isRetention ||
         isTrendsFunnel ||
         isStickiness ||
         isLifecycle
             ? [
                   {
-                      title: 'Display',
-                      items: [
-                          ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
-                          ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                          ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
-                          ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          ...(display === ChartDisplayType.ActionsPie ? [{ label: () => <ShowPieTotalFilter /> }] : []),
-                          ...(showAlertThresholdLinesConfig
-                              ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
-                              : []),
-                          ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
-                          ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
-                              ? [{ label: () => <ShowTrendLinesFilter /> }]
-                              : []),
-                          ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
-                              ? [{ label: () => <HideWeekendsFilter /> }]
-                              : []),
-                      ],
+                      title: (
+                          <h5 className="mx-2 my-1" data-attr="options-display-section">
+                              Display
+                          </h5>
+                      ),
+                      items: isBoxPlot
+                          ? [
+                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                {
+                                    label: () => (
+                                        <LemonCheckbox
+                                            label={
+                                                <span className="font-normal">
+                                                    Exclude outliers{' '}
+                                                    <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
+                                                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                                    </Tooltip>
+                                                </span>
+                                            }
+                                            className="p-1 px-2"
+                                            size="small"
+                                            checked={trendsFilter?.excludeBoxPlotOutliers !== false}
+                                            onChange={(checked) => {
+                                                if (isTrendsQuery(querySource)) {
+                                                    const newQuery = { ...querySource }
+                                                    newQuery.trendsFilter = {
+                                                        ...trendsFilter,
+                                                        excludeBoxPlotOutliers: checked,
+                                                    }
+                                                    updateQuerySource(newQuery)
+                                                }
+                                            }}
+                                        />
+                                    ),
+                                },
+                            ]
+                          : [
+                                ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
+                                ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(display === ChartDisplayType.ActionsPie
+                                    ? [{ label: () => <ShowPieTotalFilter /> }]
+                                    : []),
+                                ...(showAlertThresholdLinesConfig
+                                    ? [
+                                          { label: () => <ShowAlertThresholdLinesFilter /> },
+                                          { label: () => <ShowAlertAnomalyPointsFilter /> },
+                                      ]
+                                    : []),
+                                ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                                ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
+                                    ? [{ label: () => <ShowTrendLinesFilter /> }]
+                                    : []),
+                                ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
+                                    ? [{ label: () => <HideWeekendsFilter /> }]
+                                    : []),
+                            ],
                   },
               ]
             : []),
@@ -154,10 +195,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(!showPercentStackView &&
-        isTrends &&
-        display !== ChartDisplayType.CalendarHeatmap &&
-        display !== ChartDisplayType.BoxPlot
+        ...(!showPercentStackView && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
@@ -250,10 +288,7 @@ export function InsightDisplayConfig(): JSX.Element {
                         ]),
               ]
             : []),
-        ...(mightContainFractionalNumbers &&
-        isTrends &&
-        display !== ChartDisplayType.CalendarHeatmap &&
-        display !== ChartDisplayType.BoxPlot
+        ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Decimal places',

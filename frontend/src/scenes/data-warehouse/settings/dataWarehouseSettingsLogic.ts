@@ -4,13 +4,21 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    DataWarehouseViewLink,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
@@ -22,9 +30,11 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables'],
+            ['database', 'dataWarehouseTables'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             databaseTableListLogic,
@@ -55,17 +65,19 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     const clonedSources = JSON.parse(
                         JSON.stringify(values.dataWarehouseSources?.results ?? [])
                     ) as ExternalDataSource[]
-                    const sourceIndex = clonedSources.findIndex((n) => n.schemas.find((m) => m.id === schema.id))
-                    const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-                    clonedSources[sourceIndex].schemas[schemaIndex] = schema
+                    const sourceIndex = clonedSources.findIndex((n) => n.schemas?.find((m) => m.id === schema.id))
+                    if (sourceIndex !== -1) {
+                        const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
+                        clonedSources[sourceIndex].schemas[schemaIndex] = schema
 
-                    actions.loadSourcesSuccess({
-                        ...values.dataWarehouseSources,
-                        results: clonedSources,
-                    })
+                        actions.loadSourcesSuccess({
+                            ...values.dataWarehouseSources,
+                            results: clonedSources,
+                        })
+                    }
 
                     await api.externalDataSchemas.update(schema.id, schema)
-                    actions.loadSources(null)
+                    actions.loadSources()
 
                     return null
                 },
@@ -133,9 +145,13 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
         filteredManagedSources: [
-            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
-            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
-                const sources = dataWarehouseSources?.results ?? []
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm, s.featureFlags],
+            (dataWarehouseSources, managedSearchTerm, featureFlags): ExternalDataSource[] => {
+                const sources = featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+                    ? (dataWarehouseSources?.results ?? []).filter(
+                          (source) => source.access_method?.toLowerCase() !== 'direct'
+                      )
+                    : (dataWarehouseSources?.results ?? [])
                 if (!managedSearchTerm?.trim()) {
                     return sources
                 }
@@ -162,7 +178,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     }),
     urlToAction(({ actions }) => ({
         '/data-warehouse/*': () => {
-            actions.loadSources(null)
+            actions.loadSources()
         },
     })),
     listeners(({ actions, values, cache }) => ({
@@ -178,7 +194,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
-            actions.loadSources(null)
+            actions.loadSources()
             actions.sourceLoadingFinished(source)
 
             posthog.capture('source deleted', { sourceType: source.source_type })
@@ -189,7 +205,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 JSON.stringify(values.dataWarehouseSources?.results ?? [])
             ) as ExternalDataSource[]
             const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
-            clonedSources[sourceIndex].status = 'Running'
+            clonedSources[sourceIndex].status = ExternalDataJobStatus.Running
             clonedSources[sourceIndex].schemas = clonedSources[sourceIndex].schemas.map((n) => {
                 if (n.should_sync) {
                     return {
@@ -208,7 +224,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
 
             try {
                 await api.externalDataSources.reload(source.id)
-                actions.loadSources(null)
+                actions.loadSources()
 
                 posthog.capture('source reloaded', { sourceType: source.source_type })
             } catch (e: any) {
@@ -227,7 +243,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources(null)
+                        actions.loadSources()
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
@@ -237,7 +253,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             if (router.values.location.pathname.includes('data-warehouse')) {
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => {
-                        actions.loadSources(null)
+                        actions.loadSources()
                     }, REFRESH_INTERVAL)
                     return () => clearTimeout(timerId)
                 }, 'refreshTimeout')
@@ -259,8 +275,11 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadSources(null)
+    afterMount(({ actions, values }) => {
+        if (!values.database) {
+            actions.loadDatabase()
+        }
+        actions.loadSources()
     }),
     beforeUnmount(() => {
         // Disposables plugin handles cleanup automatically

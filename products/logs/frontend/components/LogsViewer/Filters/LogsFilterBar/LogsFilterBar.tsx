@@ -31,6 +31,7 @@ import {
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
 import { DateRangeFilter } from '../DateRangeFilter'
 import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
@@ -45,26 +46,27 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-export const LogsFilterBar = (): JSX.Element => {
+export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
     const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
-    const { zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const { filters } = useValues(logsViewerFiltersLogic)
+    const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
+    const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
     const { setDateRange } = useActions(logsViewerFiltersLogic)
-    const { dateRange } = filters
+    const { dateRange, severityLevels, serviceNames } = filters
 
     return (
         <LogsFilterGroup>
             <div className="flex flex-col gap-2 w-full bg-primary">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        <SeverityLevelsFilter />
-                        <ServiceFilter />
+                        <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
+                        <ServiceFilter value={serviceNames} onChange={setServiceNames} dateRange={utcDateRange} />
                         <div className="min-w-[300px] max-w-[350px] w-full">
                             <LogsFilterSearch />
                         </div>
                         <FilterHistoryDropdown />
+                        {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
                     <div className="flex shrink-0 gap-1.5">
                         <div className="LogsDateButtonGroup">
@@ -202,7 +204,6 @@ const LogsFilterSearch = (): JSX.Element => {
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                             popupAnchorElement={floatingRef.current}
-                            useVerticalLayout={true}
                         />
                     </div>
                 }

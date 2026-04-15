@@ -52,7 +52,8 @@ We will begin by wiring up **one product** to:
 
 Focus:
 
-- One product = one Turbo package with `backend:test` and `backend:contract-check` tasks
+- One product = one Turbo package with `backend:test`; isolated products also declare `backend:contract-check`
+- Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
@@ -291,7 +292,12 @@ def process_artifact(artifact: Artifact) -> None:
 
 ### What tach enforces
 
-The `interfaces` setting in `tach.toml` controls which paths inside a product other products can import. This is machine-enforced — tach will reject any import that doesn't go through the declared interfaces.
+Global `[[interfaces]]` blocks in `tach.toml` control which paths inside a product other modules can import. All modules — including core (`posthog`, `ee`) — sit in a single `modules` layer, so interface enforcement applies everywhere. tach will reject any import that doesn't go through the declared `expose` patterns.
+
+Products with legacy interface leaks (where core still imports internals directly) get explicit TODO blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+
+> [!TIP]
+> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and tach boundary enforcement step by step.
 
 During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
 
@@ -327,7 +333,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 Other products depend on a product's **contract files only**. When contract files haven't changed, downstream products don't need retesting.
 
-**Import boundaries** are enforced by tach via `tach.toml`. This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model.
+**Import boundaries** are enforced by tach via global `[[interfaces]]` blocks in `tach.toml`. This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model. See the `isolating-product-facade-contracts` skill for the migration workflow.
 
 **Dependency rules for contract files (keep them pure):**
 

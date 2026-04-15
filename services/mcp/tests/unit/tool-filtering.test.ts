@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { getToolDefinitions, getToolsForFeatures } from '@/tools/toolDefinitions'
+import { getToolDefinitions, getToolsForFeatures, type ToolDefinition } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 describe('Tool Filtering - Features', () => {
@@ -11,7 +11,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: undefined,
             description: 'all tools when no features specified',
-            expectedTools: ['feature-flag-get-definition', 'dashboard-create', 'insights-get-all', 'organizations-get'],
+            expectedTools: ['feature-flag-get-definition', 'dashboard-create', 'insights-list', 'organizations-get'],
         },
         {
             features: [],
@@ -30,15 +30,9 @@ describe('Tool Filtering - Features', () => {
             ],
         },
         {
-            features: ['dashboards', 'insights'],
+            features: ['dashboards', 'product_analytics'],
             description: 'dashboard and insight tools',
-            expectedTools: [
-                'dashboard-create',
-                'dashboards-get-all',
-                'add-insight-to-dashboard',
-                'insights-get-all',
-                'insight-create-from-query',
-            ],
+            expectedTools: ['dashboard-create', 'dashboards-get-all', 'insights-list', 'insight-create'],
         },
         {
             features: ['workspace'],
@@ -52,9 +46,14 @@ describe('Tool Filtering - Features', () => {
             ],
         },
         {
+            features: ['error_tracking'],
+            description: 'error tracking tools (underscore)',
+            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+        },
+        {
             features: ['error-tracking'],
-            description: 'error tracking tools',
-            expectedTools: ['list-errors', 'error-details', 'update-issue-status'],
+            description: 'error tracking tools (hyphen, normalized)',
+            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
         },
         {
             features: ['experiments'],
@@ -62,8 +61,13 @@ describe('Tool Filtering - Features', () => {
             expectedTools: ['experiment-get-all'],
         },
         {
+            features: ['llm_analytics'],
+            description: 'LLM analytics tools (underscore)',
+            expectedTools: ['get-llm-total-costs-for-project'],
+        },
+        {
             features: ['llm-analytics'],
-            description: 'LLM analytics tools',
+            description: 'LLM analytics tools (hyphen, normalized)',
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {
@@ -91,6 +95,93 @@ describe('Tool Filtering - Features', () => {
                 expect(tools).toContain(tool)
             }
         })
+
+        it('should expose all annotation tools in v2', () => {
+            const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
+
+            expect(tools).toContain('annotation-create')
+            expect(tools).toContain('annotation-delete')
+            expect(tools).toContain('annotations-list')
+            expect(tools).toContain('annotation-retrieve')
+        })
+    })
+})
+
+describe('Tool Filtering - Tools Allowlist', () => {
+    describe('getToolsForFeatures with tools', () => {
+        it('should return all tools when tools is undefined', () => {
+            const allTools = getToolsForFeatures({})
+            const withUndefinedTools = getToolsForFeatures({ tools: undefined })
+            expect(withUndefinedTools).toEqual(allTools)
+        })
+
+        it('should return all tools when tools is empty array', () => {
+            const allTools = getToolsForFeatures({})
+            const withEmptyTools = getToolsForFeatures({ tools: [] })
+            expect(withEmptyTools).toEqual(allTools)
+        })
+
+        it('should return only specified tools', () => {
+            const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'] })
+            expect(tools).toContain('dashboard-get')
+            expect(tools).toContain('dashboard-create')
+            expect(tools).toHaveLength(2)
+        })
+
+        it('should return empty array for nonexistent tool names', () => {
+            const tools = getToolsForFeatures({ tools: ['nonexistent-tool'] })
+            expect(tools).toEqual([])
+        })
+
+        it('should union with features (OR) when both are provided', () => {
+            const tools = getToolsForFeatures({ features: ['flags'], tools: ['dashboard-get'] })
+
+            // Should include flag tools from features
+            expect(tools).toContain('feature-flag-get-definition')
+            expect(tools).toContain('feature-flag-get-all')
+
+            // Should also include the explicitly named tool
+            expect(tools).toContain('dashboard-get')
+
+            // Should not include unrelated tools
+            expect(tools).not.toContain('insights-list')
+        })
+
+        it('should still apply readOnly on top of tools filter', () => {
+            const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'], readOnly: true })
+
+            expect(tools).toContain('dashboard-get')
+            expect(tools).not.toContain('dashboard-create')
+        })
+
+        it('should still apply aiConsentGiven on top of tools filter', () => {
+            const withoutConsent = getToolsForFeatures({
+                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                aiConsentGiven: false,
+            })
+            expect(withoutConsent).toContain('dashboard-get')
+            expect(withoutConsent).not.toContain('query-generate-hogql-from-question')
+
+            const withConsent = getToolsForFeatures({
+                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                aiConsentGiven: true,
+            })
+            expect(withConsent).toContain('dashboard-get')
+            expect(withConsent).toContain('query-generate-hogql-from-question')
+        })
+    })
+
+    it('should combine tools with excludeTools via getToolsFromContext', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            tools: ['dashboard-get', 'dashboard-create', 'dashboard-delete'],
+            excludeTools: ['dashboard-delete'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).toContain('dashboard-get')
+        expect(toolNames).toContain('dashboard-create')
+        expect(toolNames).not.toContain('dashboard-delete')
     })
 })
 
@@ -99,12 +190,16 @@ const createMockContext = (scopes: string[]): Context => ({
     cache: {} as any,
     env: {
         INKEEP_API_KEY: undefined,
+        MCP_APPS_BASE_URL: undefined,
+        POSTHOG_ANALYTICS_API_KEY: undefined,
+        POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
         getApiKey: async () => ({ scopes }),
+        getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
 })
@@ -117,7 +212,7 @@ describe('Tool Filtering - API Scopes', () => {
 
         expect(toolNames).toContain('dashboard-create')
         expect(toolNames).toContain('create-feature-flag')
-        expect(toolNames).toContain('insight-create-from-query')
+        expect(toolNames).toContain('insight-query')
         expect(toolNames.length).toBeGreaterThan(25)
     })
 
@@ -129,7 +224,6 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-create')
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('dashboards-get-all')
-        expect(toolNames).toContain('add-insight-to-dashboard')
         expect(toolNames).toContain('dashboard-reorder-tiles')
 
         expect(toolNames).not.toContain('create-feature-flag')
@@ -149,14 +243,13 @@ describe('Tool Filtering - API Scopes', () => {
     })
 
     it('should only return read tools when user has read scope', async () => {
-        const context = createMockContext(['insight:read'])
+        const context = createMockContext(['insight:read', 'query:read'])
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
-        expect(toolNames).toContain('insights-get-all')
-        expect(toolNames).toContain('insight-get')
+        // insight-query is in the hand-written TOOL_MAP and requires query:read
+        expect(toolNames).toContain('insight-query')
 
-        expect(toolNames).not.toContain('insight-create-from-query')
         expect(toolNames).not.toContain('dashboard-create')
     })
 
@@ -170,7 +263,7 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('organization-details-get')
 
         expect(toolNames).not.toContain('dashboard-create')
-        expect(toolNames).not.toContain('insight-create-from-query')
+        expect(toolNames).not.toContain('insight-create')
     })
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
@@ -273,5 +366,140 @@ describe('Tool Filtering - excludeTools', () => {
         expect(toolNames).not.toContain('switch-organization')
         expect(toolNames).not.toContain('switch-project')
         expect(toolNames).not.toContain('dashboard-create')
+    })
+})
+
+describe('Tool Filtering - AI Consent', () => {
+    it('should exclude tools requiring AI consent when aiConsentGiven is false', () => {
+        const tools = getToolsForFeatures({ aiConsentGiven: false })
+        expect(tools).not.toContain('query-generate-hogql-from-question')
+    })
+
+    it('should include tools requiring AI consent when aiConsentGiven is true', () => {
+        const tools = getToolsForFeatures({ aiConsentGiven: true })
+        expect(tools).toContain('query-generate-hogql-from-question')
+    })
+
+    it('should exclude tools requiring AI consent when aiConsentGiven is undefined', () => {
+        const tools = getToolsForFeatures({ aiConsentGiven: undefined })
+        expect(tools).not.toContain('query-generate-hogql-from-question')
+    })
+
+    it('should not exclude tools that do not require AI consent when aiConsentGiven is false', () => {
+        const tools = getToolsForFeatures({ aiConsentGiven: false })
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('feature-flag-get-all')
+    })
+
+    it('should combine aiConsentGiven with feature filtering', () => {
+        const tools = getToolsForFeatures({ features: ['insights', 'product_analytics'], aiConsentGiven: false })
+        expect(tools).not.toContain('query-generate-hogql-from-question')
+        expect(tools).toContain('insights-list')
+    })
+
+    it('should filter AI consent tools via getToolsFromContext when org denies consent', async () => {
+        const context: Context = {
+            api: {} as any,
+            cache: {} as any,
+            env: {
+                INKEEP_API_KEY: undefined,
+                MCP_APPS_BASE_URL: undefined,
+                POSTHOG_ANALYTICS_API_KEY: undefined,
+                POSTHOG_ANALYTICS_HOST: undefined,
+                POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                POSTHOG_UI_APPS_TOKEN: undefined,
+            },
+            stateManager: {
+                getApiKey: async () => ({ scopes: ['*'] }),
+                getAiConsentGiven: async () => false,
+            } as any,
+            sessionManager: new SessionManager({} as any),
+        }
+        const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
+        expect(toolNames).not.toContain('query-generate-hogql-from-question')
+        expect(toolNames).toContain('dashboard-get')
+    })
+
+    it('should include AI consent tools via getToolsFromContext when org approves consent', async () => {
+        const context: Context = {
+            api: {} as any,
+            cache: {} as any,
+            env: {
+                INKEEP_API_KEY: undefined,
+                MCP_APPS_BASE_URL: undefined,
+                POSTHOG_ANALYTICS_API_KEY: undefined,
+                POSTHOG_ANALYTICS_HOST: undefined,
+                POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                POSTHOG_UI_APPS_TOKEN: undefined,
+            },
+            stateManager: {
+                getApiKey: async () => ({ scopes: ['*'] }),
+                getAiConsentGiven: async () => true,
+            } as any,
+            sessionManager: new SessionManager({} as any),
+        }
+        const tools = await getToolsFromContext(context)
+        const toolNames = tools.map((t) => t.name)
+        expect(toolNames).toContain('query-generate-hogql-from-question')
+    })
+})
+
+describe('Tool Filtering - Read-Only Mode', () => {
+    it('should only return read-only tools when readOnly is true', () => {
+        const tools = getToolsForFeatures({ readOnly: true })
+        const definitions = getToolDefinitions()
+
+        for (const toolName of tools) {
+            const def = definitions[toolName] as ToolDefinition
+            expect(def.annotations.readOnlyHint, `${toolName} should be readOnly`).toBe(true)
+        }
+
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('dashboards-get-all')
+        expect(tools).toContain('insights-list')
+        expect(tools).not.toContain('dashboard-create')
+        expect(tools).not.toContain('dashboard-delete')
+        expect(tools).not.toContain('insight-create')
+    })
+
+    it('should return all tools when readOnly is false', () => {
+        const allTools = getToolsForFeatures({})
+        const readOnlyFalseTools = getToolsForFeatures({ readOnly: false })
+
+        expect(readOnlyFalseTools).toEqual(allTools)
+    })
+
+    it('should return all tools when readOnly is undefined', () => {
+        const allTools = getToolsForFeatures({})
+        const readOnlyUndefinedTools = getToolsForFeatures({ readOnly: undefined })
+
+        expect(readOnlyUndefinedTools).toEqual(allTools)
+    })
+
+    it('should combine readOnly with feature filtering', () => {
+        const tools = getToolsForFeatures({ features: ['dashboards'], readOnly: true })
+
+        expect(tools).toContain('dashboard-get')
+        expect(tools).toContain('dashboards-get-all')
+        expect(tools).not.toContain('dashboard-create')
+        expect(tools).not.toContain('dashboard-delete')
+        expect(tools).not.toContain('dashboard-update')
+        expect(tools).not.toContain('feature-flag-get-all')
+    })
+
+    it('should combine readOnly with excludeTools via getToolsFromContext', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            readOnly: true,
+            excludeTools: ['dashboard-get'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).not.toContain('dashboard-get')
+        expect(toolNames).not.toContain('dashboard-create')
+        expect(toolNames).toContain('dashboards-get-all')
     })
 })

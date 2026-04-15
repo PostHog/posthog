@@ -6,7 +6,6 @@ import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
-import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -70,6 +69,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    schemaColumnsLoading?: boolean
     endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
@@ -98,6 +98,10 @@ export interface TaxonomicFilterProps {
     hogQLGlobals?: Record<string, any>
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    /** Override the group-level minSearchQueryLength for all groups in this instance. */
+    minSearchQueryLength?: number
+    /** Override the "Suggested filters" tab label for specific contexts. */
+    suggestedFiltersLabel?: string
 }
 
 export interface DataWarehousePopoverField {
@@ -143,6 +147,10 @@ export interface TaxonomicFilterGroup {
     render?: TaxonomicFilterRender
     /** if you want to override the default local items search behaviour e.g. for the replay group type */
     localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
+    /** Local-only groups don't participate in server-search mechanics (top matches, skeletons). */
+    isLocalOnly?: boolean
+    /** Meta groups (Suggested, Recent, Pinned) are excluded from loading indicators, top matches, auto-tab-away, and definition popovers. */
+    isMetaGroup?: boolean
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
@@ -152,6 +160,8 @@ export interface TaxonomicFilterGroup {
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
+    /** Name of a boolean selector on `logic` that indicates items are still loading. */
+    valueLoading?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
     getGroup?: (instance: any) => TaxonomicFilterGroup
@@ -216,6 +226,9 @@ export enum TaxonomicFilterGroupType {
     Logs = 'logs',
     LogAttributes = 'log_attributes',
     LogResourceAttributes = 'log_resource_attributes',
+    Spans = 'spans',
+    SpanAttributes = 'span_attributes',
+    SpanResourceAttributes = 'span_resource_attributes',
     // Misc
     Replay = 'replay',
     ReplaySavedFilters = 'replay_saved_filters',
@@ -228,8 +241,20 @@ export enum TaxonomicFilterGroupType {
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
     SuggestedFilters = 'suggested_filters',
+    RecentFilters = 'recent_filters',
+    PinnedFilters = 'pinned_filters',
     Empty = 'empty',
 }
+
+export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+    TaxonomicFilterGroupType.Empty,
+    TaxonomicFilterGroupType.Wildcards,
+    TaxonomicFilterGroupType.MaxAIContext,
+])
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
@@ -251,8 +276,20 @@ export interface LoaderOptions {
 
 export type ListFuse = Fuse<{
     name: string
+    posthogName: string | undefined
+    recentLabel: string | undefined
     item: EventDefinition | CohortType
 }> // local alias for typegen
+
+export interface SkeletonItem {
+    _skeleton: true
+    group: TaxonomicFilterGroupType
+    groupName: string
+}
+
+export function isSkeletonItem(item: unknown): item is SkeletonItem {
+    return typeof item === 'object' && item !== null && '_skeleton' in item
+}
 
 export type TaxonomicDefinitionTypes =
     | EventDefinition
@@ -262,5 +299,4 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
-    | ReplayTaxonomicFilterProperty
     | QuickFilterItem

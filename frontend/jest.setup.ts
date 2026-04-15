@@ -10,7 +10,78 @@ global.TextDecoder = TextDecoder as any
 global.TextEncoder = TextEncoder as any
 
 window.scrollTo = jest.fn()
-window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() }) as any)
+window.matchMedia = jest.fn(
+    (query: string) =>
+        ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: jest.fn(),
+            removeListener: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+        }) as any
+)
+
+type StorageLike = {
+    getItem: (key: string) => string | null
+    setItem: (key: string, value: string) => void
+    removeItem: (key: string) => void
+    clear: () => void
+}
+
+const createInMemoryStorage = (): StorageLike => {
+    const store = new Map<string, string>()
+    return {
+        getItem: (key) => (store.has(key) ? store.get(key)! : null),
+        setItem: (key, value) => {
+            store.set(key, String(value))
+        },
+        removeItem: (key) => {
+            store.delete(key)
+        },
+        clear: () => {
+            store.clear()
+        },
+    }
+}
+
+// Some Jest/JSDom environments might not provide an unqualified `sessionStorage`
+// binding. `sceneLogic` and other Kea logic reference `sessionStorage` as a
+// free variable, so we need to ensure the identifier exists.
+if (typeof sessionStorage === 'undefined') {
+    const sessionStorageStub = createInMemoryStorage()
+    ;(globalThis as any).sessionStorage = sessionStorageStub
+    ;(window as any).sessionStorage = sessionStorageStub
+    ;(global as any).sessionStorage = sessionStorageStub
+}
+
+if (typeof localStorage === 'undefined') {
+    const localStorageStub = createInMemoryStorage()
+    ;(globalThis as any).localStorage = localStorageStub
+    ;(window as any).localStorage = localStorageStub
+    ;(global as any).localStorage = localStorageStub
+}
+
+// jsdom does not implement AbortSignal.timeout — polyfill for tests
+if (typeof AbortSignal.timeout !== 'function') {
+    AbortSignal.timeout = (ms: number): AbortSignal => {
+        const controller = new AbortController()
+        setTimeout(() => controller.abort(new DOMException('TimeoutError', 'TimeoutError')), ms)
+        return controller.signal
+    }
+}
+
+// Base UI's ScrollArea calls getAnimations() which jsdom doesn't support
+if (typeof Element.prototype.getAnimations !== 'function') {
+    Element.prototype.getAnimations = () => []
+}
+
+// LemonMenu calls scrollIntoView which jsdom doesn't support
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = () => {}
+}
 
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {

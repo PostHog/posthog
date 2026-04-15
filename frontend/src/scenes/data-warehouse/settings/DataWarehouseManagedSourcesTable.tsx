@@ -70,7 +70,9 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        render: (_, source) => <DataWarehouseSourceIcon type={source.source_type} />,
+                        render: (_, source) => (
+                            <DataWarehouseSourceIcon type={source.source_type} engine={source.engine} />
+                        ),
                     },
                     {
                         title: 'Source',
@@ -119,7 +121,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                             const tagContent = (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                             )
-                            return source.latest_error && source.status === 'Error' ? (
+                            return source.latest_error && source.status === 'Failed' ? (
                                 <Tooltip title={source.latest_error} interactive>
                                     {tagContent}
                                 </Tooltip>

@@ -1,31 +1,37 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber, humanizeBytes } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber, humanizeBytes } from 'lib/utils'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
+import { BatchExportLoadingSkeleton } from './BatchExportLoadingSkeleton'
 import { BatchExportRunsLogicProps, batchExportRunsLogic } from './batchExportRunsLogic'
+import { BatchExportContext } from './types'
+import { statusToLemonTagType } from './utils'
 
 function isRunInProgress(run: BatchExportRun): boolean {
     return ['Running', 'Starting'].includes(run.status)
 }
 
-export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
-    const logic = batchExportRunsLogic({ id })
+export function BatchExportRuns({ id, context }: BatchExportRunsLogicProps): JSX.Element {
+    const logic = batchExportRunsLogic({ id, context })
 
-    const { batchExportConfig, groupedRuns, loading, hasMoreRunsToLoad, usingLatestRuns } = useValues(logic)
+    const { batchExportConfig, batchExportConfigLoading, groupedRuns, loading, hasMoreRunsToLoad, usingLatestRuns } =
+        useValues(logic)
     const { loadOlderRuns, retryRun } = useActions(logic)
 
     if (!batchExportConfig) {
+        if (batchExportConfigLoading) {
+            return <BatchExportLoadingSkeleton />
+        }
         return <NotFound object="batch export" />
     }
 
@@ -34,10 +40,11 @@ export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element 
             <div className="deprecated-space-y-2">
                 <BatchExportRunsFilters id={id} />
                 {usingLatestRuns ? (
-                    <BatchExportLatestRuns id={id} />
+                    <BatchExportLatestRuns id={id} context={context} />
                 ) : (
                     <BatchExportRunsGrouped
                         id={id}
+                        context={context}
                         groupedRuns={groupedRuns}
                         loading={loading}
                         retryRun={retryRun}
@@ -47,7 +54,7 @@ export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element 
                     />
                 )}
             </div>
-            <BatchExportBackfillModal id={id} />
+            <BatchExportBackfillModal id={id} context={context} />
         </>
     )
 }
@@ -85,10 +92,10 @@ function BatchExportRunsFilters({ id }: { id: string }): JSX.Element {
     )
 }
 
-function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
-    const logic = batchExportRunsLogic({ id })
+function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.Element {
+    const logic = batchExportRunsLogic({ id, context })
 
-    const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad } = useValues(logic)
+    const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad, recordLabel } = useValues(logic)
     const { openBackfillModal, loadOlderRuns, retryRun, cancelRun } = useActions(logic)
 
     if (!batchExportConfig) {
@@ -97,7 +104,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
 
     return (
         <>
-            <LemonTable
+            <LemonTable<BatchExportRun>
                 dataSource={latestRuns}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -153,29 +160,29 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         },
                     },
                     {
-                        title: 'Rows exported',
+                        title: `${capitalizeFirstLetter(recordLabel)} exported`,
                         key: 'rowsExported',
-                        render: (_, run) => {
-                            if (run.records_completed == null) {
-                                return ''
-                            }
-                            return humanFriendlyNumber(run.records_completed)
-                        },
+                        render: (_, run) => <RecordsExportedCell run={run} />,
                     },
-                    {
-                        title: 'Bytes exported',
-                        key: 'bytesExported',
-                        render: (_, run) => {
-                            if (run.bytes_exported == null) {
-                                return ''
-                            }
-                            return humanizeBytes(run.bytes_exported)
-                        },
-                    },
+                    // Only show bytes exported column for batch exports
+                    ...(context !== 'hog_function'
+                        ? [
+                              {
+                                  title: 'Bytes exported',
+                                  key: 'bytesExported',
+                                  render: (_: any, run: BatchExportRun) => {
+                                      if (run.bytes_exported == null) {
+                                          return ''
+                                      }
+                                      return humanizeBytes(run.bytes_exported)
+                                  },
+                              },
+                          ]
+                        : []),
                     {
                         title: 'Run start',
                         key: 'runStart',
-                        tooltip: 'Date and time when this BatchExport run started',
+                        tooltip: 'Date and time when this run started',
                         render: (_, run) => <TZLabel time={run.created_at} />,
                     },
                     {
@@ -208,6 +215,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
 
 export function BatchExportRunsGrouped({
     id,
+    context,
     groupedRuns,
     loading,
     retryRun,
@@ -216,6 +224,7 @@ export function BatchExportRunsGrouped({
     interval,
 }: {
     id: string
+    context?: BatchExportContext
     groupedRuns: GroupedBatchExportRuns[]
     loading: boolean
     retryRun: any
@@ -223,13 +232,14 @@ export function BatchExportRunsGrouped({
     loadOlderRuns: any
     interval: BatchExportConfiguration['interval']
 }): JSX.Element {
-    const logic = batchExportRunsLogic({ id })
+    const logic = batchExportRunsLogic({ id, context })
 
     const { openBackfillModal } = useActions(logic)
+    const { recordLabel } = useValues(logic)
 
     return (
         <>
-            <LemonTable
+            <LemonTable<GroupedBatchExportRuns>
                 dataSource={groupedRuns}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -246,7 +256,7 @@ export function BatchExportRunsGrouped({
                     noIndent: true,
                     expandedRowRender: (groupedRuns) => {
                         return (
-                            <LemonTable
+                            <LemonTable<BatchExportRun>
                                 dataSource={groupedRuns.runs}
                                 embedded={true}
                                 columns={[
@@ -262,29 +272,29 @@ export function BatchExportRunsGrouped({
                                         render: (_, run) => run.id,
                                     },
                                     {
-                                        title: 'Rows exported',
+                                        title: `${capitalizeFirstLetter(recordLabel)} exported`,
                                         key: 'rowsExported',
-                                        render: (_, run) => {
-                                            if (run.records_completed == null) {
-                                                return ''
-                                            }
-                                            return humanFriendlyNumber(run.records_completed)
-                                        },
+                                        render: (_, run) => <RecordsExportedCell run={run} />,
                                     },
-                                    {
-                                        title: 'Bytes exported',
-                                        key: 'bytesExported',
-                                        render: (_, run) => {
-                                            if (run.bytes_exported == null) {
-                                                return ''
-                                            }
-                                            return humanizeBytes(run.bytes_exported)
-                                        },
-                                    },
+                                    // Only show bytes exported column for batch exports
+                                    ...(context !== 'hog_function'
+                                        ? [
+                                              {
+                                                  title: 'Bytes exported',
+                                                  key: 'bytesExported',
+                                                  render: (_: any, run: BatchExportRun) => {
+                                                      if (run.bytes_exported == null) {
+                                                          return ''
+                                                      }
+                                                      return humanizeBytes(run.bytes_exported)
+                                                  },
+                                              },
+                                          ]
+                                        : []),
                                     {
                                         title: 'Run start',
                                         key: 'runStart',
-                                        tooltip: 'Date and time when this BatchExport run started',
+                                        tooltip: 'Date and time when this run started',
                                         render: (_, run) => <TZLabel time={run.created_at} />,
                                     },
                                 ]}
@@ -334,7 +344,7 @@ export function BatchExportRunsGrouped({
                     {
                         title: 'Latest run start',
                         key: 'runStart',
-                        tooltip: 'Date and time when this BatchExport run started',
+                        tooltip: 'Date and time when this run started',
                         render: (_, groupedRun) => {
                             return <TZLabel time={groupedRun.last_run_at} />
                         },
@@ -446,13 +456,14 @@ export function BatchExportRunIcon({
     const latestRun = runs[0]
 
     const status = combineFailedStatuses(latestRun.status)
-    const color = colorForStatus(status)
+    const tagType = statusToLemonTagType(status, { recordsFailed: latestRun.records_failed })
 
     return (
         <Tooltip
             title={
                 <>
                     Run status: {status}
+                    {latestRun.records_failed != null && latestRun.records_failed > 0 ? ' (with failures)' : ''}
                     {runs.length > 1 && (
                         <>
                             <br />
@@ -462,15 +473,13 @@ export function BatchExportRunIcon({
                 </>
             }
         >
-            <span
-                className={clsx(
-                    `BatchExportRunIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`,
-                    color === 'primary' && 'BatchExportRunIcon--pulse',
-                    showLabel ? '' : 'w-6'
-                )}
+            <LemonTag
+                type={tagType}
+                size="medium"
+                className={!showLabel ? 'justify-center min-w-[1.25rem] tabular-nums' : undefined}
             >
-                {showLabel ? <span className="text-center">{status}</span> : runs.length}
-            </span>
+                {showLabel ? status : runs.length}
+            </LemonTag>
         </Tooltip>
     )
 }
@@ -484,22 +493,17 @@ const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun
     return status
 }
 
-const colorForStatus = (status: BatchExportRun['status']): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
-    switch (status) {
-        case 'Completed':
-            return 'success'
-        case 'ContinuedAsNew':
-        case 'Running':
-        case 'Starting':
-            return 'primary'
-        case 'Cancelled':
-        case 'Terminated':
-        case 'TimedOut':
-            return 'warning'
-        case 'Failed':
-        case 'FailedRetryable':
-            return 'danger'
-        default:
-            return 'default'
+function RecordsExportedCell({ run }: { run: BatchExportRun }): JSX.Element | string {
+    if (run.records_completed == null) {
+        return ''
     }
+    if (run.records_failed != null && run.records_failed > 0) {
+        return (
+            <span>
+                {humanFriendlyNumber(run.records_completed)}
+                <span className="text-warning ml-1">({humanFriendlyNumber(run.records_failed)} failed)</span>
+            </span>
+        )
+    }
+    return humanFriendlyNumber(run.records_completed)
 }

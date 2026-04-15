@@ -1,16 +1,17 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { Properties } from '~/plugin-scaffold'
 
+import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
+import { GroupsOutput, IngestionWarningsOutput } from '../../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
 import { FlushResult } from '../persons/persons-store'
-import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
 import { CacheMetrics, GroupStore } from './group-store.interface'
 import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
@@ -135,12 +136,12 @@ export class BatchWritingGroupStore implements GroupStore {
     private groupCache: GroupCache
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
-    private kafkaProducer: KafkaProducerWrapper
+    private outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
     private groupRepository: GroupRepository
     private clickhouseGroupRepository: ClickhouseGroupRepository
 
     constructor(
-        kafkaProducer: KafkaProducerWrapper,
+        outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>,
         groupRepository: GroupRepository,
         clickhouseGroupRepository: ClickhouseGroupRepository,
         options?: Partial<BatchWritingGroupStoreOptions>
@@ -148,7 +149,7 @@ export class BatchWritingGroupStore implements GroupStore {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
-        this.kafkaProducer = kafkaProducer
+        this.outputs = outputs
         this.groupRepository = groupRepository
         this.clickhouseGroupRepository = clickhouseGroupRepository
     }
@@ -204,7 +205,7 @@ export class BatchWritingGroupStore implements GroupStore {
         distinctId: string
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, update.team_id, 'group_upsert_message_size_too_large', {
+            await emitIngestionWarning(this.outputs, update.team_id, 'group_upsert_message_size_too_large', {
                 groupTypeIndex: update.group_type_index,
                 groupKey: update.group_key,
             })
@@ -556,7 +557,7 @@ export class BatchWritingGroupStore implements GroupStore {
         timestamp: DateTime
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await captureIngestionWarning(this.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
+            await emitIngestionWarning(this.outputs, teamId, 'group_upsert_message_size_too_large', {
                 groupTypeIndex,
                 groupKey,
             })

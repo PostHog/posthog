@@ -14,7 +14,6 @@ import type {
     McpServerInstallationsAuthorizeRetrieveParams,
     McpServerInstallationsListParams,
     McpServersListParams,
-    OAuthCallbackRequestApi,
     OAuthRedirectResponseApi,
     PaginatedMCPServerInstallationListApi,
     PaginatedRecommendedServerListApi,
@@ -212,26 +211,6 @@ export const mcpServerInstallationsInstallCustomCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(installCustomApi),
-        }
-    )
-}
-
-export const getMcpServerInstallationsOauthCallbackCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/mcp_server_installations/oauth_callback/`
-}
-
-export const mcpServerInstallationsOauthCallbackCreate = async (
-    projectId: string,
-    oAuthCallbackRequestApi: OAuthCallbackRequestApi,
-    options?: RequestInit
-): Promise<MCPServerInstallationApi | MCPServerInstallationApi> => {
-    return apiMutator<MCPServerInstallationApi | MCPServerInstallationApi>(
-        getMcpServerInstallationsOauthCallbackCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(oAuthCallbackRequestApi),
         }
     )
 }

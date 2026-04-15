@@ -12,12 +12,14 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
-    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
-    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
+    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
@@ -233,10 +235,11 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
+        let limit = req.limit.filter(|&l| l > 0);
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
 
@@ -257,10 +260,16 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
+        let limit_per_person = req.limit_per_person.filter(|&l| l > 0);
 
         let mappings = self
             .storage
-            .get_distinct_ids_for_persons(req.team_id, &req.person_ids, consistency)
+            .get_distinct_ids_for_persons(
+                req.team_id,
+                &req.person_ids,
+                consistency,
+                limit_per_person,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_persons"))?;
 
@@ -286,6 +295,61 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(GetDistinctIdsForPersonsResponse {
             person_distinct_ids,
+        }))
+    }
+
+    // ============================================================
+    // Person deletes
+    // ============================================================
+
+    async fn delete_persons(
+        &self,
+        request: Request<DeletePersonsRequest>,
+    ) -> Result<Response<DeletePersonsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 person UUIDs per request",
+            ));
+        }
+
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+
+        let deleted_count = self
+            .storage
+            .delete_persons(req.team_id, &uuids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
+
+        Ok(Response::new(DeletePersonsResponse { deleted_count }))
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        request: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.batch_size <= 0 || req.batch_size > 50000 {
+            return Err(Status::invalid_argument(
+                "batch_size must be between 1 and 50000",
+            ));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_persons_batch_for_team(req.team_id, req.batch_size)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_persons_batch_for_team"))?;
+
+        Ok(Response::new(DeletePersonsBatchForTeamResponse {
+            deleted_count,
         }))
     }
 

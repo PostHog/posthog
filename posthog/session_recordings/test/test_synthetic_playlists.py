@@ -231,9 +231,7 @@ class TestSyntheticPlaylists(APIBaseTest):
         expected_synthetic_count = 7 if HAS_EE else 6
 
         page1_data = self._get_playlists_response("?limit=20")
-        page1_synthetic_count = self._count_synthetic_playlists(page1_data["results"])
-
-        assert page1_synthetic_count == expected_synthetic_count
+        assert len(page1_data["results"]) == 20
         assert page1_data["count"] == 25 + expected_synthetic_count
 
         page2_data = self._get_playlists_response("?limit=20&offset=20")
@@ -241,6 +239,15 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert page2_synthetic_count == 0
         assert page2_data["count"] == 25 + expected_synthetic_count
+
+    def test_pagination_limit_constrains_combined_results(self) -> None:
+        expected_synthetic_count = 7 if HAS_EE else 6
+
+        # With no DB playlists, requesting limit=3 should return at most 3
+        # synthetic playlists, not all of them.
+        data = self._get_playlists_response("?limit=3")
+        assert len(data["results"]) == 3
+        assert data["count"] == expected_synthetic_count
 
     @parameterized.expand(
         [
@@ -897,13 +904,14 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         cache.clear()
 
         session_id = str(uuid7())
-        _create_event(
-            distinct_id="user",
-            event="$rageclick",
-            properties={"$session_id": session_id},
-            team=self.team,
-            timestamp=datetime.now() - timedelta(days=1),
-        )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_id},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
         flush_persons_and_events()
 
         source = FrustrationSignalsPlaylistSource()
@@ -913,25 +921,27 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
     def test_frustrated_sessions_ordered_by_score(self) -> None:
         cache.clear()
 
-        # session_a: 1 rage click = score 3
+        # session_a: 2 rage clicks = score 6
         session_a = str(uuid7())
-        _create_event(
-            distinct_id="user",
-            event="$rageclick",
-            properties={"$session_id": session_a},
-            team=self.team,
-            timestamp=datetime.now() - timedelta(days=1),
-        )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_a},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
 
-        # session_b: 1 rage click + 1 exception = score 5
+        # session_b: 2 rage clicks + 1 exception = score 8
         session_b = str(uuid7())
-        _create_event(
-            distinct_id="user",
-            event="$rageclick",
-            properties={"$session_id": session_b},
-            team=self.team,
-            timestamp=datetime.now() - timedelta(days=1),
-        )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_b},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
         _create_event(
             distinct_id="user",
             event="$exception",
@@ -940,9 +950,9 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
             timestamp=datetime.now() - timedelta(days=1),
         )
 
-        # session_c: 2 rage clicks + 2 exceptions = score 10
+        # session_c: 3 rage clicks + 2 exceptions = score 13
         session_c = str(uuid7())
-        for _ in range(2):
+        for _ in range(3):
             _create_event(
                 distinct_id="user",
                 event="$rageclick",
@@ -964,7 +974,7 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         source = FrustrationSignalsPlaylistSource()
         session_ids = source.get_session_ids(self.team, self.user)
 
-        # session_c (score 10) > session_b (score 5) > session_a (score 3)
+        # session_c (score 13) > session_b (score 8) > session_a (score 6)
         assert session_ids == [session_c, session_b, session_a]
 
     def test_frustrated_sessions_excludes_old_data(self) -> None:
@@ -988,13 +998,14 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         cache.clear()
 
         session_id = str(uuid7())
-        _create_event(
-            distinct_id="user",
-            event="$rageclick",
-            properties={"$session_id": session_id},
-            team=self.team,
-            timestamp=datetime.now() - timedelta(days=1),
-        )
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_id},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
         flush_persons_and_events()
 
         cache_key = FrustrationSignalsPlaylistSource._get_cache_key(self.team.pk)
@@ -1010,13 +1021,14 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
 
         for _ in range(3):
             session_id = str(uuid7())
-            _create_event(
-                distinct_id="user",
-                event="$rageclick",
-                properties={"$session_id": session_id},
-                team=self.team,
-                timestamp=datetime.now() - timedelta(days=1),
-            )
+            for _ in range(2):
+                _create_event(
+                    distinct_id="user",
+                    event="$rageclick",
+                    properties={"$session_id": session_id},
+                    team=self.team,
+                    timestamp=datetime.now() - timedelta(days=1),
+                )
         flush_persons_and_events()
 
         source = FrustrationSignalsPlaylistSource()
@@ -1028,8 +1040,8 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
 
         for i in range(5):
             session_id = str(uuid7())
-            # Create varying rage clicks so ordering is deterministic
-            for _ in range(5 - i):
+            # Create varying rage clicks so ordering is deterministic, all above MIN_FRUSTRATION_SCORE
+            for _ in range(6 - i):
                 _create_event(
                     distinct_id="user",
                     event="$rageclick",

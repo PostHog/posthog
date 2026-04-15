@@ -90,9 +90,53 @@ export class InsightPage {
     }
 
     async save(): Promise<void> {
+        const originalUrl = this.page.url()
+        const originalPathname = new URL(originalUrl).pathname
+        const saveRequestPromise = this.page.waitForResponse(
+            (response) =>
+                /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
+                ['POST', 'PATCH'].includes(response.request().method()),
+            { timeout: 60000 }
+        )
+
         await this.saveButton.click()
-        await this.page.waitForURL(/^(?!.*\/new$).+$/)
-        await expect(this.editButton).toBeVisible()
+
+        const saveResponse = await saveRequestPromise
+
+        if (saveResponse.status() >= 400) {
+            const errorToast = this.page.locator('[data-attr="error-toast"]').first()
+            const errorText = (await errorToast.textContent().catch(() => null))?.trim()
+            throw new Error(`Insight save failed with ${saveResponse.status()}${errorText ? `: ${errorText}` : ''}`)
+        }
+
+        const successToast = this.page
+            .locator('[data-attr="success-toast"]')
+            .filter({ hasText: 'Insight saved' })
+            .first()
+        const errorToast = this.page.locator('[data-attr="error-toast"]').first()
+
+        await expect(async () => {
+            const currentPathname = new URL(this.page.url()).pathname
+
+            if (await errorToast.isVisible().catch(() => false)) {
+                const errorText = (await errorToast.textContent().catch(() => null))?.trim()
+                throw new Error(`Insight save showed an error toast${errorText ? `: ${errorText}` : ''}`)
+            }
+
+            if (currentPathname !== originalPathname) {
+                return
+            }
+
+            if (await this.editButton.isVisible().catch(() => false)) {
+                return
+            }
+
+            await expect(successToast.or(this.editButton)).toBeVisible()
+        }).toPass({ timeout: 30000 })
+
+        if (new URL(this.page.url()).pathname === originalPathname) {
+            await expect(this.editButton).toBeVisible()
+        }
     }
 
     async edit(): Promise<void> {
@@ -134,14 +178,23 @@ export class InsightPage {
         // panel container to be visible so callers know the panel has mounted and
         // the portal target is registered.
         await this.page.locator('#side-panel').waitFor({ state: 'visible' })
+        // The insight panel content is rendered via createPortal into a target
+        // registered by SidePanelInfo's useEffect. Waiting for #side-panel alone
+        // doesn't guarantee the portal target has switched from the hidden inline
+        // panel (Navigation.tsx). Wait for portal content to appear *inside*
+        // #side-panel, confirming the switch is complete. Scoping to #side-panel
+        // avoids matching the hidden inline panel.
+        await this.page.locator('#side-panel .scene-panel-actions-section').first().waitFor({ state: 'visible' })
     }
 
     async clickDeleteInsight(): Promise<void> {
-        // The delete button lives inside InsightPanelDangerZone which only
-        // renders once insight data has loaded (isSavedInsight check). After
-        // opening the info panel the button may not be in the DOM yet, so
-        // explicitly wait for it to become visible before clicking.
-        const deleteButton = this.page.getByTestId('insight-delete')
+        // The delete button is rendered via createPortal into scenePanelElement.
+        // There are two portal targets: a hidden inline panel (Navigation.tsx,
+        // display: none for insights) and the visible side panel (SidePanelInfo).
+        // After opening the Info tab the portal content moves from the inline
+        // panel to the side panel via useEffect. Scope the locator to #side-panel
+        // so we wait for the button in the visible container, not the hidden one.
+        const deleteButton = this.page.locator('#side-panel').getByTestId('insight-delete')
         await deleteButton.waitFor({ state: 'visible' })
         await deleteButton.click()
     }

@@ -38,6 +38,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 5
 
         steps:
             - uses: actions/checkout@v6
@@ -45,9 +46,10 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  setup_only: true
+                  version: '1.50.0'
 
             - name: Lint protos
               run: buf lint proto/
@@ -57,6 +59,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 5
 
         steps:
             - uses: actions/checkout@v6
@@ -64,9 +67,10 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  setup_only: true
+                  version: '1.50.0'
 
             - name: Check for breaking changes
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
@@ -76,6 +80,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 10
 
         steps:
             - uses: actions/checkout@v6
@@ -106,6 +111,7 @@ jobs:
         needs: [changes, lint, breaking, python-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all proto jobs

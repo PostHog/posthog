@@ -100,16 +100,11 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            @call(model="openai/gpt-4o-mini", client=openai_client)
+                            @call(model="openai/gpt-5-mini", client=openai_client)
                             def recommend_book(genre: str):
                                 return f"Recommend a {genre} book."
 
-                            response = recommend_book(
-                                "fantasy",
-                                posthog_distinct_id="user_123",
-                                posthog_trace_id="trace_123",
-                                posthog_properties={"conversation_id": "abc123"},
-                            )
+                            response = recommend_book("fantasy")
 
                             print(response.content)
                         `}

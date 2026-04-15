@@ -71,6 +71,26 @@ export function convertArrayToPropertyFilters(
     return propertyFilters
 }
 
+export function getEventPropertyFilterCount(propertyFilters?: SurveyEventsWithProperties['propertyFilters']): number {
+    return propertyFilters ? Object.keys(propertyFilters).length : 0
+}
+
+export function useExcludedObjectProperties(): Record<TaxonomicFilterGroupType.EventProperties, string[]> {
+    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+
+    return useMemo(() => {
+        const eventProperties = propertyDefinitionsByType('event')
+        const objectProperties = eventProperties.filter((prop) => {
+            // Exclude StringArray (arrays/objects) and undefined property types. Only primitive types are supported for
+            // comparison purposes in the JS SDK.
+            return !prop.property_type || prop.property_type === PropertyType.StringArray
+        })
+        return {
+            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
+        }
+    }, [propertyDefinitionsByType])
+}
+
 interface SurveyEventSelectorProps {
     conditionField: 'events' | 'cancelEvents'
     label: string
@@ -92,19 +112,7 @@ function SurveyEventSelector({
 }: SurveyEventSelectorProps): JSX.Element {
     const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
-    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
-
-    const excludedObjectProperties = useMemo(() => {
-        const eventProperties = propertyDefinitionsByType('event')
-        const objectProperties = eventProperties.filter((prop) => {
-            // Exclude StringArray (arrays/objects) and undefined property types. Only primitive types are supported for
-            // comparison purposes in the JS SDK.
-            return !prop.property_type || prop.property_type === PropertyType.StringArray
-        })
-        return {
-            [TaxonomicFilterGroupType.EventProperties]: objectProperties.map((prop) => prop.name),
-        }
-    }, [propertyDefinitionsByType])
+    const excludedObjectProperties = useExcludedObjectProperties()
 
     const events: SurveyEventsWithProperties[] = survey.conditions?.[conditionField]?.values || []
 
@@ -152,44 +160,50 @@ function SurveyEventSelector({
                 ) : (
                     <div className="space-y-2">
                         {events.map((event, index) => {
-                            const hasPropertyFilters =
-                                event.propertyFilters && Object.keys(event.propertyFilters).length > 0
+                            const propertyFilterCount = getEventPropertyFilterCount(event.propertyFilters)
+                            const hasPropertyFilters = propertyFilterCount > 0
+                            const panelKey = `${conditionField}-event-${index}`
 
                             return (
                                 <LemonCollapse
                                     key={`${conditionField}-${event.name}-${index}`}
+                                    defaultActiveKey={panelKey}
                                     panels={[
                                         {
-                                            key: `${conditionField}-event-${index}`,
+                                            key: panelKey,
                                             header: (
-                                                <div className="flex items-center justify-between flex-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-semibold text-sm">{event.name}</span>
-                                                        {hasPropertyFilters && (
-                                                            <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
-                                                                {Object.keys(event.propertyFilters!).length} filter
-                                                                {Object.keys(event.propertyFilters!).length !== 1
-                                                                    ? 's'
-                                                                    : ''}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        icon={<IconX />}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            removeEventAtIndex(index)
-                                                        }}
-                                                        type="tertiary"
-                                                        status="alt"
-                                                    />
+                                                <div className="flex items-center gap-2 flex-1">
+                                                    <span className="font-semibold text-sm">{event.name}</span>
+                                                    <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
+                                                        {hasPropertyFilters
+                                                            ? `${propertyFilterCount} filter${propertyFilterCount !== 1 ? 's' : ''}`
+                                                            : 'No filters yet'}
+                                                    </span>
+                                                    <span className="text-xs text-muted-alt">
+                                                        {hasPropertyFilters
+                                                            ? 'Refine this trigger'
+                                                            : 'Optional: add property filters'}
+                                                    </span>
                                                 </div>
                                             ),
                                             content: (
                                                 <div>
+                                                    <div className="flex justify-end mb-2">
+                                                        <LemonButton
+                                                            size="xsmall"
+                                                            icon={<IconX />}
+                                                            onClick={() => removeEventAtIndex(index)}
+                                                            type="tertiary"
+                                                            status="alt"
+                                                        >
+                                                            Remove event
+                                                        </LemonButton>
+                                                    </div>
                                                     <div className="text-xs font-medium text-muted-alt mb-2 uppercase tracking-wide">
-                                                        Property Filters
+                                                        Event property filters
+                                                    </div>
+                                                    <div className="text-xs text-muted mb-3">
+                                                        Narrow this trigger to matching events only.
                                                     </div>
                                                     <PropertyFilters
                                                         propertyFilters={convertPropertyFiltersToArray(

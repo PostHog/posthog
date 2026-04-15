@@ -6,14 +6,14 @@ from typing import cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 
 import jwt
+import requests
 import structlog
 
 from posthog.models import User
-from posthog.security.outbound_proxy import external_requests
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +67,9 @@ class AdminOAuth2Middleware:
 
         if self._is_oauth2_verified(request):
             return self.get_response(request)
+
+        if request.path.startswith("/admin/api/"):
+            return JsonResponse({"detail": "Admin OAuth2 verification required"}, status=403)
 
         request.session[self.SESSION_ORIGINAL_PATH_KEY] = request.get_full_path()
         return self._redirect_to_oauth2(request)
@@ -222,7 +225,7 @@ def _exchange_code_for_token(request: HttpRequest, code: str) -> dict:
         "redirect_uri": request.build_absolute_uri("/admin/oauth2/callback"),
         "grant_type": "authorization_code",
     }
-    response = external_requests.post(token_url, data=data)
+    response = requests.post(token_url, data=data)
     response.raise_for_status()
     return response.json()
 

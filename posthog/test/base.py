@@ -75,7 +75,7 @@ from posthog.clickhouse.query_log_archive import (
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models import Action, Insight, Organization, Team, User
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -122,7 +122,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
@@ -169,7 +169,7 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.web_preaggregated.sql import (
     DROP_WEB_BOUNCES_SQL,
     DROP_WEB_BOUNCES_STAGING_SQL,
@@ -194,6 +194,8 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
@@ -202,11 +204,9 @@ from products.event_definitions.backend.models.property_definition import (
 # Make sure freezegun ignores our utils class that times functions
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
-
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 0
-
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -253,6 +253,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    query = re.sub(
+        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
+        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        query,
+    )
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
@@ -829,17 +836,56 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 conn = connections[db_name]
                 with conn.cursor() as cursor:
                     cursor.execute("""
-                        SELECT tablename FROM pg_tables
-                        WHERE schemaname = 'public'
-                        AND tablename NOT LIKE 'pg_%'
-                        AND tablename NOT LIKE '_sqlx_%'
-                        AND tablename NOT LIKE '_persons_migrations'
-                    """)
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
                     tables = [row[0] for row in cursor.fetchall()]
                     if tables:
                         cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
             else:
                 call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
+
+class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
+    sequences keep incrementing across tests. Useful when ClickHouse data from
+    earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
+    need later tests to get fresh, non-overlapping values.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def _fixture_teardown(self):
+        for db_name in self._databases_names(include_mirrors=False):
+            conn = connections[db_name]
+            with conn.cursor() as cursor:
+                if db_name in ("persons_db_writer", "persons_db_reader"):
+                    cursor.execute("""
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE '_sqlx_%'
+                                     AND tablename NOT LIKE '_persons_migrations'
+                                   """)
+                else:
+                    cursor.execute("""
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE 'django_%'
+                                   """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -966,7 +1012,9 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
 
 
-def get_index_from_explain(query: str, index_name: str) -> dict | None:
+def get_index_from_explain(
+    query: str, index_name: str, *, placeholder_values: dict[str, str] | None = None
+) -> dict | None:
     """
     Run EXPLAIN PLAN on a query and extract info for the given index name.
 
@@ -979,8 +1027,9 @@ def get_index_from_explain(query: str, index_name: str) -> dict | None:
     * It does not go anywhere near real users or their inputs
     """
     # Substitute HogQL placeholders with dummy values for EXPLAIN
-    query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
-    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
+    if not placeholder_values:
+        query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}", placeholder_values)
     plan_json = json.loads(explain_result[0][0])
 
     # Uncomment this to debug whether your expected index actually exists
@@ -1424,6 +1473,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
         with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
+
+    @contextmanager
+    def snapshot_select_queries(self):
+        with self.capture_select_queries() as queries:
+            yield queries
+
+        replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):

@@ -1,0 +1,216 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dashboards": {
+            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "favorited": {
+            "type": "boolean"
+        },
+        "id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "string"
+                }
+            ],
+            "description": "Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "query": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "kind": {
+                            "const": "InsightVizNode",
+                            "default": "InsightVizNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "chartSettings": {
+                            "description": "Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.",
+                            "properties": {
+                                "goalLines": {
+                                    "description": "Horizontal goal lines drawn across the chart.",
+                                    "items": {
+                                        "properties": {
+                                            "label": {
+                                                "description": "Label rendered next to the goal line.",
+                                                "type": "string"
+                                            },
+                                            "value": {
+                                                "description": "Y-axis value at which the goal line is drawn.",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "required": ["label", "value"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "seriesBreakdownColumn": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable."
+                                },
+                                "showLegend": {
+                                    "description": "Show the chart legend.",
+                                    "type": "boolean"
+                                },
+                                "showNullsAsZero": {
+                                    "description": "Replace null aggregation results with zero.",
+                                    "type": "boolean"
+                                },
+                                "stackBars100": {
+                                    "description": "Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.",
+                                    "type": "boolean"
+                                },
+                                "xAxis": {
+                                    "description": "Column used as the X axis. Typically a time bucket or categorical column.",
+                                    "properties": {
+                                        "column": {
+                                            "description": "Name of a column returned by the SQL query to map onto this axis.",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["column"],
+                                    "type": "object"
+                                },
+                                "yAxis": {
+                                    "description": "One or more numeric columns plotted as Y series.",
+                                    "items": {
+                                        "properties": {
+                                            "column": {
+                                                "description": "Name of a column returned by the SQL query to map onto this axis.",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["column"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "display": {
+                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.",
+                            "enum": [
+                                "ActionsTable",
+                                "BoldNumber",
+                                "ActionsLineGraph",
+                                "ActionsBar",
+                                "ActionsStackedBar",
+                                "ActionsAreaGraph",
+                                "TwoDimensionalHeatmap"
+                            ],
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "DataVisualizationNode",
+                            "default": "DataVisualizationNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "description": "HogQL query object that produces the rows to visualize.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "tableSettings": {
+                            "description": "Table configuration. Only applies when `display` is `ActionsTable` or omitted.",
+                            "properties": {
+                                "columns": {
+                                    "description": "Columns to display and their order. Omit to show every column returned by the query.",
+                                    "items": {
+                                        "properties": {
+                                            "column": {
+                                                "description": "Name of a column returned by the SQL query to map onto this axis.",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["column"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "pinnedColumns": {
+                                    "description": "Column names to pin to the left of the table.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "showTotalRow": {
+                                    "description": "Show a total row at the bottom of the table.",
+                                    "type": "boolean"
+                                },
+                                "transpose": {
+                                    "description": "Transpose rows and columns.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                }
+            ]
+        },
+        "tags": {
+            "items": {},
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

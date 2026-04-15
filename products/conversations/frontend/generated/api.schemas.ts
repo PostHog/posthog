@@ -12,9 +12,9 @@
  * `in_progress` - In progress
  * `canceling` - Canceling
  */
-export type ConversationStatusEnumApi = (typeof ConversationStatusEnumApi)[keyof typeof ConversationStatusEnumApi]
+export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
 
-export const ConversationStatusEnumApi = {
+export const ConversationStatusApi = {
     Idle: 'idle',
     InProgress: 'in_progress',
     Canceling: 'canceling',
@@ -85,22 +85,18 @@ export interface UserBasicApi {
  * `deep_research` - Deep research
  * `slack` - Slack
  */
-export type ConversationTypeEnumApi = (typeof ConversationTypeEnumApi)[keyof typeof ConversationTypeEnumApi]
+export type ConversationTypeApi = (typeof ConversationTypeApi)[keyof typeof ConversationTypeApi]
 
-export const ConversationTypeEnumApi = {
+export const ConversationTypeApi = {
     Assistant: 'assistant',
     ToolCall: 'tool_call',
     DeepResearch: 'deep_research',
     Slack: 'slack',
 } as const
 
-export type ConversationApiMessagesItem = { [key: string]: unknown }
-
-export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
-
-export interface ConversationApi {
+export interface ConversationMinimalApi {
     readonly id: string
-    readonly status: ConversationStatusEnumApi
+    readonly status: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -111,7 +107,102 @@ export interface ConversationApi {
     readonly created_at: string | null
     /** @nullable */
     readonly updated_at: string | null
-    readonly type: ConversationTypeEnumApi
+    readonly type: ConversationTypeApi
+    /**
+     * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+     * @nullable
+     */
+    readonly is_internal: boolean | null
+    /**
+     * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+     * @nullable
+     */
+    readonly slack_thread_key: string | null
+    /**
+     * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+     * @nullable
+     */
+    readonly slack_workspace_domain: string | null
+}
+
+export interface PaginatedConversationMinimalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ConversationMinimalApi[]
+}
+
+export type MessageApiContextualTools = { [key: string]: unknown }
+
+/**
+ * * `product_analytics` - product_analytics
+ * `sql` - sql
+ * `session_replay` - session_replay
+ * `error_tracking` - error_tracking
+ * `plan` - plan
+ * `execution` - execution
+ * `survey` - survey
+ * `research` - research
+ * `flags` - flags
+ * `llm_analytics` - llm_analytics
+ * `sandbox` - sandbox
+ */
+export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
+
+export const AgentModeEnumApi = {
+    ProductAnalytics: 'product_analytics',
+    Sql: 'sql',
+    SessionReplay: 'session_replay',
+    ErrorTracking: 'error_tracking',
+    Plan: 'plan',
+    Execution: 'execution',
+    Survey: 'survey',
+    Research: 'research',
+    Flags: 'flags',
+    LlmAnalytics: 'llm_analytics',
+    Sandbox: 'sandbox',
+} as const
+
+/**
+ * Serializer for appending a message to an existing conversation without triggering AI processing.
+ */
+export interface MessageApi {
+    /**
+     * @maxLength 40000
+     * @nullable
+     */
+    content: string | null
+    conversation: string
+    contextual_tools?: MessageApiContextualTools
+    ui_context?: unknown
+    billing_context?: unknown
+    trace_id: string
+    session_id?: string
+    agent_mode?: AgentModeEnumApi
+    is_sandbox?: boolean
+    resume_payload?: unknown | null
+}
+
+export type ConversationApiMessagesItem = { [key: string]: unknown }
+
+export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
+
+export interface ConversationApi {
+    readonly id: string
+    readonly status: ConversationStatusApi
+    /**
+     * Title of the conversation.
+     * @nullable
+     */
+    readonly title: string | null
+    readonly user: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly type: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -131,70 +222,12 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
 interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
-}
-
-export interface PaginatedConversationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ConversationApi[]
-}
-
-export type MessageApiContextualTools = { [key: string]: unknown }
-
-/**
- * * `product_analytics` - product_analytics
- * `sql` - sql
- * `session_replay` - session_replay
- * `error_tracking` - error_tracking
- * `plan` - plan
- * `execution` - execution
- * `survey` - survey
- * `onboarding` - onboarding
- * `research` - research
- * `flags` - flags
- * `llm_analytics` - llm_analytics
- */
-export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
-
-export const AgentModeEnumApi = {
-    ProductAnalytics: 'product_analytics',
-    Sql: 'sql',
-    SessionReplay: 'session_replay',
-    ErrorTracking: 'error_tracking',
-    Plan: 'plan',
-    Execution: 'execution',
-    Survey: 'survey',
-    Onboarding: 'onboarding',
-    Research: 'research',
-    Flags: 'flags',
-    LlmAnalytics: 'llm_analytics',
-} as const
-
-/**
- * Serializer for appending a message to an existing conversation without triggering AI processing.
- */
-export interface MessageApi {
-    /**
-     * @maxLength 40000
-     * @nullable
-     */
-    content: string | null
-    conversation: string
-    contextual_tools?: MessageApiContextualTools
-    ui_context?: unknown
-    billing_context?: unknown
-    trace_id: string
-    session_id?: string
-    agent_mode?: AgentModeEnumApi
-    resume_payload?: unknown | null
 }
 
 /**
@@ -211,7 +244,7 @@ export type PatchedConversationApiPendingApprovalsItem = { [key: string]: unknow
 
 export interface PatchedConversationApi {
     readonly id?: string
-    readonly status?: ConversationStatusEnumApi
+    readonly status?: ConversationStatusApi
     /**
      * Title of the conversation.
      * @nullable
@@ -222,7 +255,7 @@ export interface PatchedConversationApi {
     readonly created_at?: string | null
     /** @nullable */
     readonly updated_at?: string | null
-    readonly type?: ConversationTypeEnumApi
+    readonly type?: ConversationTypeApi
     /**
      * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
      * @nullable
@@ -242,11 +275,37 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
 interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
+}
+
+/**
+ * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ */
+export type TicketViewApiFilters = { [key: string]: unknown }
+
+export interface TicketViewApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+    filters?: TicketViewApiFilters
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedTicketViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketViewApi[]
 }
 
 /**
@@ -260,6 +319,23 @@ export const ChannelSourceEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
+} as const
+
+/**
+ * * `slack_channel_message` - Channel message
+ * `slack_bot_mention` - Bot mention
+ * `slack_emoji_reaction` - Emoji reaction
+ * `widget_embedded` - Widget
+ * `widget_api` - API
+ */
+export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
+
+export const ChannelDetailEnumApi = {
+    SlackChannelMessage: 'slack_channel_message',
+    SlackBotMention: 'slack_bot_mention',
+    SlackEmojiReaction: 'slack_emoji_reaction',
+    WidgetEmbedded: 'widget_embedded',
+    WidgetApi: 'widget_api',
 } as const
 
 /**
@@ -293,11 +369,26 @@ export const PriorityEnumApi = {
 } as const
 
 /**
+ * @nullable
+ */
+export type TicketAssignmentApiUser = { [key: string]: string } | null | null
+
+/**
+ * @nullable
+ */
+export type TicketAssignmentApiRole = { [key: string]: string } | null | null
+
+/**
  * Serializer for ticket assignment (user or role).
  */
 export interface TicketAssignmentApi {
-    readonly id: string
+    /** @nullable */
+    readonly id: string | null
     readonly type: string
+    /** @nullable */
+    readonly user: TicketAssignmentApiUser
+    /** @nullable */
+    readonly role: TicketAssignmentApiRole
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -321,6 +412,7 @@ export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
+    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -349,6 +441,13 @@ export interface TicketApi {
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
+    /** @nullable */
+    readonly email_subject: string | null
+    /** @nullable */
+    readonly email_from: string | null
+    /** @nullable */
+    readonly email_to: string | null
+    readonly cc_participants: unknown
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -369,6 +468,7 @@ export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
+    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id?: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -397,6 +497,13 @@ export interface PatchedTicketApi {
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
+    /** @nullable */
+    readonly email_subject?: string | null
+    /** @nullable */
+    readonly email_from?: string | null
+    /** @nullable */
+    readonly email_to?: string | null
+    readonly cc_participants?: unknown
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -411,6 +518,17 @@ export interface SuggestReplyErrorApi {
 }
 
 export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsViewsListParams = {
     /**
      * Number of results to return per page.
      */

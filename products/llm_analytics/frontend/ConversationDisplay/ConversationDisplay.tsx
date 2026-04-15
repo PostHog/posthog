@@ -1,14 +1,13 @@
-import { useActions } from 'kea'
 import React from 'react'
 
-import { IconChat } from '@posthog/icons'
+import { IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
-import { llmPlaygroundPromptsLogic } from '../playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
@@ -19,16 +18,16 @@ export interface ConversationDisplayProps {
 }
 
 export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
-    const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
-
+    const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
+    const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
-        input: eventProperties.$ai_input,
-        output: eventProperties.$ai_output_choices,
+        input: rawInput,
+        output: rawOutput,
     })
 
-    const handleTryInPlayground = (): void => {
-        setupPlaygroundFromEvent({
+    const handleOpenInPlayground = (): void => {
+        openInPlayground({
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
             input,
@@ -74,12 +73,12 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     <LemonButton
                         type="secondary"
                         size="small"
-                        icon={<IconChat />}
-                        onClick={handleTryInPlayground}
-                        tooltip="Try this prompt in the playground"
-                        data-attr="try-in-playground-conversation"
+                        icon={<IconPlay />}
+                        onClick={handleOpenInPlayground}
+                        tooltip="Open in Playground"
+                        data-attr="llma-playground-open-from-conversation"
                     >
-                        Try in Playground
+                        Open in Playground
                     </LemonButton>
                 )}
             </header>

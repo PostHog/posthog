@@ -1,4 +1,5 @@
 import datetime as dt
+from collections.abc import Iterable
 
 import pytest
 from unittest.mock import Mock, patch
@@ -92,6 +93,32 @@ class TestBingAdsHelperFunctions:
         assert mock_client.get_data_by_resource.call_count == 3
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
+    def test_fetch_data_in_yearly_chunks_same_day(self, mock_logger):
+        mock_client = Mock()
+        mock_client.get_data_by_resource.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
+
+        today = dt.date(2026, 4, 10)
+
+        result = list(
+            fetch_data_in_yearly_chunks(
+                client=mock_client,
+                resource=BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT,
+                account_id=12345,
+                start_date=today,
+                end_date=today,
+            )
+        )
+
+        assert len(result) == 1
+        assert result[0][0]["CampaignId"] == "123"
+        mock_client.get_data_by_resource.assert_called_once_with(
+            resource=BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT,
+            account_id=12345,
+            start_date=dt.datetime.combine(today, dt.time.min),
+            end_date=dt.datetime.combine(today, dt.time.max),
+        )
+
+    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
     def test_fetch_data_in_yearly_chunks_with_errors(self, mock_logger):
         """Test fetching data with some chunks failing."""
         mock_client = Mock()
@@ -149,7 +176,9 @@ class TestBingAdsSource:
         assert result.primary_keys == ["Id"]
         assert result.partition_mode is None
 
-        data = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        data = list(items)
         assert len(data) == 1
         assert data[0][0]["Id"] == "123"
 
@@ -177,7 +206,9 @@ class TestBingAdsSource:
         assert result.primary_keys == ["CampaignId", "TimePeriod"]
         assert result.partition_mode == "datetime"
 
-        data = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        data = list(items)
         assert len(data) == 1
 
     @parameterized.expand(
@@ -213,7 +244,9 @@ class TestBingAdsSource:
         )
 
         assert result.name == "campaign_performance_report"
-        data = list(result.items())
+        items = result.items()
+        assert isinstance(items, Iterable)
+        data = list(items)
         assert len(data) == 1
 
         mock_fetch_chunks.assert_called_once()
@@ -233,7 +266,9 @@ class TestBingAdsSource:
         )
 
         with pytest.raises(ValueError, match="Bing Ads developer token not configured"):
-            list(result.items())
+            items = result.items()
+            assert isinstance(items, Iterable)
+            list(items)
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
@@ -253,4 +288,6 @@ class TestBingAdsSource:
         with pytest.raises(
             ValueError, match="incremental_field and incremental_field_type required for incremental sync"
         ):
-            list(result.items())
+            items = result.items()
+            assert isinstance(items, Iterable)
+            list(items)

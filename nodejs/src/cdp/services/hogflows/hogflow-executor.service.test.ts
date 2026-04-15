@@ -197,6 +197,7 @@ describe('Hogflow Executor', () => {
 
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -239,7 +240,7 @@ describe('Hogflow Executor', () => {
                 finished: true,
                 logs: [
                     {
-                        level: 'debug',
+                        level: 'info',
                         message:
                             'Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                         timestamp: expect.any(DateTime),
@@ -284,7 +285,14 @@ describe('Hogflow Executor', () => {
                     {
                         team_id: hogFlow.team_id,
                         app_source_id: hogFlow.id,
-                        instance_id: expect.any(String),
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                    {
+                        team_id: hogFlow.team_id,
+                        app_source_id: hogFlow.id,
+                        instance_id: 'function_id_1',
                         metric_kind: 'fetch',
                         metric_name: 'billable_invocation',
                         count: 1,
@@ -389,7 +397,9 @@ describe('Hogflow Executor', () => {
 
                 expect(result.finished).toEqual(true)
                 expect(mockFetch).toHaveBeenCalledTimes(1)
-                expect(result.metrics.find((x) => x.instance_id === 'function_id_1')).toMatchObject({
+                expect(
+                    result.metrics.find((x) => x.instance_id === 'function_id_1' && x.metric_name === 'succeeded')
+                ).toMatchObject({
                     count: 1,
                     instance_id: 'function_id_1',
                     metric_kind: 'success',
@@ -550,8 +560,9 @@ describe('Hogflow Executor', () => {
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -568,8 +579,9 @@ describe('Hogflow Executor', () => {
                 // Step 2: run again, should NOT exit early due to exit_only_at_end
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -610,8 +622,9 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -660,6 +673,7 @@ describe('Hogflow Executor', () => {
                 const result1 = await executor.execute(invocation1)
                 expect(result1.finished).toBe(true)
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -722,8 +736,9 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -1618,7 +1633,7 @@ describe('Hogflow Executor', () => {
         }
 
         it('should record billing metrics for both regular hog functions and email functions', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
@@ -1770,6 +1785,473 @@ describe('Hogflow Executor', () => {
                 (m) => m.metric_kind === 'email' && m.metric_name === 'billable_invocation'
             )
             expect(emailBilling).toHaveLength(2)
+        })
+    })
+
+    function createTestExecutor(redis?: any): HogFlowExecutorService {
+        return new HogFlowExecutorService(
+            new HogFlowFunctionsService(
+                hub.SITE_URL,
+                new HogFunctionTemplateManagerService(hub.postgres),
+                new HogExecutorService(
+                    {
+                        hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                        googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                        fetchRetries: hub.CDP_FETCH_RETRIES,
+                        fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                        fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    },
+                    { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                    new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                    new EmailService(
+                        {
+                            sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                            sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                            sesRegion: hub.SES_REGION,
+                            sesEndpoint: hub.SES_ENDPOINT,
+                        },
+                        hub.integrationManager,
+                        hub.ENCRYPTION_SALT_KEYS,
+                        hub.SITE_URL
+                    ),
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                )
+            ),
+            new RecipientPreferencesService(new RecipientsManagerService(hub.postgres)),
+            redis
+        )
+    }
+
+    describe('ghost run reproduction - March 18-19 incident', () => {
+        // This test reproduces the exact production scenario from the March 18-19
+        // Cyclotron cross-routing incident. A workflow with trigger -> function -> delay
+        // -> function -> exit receives 4 invocations for the same event (1 legitimate
+        // + 3 ghost runs from janitor resets). Each invocation has a different ID but
+        // carries the same event UUID.
+
+        let hogFlow: HogFlow
+
+        beforeEach(async () => {
+            hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        send_welcome_email: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+                        wait_2_days: {
+                            type: 'delay',
+                            config: { delay_duration: '2d' },
+                        },
+                        send_followup_email: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'send_welcome_email', type: 'continue' },
+                        { from: 'send_welcome_email', to: 'wait_2_days', type: 'continue' },
+                        { from: 'wait_2_days', to: 'send_followup_email', type: 'continue' },
+                        { from: 'send_followup_email', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+        })
+
+        it('without dedup: all 4 invocations execute the function action (the bug)', async () => {
+            const executorWithoutDedup = createTestExecutor()
+
+            const sharedEvent = { ...createHogExecutionGlobals().event, uuid: 'user-signup-event-001' }
+
+            // Simulate 4 invocations created by the cross-routing bug
+            // Each has a different invocation ID but the same trigger event
+            const invocations = Array.from({ length: 4 }, () =>
+                createExampleHogFlowInvocation(hogFlow, { event: sharedEvent })
+            )
+
+            let fetchCallCount = 0
+            for (const invocation of invocations) {
+                const beforeFetch = mockFetch.mock.calls.length
+                const result = await executorWithoutDedup.execute(invocation)
+
+                // Each invocation reaches the delay step (not finished, scheduled)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+
+                const fetchCalls = mockFetch.mock.calls.length - beforeFetch
+                fetchCallCount += fetchCalls
+            }
+
+            // BUG: All 4 invocations executed the function, making 4 fetch calls
+            // This is the duplicate execution that caused 4x emails in production
+            expect(fetchCallCount).toBe(4)
+        })
+
+        it('with dedup: only the first invocation executes, ghosts are blocked', async () => {
+            const redisStore = new Map<string, { value: string; expiry: number }>()
+            const mockRedis = {
+                useClient: jest.fn(async (_opts: any, callback: (client: any) => Promise<any>) => {
+                    const mockClient = {
+                        set: jest.fn((key: string, value: string, _ex: string, ttl: number, _nx: string) => {
+                            if (redisStore.has(key)) {
+                                return Promise.resolve(null)
+                            }
+                            redisStore.set(key, { value, expiry: Date.now() + ttl * 1000 })
+                            return Promise.resolve('OK')
+                        }),
+                        get: jest.fn((key: string) => {
+                            const entry = redisStore.get(key)
+                            return Promise.resolve(entry ? entry.value : null)
+                        }),
+                    }
+                    return callback(mockClient)
+                }),
+            }
+
+            const executorWithDedup = createTestExecutor(mockRedis as any)
+
+            const sharedEvent = { ...createHogExecutionGlobals().event, uuid: 'user-signup-event-002' }
+
+            const invocations = Array.from({ length: 4 }, () =>
+                createExampleHogFlowInvocation(hogFlow, { event: sharedEvent })
+            )
+
+            let fetchCallCount = 0
+            let blockedCount = 0
+            for (const invocation of invocations) {
+                const beforeFetch = mockFetch.mock.calls.length
+                const result = await executorWithDedup.execute(invocation)
+
+                const fetchCalls = mockFetch.mock.calls.length - beforeFetch
+                fetchCallCount += fetchCalls
+
+                const logMessages = result.logs.map((l) => l.message)
+                if (logMessages.some((m) => m.includes('duplicate execution detected'))) {
+                    blockedCount++
+                    // Blocked invocations must not have executed any action
+                    expect(logMessages).not.toContainEqual(expect.stringContaining('Executing action'))
+                    expect(fetchCalls).toBe(0)
+                }
+            }
+
+            // FIX: Only 1 invocation executed the function, 3 were blocked
+            expect(fetchCallCount).toBe(1)
+            expect(blockedCount).toBe(3)
+        })
+    })
+
+    describe('action deduplication', () => {
+        let hogFlow: HogFlow
+        let redisStore: Map<string, { value: string; expiry: number }>
+        let mockRedis: any
+
+        beforeEach(async () => {
+            redisStore = new Map()
+
+            mockRedis = {
+                useClient: jest.fn(async (_opts: any, callback: (client: any) => Promise<any>) => {
+                    const mockClient = {
+                        set: jest.fn((key: string, value: string, _exFlag: string, ttl: number, _nxFlag: string) => {
+                            if (redisStore.has(key)) {
+                                return Promise.resolve(null) // NX: key already exists
+                            }
+                            redisStore.set(key, { value, expiry: Date.now() + ttl * 1000 })
+                            return Promise.resolve('OK')
+                        }),
+                        get: jest.fn((key: string) => {
+                            const entry = redisStore.get(key)
+                            return Promise.resolve(entry ? entry.value : null)
+                        }),
+                    }
+                    return callback(mockClient)
+                }),
+            }
+
+            hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        function_id_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'function_id_1', type: 'continue' },
+                        { from: 'function_id_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            executor = createTestExecutor(mockRedis)
+        })
+
+        it('allows the first invocation to execute', async () => {
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-123' },
+            })
+
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+            expect(mockRedis.useClient).toHaveBeenCalled()
+            // Dedup keys set for each action in the workflow (function + exit)
+            expect(redisStore.size).toBeGreaterThanOrEqual(1)
+        })
+
+        it('blocks a different invocation for the same event and action', async () => {
+            // First invocation executes successfully
+            const firstInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-456' },
+            })
+            await executor.execute(firstInvocation)
+            const fetchCallsAfterFirst = mockFetch.mock.calls.length
+
+            // Second invocation with different ID but same event
+            const secondInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-456' },
+            })
+
+            const result = await executor.execute(secondInvocation)
+
+            expect(result.finished).toBe(true)
+            const logMessages = result.logs.map((l) => l.message)
+            expect(logMessages).toContainEqual(expect.stringContaining('duplicate execution detected'))
+            // The handler must NOT have executed
+            expect(logMessages).not.toContainEqual(expect.stringContaining('Executing action'))
+            // No fetch calls were made (the hog function template uses fetch)
+            expect(mockFetch.mock.calls.length).toBe(fetchCallsAfterFirst)
+        })
+
+        it('blocks all 4 ghost runs from the cross-routing incident pattern', async () => {
+            const eventUuid = 'event-incident-pattern'
+            const invocations = Array.from({ length: 4 }, () =>
+                createExampleHogFlowInvocation(hogFlow, {
+                    event: { ...createHogExecutionGlobals().event, uuid: eventUuid },
+                })
+            )
+
+            // First invocation (legitimate) executes successfully
+            const firstResult = await executor.execute(invocations[0])
+            expect(firstResult.finished).toBe(true)
+            expect(firstResult.error).toBeUndefined()
+
+            // Remaining 3 (ghost runs from janitor resets) are all blocked
+            for (let i = 1; i < 4; i++) {
+                const result = await executor.execute(invocations[i])
+                expect(result.finished).toBe(true)
+                const logMessages = result.logs.map((l) => l.message)
+                expect(logMessages).toContainEqual(expect.stringContaining('duplicate execution detected'))
+                expect(logMessages).not.toContainEqual(expect.stringContaining('Executing action'))
+            }
+        })
+
+        it('first ghost run wins if legitimate invocation already passed before deployment', async () => {
+            const eventUuid = 'event-pre-deploy'
+
+            // Simulate: legit invocation already executed before deployment (no Redis key exists)
+            // First ghost run arrives after deployment -- it "wins" the key
+            const ghostA = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: eventUuid },
+            })
+            const resultA = await executor.execute(ghostA)
+            expect(resultA.finished).toBe(true)
+            expect(resultA.error).toBeUndefined() // Ghost A gets through (unavoidable)
+
+            // Subsequent ghosts are blocked
+            const ghostB = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: eventUuid },
+            })
+            const resultB = await executor.execute(ghostB)
+            expect(resultB.finished).toBe(true)
+            const logMessages = resultB.logs.map((l) => l.message)
+            expect(logMessages).toContainEqual(expect.stringContaining('duplicate execution detected'))
+        })
+
+        it('allows a legitimate retry (same invocation ID)', async () => {
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-789' },
+            })
+
+            // First execution
+            await executor.execute(invocation)
+
+            // Retry with same invocation ID (simulates janitor retry)
+            const retryInvocation = { ...invocation }
+            retryInvocation.state = {
+                ...invocation.state,
+                actionStepCount: 0,
+                currentAction: undefined,
+            }
+
+            const result = await executor.execute(retryInvocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+            const logMessages = result.logs.map((l) => l.message)
+            expect(logMessages).not.toContainEqual(expect.stringContaining('duplicate execution detected'))
+        })
+
+        it('allows different events to execute independently', async () => {
+            const firstInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-aaa' },
+            })
+            await executor.execute(firstInvocation)
+
+            const secondInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-bbb' },
+            })
+            const result = await executor.execute(secondInvocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+            const logMessages = result.logs.map((l) => l.message)
+            expect(logMessages).not.toContainEqual(expect.stringContaining('duplicate execution detected'))
+        })
+
+        it('allows execution when Redis key expires between SET NX and GET', async () => {
+            // Simulate: SET NX fails (key exists), but GET returns null (key expired)
+            const expiringRedisStore = new Map<string, { value: string; expiry: number }>()
+            const expiringMockRedis = {
+                useClient: jest.fn(async (_opts: any, callback: (client: any) => Promise<any>) => {
+                    const mockClient = {
+                        set: jest.fn((key: string, value: string, _ex: string, ttl: number, _nx: string) => {
+                            if (expiringRedisStore.has(key)) {
+                                return Promise.resolve(null)
+                            }
+                            expiringRedisStore.set(key, { value, expiry: Date.now() + ttl * 1000 })
+                            return Promise.resolve('OK')
+                        }),
+                        get: jest.fn((_key: string) => {
+                            // Always return null to simulate key expiring between SET and GET
+                            return Promise.resolve(null)
+                        }),
+                    }
+                    return callback(mockClient)
+                }),
+            }
+
+            const expiringExecutor = createTestExecutor(expiringMockRedis)
+
+            // First invocation sets the key
+            const firstInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-expiring' },
+            })
+            await expiringExecutor.execute(firstInvocation)
+
+            // Second invocation: SET NX fails (key exists), GET returns null (expired)
+            // Should fail open and allow execution
+            const secondInvocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-expiring' },
+            })
+            const result = await expiringExecutor.execute(secondInvocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
+            const logMessages = result.logs.map((l) => l.message)
+            expect(logMessages).not.toContainEqual(expect.stringContaining('duplicate execution detected'))
+        })
+
+        it('also deduplicates non-side-effect actions like delays', async () => {
+            const delayFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        delay_1: {
+                            type: 'delay',
+                            config: { delay_duration: '1h' },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay_1', type: 'continue' },
+                        { from: 'delay_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            // First invocation hits the delay
+            const firstInvocation = createExampleHogFlowInvocation(delayFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-delay' },
+            })
+            await executor.execute(firstInvocation)
+            expect(redisStore.size).toBe(1)
+
+            // Ghost run with same event is blocked at the delay step
+            const ghostInvocation = createExampleHogFlowInvocation(delayFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-delay' },
+            })
+            const result = await executor.execute(ghostInvocation)
+            expect(result.finished).toBe(true)
+            const logMessages = result.logs.map((l) => l.message)
+            expect(logMessages).toContainEqual(expect.stringContaining('duplicate execution detected'))
+        })
+
+        it('proceeds when Redis is unavailable', async () => {
+            mockRedis.useClient.mockRejectedValue(new Error('Redis connection failed'))
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: { ...createHogExecutionGlobals().event, uuid: 'event-redis-fail' },
+            })
+
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeUndefined()
         })
     })
 })

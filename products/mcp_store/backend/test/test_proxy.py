@@ -217,6 +217,21 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.json()["error"] == "Authentication failed"
 
+    def test_proxy_returns_403_for_disabled_installation(self):
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+            is_enabled=False,
+        )
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["error"] == "Server is disabled"
+
     def test_proxy_returns_401_for_needs_reauth(self):
         installation = self._create_oauth_installation(
             sensitive_configuration={

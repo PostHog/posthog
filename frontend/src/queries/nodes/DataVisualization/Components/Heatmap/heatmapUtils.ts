@@ -1,6 +1,6 @@
 import { hexToRGB } from 'lib/utils'
 
-import { HeatmapGradientStop } from '~/queries/schema/schema-general'
+import { HeatmapGradientStop, HeatmapSettings } from '~/queries/schema/schema-general'
 
 const DEFAULT_GRADIENT_COLORS = ['#E2E8F0', '#2563EB']
 const DEFAULT_GRADIENT_STOPS: HeatmapGradientStop[] = [
@@ -187,4 +187,40 @@ export const getHeatmapTextClassName = (color: string): string => {
     const { r, g, b } = hexToRGB(color)
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
     return luminance < 140 ? 'text-white' : 'text-primary'
+}
+
+const isNullishHeatmapValue = (value: unknown): boolean => {
+    if (value === null || value === undefined || value === '') {
+        return true
+    }
+
+    return typeof value === 'string' && value.trim().toLowerCase() === 'null'
+}
+
+export const formatHeatmapLabel = (value: unknown, nullLabel = 'null'): string => {
+    if (isNullishHeatmapValue(value)) {
+        return nullLabel
+    }
+
+    return String(value)
+}
+
+export const formatHeatmapValue = (value: unknown, nullValue = ''): string => {
+    if (isNullishHeatmapValue(value)) {
+        return nullValue
+    }
+
+    if (typeof value === 'object') {
+        return JSON.stringify(value)
+    }
+
+    return String(value)
+}
+
+export const getHeatmapNullLabel = (settings: Pick<HeatmapSettings, 'nullLabel' | 'nullValue'>): string => {
+    return settings.nullLabel ?? 'null'
+}
+
+export const getHeatmapNullValue = (settings: Pick<HeatmapSettings, 'nullLabel' | 'nullValue'>): string => {
+    return settings.nullValue ?? ''
 }

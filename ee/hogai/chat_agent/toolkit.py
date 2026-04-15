@@ -2,6 +2,8 @@ import asyncio
 from collections.abc import Awaitable
 from typing import Any
 
+from django.conf import settings
+
 from langchain_core.runnables import RunnableConfig
 
 from products.tasks.backend.max_tools import (
@@ -19,6 +21,7 @@ from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
+    CreateNotebookTool,
     ListDataTool,
     ManageMemoriesTool,
     ReadDataTool,
@@ -31,7 +34,7 @@ from ee.hogai.tools import (
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
-    has_create_form_tool_feature_flag,
+    has_llm_gateway_feature_flag,
     has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
@@ -46,6 +49,8 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
+    CreateFormTool,
+    CreateNotebookTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [
@@ -88,8 +93,6 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(TaskTool)
         if has_memory_tool_feature_flag(self._team, self._user):
             tools.append(ManageMemoriesTool)
-        if has_create_form_tool_feature_flag(self._team, self._user):
-            tools.append(CreateFormTool)
         return tools
 
 
@@ -140,6 +143,12 @@ class ChatAgentToolkitManager(AgentToolkitManager):
                 available_tools.append(mcp_tool)
 
         # Final tools = available contextual tools + LLM provider server tools
-        available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+        if not (
+            has_llm_gateway_feature_flag(self._team, self._user)
+            and settings.LLM_GATEWAY_URL
+            and settings.LLM_GATEWAY_API_KEY
+        ):
+            # Web Search isn't supported by AWS Bedrock
+            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools

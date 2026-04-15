@@ -1,3 +1,4 @@
+use k8s_awareness::types::ControllerRef;
 use serde::{Deserialize, Serialize};
 
 /// A Kafka topic-partition pair — the fundamental unit of work assignment.
@@ -31,6 +32,15 @@ pub struct RegisteredConsumer {
     pub consumer_name: String,
     pub status: ConsumerStatus,
     pub registered_at: i64,
+    /// Pod-template-hash (Deployment) or controller-revision-hash (StatefulSet).
+    /// Populated server-side via K8s discovery on registration. Empty when
+    /// K8s awareness is disabled.
+    #[serde(default)]
+    pub generation: String,
+    /// The K8s controller that owns this consumer's pod.
+    /// Populated server-side via K8s discovery on registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller: Option<ControllerRef>,
 }
 
 /// Lifecycle status of a consumer.
@@ -99,8 +109,12 @@ pub enum HandoffPhase {
 
 /// A command the assigner sends to a consumer via gRPC.
 ///
-/// This is the domain-level representation. It gets converted to the proto
-/// `AssignmentCommand` at the gRPC boundary.
+/// This is the domain-level representation. It gets converted to one or more
+/// proto `AssignmentCommand` messages at the gRPC boundary.
+///
+/// `Warm` and `Release` carry batched handoffs per-consumer so the relay can
+/// send a single event per consumer per watch response, avoiding channel
+/// overflow when many partitions are handed off simultaneously.
 #[derive(Debug, Clone)]
 pub enum AssignmentEvent {
     /// Batch assignment update: partitions added and/or removed.
@@ -109,10 +123,10 @@ pub enum AssignmentEvent {
         assigned: Vec<TopicPartition>,
         unassigned: Vec<TopicPartition>,
     },
-    /// Start warming a partition for handoff.
-    Warm(HandoffState),
-    /// Release a partition after handoff completion.
-    Release(HandoffState),
+    /// Start warming one or more partitions for handoff.
+    Warm(Vec<HandoffState>),
+    /// Release one or more partitions after handoff completion.
+    Release(Vec<HandoffState>),
 }
 
 impl PartitionAssignment {
@@ -165,6 +179,8 @@ mod tests {
             consumer_name: "consumer-0".to_string(),
             status: ConsumerStatus::Ready,
             registered_at: 1700000000,
+            generation: String::new(),
+            controller: None,
         };
         let json = serde_json::to_string(&consumer).unwrap();
         let deserialized: RegisteredConsumer = serde_json::from_str(&json).unwrap();

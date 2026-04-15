@@ -44,6 +44,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         deleted: false,
         active: true,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -55,7 +56,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
+        evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
 

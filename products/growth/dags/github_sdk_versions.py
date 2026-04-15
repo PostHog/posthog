@@ -6,16 +6,17 @@ from typing import Any, Literal, Optional, cast
 from django.conf import settings
 
 import dagster
+import requests
 import structlog
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
-from posthog.security.outbound_proxy import external_requests
+
+from products.growth.backend.constants import SDK_CACHE_EXPIRY, github_sdk_versions_key
 
 logger = structlog.get_logger(__name__)
 
-CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
 
@@ -154,7 +155,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
             logger.info(f"[SDK Doctor] Fetching releases from {url}")
 
-            response = external_requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10)
 
             if not response.ok:
                 logger.error(f"[SDK Doctor] Failed to fetch releases for {repo}", status_code=response.status_code)
@@ -346,9 +347,9 @@ def cache_github_sdk_versions_op(
             skipped_count += 1
             continue
 
-        cache_key = f"github:sdk_versions:{lib_name}"
+        cache_key = github_sdk_versions_key(lib_name)
         try:
-            redis_client.setex(cache_key, CACHE_EXPIRY, json.dumps(github_data))
+            redis_client.setex(cache_key, SDK_CACHE_EXPIRY, json.dumps(github_data))
             cached_count += 1
             context.log.info(f"Successfully cached {lib_name} SDK data")
         except Exception as e:

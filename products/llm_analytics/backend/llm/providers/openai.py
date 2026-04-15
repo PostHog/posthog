@@ -42,6 +42,7 @@ class OpenAIConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "gpt-5.4",
         "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",
@@ -59,7 +60,20 @@ class OpenAIConfig:
         "o3-mini",
     ]
 
+    # Models available to trial users (PostHog pays). Excludes expensive
+    # "pro" tiers and includes one flagship model for quality evaluation.
+    TRIAL_MODELS: list[str] = [
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "o3-mini",
+        "o4-mini",
+    ]
+
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "gpt-5.4",
         "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",

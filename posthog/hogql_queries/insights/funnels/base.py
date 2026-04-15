@@ -9,8 +9,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     BreakdownType,
-    DataWarehouseNode,
     EventsNode,
+    FunnelAggregateByHogQL,
+    FunnelsDataWarehouseNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
     GroupNode,
@@ -31,6 +32,7 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.property.property import PropertyName
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling
+from posthog.types import FunnelEntityNode
 
 JOIN_ALGOS = "auto"
 
@@ -148,6 +150,21 @@ class FunnelBase(ABC):
 
         return list(cohorts)
 
+    @cached_property
+    def _not_in_cohort_name(self) -> str | None:
+        if len(self.breakdown_cohorts) == 1:
+            return self.breakdown_cohorts[0].name
+        return None
+
+    @cached_property
+    def should_add_not_in_cohort_group(self) -> bool:
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
+        if breakdownType != BreakdownType.COHORT:
+            return False
+        if isinstance(breakdown, list) and "all" in breakdown:
+            return False
+        return len(self.breakdown_cohorts) == 1
+
     def _format_results(
         self, results
     ) -> Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]:
@@ -196,7 +213,11 @@ class FunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value, self.context.team)
+                            get_breakdown_cohort_name(
+                                breakdown_value,
+                                self.context.team,
+                                not_in_cohort_name=self._not_in_cohort_name,
+                            )
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -210,7 +231,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
+        step: FunnelEntityNode,
         count: int,
         index: int,
         people: Optional[list[uuid.UUID]] = None,
@@ -220,7 +241,7 @@ class FunnelBase(ABC):
             step_type = "events"
         elif isinstance(step, ActionsNode):
             step_type = "actions"
-        elif isinstance(step, DataWarehouseNode):
+        elif isinstance(step, FunnelsDataWarehouseNode):
             step_type = "data_warehouse"
         elif isinstance(step, GroupNode):
             step_type = "group"
@@ -242,8 +263,8 @@ class FunnelBase(ABC):
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
-        elif isinstance(step, DataWarehouseNode):
-            name = f"{step.table_name}.{step.distinct_id_field}"
+        elif isinstance(step, FunnelsDataWarehouseNode):
+            name = step.table_name
             action_id = None
         elif isinstance(step, GroupNode):
             action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
@@ -258,8 +279,6 @@ class FunnelBase(ABC):
                     events.append(node.event if node.event is not None else "All events")
                 elif isinstance(node, ActionsNode):
                     events.append(actions_by_id.get(int(node.id), "Unnamed action"))
-                elif isinstance(node, DataWarehouseNode):
-                    events.append(node.table_name)
             name = ", ".join(events)
             action_id = name
         else:
@@ -280,6 +299,9 @@ class FunnelBase(ABC):
     @property
     def extra_event_fields_and_properties(self):
         return self._extra_event_fields + self._extra_event_properties
+
+    def _is_session_aggregation(self) -> bool:
+        return self.context.funnelsFilter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
 
     @property
     def _absolute_actors_step(self) -> Optional[int]:
@@ -321,7 +343,7 @@ class FunnelBase(ABC):
         )
 
         # TODO: cohort breakdowns are not supported for data warehouse / mixed funnels at the moment
-        if breakdown and breakdownType == BreakdownType.COHORT:
+        if breakdown and breakdownType == BreakdownType.COHORT and not self.should_add_not_in_cohort_group:
             assert funnel_events_query.select_from is not None
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
 

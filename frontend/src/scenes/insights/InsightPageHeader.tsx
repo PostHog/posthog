@@ -15,6 +15,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { isDataVisualizationNode } from '~/queries/utils'
@@ -33,12 +34,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLogic(insightLogicProps)
     )
 
-    const { query, queryChanged, insightQuery, generatedInsightNameLoading } = useValues(insightDataLogic(insightProps))
-    const { cancelChanges, generateInsightName } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, insightQuery, generatedInsightMetadataLoading } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const { cancelChanges, generateInsightMetadata } = useActions(insightDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
     const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
-
     const { push } = useActions(router)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -47,6 +49,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+
+    const insightDisplayName = insight?.name || insight?.derived_name
+
+    const readDataMaxToolProps = useMemo(
+        () =>
+            hasDashboardItemId && insight?.short_id
+                ? {
+                      identifier: 'read_data' as const,
+                      context: {
+                          insight_id: insight.id,
+                          insight_short_id: insight.short_id,
+                      },
+                      contextDescription: {
+                          text: insightDisplayName || 'Insight',
+                          icon: iconForType(getInsightIconTypeFromQuery(query)),
+                      },
+                  }
+                : undefined,
+        [hasDashboardItemId, insight?.short_id, insight?.id, insightDisplayName, query]
+    )
 
     useMaxTool({
         identifier: 'upsert_alert',
@@ -85,14 +107,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         setInsightMetadata({ description })
                     }
                 }}
-                onGenerateName={canAccessAutoname && insightQuery ? generateInsightName : undefined}
-                isGeneratingName={canAccessAutoname && generatedInsightNameLoading}
+                onGenerateMetadata={canAccessAutoname && insightQuery ? generateInsightMetadata : undefined}
+                isGeneratingMetadata={canAccessAutoname && generatedInsightMetadataLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}
+                maxToolProps={readDataMaxToolProps}
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
@@ -123,7 +146,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
                                                 router.actions.push(
-                                                    urls.sqlEditor({ insightShortId: insight.short_id })
+                                                    urls.sqlEditor({
+                                                        insightShortId: insight.short_id,
+                                                        dashboard: dashboardId ?? undefined,
+                                                    })
                                                 )
                                             } else if (insight.short_id) {
                                                 const editUrl = dashboardId

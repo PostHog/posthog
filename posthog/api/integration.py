@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from typing import Any
 from urllib.parse import urlencode
@@ -34,14 +35,18 @@ from posthog.models.integration import (
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
+    GoogleCloudServiceAccountIntegration,
     Integration,
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
     SlackIntegration,
+    StripeIntegration,
     TwilioIntegration,
 )
+from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -51,7 +56,50 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
-class IntegrationSerializer(serializers.ModelSerializer):
+class GitHubRepoSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    full_name = serializers.CharField()
+
+
+class GitHubReposQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of repositories to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of repositories to skip before returning results.",
+    )
+
+
+class GitHubReposResponseSerializer(serializers.Serializer):
+    repositories = GitHubRepoSerializer(many=True)
+    has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
+
+
+class GitHubBranchesQuerySerializer(serializers.Serializer):
+    repo = serializers.CharField(help_text="Repository in owner/repo format")
+    limit = serializers.IntegerField(
+        required=False, default=100, min_value=1, max_value=1000, help_text="Maximum number of branches to return"
+    )
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of branches to skip")
+
+
+class GitHubBranchesResponseSerializer(serializers.Serializer):
+    branches = serializers.ListField(child=serializers.CharField(), help_text="List of branch names")
+    default_branch = serializers.CharField(
+        help_text="The default branch of the repository", required=False, allow_null=True
+    )
+    has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
+
+
+class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -105,11 +153,31 @@ class IntegrationSerializer(serializers.ModelSerializer):
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             installation_id = config.get("installation_id")
+            state = config.get("state")
 
             if not installation_id:
                 raise ValidationError("An installation_id must be provided")
 
+            if not state:
+                raise ValidationError("A state token must be provided")
+
+            cache_key = f"github_state:{request.user.id}"
+            expected_state = cache.get(cache_key)
+            if not expected_state or expected_state != state:
+                raise ValidationError("Invalid or expired state token")
+            cache.delete(cache_key)
+
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+
+            # If the frontend forwarded an OAuth code from "Request user authorization during installation",
+            # exchange it for the connecting user's GitHub login and store it on the integration.
+            code = config.get("code")
+            if code:
+                github_login = GitHubIntegration.github_login_from_code(code)
+                if github_login:
+                    instance.config["connecting_user_github_login"] = github_login
+                    instance.save(update_fields=["config"])
+
             return instance
 
         elif validated_data["kind"] == "gitlab":
@@ -173,6 +241,33 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "google-cloud-service-account":
+            config = validated_data.get("config", {})
+            service_account_email = config.get("service_account_email")
+            project_id = config.get("project_id")
+            if not (service_account_email and project_id):
+                raise ValidationError("Service account email and project ID must be provided")
+
+            if not all(isinstance(value, str) for value in (service_account_email, project_id)):
+                raise ValidationError("Service account email and project ID must be strings")
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            instance = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+                team_id=team_id,
+                organization_id=organization_id,
+                service_account_email=service_account_email,
+                project_id=project_id,
+                private_key=config.get("private_key", None),
+                private_key_id=config.get("private_key_id", None),
+                token_uri=config.get("token_uri", None),
+                created_by=request.user,
+            )
+            return instance
+
         elif validated_data["kind"] == "azure-blob":
             config = validated_data.get("config", {})
             connection_string = config.get("connection_string")
@@ -200,12 +295,19 @@ class IntegrationSerializer(serializers.ModelSerializer):
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
+            if validated_data["kind"] == "stripe":
+                try:
+                    stripe_integration = StripeIntegration(instance)
+                    stripe_integration.write_posthog_secrets(team_id, request.user)
+                except Exception as e:
+                    capture_exception(e)
+
             return instance
 
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["core"])
+@extend_schema(tags=["integrations"])
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -215,9 +317,20 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    scope_object_read_actions = ["list", "retrieve", "github_repos"]
+    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    permission_classes = [TeamMemberStrictManagementPermission]
     queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
+
+    def perform_destroy(self, instance) -> None:
+        if instance.kind == "stripe":
+            try:
+                stripe_integration = StripeIntegration(instance)
+                stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        super().perform_destroy(instance)
 
     def safely_get_queryset(self, queryset):
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
@@ -249,6 +362,9 @@ class IntegrationViewSet(
             response = redirect(installation_url)
             # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
+            # Store server-side so the backend can enforce that the same user who
+            # initiated the flow is the one completing it (not just cookie-validated).
+            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
 
             return response
 
@@ -474,10 +590,62 @@ class IntegrationViewSet(
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
 
+    @extend_schema(
+        parameters=[GitHubReposQuerySerializer],
+        responses={200: GitHubReposResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="github_repos")
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubReposQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         github = GitHubIntegration(self.get_object())
-        return Response({"repositories": github.list_repositories()})
+        repositories, has_more = github.list_repositories(limit=limit, offset=offset)
+
+        return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(
+        parameters=[GitHubBranchesQuerySerializer],
+        responses={200: GitHubBranchesResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_branches")
+    def github_branches(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        params = GitHubBranchesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        repo: str = params.validated_data["repo"]
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
+
+        parts = repo.split("/")
+        if (
+            len(parts) != 2
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
+            or parts[0] in (".", "..")
+            or parts[1] in (".", "..")
+        ):
+            raise ValidationError("repo must be in owner/repo format")
+
+        github = GitHubIntegration(self.get_object())
+        branches, has_more = github.list_branches(repo, limit=limit, offset=offset)
+
+        try:
+            default_branch = github.get_default_branch(repo)
+        except Exception:
+            default_branch = None
+
+        # The default branch is always shown first on page 1 and removed
+        # from all other pages to avoid duplicates.
+        if default_branch:
+            if default_branch in branches:
+                branches.remove(default_branch)
+            if offset == 0:
+                branches.insert(0, default_branch)
+
+        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:

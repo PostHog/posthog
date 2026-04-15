@@ -1,5 +1,3 @@
-from typing import cast
-
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -9,7 +7,6 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models import User
 
 from ..models.clustering_config import ClusteringConfig
 from .metrics import llma_track_latency
@@ -32,7 +29,7 @@ class ClusteringConfigSerializer(serializers.ModelSerializer):
 class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
-    scope_object = "INTERNAL"
+    scope_object = "llm_analytics"
     permission_classes = [IsAuthenticated]
 
     @llma_track_latency("llma_clustering_config_list")
@@ -42,7 +39,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = ClusteringConfigSerializer(config)
         return Response(serializer.data)
 
-    @action(detail=False, methods=["post"])
+    @action(detail=False, methods=["post"], required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_clustering_config_set_event_filters")
     @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")
     def set_event_filters(self, request: Request, **kwargs) -> Response:
@@ -65,7 +62,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         config.save(update_fields=["event_filters", "updated_at"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma clustering config event filters set",
             {
                 "filter_count": len(event_filters),

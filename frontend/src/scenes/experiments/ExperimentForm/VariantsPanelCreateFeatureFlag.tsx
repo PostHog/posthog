@@ -1,9 +1,10 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
-import { getSeriesColor } from 'lib/colors'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -13,11 +14,19 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { alphabet, formatPercentage } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
-import { ensureIsPercent, isEvenlyDistributed, percentageDistribution } from '../utils'
+import { ensureIsPercent, isEvenlyDistributed } from '../utils'
+import {
+    computeUpdatedVariantSplit,
+    distributeVariantsEvenly,
+    parseVariantPercentage,
+    TrafficPreview,
+    useVariantDistributionValidation,
+} from './VariantDistributionEditor'
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
@@ -74,125 +83,13 @@ const RolloutPercentageControl = ({
     )
 }
 
-interface TrafficPreviewProps {
-    variants: MultivariateFlagVariant[]
-    rolloutPercentage: number
-    areVariantRolloutsValid: boolean
-}
-
-// Visualizes the bucketing logic performed by the backend
-export const TrafficPreview = ({
-    variants,
-    rolloutPercentage,
-    areVariantRolloutsValid,
-}: TrafficPreviewProps): JSX.Element => {
-    const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
-
-    let cumulativeStart = 0
-    const previewVariants = variants.map((variant, index) => {
-        const slotSize = variant.rollout_percentage
-        const slotStart = cumulativeStart
-        cumulativeStart += slotSize
-        return {
-            ...variant,
-            index,
-            letter: alphabet[index] ?? `${index + 1}`,
-            slotSize,
-            slotStart,
-            previewPercentage: Math.max(0, (variant.rollout_percentage / 100) * rolloutPercentage),
-            color: getSeriesColor(index),
-        }
-    })
-
-    return (
-        <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-                <h4 className="m-0">Traffic preview</h4>
-                {excludedPercentage > 0 && (
-                    <div className="flex items-center gap-2 text-sm text-secondary">
-                        <span
-                            className="inline-block h-3 w-3 rounded-sm border border-primary"
-                            style={{
-                                backgroundImage:
-                                    'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
-                            }}
-                        />
-                        <span>
-                            Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
-                        </span>
-                    </div>
-                )}
-            </div>
-            <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
-                {rolloutPercentage > 0 ? (
-                    previewVariants.map((variant) => (
-                        <div key={variant.key} className="h-full flex" style={{ width: `${variant.slotSize}%` }}>
-                            <div
-                                className="h-full"
-                                style={{
-                                    width: `${rolloutPercentage}%`,
-                                    backgroundColor: variant.color,
-                                }}
-                            />
-                            {rolloutPercentage < 100 && (
-                                <div
-                                    className="h-full flex-1"
-                                    style={{
-                                        backgroundImage:
-                                            'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
-                                    }}
-                                />
-                            )}
-                        </div>
-                    ))
-                ) : (
-                    <div
-                        className="h-full w-full"
-                        style={{
-                            backgroundImage:
-                                'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
-                        }}
-                    />
-                )}
-                {rolloutPercentage > 0 &&
-                    previewVariants.map((variant) => (
-                        <div
-                            key={`${variant.key}-letter`}
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] font-semibold text-white pointer-events-none"
-                            style={{
-                                left: `${variant.slotStart + (variant.slotSize * rolloutPercentage) / 100 / 2}%`,
-                                textShadow: '0 1px 2px rgba(0, 0, 0, 0.35)',
-                            }}
-                        >
-                            {variant.letter}
-                        </div>
-                    ))}
-            </div>
-            <div className="flex" style={{ visibility: rolloutPercentage > 0 ? 'visible' : 'hidden' }}>
-                {previewVariants.map((variant) => (
-                    <div key={`${variant.key}-label`} className="flex" style={{ width: `${variant.slotSize}%` }}>
-                        <div
-                            className="text-xs text-secondary text-center whitespace-nowrap"
-                            style={{ width: `${rolloutPercentage}%` }}
-                        >
-                            {formatPercentage(variant.previewPercentage, { precise: true, compact: true })}
-                        </div>
-                    </div>
-                ))}
-            </div>
-            {!areVariantRolloutsValid && (
-                <p className="text-danger m-0">Preview is based on the current split and rollout percentage.</p>
-            )}
-        </div>
-    )
-}
-
 export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
     disabled = false,
     layout = 'horizontal',
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
     const variants = experiment.parameters?.feature_flag_variants || [
@@ -201,7 +98,9 @@ export const VariantsPanelCreateFeatureFlag = ({
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
+        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ??
+        currentTeam?.flags_persistence_default ??
+        false
 
     const rolloutPercentage =
         experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
@@ -216,10 +115,7 @@ export const VariantsPanelCreateFeatureFlag = ({
         })
     }
 
-    const variantRolloutSum = variants.reduce((sum, { rollout_percentage }) => sum + rollout_percentage, 0)
-    const areVariantRolloutsValid =
-        variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
-        variantRolloutSum === 100
+    const { variantRolloutSum, areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
     const areVariantKeysValid = variants.every(({ key }) => key && key.trim().length > 0)
     const variantKeys = variants.map(({ key }) => key)
@@ -250,20 +146,6 @@ export const VariantsPanelCreateFeatureFlag = ({
         })
     }
 
-    // In case of 2 variants we can improve the UX by automatically adjusting the other variant to ensure the total is always 100%
-    const updateVariantSplit = (index: number, value: number): void => {
-        const cappedValue = Math.min(100, Math.max(0, value))
-        if (variants.length === 2) {
-            const otherIndex = index === 0 ? 1 : 0
-            const newVariants = [...variants]
-            newVariants[index] = { ...newVariants[index], rollout_percentage: cappedValue }
-            newVariants[otherIndex] = { ...newVariants[otherIndex], rollout_percentage: 100 - cappedValue }
-            updateVariants(newVariants)
-        } else {
-            updateVariant(index, { rollout_percentage: cappedValue })
-        }
-    }
-
     const addVariant = (): void => {
         if (variants.length >= MAX_EXPERIMENT_VARIANTS) {
             return
@@ -272,44 +154,45 @@ export const VariantsPanelCreateFeatureFlag = ({
             key: `test-${variants.length}`,
             rollout_percentage: 0,
         }
-        const newVariants = [...variants, newVariant]
-        distributeVariantsEqually(newVariants)
+        updateVariants(distributeVariantsEvenly([...variants, newVariant]))
     }
 
     const removeVariant = (index: number): void => {
         if (variants.length <= 2 || index === 0) {
             return
         }
-        const newVariants = variants.filter((_, i) => i !== index)
-        distributeVariantsEqually(newVariants)
-    }
-
-    const distributeVariantsEqually = (variantsToDistribute?: MultivariateFlagVariant[]): void => {
-        const variantsToUse = variantsToDistribute ||
-            experiment.parameters?.feature_flag_variants || [
-                { key: 'control', rollout_percentage: 50 },
-                { key: 'test', rollout_percentage: 50 },
-            ]
-        const percentages = percentageDistribution(variantsToUse.length)
-        const newVariants = variantsToUse.map((variant, index) => ({
-            ...variant,
-            rollout_percentage: percentages[index],
-        }))
-        onChange({
-            parameters: {
-                feature_flag_variants: newVariants,
-                ensure_experience_continuity: ensureExperienceContinuity,
-                rollout_percentage: rolloutPercentage,
-            },
-        })
+        updateVariants(distributeVariantsEvenly(variants.filter((_, i) => i !== index)))
     }
 
     return (
         <div className="flex flex-col gap-4">
             <div className={`flex gap-4 ${layout === 'vertical' ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex-1">
+                    <LemonField.Pure label="Rollout">
+                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
+                            <RolloutPercentageControl
+                                rolloutPercentage={rolloutPercentage}
+                                disabled={disabled}
+                                onChange={updateRolloutPercentage}
+                            />
+                            <TrafficPreview
+                                variants={variants}
+                                rolloutPercentage={rolloutPercentage}
+                                areVariantRolloutsValid={areVariantRolloutsValid}
+                            />
+                        </div>
+                    </LemonField.Pure>
+                </div>
+
+                <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">
+                            {!disabled && !isEvenlyDistributed(variants) && (
+                                <LemonBanner type="warning" className="mb-3">
+                                    In most cases, experiments work best with an equal split. If you want to limit
+                                    exposure to the test variant, adjust the rollout percentage instead.
+                                </LemonBanner>
+                            )}
                             <table className="w-full">
                                 <thead>
                                     <tr className="text-sm font-bold">
@@ -327,7 +210,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                             <IconPencil />
                                                         </LemonButton>
                                                         <LemonButton
-                                                            onClick={() => distributeVariantsEqually()}
+                                                            onClick={() =>
+                                                                updateVariants(distributeVariantsEvenly(variants))
+                                                            }
                                                             tooltip="Distribute split evenly"
                                                             data-attr="distribute-variants-equally"
                                                             className={isEvenlyDistributed(variants) ? 'invisible' : ''}
@@ -385,12 +270,13 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                             max={100}
                                                             value={variant.rollout_percentage}
                                                             onChange={(changedValue) => {
-                                                                const valueInt =
-                                                                    changedValue !== undefined &&
-                                                                    !Number.isNaN(changedValue)
-                                                                        ? parseInt(changedValue.toString(), 10)
-                                                                        : 0
-                                                                updateVariantSplit(index, valueInt)
+                                                                updateVariants(
+                                                                    computeUpdatedVariantSplit(
+                                                                        variants,
+                                                                        index,
+                                                                        parseVariantPercentage(changedValue)
+                                                                    )
+                                                                )
                                                             }}
                                                             suffix={<span>%</span>}
                                                             data-attr="experiment-variant-rollout-percentage-input"
@@ -434,23 +320,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     Add variant
                                 </LemonButton>
                             )}
-                        </div>
-                    </LemonField.Pure>
-                </div>
-
-                <div className="flex-1">
-                    <LemonField.Pure label="Rollout">
-                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
-                            <RolloutPercentageControl
-                                rolloutPercentage={rolloutPercentage}
-                                disabled={disabled}
-                                onChange={updateRolloutPercentage}
-                            />
-                            <TrafficPreview
-                                variants={variants}
-                                rolloutPercentage={rolloutPercentage}
-                                areVariantRolloutsValid={areVariantRolloutsValid}
-                            />
                         </div>
                     </LemonField.Pure>
                 </div>

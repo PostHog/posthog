@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -18,14 +18,17 @@ import {
     RatingSurveyQuestion,
     SurveyAppearance,
     SurveyQuestion,
+    SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
 } from '~/types'
 
-import { SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
+import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
+import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
+import { WizardSection, WizardStepLayout } from '../WizardLayout'
 
 const MAX_CHOICES = 10
 
@@ -43,13 +46,19 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
         // Scale options depend on display type
         const numberScales = [
             { value: 10, label: '0-10', sublabel: 'NPS' },
-            { value: 5, label: '1-5', sublabel: null },
-            { value: 7, label: '1-7', sublabel: 'CSAT' },
+            { value: 5, label: '1-5', sublabel: 'CSAT' },
+            { value: 7, label: '1-7', sublabel: 'CES' },
         ]
-        const emojiScales = [
-            { value: 3, label: '3', sublabel: null },
-            { value: 5, label: '5', sublabel: null },
-        ]
+        const emojiScales = SCALE_OPTIONS.EMOJI.map((option) => ({
+            value: option.value,
+            label: option.value === SURVEY_RATING_SCALE.THUMB_2_POINT ? 'Thumbs' : 'Emoji',
+            sublabel:
+                option.value === SURVEY_RATING_SCALE.THUMB_2_POINT
+                    ? '2-point'
+                    : option.value === SURVEY_RATING_SCALE.EMOJI_3_POINT
+                      ? '3-point'
+                      : '5-point',
+        }))
         const scaleOptions = isEmoji ? emojiScales : numberScales
 
         return (
@@ -109,7 +118,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                 >
                                     <div className="text-sm font-medium">{option.label}</div>
                                     {option.sublabel && (
-                                        <div className="text-[10px] text-secondary uppercase">{option.sublabel}</div>
+                                        <div className="text-[10px] text-secondary">{option.sublabel}</div>
                                     )}
                                 </button>
                             ))}
@@ -400,6 +409,7 @@ function SortableQuestionCard({
     const style = {
         transform: CSS.Translate.toString(transform),
     }
+    const descriptionContentType = (question.descriptionContentType || 'text') as SurveyQuestionDescriptionContentType
 
     return (
         <div
@@ -434,26 +444,32 @@ function SortableQuestionCard({
                         compactIcon
                         showEditIconOnHover
                     />
-                    <EditableField
-                        name={`description-${index}`}
+                    <HTMLEditor
                         value={question.description || ''}
-                        onSave={(text) => onUpdate(index, { description: text })}
-                        placeholder="Add description (optional)"
-                        className="text-secondary text-sm"
-                        saveOnBlur
-                        clickToEdit
-                        compactIcon
-                        showEditIconOnHover
+                        onChange={(text) => onUpdate(index, { description: text })}
+                        activeTab={descriptionContentType}
+                        onTabChange={(key) =>
+                            onUpdate(index, {
+                                descriptionContentType: key,
+                            })
+                        }
+                        textPlaceholder="Add description (optional)"
+                        textMinRows={1}
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <QuestionTypeChip type={question.type} onChange={(newType) => onChangeType(index, newType)} />
-                        {question.optional && (
-                            <LemonTag type="highlight" size="small">
-                                Optional
-                            </LemonTag>
+                        {index > 0 && (
+                            <LemonSegmentedButton
+                                size="xsmall"
+                                value={question.optional ? 'optional' : 'mandatory'}
+                                onChange={(value) => onUpdate(index, { optional: value === 'optional' })}
+                                options={[
+                                    { value: 'mandatory', label: 'Mandatory' },
+                                    { value: 'optional', label: 'Optional' },
+                                ]}
+                            />
                         )}
                     </div>
-
                     <QuestionOptions question={question} onUpdate={(updates) => onUpdate(index, updates)} />
                 </div>
                 {canDelete && (
@@ -543,19 +559,24 @@ export function QuestionsStep(): JSX.Element {
     const activeQuestion = activeIndex !== null ? questions[activeIndex] : null
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold">Your survey questions</h2>
-                    <p className="text-secondary text-sm">Click any question to edit it</p>
-                </div>
-                {hasChanges && (
-                    <LemonButton type="tertiary" size="small" icon={<IconRevert />} onClick={restoreDefaultQuestions}>
-                        Restore defaults
-                    </LemonButton>
-                )}
-            </div>
-
+        <WizardStepLayout>
+            <WizardSection
+                title="Your survey questions"
+                description="Click any question to edit it"
+                descriptionClassName="text-sm"
+                actions={
+                    hasChanges ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconRevert />}
+                            onClick={restoreDefaultQuestions}
+                        >
+                            Restore defaults
+                        </LemonButton>
+                    ) : null
+                }
+            />
             <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 <SortableContext items={sortedItemIds} strategy={verticalListSortingStrategy} disabled={!canReorder}>
                     <div className="space-y-3">
@@ -595,6 +616,6 @@ export function QuestionsStep(): JSX.Element {
                 appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
                 onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
             />
-        </div>
+        </WizardStepLayout>
     )
 }

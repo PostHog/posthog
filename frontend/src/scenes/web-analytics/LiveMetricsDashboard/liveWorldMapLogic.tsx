@@ -147,12 +147,14 @@ export const liveWorldMapLogic = kea<liveWorldMapLogicType>([
             const isInitialLoad = !cache.initialized
             cache.initialized = true
 
+            let hasNewActivity = false
             if (!isInitialLoad) {
                 for (const item of data) {
                     if (item.country) {
                         const prevCount = prevCounts[item.country] || 0
                         if (item.count > prevCount) {
                             lastActivity[item.country] = now
+                            hasNewActivity = true
                         }
                     }
                 }
@@ -161,23 +163,20 @@ export const liveWorldMapLogic = kea<liveWorldMapLogicType>([
             cache.lastActivity = lastActivity
             cache.prevCounts = Object.fromEntries(data.map((item: CountryBreakdownItem) => [item.country, item.count]))
 
-            actions.setCountryHeat(computeHeat(lastActivity))
+            if (hasNewActivity) {
+                const heat = computeHeat(lastActivity)
+                actions.setCountryHeat(heat)
+                startHeatInterval(cache as HeatCache, actions as Pick<typeof actions, 'setCountryHeat'>)
+            }
         },
     })),
-    events(({ actions, cache }) => ({
+    events(({ cache }) => ({
         afterMount: () => {
             cache.prevCounts = {}
             cache.lastActivity = {}
-
-            cache.heatInterval = setInterval(() => {
-                const heat = computeHeat(cache.lastActivity || {})
-                actions.setCountryHeat(heat)
-            }, HEAT_UPDATE_INTERVAL_MS)
         },
         beforeUnmount: () => {
-            if (cache.heatInterval) {
-                clearInterval(cache.heatInterval)
-            }
+            stopHeatInterval(cache as HeatCache)
         },
     })),
 ])
@@ -195,4 +194,36 @@ function computeHeat(lastActivity: Record<string, number>): Record<string, numbe
     }
 
     return heat
+}
+
+interface HeatCache {
+    lastActivity: Record<string, number>
+    heatInterval: ReturnType<typeof setInterval> | null
+}
+
+// Only run the heat decay interval while there are active heat values.
+// Stops automatically when all heat has decayed to 0.
+function startHeatInterval(
+    cache: HeatCache,
+    actions: { setCountryHeat: (heat: Record<string, number>) => void }
+): void {
+    if (cache.heatInterval) {
+        return
+    }
+    cache.heatInterval = setInterval(() => {
+        const heat = computeHeat(cache.lastActivity || {})
+        if (Object.keys(heat).length === 0) {
+            stopHeatInterval(cache as HeatCache)
+            actions.setCountryHeat({})
+            return
+        }
+        actions.setCountryHeat(heat)
+    }, HEAT_UPDATE_INTERVAL_MS)
+}
+
+function stopHeatInterval(cache: HeatCache): void {
+    if (cache.heatInterval) {
+        clearInterval(cache.heatInterval)
+        cache.heatInterval = null
+    }
 }

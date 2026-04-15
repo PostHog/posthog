@@ -23,12 +23,14 @@ from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.models import Dashboard, Team, User
+from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -112,6 +114,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -122,6 +125,7 @@ class TestUserAPI(APIBaseTest):
                     "members_can_use_personal_api_keys": True,
                     "is_active": True,
                     "is_not_active_reason": None,
+                    "is_pending_deletion": False,
                 },
             ],
         )
@@ -1093,6 +1097,42 @@ class TestUserAPI(APIBaseTest):
             properties=mock.ANY,
         )
 
+    @patch("posthoganalytics.capture")
+    def test_can_delete_account_after_deleting_only_organization(self, mock_capture):
+        org = Organization.objects.create(name="Solo Org")
+        user = User.objects.create(email="solo@posthog.com", password="testpassword")
+        OrganizationMembership.objects.create(
+            user=user,
+            organization=org,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        self.client.force_login(user)
+
+        # User belongs to exactly one organization
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 1
+
+        # Cannot delete account while still a member of an organization
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+        # Delete the organization
+        response = self.client.delete(f"/api/organizations/{org.id}")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Membership is removed synchronously so the user immediately
+        # sees zero organizations, even before the async Celery task runs
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["organizations"]) == 0
+
+        # Now the user can delete their account
+        response = self.client.delete("/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(pk=user.pk).exists()
+
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
 
@@ -1216,7 +1256,11 @@ class TestUserAPI(APIBaseTest):
         # hostnames
         assert_allowed_url("https://www.example.com")
         assert_forbidden_url("https://www.notexample.com")
-        assert_forbidden_url("https://www.anotherexample.com")
+        # www.anotherexample.com is equivalent to anotherexample.com
+        assert_allowed_url("https://www.anotherexample.com")
+
+        # bare domain matches www entry
+        assert_allowed_url("https://example.com")
 
         # wildcard domains and folders
         assert_forbidden_url("https://subdomain.example.com")
@@ -1381,6 +1425,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
+                "organization_member_join_email_disabled": {},
             },
         )
 
@@ -1397,6 +1443,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "web_analytics_weekly_digest": True,
+                "organization_member_join_email_disabled": {},
             },
         )
 
@@ -1416,6 +1464,38 @@ class TestUserAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(
             response_data["notification_settings"]["project_weekly_digest_disabled"], {"123": True, "456": True}
+        )
+
+    def test_notification_settings_organization_member_join_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000001": True}
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different organization
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "organization_member_join_email_disabled": {"00000000-0000-0000-0000-000000000002": True}
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["organization_member_join_email_disabled"],
+            {
+                "00000000-0000-0000-0000-000000000001": True,
+                "00000000-0000-0000-0000-000000000002": True,
+            },
         )
 
     def test_invalid_notification_settings_returns_error(self):
@@ -1446,7 +1526,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
+                "detail": "Notification setting values must be boolean, got <class 'str'> instead",
                 "attr": "notification_settings",
             },
         )
@@ -1467,6 +1547,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "web_analytics_weekly_digest": True,  # Default value
+                "organization_member_join_email_disabled": {},  # Default value
             },
         )
 

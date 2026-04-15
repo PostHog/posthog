@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheckCircle, IconPlus, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconPlus, IconX, IconInfo } from '@posthog/icons'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
@@ -24,11 +24,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, BatchExportConfigurationTest, BatchExportConfigurationTestStep } from '~/types'
 
+import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -46,9 +46,9 @@ export function BatchExportConfiguration(): JSX.Element {
         runningStep,
         isDatabaseDestination,
         service,
-    } = useValues(batchExportConfigurationLogic)
+    } = useValues(batchExportConfigFormLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
-        useActions(batchExportConfigurationLogic)
+        useActions(batchExportConfigFormLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
@@ -66,7 +66,7 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
     return (
-        <Form logic={batchExportConfigurationLogic} formKey="configuration" className="flex flex-col gap-3">
+        <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
@@ -106,6 +106,11 @@ export function BatchExportConfiguration(): JSX.Element {
                                         {
                                             value: 'every 5 minutes',
                                             label: 'Every 5 minutes',
+                                            hidden: !highFrequencyBatchExports,
+                                        },
+                                        {
+                                            value: 'every 15 minutes',
+                                            label: 'Every 15 minutes',
                                             hidden: !highFrequencyBatchExports,
                                         },
                                     ]}
@@ -432,6 +437,8 @@ export function BatchExportConfigurationTests({
 
         return step.result.status === 'Passed' ? (
             <IconCheckCircle className="text-green-500 shrink-0" />
+        ) : step.result.status === 'Skipped' ? (
+            <IconInfo className="text-yellow-500 shrink-0" />
         ) : (
             <IconX className="text-red-500 shrink-0" />
         )
@@ -489,7 +496,15 @@ export function BatchExportConfigurationTests({
                                     </LemonLabel>
                                     {step.result && (
                                         <div className="mt-2">
-                                            <LemonBanner type={step.result.status === 'Passed' ? 'success' : 'error'}>
+                                            <LemonBanner
+                                                type={
+                                                    step.result.status === 'Passed'
+                                                        ? 'success'
+                                                        : step.result.status === 'Skipped'
+                                                          ? 'info'
+                                                          : 'error'
+                                                }
+                                            >
                                                 {step.result.status === 'Passed' ? 'Success' : `${step.result.message}`}
                                             </LemonBanner>
                                         </div>

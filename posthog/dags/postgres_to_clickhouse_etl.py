@@ -27,6 +27,7 @@ from dagster._core.definitions.backfill_policy import BackfillPolicy
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import Query, get_cluster
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dags.common import JobOwners
 
 
@@ -660,78 +661,79 @@ def sync_organizations(
     config: PostgresToClickHouseETLConfig,
 ) -> ETLState:
     """Sync organizations from Postgres to ClickHouse."""
-    state = ETLState()
+    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+        state = ETLState()
 
-    context.log.info(f"Starting organization sync (full_refresh={config.full_refresh})")
+        context.log.info(f"Starting organization sync (full_refresh={config.full_refresh})")
 
-    # Create tables if they don't exist
-    create_clickhouse_tables(context)
+        # Create tables if they don't exist
+        create_clickhouse_tables(context)
 
-    # Get last sync timestamp from ClickHouse (if incremental)
-    last_sync = None
-    if not config.full_refresh:
-        result = sync_execute("SELECT max(updated_at) FROM models.posthog_organization")
-        if result and result[0][0]:
-            last_sync = result[0][0]
-            context.log.info(f"Last sync timestamp for organizations: {last_sync}")
+        # Get last sync timestamp from ClickHouse (if incremental)
+        last_sync = None
+        if not config.full_refresh:
+            result = sync_execute("SELECT max(updated_at) FROM models.posthog_organization")
+            if result and result[0][0]:
+                last_sync = result[0][0]
+                context.log.info(f"Last sync timestamp for organizations: {last_sync}")
 
-    # If full refresh, truncate the table
-    if config.full_refresh:
-        context.log.info("Full refresh requested, truncating posthog_organization table...")
+        # If full refresh, truncate the table
+        if config.full_refresh:
+            context.log.info("Full refresh requested, truncating posthog_organization table...")
+            try:
+                sync_execute("TRUNCATE TABLE models.posthog_organization")
+                context.log.info("Truncated posthog_organization table for full refresh")
+            except Exception as e:
+                context.log.warning(f"Could not truncate table (may not exist yet): {e}")
+                # Table might not exist, continue as it will be created
+
+        # Connect to Postgres and fetch/insert data in streaming batches
+        pg_conn = get_postgres_connection()
         try:
-            sync_execute("TRUNCATE TABLE models.posthog_organization")
-            context.log.info("Truncated posthog_organization table for full refresh")
+            total_rows = 0
+            last_updated = None
+            batch_num = 0
+
+            # Process data in streaming fashion to avoid memory issues
+            for batch in fetch_organizations_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+                batch_num += 1
+                if batch:
+                    context.log.info(f"Processing batch {batch_num} with {len(batch)} organizations")
+
+                    # Insert this batch into ClickHouse
+                    rows_inserted = insert_organizations_to_clickhouse(batch, batch_size=config.batch_size)
+                    total_rows += rows_inserted
+
+                    # Track the latest timestamp for state
+                    batch_last_updated = max(org["updated_at"] for org in batch)
+                    if last_updated is None or batch_last_updated > last_updated:
+                        last_updated = batch_last_updated
+
+                    context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
+
+            state.rows_synced = total_rows
+            state.last_sync_timestamp = last_updated
+            context.log.info(f"Completed sync: inserted {total_rows} organizations into ClickHouse")
+
         except Exception as e:
-            context.log.warning(f"Could not truncate table (may not exist yet): {e}")
-            # Table might not exist, continue as it will be created
+            state.errors.append(f"Error syncing organizations: {str(e)}")
+            context.log.exception(f"Error syncing organizations: {str(e)}")
+            raise
+        finally:
+            pg_conn.close()
 
-    # Connect to Postgres and fetch/insert data in streaming batches
-    pg_conn = get_postgres_connection()
-    try:
-        total_rows = 0
-        last_updated = None
-        batch_num = 0
+        # Add metadata
+        context.add_output_metadata(
+            {
+                "rows_synced": MetadataValue.int(state.rows_synced),
+                "last_sync_timestamp": MetadataValue.text(
+                    str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
+                ),
+                "full_refresh": MetadataValue.bool(config.full_refresh),
+            }
+        )
 
-        # Process data in streaming fashion to avoid memory issues
-        for batch in fetch_organizations_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
-            batch_num += 1
-            if batch:
-                context.log.info(f"Processing batch {batch_num} with {len(batch)} organizations")
-
-                # Insert this batch into ClickHouse
-                rows_inserted = insert_organizations_to_clickhouse(batch, batch_size=config.batch_size)
-                total_rows += rows_inserted
-
-                # Track the latest timestamp for state
-                batch_last_updated = max(org["updated_at"] for org in batch)
-                if last_updated is None or batch_last_updated > last_updated:
-                    last_updated = batch_last_updated
-
-                context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
-
-        state.rows_synced = total_rows
-        state.last_sync_timestamp = last_updated
-        context.log.info(f"Completed sync: inserted {total_rows} organizations into ClickHouse")
-
-    except Exception as e:
-        state.errors.append(f"Error syncing organizations: {str(e)}")
-        context.log.exception(f"Error syncing organizations: {str(e)}")
-        raise
-    finally:
-        pg_conn.close()
-
-    # Add metadata
-    context.add_output_metadata(
-        {
-            "rows_synced": MetadataValue.int(state.rows_synced),
-            "last_sync_timestamp": MetadataValue.text(
-                str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
-            ),
-            "full_refresh": MetadataValue.bool(config.full_refresh),
-        }
-    )
-
-    return state
+        return state
 
 
 @op(retry_policy=etl_retry_policy)
@@ -740,78 +742,79 @@ def sync_teams(
     config: PostgresToClickHouseETLConfig,
 ) -> ETLState:
     """Sync teams from Postgres to ClickHouse."""
-    state = ETLState()
+    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+        state = ETLState()
 
-    context.log.info(f"Starting team sync (full_refresh={config.full_refresh})")
+        context.log.info(f"Starting team sync (full_refresh={config.full_refresh})")
 
-    # Create tables if they don't exist
-    create_clickhouse_tables(context)
+        # Create tables if they don't exist
+        create_clickhouse_tables(context)
 
-    # Get last sync timestamp from ClickHouse (if incremental)
-    last_sync = None
-    if not config.full_refresh:
-        result = sync_execute("SELECT max(updated_at) FROM models.posthog_team")
-        if result and result[0][0]:
-            last_sync = result[0][0]
-            context.log.info(f"Last sync timestamp for teams: {last_sync}")
+        # Get last sync timestamp from ClickHouse (if incremental)
+        last_sync = None
+        if not config.full_refresh:
+            result = sync_execute("SELECT max(updated_at) FROM models.posthog_team")
+            if result and result[0][0]:
+                last_sync = result[0][0]
+                context.log.info(f"Last sync timestamp for teams: {last_sync}")
 
-    # If full refresh, truncate the table
-    if config.full_refresh:
-        context.log.info("Full refresh requested, truncating posthog_team table...")
+        # If full refresh, truncate the table
+        if config.full_refresh:
+            context.log.info("Full refresh requested, truncating posthog_team table...")
+            try:
+                sync_execute("TRUNCATE TABLE models.posthog_team")
+                context.log.info("Truncated posthog_team table for full refresh")
+            except Exception as e:
+                context.log.warning(f"Could not truncate table (may not exist yet): {e}")
+                # Table might not exist, continue as it will be created
+
+        # Connect to Postgres and fetch/insert data in streaming batches
+        pg_conn = get_postgres_connection()
         try:
-            sync_execute("TRUNCATE TABLE models.posthog_team")
-            context.log.info("Truncated posthog_team table for full refresh")
+            total_rows = 0
+            last_updated = None
+            batch_num = 0
+
+            # Process data in streaming fashion to avoid memory issues
+            for batch in fetch_teams_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
+                batch_num += 1
+                if batch:
+                    context.log.info(f"Processing batch {batch_num} with {len(batch)} teams")
+
+                    # Insert this batch into ClickHouse
+                    rows_inserted = insert_teams_to_clickhouse(batch, batch_size=config.batch_size)
+                    total_rows += rows_inserted
+
+                    # Track the latest timestamp for state
+                    batch_last_updated = max(team["updated_at"] for team in batch)
+                    if last_updated is None or batch_last_updated > last_updated:
+                        last_updated = batch_last_updated
+
+                    context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
+
+            state.rows_synced = total_rows
+            state.last_sync_timestamp = last_updated
+            context.log.info(f"Completed sync: inserted {total_rows} teams into ClickHouse")
+
         except Exception as e:
-            context.log.warning(f"Could not truncate table (may not exist yet): {e}")
-            # Table might not exist, continue as it will be created
+            state.errors.append(f"Error syncing teams: {str(e)}")
+            context.log.exception(f"Error syncing teams: {str(e)}")
+            raise
+        finally:
+            pg_conn.close()
 
-    # Connect to Postgres and fetch/insert data in streaming batches
-    pg_conn = get_postgres_connection()
-    try:
-        total_rows = 0
-        last_updated = None
-        batch_num = 0
+        # Add metadata
+        context.add_output_metadata(
+            {
+                "rows_synced": MetadataValue.int(state.rows_synced),
+                "last_sync_timestamp": MetadataValue.text(
+                    str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
+                ),
+                "full_refresh": MetadataValue.bool(config.full_refresh),
+            }
+        )
 
-        # Process data in streaming fashion to avoid memory issues
-        for batch in fetch_teams_in_batches(pg_conn, last_sync=last_sync, batch_size=config.batch_size):
-            batch_num += 1
-            if batch:
-                context.log.info(f"Processing batch {batch_num} with {len(batch)} teams")
-
-                # Insert this batch into ClickHouse
-                rows_inserted = insert_teams_to_clickhouse(batch, batch_size=config.batch_size)
-                total_rows += rows_inserted
-
-                # Track the latest timestamp for state
-                batch_last_updated = max(team["updated_at"] for team in batch)
-                if last_updated is None or batch_last_updated > last_updated:
-                    last_updated = batch_last_updated
-
-                context.log.info(f"Inserted batch {batch_num} ({rows_inserted} rows). Total so far: {total_rows}")
-
-        state.rows_synced = total_rows
-        state.last_sync_timestamp = last_updated
-        context.log.info(f"Completed sync: inserted {total_rows} teams into ClickHouse")
-
-    except Exception as e:
-        state.errors.append(f"Error syncing teams: {str(e)}")
-        context.log.exception(f"Error syncing teams: {str(e)}")
-        raise
-    finally:
-        pg_conn.close()
-
-    # Add metadata
-    context.add_output_metadata(
-        {
-            "rows_synced": MetadataValue.int(state.rows_synced),
-            "last_sync_timestamp": MetadataValue.text(
-                str(state.last_sync_timestamp) if state.last_sync_timestamp else "N/A"
-            ),
-            "full_refresh": MetadataValue.bool(config.full_refresh),
-        }
-    )
-
-    return state
+        return state
 
 
 @op
@@ -821,38 +824,39 @@ def verify_sync(
     team_state: ETLState,
 ) -> dict[str, Any]:
     """Verify the sync was successful by checking row counts."""
-    # Get counts from ClickHouse
-    org_count_result = sync_execute("SELECT count(*) FROM models.posthog_organization")
-    team_count_result = sync_execute("SELECT count(*) FROM models.posthog_team")
+    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+        # Get counts from ClickHouse
+        org_count_result = sync_execute("SELECT count(*) FROM models.posthog_organization")
+        team_count_result = sync_execute("SELECT count(*) FROM models.posthog_team")
 
-    org_count = org_count_result[0][0] if org_count_result else 0
-    team_count = team_count_result[0][0] if team_count_result else 0
+        org_count = org_count_result[0][0] if org_count_result else 0
+        team_count = team_count_result[0][0] if team_count_result else 0
 
-    verification = {
-        "organizations": {
-            "clickhouse_count": org_count,
-            "rows_synced": org_state.rows_synced,
-            "last_sync": str(org_state.last_sync_timestamp) if org_state.last_sync_timestamp else None,
-        },
-        "teams": {
-            "clickhouse_count": team_count,
-            "rows_synced": team_state.rows_synced,
-            "last_sync": str(team_state.last_sync_timestamp) if team_state.last_sync_timestamp else None,
-        },
-        "success": len(org_state.errors) == 0 and len(team_state.errors) == 0,
-    }
-
-    context.log.info(f"Verification results: {verification}")
-
-    context.add_output_metadata(
-        {
-            "org_count": MetadataValue.int(org_count),
-            "team_count": MetadataValue.int(team_count),
-            "success": MetadataValue.bool(verification["success"]),
+        verification = {
+            "organizations": {
+                "clickhouse_count": org_count,
+                "rows_synced": org_state.rows_synced,
+                "last_sync": str(org_state.last_sync_timestamp) if org_state.last_sync_timestamp else None,
+            },
+            "teams": {
+                "clickhouse_count": team_count,
+                "rows_synced": team_state.rows_synced,
+                "last_sync": str(team_state.last_sync_timestamp) if team_state.last_sync_timestamp else None,
+            },
+            "success": len(org_state.errors) == 0 and len(team_state.errors) == 0,
         }
-    )
 
-    return verification
+        context.log.info(f"Verification results: {verification}")
+
+        context.add_output_metadata(
+            {
+                "org_count": MetadataValue.int(org_count),
+                "team_count": MetadataValue.int(team_count),
+                "success": MetadataValue.bool(verification["success"]),
+            }
+        )
+
+        return verification
 
 
 # Define the hourly partition
@@ -883,70 +887,71 @@ def organizations_in_clickhouse(
     context: AssetExecutionContext,
 ) -> None:
     """Asset representing organizations data in ClickHouse."""
-    config = PostgresToClickHouseETLConfig(full_refresh=False)
+    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+        config = PostgresToClickHouseETLConfig(full_refresh=False)
 
-    # Create tables if they don't exist
-    create_clickhouse_tables(context)
+        # Create tables if they don't exist
+        create_clickhouse_tables(context)
 
-    # Determine the time window for this partition
-    partition_key = context.partition_key
-    # Hourly partition key format: "2024-01-01-14:00"
-    partition_datetime = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M")
-    start_time = partition_datetime
-    end_time = partition_datetime + timedelta(hours=1)
+        # Determine the time window for this partition
+        partition_key = context.partition_key
+        # Hourly partition key format: "2024-01-01-14:00"
+        partition_datetime = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M")
+        start_time = partition_datetime
+        end_time = partition_datetime + timedelta(hours=1)
 
-    # Connect to Postgres and fetch data for this partition
-    pg_conn = get_postgres_connection()
-    try:
-        cursor = pg_conn.cursor()
-        cursor.execute(
-            """
-            SELECT
-                id,
-                name,
-                slug,
-                logo_media_id,
-                created_at,
-                updated_at,
-                session_cookie_age,
-                is_member_join_email_enabled,
-                is_ai_data_processing_approved,
-                enforce_2fa,
-                members_can_invite,
-                members_can_use_personal_api_keys,
-                allow_publicly_shared_resources,
-                plugins_access_level,
-                for_internal_metrics,
-                default_experiment_stats_method,
-                is_hipaa,
-                customer_id,
-                available_product_features,
-                usage,
-                never_drop_data,
-                customer_trust_scores,
-                setup_section_2_completed,
-                personalization,
-                domain_whitelist,
-                is_platform
-            FROM posthog_organization
-            WHERE updated_at >= %s AND updated_at < %s
-            ORDER BY updated_at ASC
-            """,
-            (start_time, end_time),
-        )
+        # Connect to Postgres and fetch data for this partition
+        pg_conn = get_postgres_connection()
+        try:
+            cursor = pg_conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    name,
+                    slug,
+                    logo_media_id,
+                    created_at,
+                    updated_at,
+                    session_cookie_age,
+                    is_member_join_email_enabled,
+                    is_ai_data_processing_approved,
+                    enforce_2fa,
+                    members_can_invite,
+                    members_can_use_personal_api_keys,
+                    allow_publicly_shared_resources,
+                    plugins_access_level,
+                    for_internal_metrics,
+                    default_experiment_stats_method,
+                    is_hipaa,
+                    customer_id,
+                    available_product_features,
+                    usage,
+                    never_drop_data,
+                    customer_trust_scores,
+                    setup_section_2_completed,
+                    personalization,
+                    domain_whitelist,
+                    is_platform
+                FROM posthog_organization
+                WHERE updated_at >= %s AND updated_at < %s
+                ORDER BY updated_at ASC
+                """,
+                (start_time, end_time),
+            )
 
-        organizations = cursor.fetchall()
-        context.log.info(f"Fetched {len(organizations)} organizations for partition {partition_key}")
+            organizations = cursor.fetchall()
+            context.log.info(f"Fetched {len(organizations)} organizations for partition {partition_key}")
 
-        # Insert into ClickHouse
-        if organizations:
-            rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
-            context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
+            # Insert into ClickHouse
+            if organizations:
+                rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=config.batch_size)
+                context.log.info(f"Inserted {rows_inserted} organizations into ClickHouse")
 
-        cursor.close()
+            cursor.close()
 
-    finally:
-        pg_conn.close()
+        finally:
+            pg_conn.close()
 
 
 @asset(
@@ -958,123 +963,124 @@ def teams_in_clickhouse(
     context: AssetExecutionContext,
 ) -> None:
     """Asset representing teams data in ClickHouse."""
-    config = PostgresToClickHouseETLConfig(full_refresh=False)
+    with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+        config = PostgresToClickHouseETLConfig(full_refresh=False)
 
-    # Create tables if they don't exist
-    create_clickhouse_tables(context)
+        # Create tables if they don't exist
+        create_clickhouse_tables(context)
 
-    # Determine the time window for this partition
-    partition_key = context.partition_key
-    # Hourly partition key format: "2024-01-01-14:00"
-    partition_datetime = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M")
-    start_time = partition_datetime
-    end_time = partition_datetime + timedelta(hours=1)
+        # Determine the time window for this partition
+        partition_key = context.partition_key
+        # Hourly partition key format: "2024-01-01-14:00"
+        partition_datetime = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M")
+        start_time = partition_datetime
+        end_time = partition_datetime + timedelta(hours=1)
 
-    # Connect to Postgres and fetch data for this partition
-    pg_conn = get_postgres_connection()
-    try:
-        cursor = pg_conn.cursor()
-        cursor.execute(
-            """
-            SELECT
-                id,
-                uuid,
-                organization_id,
-                parent_team_id,
-                project_id,
-                api_token,
-                app_urls,
-                name,
-                slack_incoming_webhook,
-                created_at,
-                updated_at,
-                anonymize_ips,
-                completed_snippet_onboarding,
-                has_completed_onboarding_for,
-                onboarding_tasks,
-                ingested_event,
-                autocapture_opt_out,
-                autocapture_web_vitals_opt_in,
-                autocapture_web_vitals_allowed_metrics,
-                autocapture_exceptions_opt_in,
-                autocapture_exceptions_errors_to_ignore,
-                person_processing_opt_out,
-                secret_api_token,
-                secret_api_token_backup,
-                session_recording_opt_in,
-                session_recording_sample_rate,
-                session_recording_minimum_duration_milliseconds,
-                session_recording_linked_flag,
-                session_recording_network_payload_capture_config,
-                session_recording_masking_config,
-                session_recording_url_trigger_config,
-                session_recording_url_blocklist_config,
-                session_recording_event_trigger_config,
-                session_recording_trigger_match_type_config,
-                session_replay_config,
-                survey_config,
-                capture_console_log_opt_in,
-                capture_performance_opt_in,
-                capture_dead_clicks,
-                surveys_opt_in,
-                heatmaps_opt_in,
-                flags_persistence_default,
-                feature_flag_confirmation_enabled,
-                feature_flag_confirmation_message,
-                session_recording_version,
-                signup_token,
-                is_demo,
-                access_control,
-                week_start_day,
-                inject_web_apps,
-                test_account_filters,
-                test_account_filters_default_checked,
-                path_cleaning_filters,
-                timezone,
-                data_attributes,
-                person_display_name_properties,
-                live_events_columns,
-                recording_domains,
-                human_friendly_comparison_periods,
-                cookieless_server_hash_mode,
-                primary_dashboard_id,
-                default_data_theme,
-                extra_settings,
-                modifiers,
-                correlation_config,
-                session_recording_retention_period_days,
-                plugins_opt_in,
-                opt_out_capture,
-                event_names,
-                event_names_with_usage,
-                event_properties,
-                event_properties_with_usage,
-                event_properties_numerical,
-                external_data_workspace_id,
-                external_data_workspace_last_synced_at,
-                api_query_rate_limit,
-                revenue_tracking_config,
-                drop_events_older_than,
-                base_currency
-            FROM posthog_team
-            WHERE updated_at >= %s AND updated_at < %s
-            ORDER BY updated_at ASC
-            """,
-            (start_time, end_time),
-        )
+        # Connect to Postgres and fetch data for this partition
+        pg_conn = get_postgres_connection()
+        try:
+            cursor = pg_conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    uuid,
+                    organization_id,
+                    parent_team_id,
+                    project_id,
+                    api_token,
+                    app_urls,
+                    name,
+                    slack_incoming_webhook,
+                    created_at,
+                    updated_at,
+                    anonymize_ips,
+                    completed_snippet_onboarding,
+                    has_completed_onboarding_for,
+                    onboarding_tasks,
+                    ingested_event,
+                    autocapture_opt_out,
+                    autocapture_web_vitals_opt_in,
+                    autocapture_web_vitals_allowed_metrics,
+                    autocapture_exceptions_opt_in,
+                    autocapture_exceptions_errors_to_ignore,
+                    person_processing_opt_out,
+                    secret_api_token,
+                    secret_api_token_backup,
+                    session_recording_opt_in,
+                    session_recording_sample_rate,
+                    session_recording_minimum_duration_milliseconds,
+                    session_recording_linked_flag,
+                    session_recording_network_payload_capture_config,
+                    session_recording_masking_config,
+                    session_recording_url_trigger_config,
+                    session_recording_url_blocklist_config,
+                    session_recording_event_trigger_config,
+                    session_recording_trigger_match_type_config,
+                    session_replay_config,
+                    survey_config,
+                    capture_console_log_opt_in,
+                    capture_performance_opt_in,
+                    capture_dead_clicks,
+                    surveys_opt_in,
+                    heatmaps_opt_in,
+                    flags_persistence_default,
+                    feature_flag_confirmation_enabled,
+                    feature_flag_confirmation_message,
+                    session_recording_version,
+                    signup_token,
+                    is_demo,
+                    access_control,
+                    week_start_day,
+                    inject_web_apps,
+                    test_account_filters,
+                    test_account_filters_default_checked,
+                    path_cleaning_filters,
+                    timezone,
+                    data_attributes,
+                    person_display_name_properties,
+                    live_events_columns,
+                    recording_domains,
+                    human_friendly_comparison_periods,
+                    cookieless_server_hash_mode,
+                    primary_dashboard_id,
+                    default_data_theme,
+                    extra_settings,
+                    modifiers,
+                    correlation_config,
+                    session_recording_retention_period_days,
+                    plugins_opt_in,
+                    opt_out_capture,
+                    event_names,
+                    event_names_with_usage,
+                    event_properties,
+                    event_properties_with_usage,
+                    event_properties_numerical,
+                    external_data_workspace_id,
+                    external_data_workspace_last_synced_at,
+                    api_query_rate_limit,
+                    revenue_tracking_config,
+                    drop_events_older_than,
+                    base_currency
+                FROM posthog_team
+                WHERE updated_at >= %s AND updated_at < %s
+                ORDER BY updated_at ASC
+                """,
+                (start_time, end_time),
+            )
 
-        teams = cursor.fetchall()
-        context.log.info(f"Fetched {len(teams)} teams for partition {partition_key}")
+            teams = cursor.fetchall()
+            context.log.info(f"Fetched {len(teams)} teams for partition {partition_key}")
 
-        # Insert into ClickHouse
-        if teams:
-            rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
-            context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
+            # Insert into ClickHouse
+            if teams:
+                rows_inserted = insert_teams_to_clickhouse(teams, batch_size=config.batch_size)
+                context.log.info(f"Inserted {rows_inserted} teams into ClickHouse")
 
-        cursor.close()
+            cursor.close()
 
-    finally:
-        pg_conn.close()
+        finally:
+            pg_conn.close()
 
 
 # Create an hourly schedule for the job

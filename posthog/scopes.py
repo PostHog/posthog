@@ -14,12 +14,17 @@ APIScopeObject = Literal[
     "activity_log",
     "alert",
     "annotation",
+    "approvals",
     "batch_export",
     "batch_import",
     "cohort",
+    "comment",
     "conversation",
+    "customer_analytics",
+    "customer_journey",
     "customer_profile_config",
     "dashboard",
+    "event_filter",
     "dashboard_template",
     "dataset",
     "desktop_recording",
@@ -71,9 +76,11 @@ APIScopeObject = Literal[
     "survey",
     "ticket",
     "task",
+    "tracing",
     "uploaded_media",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
+    "visual_review",
     "warehouse_table",
     "warehouse_view",
     "web_analytics",
@@ -92,6 +99,8 @@ APIScopeObjectOrNotSupported = Literal[
 
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 
 def get_scope_descriptions() -> dict[str, str]:

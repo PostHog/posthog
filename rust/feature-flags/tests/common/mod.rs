@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_cache::NegativeCache;
+use common_cache::{CacheConfig, NegativeCache, ReadThroughCache, ReadThroughCacheWithMetrics};
 use common_database::get_pool;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
@@ -13,6 +13,7 @@ use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
+use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
@@ -29,7 +30,7 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
-        let rayon_dispatcher = RayonDispatcher::new(2);
+        let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
             serve(config, listener, rayon_dispatcher, async move {
                 notify.notified().await
@@ -37,6 +38,21 @@ impl ServerHandle {
             .await
         });
         ServerHandle { addr, shutdown }
+    }
+
+    /// Poll the server's readiness endpoint until it responds successfully.
+    /// Panics if the server doesn't become ready within 5 seconds.
+    #[allow(dead_code)]
+    pub async fn wait_until_ready(&self) {
+        let client = reqwest::Client::new();
+        let url = format!("http://{}/_readiness", self.addr);
+        for _ in 0..100 {
+            match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => return,
+                _ => tokio::time::sleep(std::time::Duration::from_millis(50)).await,
+            }
+        }
+        panic!("Server failed to become ready within 5 seconds");
     }
 
     #[allow(dead_code)]
@@ -232,6 +248,7 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                behavioral_cohorts_reader: None,
                 test_before_acquire: *config.test_before_acquire,
             });
 
@@ -314,11 +331,20 @@ impl ServerHandle {
                     }
                 };
 
+            let group_type_cache = Arc::new(
+                feature_flags::flags::flag_group_type_mapping::GroupTypeCacheManager::new(
+                    persons_reader.clone(),
+                    Some(config.group_type_cache_max_entries),
+                    Some(config.group_type_cache_ttl_seconds),
+                ),
+            );
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
                 database_pools,
                 cohort_cache,
+                group_type_cache,
                 geoip_service,
                 health,
                 feature_flags_billing_limiter,
@@ -328,8 +354,23 @@ impl ServerHandle {
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
-                RayonDispatcher::new(2),
+                RayonDispatcher::new(2, None),
                 NegativeCache::new(10_000, 300),
+                Arc::new(ReadThroughCacheWithMetrics::new(
+                    Arc::new(ReadThroughCache::new(
+                        redis_writer_client.clone(),
+                        redis_writer_client.clone(),
+                        CacheConfig::with_ttl(
+                            feature_flags::api::auth::TOKEN_CACHE_PREFIX,
+                            config.auth_token_cache_ttl_seconds,
+                        ),
+                        None,
+                    )),
+                    "auth",
+                    "token",
+                    &[],
+                )),
+                Arc::new(NoOpCohortMembershipProvider),
                 config,
             );
 

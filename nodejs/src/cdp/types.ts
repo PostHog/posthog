@@ -116,7 +116,7 @@ export type HogFunctionInvocationGlobals = {
  * These variables can be used to store loop state or pass data between actions
  *
  * Action's can read and write to these variables. Any value stored in the variables
- * map must be JSON serializable, and limited to 1KB in size.
+ * map must be JSON serializable, and limited to 5KB in size.
  *
  * After execution, every action will have a corresponding entry in the map with
  * the key `$action/{actionId}` containing the result of the action.
@@ -226,6 +226,7 @@ export type MinimalAppMetric = {
         | 'billable_invocation'
         | 'dropped'
         | 'email_sent'
+        | 'email_delivered'
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
@@ -251,7 +252,7 @@ export interface HogFunctionTiming {
 export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'shadow'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -284,6 +285,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
+    warehouseWebhookPayloads: WarehouseWebhookPayload[]
     execResult?: unknown
 }
 
@@ -292,6 +294,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+    actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
@@ -331,6 +334,8 @@ export type HogFunctionInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'posthog_assignee'
+        | 'posthog_ticket_tags'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -391,6 +396,7 @@ export type HogFunctionType = {
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {
     name: string
     include_by_default?: boolean
+    use_all_events_by_default?: boolean
 }
 
 export type HogFunctionTemplate = {
@@ -441,6 +447,12 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type WarehouseWebhookPayload = {
+    team_id: number
+    schema_id: string
+    payload: Record<string, any>
 }
 
 export type Response = {

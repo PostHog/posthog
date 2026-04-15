@@ -3,13 +3,13 @@ import { useState } from 'react'
 
 import { IconClock, IconFolder, IconHome, IconSparkles, IconStar } from '@posthog/icons'
 
-import { Collapsible } from './Collapsible'
+import { Collapsible, CollapsibleProps } from './Collapsible'
 
 const meta = {
     title: 'UI/Collapsible',
     component: Collapsible,
     tags: ['autodocs'],
-} satisfies Meta<typeof Collapsible>
+} satisfies Meta<CollapsibleProps>
 
 export default meta
 

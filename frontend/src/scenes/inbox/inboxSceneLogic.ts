@@ -14,7 +14,13 @@ import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
+import {
+    EnrichedReviewer,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStatus,
+} from './types'
 
 const REPORTS_PAGE_SIZE = 200
 
@@ -36,6 +42,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setStatusFilters: (statuses: SignalReportStatus[]) => ({ statuses }),
         setActiveDetailTab: (tab: DetailTab) => ({ tab }),
         deleteReport: (reportId: string) => ({ reportId }),
+        reingestReport: (reportId: string) => ({ reportId }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -51,6 +58,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         offset: 0,
                         status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
                         search: values.searchQuery.trim() || undefined,
+                        ordering: '-is_suggested_reviewer,-signal_count',
                     })
                 },
                 loadMoreReports: async () => {
@@ -60,6 +68,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         offset: currentResults.length,
                         status: values.statusFilters.length > 0 ? values.statusFilters.join(',') : undefined,
                         search: values.searchQuery.trim() || undefined,
+                        ordering: '-is_suggested_reviewer,-signal_count',
                     })
                     return {
                         ...response,
@@ -89,6 +98,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     reducers({
+        reportsResponse: {
+            deleteReport: (state: CountedPaginatedResponse<SignalReport> | null, { reportId }: { reportId: string }) =>
+                state
+                    ? { ...state, results: state.results.filter((r) => r.id !== reportId), count: state.count - 1 }
+                    : state,
+        },
         selectedReportId: [
             null as string | null,
             {
@@ -169,6 +184,27 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (reportSignals: Record<string, SignalNode[]>, selectedReportId: string | null): SignalNode[] | null =>
                 selectedReportId ? (reportSignals[selectedReportId] ?? null) : null,
         ],
+        selectedReportReviewers: [
+            (s) => [s.artefacts, s.selectedReportId],
+            (
+                artefacts: Record<string, SignalReportArtefact[]>,
+                selectedReportId: string | null
+            ): EnrichedReviewer[] | null => {
+                if (!selectedReportId) {
+                    return null
+                }
+                const reportArtefacts = artefacts[selectedReportId]
+                if (!reportArtefacts) {
+                    return null
+                }
+                const reviewersArtefact = reportArtefacts.find((a) => a.type === 'suggested_reviewers')
+                if (!reviewersArtefact) {
+                    return null
+                }
+                // content is already JSON-decoded by the serializer
+                return reviewersArtefact.content as EnrichedReviewer[]
+            },
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
@@ -195,15 +231,29 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         deleteReport: async ({ reportId }) => {
+            // Reducer handles optimistic removal from list
+            if (values.selectedReportId === reportId) {
+                actions.setSelectedReportId(null)
+            }
             try {
                 await api.signalReports.delete(reportId)
                 lemonToast.success('Report deleted')
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to delete report'
+                lemonToast.error(errorMessage)
+                actions.loadReports()
+            }
+        },
+        reingestReport: async ({ reportId }) => {
+            try {
+                await api.signalReports.reingest(reportId)
+                lemonToast.success('Reingestion started — signals will be re-grouped')
                 if (values.selectedReportId === reportId) {
                     actions.setSelectedReportId(null)
                 }
                 actions.loadReports()
             } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to delete report'
+                const errorMessage = error?.detail || error?.message || 'Failed to start reingestion'
                 lemonToast.error(errorMessage)
             }
         },

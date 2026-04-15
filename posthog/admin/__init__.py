@@ -13,6 +13,7 @@ def register_all_admin():
         DashboardAdmin,
         DashboardTemplateAdmin,
         DataColorThemeAdmin,
+        DataDeletionRequestAdmin,
         DataWarehouseTableAdmin,
         DuckgresServerAdmin,
         DuckLakeCatalogAdmin,
@@ -50,15 +51,12 @@ def register_all_admin():
         BatchImport,
         Cohort,
         ColumnConfiguration,
-        Dashboard,
-        DashboardTemplate,
         DataColorTheme,
+        DataDeletionRequest,
         DataWarehouseTable,
         DuckgresServer,
         DuckLakeCatalog,
         EventIngestionRestrictionConfig,
-        Experiment,
-        ExperimentSavedMetric,
         ExportedAsset,
         FeatureFlag,
         GroupTypeMapping,
@@ -67,7 +65,6 @@ def register_all_admin():
         Insight,
         InstanceSetting,
         Integration,
-        Link,
         Organization,
         OrganizationDomain,
         OrganizationIntegration,
@@ -76,20 +73,24 @@ def register_all_admin():
         Plugin,
         PluginConfig,
         Project,
-        Survey,
         Team,
-        Text,
         User,
     )
     from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
 
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+    from products.dashboards.backend.models.dashboard_tile import Text
     from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
     from products.desktop_recordings.backend.models import DesktopRecording
     from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
     from products.endpoints.backend.models import Endpoint, EndpointVersion
+    from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
+    from products.links.backend.models import Link
     from products.signals.backend.admin import SignalReportAdmin
     from products.signals.backend.models import SignalReport
+    from products.surveys.backend.models import Survey
     from products.tasks.backend.admin import (
         CodeInviteAdmin,
         CodeInviteRedemptionAdmin,
@@ -118,6 +119,7 @@ def register_all_admin():
     admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
     admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
+    admin.site.register(DataDeletionRequest, DataDeletionRequestAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
     admin.site.register(Integration, IntegrationAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)

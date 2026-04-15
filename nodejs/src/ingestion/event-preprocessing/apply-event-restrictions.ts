@@ -2,6 +2,7 @@ import { Counter } from 'prom-client'
 
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager, RestrictionType } from '../../utils/event-ingestion-restrictions'
+import { OVERFLOW_OUTPUT, OverflowOutput } from '../common/outputs'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -11,7 +12,6 @@ export const ingestionOverflowingMessagesTotal = new Counter({
 })
 
 export type RoutingConfig = {
-    overflowTopic: string
     overflowEnabled: boolean
     preservePartitionLocality: boolean
 }
@@ -19,7 +19,7 @@ export type RoutingConfig = {
 export function createApplyEventRestrictionsStep<T extends { headers: EventHeaders }>(
     manager: EventIngestionRestrictionManager,
     routingConfig: RoutingConfig
-): ProcessingStep<T, T> {
+): ProcessingStep<T, T, OverflowOutput> {
     return async function applyEventRestrictionsStep(input) {
         const { headers } = input
 
@@ -46,7 +46,7 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
             const preservePartitionLocality = shouldProcessPerson ? true : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',
-                routingConfig.overflowTopic,
+                OVERFLOW_OUTPUT,
                 preservePartitionLocality,
                 false
             )

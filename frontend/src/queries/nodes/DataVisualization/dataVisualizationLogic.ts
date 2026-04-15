@@ -63,6 +63,8 @@ export interface TableDataCell<T extends string | number | boolean | Date | null
     value: T
     formattedValue: string | object | null
     type: ColumnScalar
+    sourceColumnName?: string
+    isTransposedHeader?: boolean
 }
 
 export interface AxisSeriesSettings {
@@ -116,6 +118,9 @@ const DefaultAxisSettings = (): AxisSeriesSettings => ({
         suffix: '',
     },
 })
+
+const TRANSPOSED_FIELD_COLUMN_NAME = '__transpose_field__'
+const TRANSPOSED_ROW_COLUMN_PREFIX = '__transpose_row__'
 
 export const formatDataWithSettings = (
     data: number | string | null | object,
@@ -265,7 +270,8 @@ const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayT
 const hasTimeSeriesData = (columns: Column[], response: AnyResponseType | null): boolean => {
     const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
     const hasNumericColumn = columns.some((column) => column.type.isNumerical)
-    const results = response?.['results'] ?? response?.['result'] ?? []
+    const results =
+        response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
 
     return hasDateColumn && hasNumericColumn && results.length > 1
 }
@@ -316,6 +322,43 @@ const applyAutoHeatmapSettings = (
             ...autoSettings,
         },
     })
+}
+
+const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): ChartSettings => {
+    return {
+        ...state,
+        ...settings,
+        heatmap:
+            state.heatmap || settings.heatmap
+                ? {
+                      ...state.heatmap,
+                      ...settings.heatmap,
+                  }
+                : undefined,
+    }
+}
+
+const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
+    columns: Column[],
+    numericalColumns: Column[],
+    selectedXAxis: string | null,
+    selectedYAxis: (SelectedYAxis | null)[] | null
+): boolean => {
+    if (selectedXAxis !== null || columns.length < 2 || numericalColumns.length < 2) {
+        return false
+    }
+
+    if (!columns.every((column) => column.type.isNumerical)) {
+        return false
+    }
+
+    if (!selectedYAxis || selectedYAxis.length !== numericalColumns.length) {
+        return false
+    }
+
+    const selectedYAxisNames = new Set(selectedYAxis.map((series) => series?.name))
+
+    return numericalColumns.every((column) => selectedYAxisNames.has(column.name))
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -403,6 +446,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
         toggleColumnPin: (columnName: string) => ({ columnName }),
+        setTransposeResults: (transpose: boolean) => ({ transpose }),
         _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
@@ -473,7 +517,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[index]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -486,7 +530,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[seriesIndex]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -553,7 +597,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[seriesIndex]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[seriesIndex]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -571,7 +615,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[index] = {
                         name: columnName,
-                        settings: mergeObject(ySeries[index]?.settings ?? {}, settings),
+                        settings: mergeObject({}, ySeries[index]?.settings ?? {}, settings),
                     }
                     return ySeries
                 },
@@ -603,7 +647,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             {
                 _setQuery: (state, { node }) => node.chartSettings ?? state,
                 updateChartSettings: (state, { settings }) => {
-                    return { ...state, ...settings }
+                    return mergeChartSettings(state, settings)
                 },
             },
         ],
@@ -713,8 +757,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return []
                 }
 
-                const columns: string[] = response['columns'] ?? []
-                const types: string[][] = response['types'] ?? []
+                const columns: string[] =
+                    'columns' in response && Array.isArray(response.columns) ? response.columns : []
+                const types: string[][] = 'types' in response && Array.isArray(response.types) ? response.types : []
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
@@ -785,17 +830,24 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
+        isTransposed: [(s) => [s.query], (query): boolean => query.tableSettings?.transpose ?? false],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns],
-            (ySeries, response, columns): AxisSeries<number>[] => {
+            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings],
+            (ySeries, response, columns, chartSettings): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const showNullsAsZero = chartSettings.showNullsAsZero ?? false
+                const data =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 return ySeries
-                    .map((series): AxisSeries<number> | null => {
+                    .map((series): AxisSeries<number | null> | null => {
                         if (!series) {
                             return EmptyYAxisSeries
                         }
@@ -824,7 +876,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         n[column.dataIndex] === undefined ||
                                         n[column.dataIndex] === null
                                     if (isNotANumber) {
-                                        return 0
+                                        return showNullsAsZero ? 0 : null
                                     }
 
                                     const isInt = Number.isInteger(n[column.dataIndex])
@@ -832,13 +884,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         ? parseInt(n[column.dataIndex], 10) * multiplier
                                         : parseFloat(n[column.dataIndex]) * multiplier
                                 } catch {
-                                    return 0
+                                    return showNullsAsZero ? 0 : null
                                 }
                             }),
                             settings: series.settings,
                         }
                     })
-                    .filter((series): series is AxisSeries<number> => Boolean(series))
+                    .filter((series): series is AxisSeries<number | null> => Boolean(series))
             },
         ],
         xData: [
@@ -859,7 +911,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
+                const data =
+                    ('results' in response ? response.results : 'result' in response ? response.result : null) ?? []
 
                 if (xSeries === null) {
                     return {
@@ -883,21 +936,45 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n) => n[column.dataIndex]),
+                    data: data.map((n: any) => n[column.dataIndex]),
                 }
             },
         ],
-        tabularData: [
-            (s) => [s.tabularColumns, s.response],
-            (tabularColumns, response): TableDataCell<any>[][] => {
-                if (!response || tabularColumns === null) {
+        sourceTabularColumns: [
+            (s) => [s.tabularColumnSettings, s.response, s.columns],
+            (tabularColumnSettings, response, columns): AxisSeries<any>[] => {
+                if (!response) {
                     return []
                 }
 
-                const data: (string | number | null)[][] = response?.['results'] ?? response?.['result'] ?? []
+                return columns.map((col) => {
+                    const series = (tabularColumnSettings || []).find((n) => n?.name === col.name)
+
+                    return {
+                        column: col,
+                        data: [],
+                        settings: series?.settings ?? DefaultAxisSettings(),
+                    }
+                })
+            },
+        ],
+        sourceTabularData: [
+            (s) => [s.sourceTabularColumns, s.response, s.chartSettings],
+            (sourceTabularColumns, response, chartSettings): TableDataCell<any>[][] => {
+                if (!response) {
+                    return []
+                }
+
+                const showNullsAsZero = chartSettings.showNullsAsZero ?? false
+                const data =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
 
                 return data.map((row): TableDataCell<any>[] => {
-                    return tabularColumns.map((column): TableDataCell<any> => {
+                    return sourceTabularColumns.map((column): TableDataCell<any> => {
                         if (!column) {
                             return {
                                 value: null,
@@ -911,9 +988,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         if (column.column.type.isNumerical) {
                             try {
                                 if (value === null) {
+                                    const nullReplacement = showNullsAsZero ? 0 : null
+
                                     return {
-                                        value: null,
-                                        formattedValue: null,
+                                        value: nullReplacement,
+                                        formattedValue: formatDataWithSettings(nullReplacement, column.settings),
                                         type: column.column.type.name,
                                     }
                                 }
@@ -965,21 +1044,82 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         tabularColumns: [
-            (s) => [s.tabularColumnSettings, s.response, s.columns],
-            (tabularColumnSettings, response, columns): AxisSeries<any>[] => {
-                if (!response) {
+            (s) => [s.sourceTabularColumns, s.sourceTabularData, s.isTransposed],
+            (sourceTabularColumns, sourceTabularData, isTransposed): AxisSeries<any>[] => {
+                if (!isTransposed) {
+                    return sourceTabularColumns
+                }
+
+                if (sourceTabularColumns.length === 0) {
                     return []
                 }
 
-                return columns.map((col) => {
-                    const series = (tabularColumnSettings || []).find((n) => n?.name === col.name)
-
-                    return {
-                        column: col,
+                return [
+                    {
+                        column: {
+                            name: TRANSPOSED_FIELD_COLUMN_NAME,
+                            type: {
+                                name: 'STRING',
+                                isNumerical: false,
+                            },
+                            label: 'Field',
+                            dataIndex: -1,
+                        },
                         data: [],
-                        settings: series?.settings ?? DefaultAxisSettings(),
-                    }
-                })
+                        settings: {
+                            ...DefaultAxisSettings(),
+                            display: {
+                                label: 'Field',
+                            },
+                        },
+                    },
+                    ...sourceTabularData.map(
+                        (_, index): AxisSeries<any> => ({
+                            column: {
+                                name: `${TRANSPOSED_ROW_COLUMN_PREFIX}${index}`,
+                                type: {
+                                    name: 'STRING',
+                                    isNumerical: false,
+                                },
+                                label: `Row ${index + 1}`,
+                                dataIndex: -1,
+                            },
+                            data: [],
+                            settings: {
+                                ...DefaultAxisSettings(),
+                                display: {
+                                    label: `Row ${index + 1}`,
+                                },
+                            },
+                        })
+                    ),
+                ]
+            },
+        ],
+        tabularData: [
+            (s) => [s.sourceTabularColumns, s.sourceTabularData, s.isTransposed],
+            (sourceTabularColumns, sourceTabularData, isTransposed): TableDataCell<any>[][] => {
+                if (!isTransposed) {
+                    return sourceTabularData
+                }
+
+                if (sourceTabularData.length === 0) {
+                    return []
+                }
+
+                return sourceTabularColumns.map((column, columnIndex) => [
+                    {
+                        value: column.column.name,
+                        formattedValue: null,
+                        type: 'STRING',
+                        sourceColumnName: column.column.name,
+                        isTransposedHeader: true,
+                    },
+                    ...sourceTabularData.map((row) => ({
+                        ...row[columnIndex],
+                        sourceColumnName: column.column.name,
+                    })),
+                ])
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
@@ -1018,10 +1158,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
         ],
         isPinningEnabled: [
-            (s) => [s.activeSceneId],
-            (activeSceneId: Scene | null): boolean => {
-                // disable column pinning in sql editor
-                return activeSceneId !== Scene.SQLEditor
+            (s) => [s.activeSceneId, s.isTransposed],
+            (activeSceneId: Scene | null, isTransposed: boolean): boolean => {
+                // disable column pinning in sql editor or when transposed
+                return activeSceneId !== Scene.SQLEditor && !isTransposed
             },
         ],
     }),
@@ -1073,7 +1213,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: ({ settings }) => {
             actions.setQuery((query) => ({
                 ...query,
-                chartSettings: { ...query.chartSettings, ...settings },
+                chartSettings: mergeChartSettings(query.chartSettings ?? ({} as ChartSettings), settings),
             }))
         },
         setQuery: ({ setter }) => {
@@ -1087,6 +1227,26 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
 
+            if (
+                [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
+                shouldUseFirstNumericColumnAsContinuousChartXAxis(
+                    values.columns,
+                    values.numericalColumns,
+                    values.selectedXAxis,
+                    values.selectedYAxis
+                )
+            ) {
+                const [xAxisColumn] = values.numericalColumns
+                const xAxisSeriesIndex =
+                    values.selectedYAxis?.findIndex((series) => series?.name === xAxisColumn.name) ?? -1
+
+                actions.updateXSeries(xAxisColumn.name)
+
+                if (xAxisSeriesIndex > -1) {
+                    actions.deleteYSeries(xAxisSeriesIndex)
+                }
+            }
+
             const isAutoHeatmap =
                 visualizationType === ChartDisplayType.Auto &&
                 getAutoVisualizationType(values.columns, values.response) === ChartDisplayType.TwoDimensionalHeatmap
@@ -1094,6 +1254,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
                 applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
             }
+        },
+        setTransposeResults: ({ transpose }) => {
+            actions.setQuery((query) => ({
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    transpose,
+                },
+            }))
         },
         toggleChartSettingsPanel: ({ open }) => {
             const shouldOpen = open ?? !values.isChartSettingsPanelOpen

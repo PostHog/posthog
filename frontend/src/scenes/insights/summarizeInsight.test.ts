@@ -243,6 +243,30 @@ describe('summarizing insights', () => {
             expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
         })
 
+        it('does not prefix with an empty formula node label', () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                trendsFilter: {
+                    formulaNodes: [{ formula: '', custom_name: '' }],
+                },
+            }
+
+            const result = summarizeInsight(
+                { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
+                summaryContext
+            )
+
+            expect(result).toEqual('Pageview count')
+        })
+
         it('summarizes a user-based Funnels insight with 3 steps', () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,

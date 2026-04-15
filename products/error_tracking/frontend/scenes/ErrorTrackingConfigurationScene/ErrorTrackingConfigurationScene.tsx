@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -15,10 +15,13 @@ import type { errorTrackingConfigurationSceneLogicType } from './ErrorTrackingCo
 
 export type ConfigurationSceneTabType =
     | 'error-tracking-exception-autocapture'
-    | 'error-tracking-user-groups'
-    | 'error-tracking-symbol-sets'
+    | 'error-tracking-suppression-rules'
+    | 'error-tracking-spike-detection'
+    | 'error-tracking-auto-assignment'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-alerting'
+    | 'error-tracking-symbol-sets'
+    | 'error-tracking-releases'
 
 export interface ErrorTrackingConfigurationSceneLogicProps {
     initialTab?: ConfigurationSceneTabType
@@ -32,8 +35,8 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
         actions: [
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
-                sectionId: 'environment-error-tracking',
-                settingId: initialTab || 'error-tracking-exception-autocapture',
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: initialTab || 'error-tracking-alerting',
             }),
             ['selectSetting'],
         ],
@@ -83,12 +86,23 @@ export const errorTrackingConfigurationSceneLogic = kea<errorTrackingConfigurati
             ]
         },
     }),
+
+    urlToAction(({ actions, values }) => ({
+        '*': (_, __, hashParams) => {
+            const selectedSetting = hashParams.selectedSetting as ConfigurationSceneTabType | undefined
+            if (selectedSetting && values.tab !== selectedSetting) {
+                actions.selectSetting(selectedSetting)
+            }
+        },
+    })),
 ])
 
 export const scene: SceneExport<ErrorTrackingConfigurationSceneLogicProps> = {
     component: ErrorTrackingConfigurationScene,
     logic: errorTrackingConfigurationSceneLogic,
-    paramsToProps: ({ searchParams: { tab } }) => ({ initialTab: tab }),
+    paramsToProps: ({ searchParams: { tab }, hashParams: { selectedSetting } }) => ({
+        initialTab: (tab || selectedSetting) as ConfigurationSceneTabType | undefined,
+    }),
 }
 
 export function ErrorTrackingConfigurationScene(): JSX.Element {
@@ -98,7 +112,11 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
                 <SceneBreadcrumbBackButton />
             </div>
             <ErrorTrackingSetupPrompt>
-                <Settings logicKey={ERROR_TRACKING_LOGIC_KEY} sectionId="environment-error-tracking" handleLocally />
+                <Settings
+                    logicKey={ERROR_TRACKING_LOGIC_KEY}
+                    sectionId="environment-error-tracking-configuration"
+                    handleLocally
+                />
             </ErrorTrackingSetupPrompt>
         </>
     )

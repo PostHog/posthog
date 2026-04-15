@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -15,15 +15,14 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ExperimentProgressStatus, ExperimentStatsMethod } from '~/types'
+import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { StatusTag } from '../ExperimentView/components'
-import { StatsMethodModal } from '../ExperimentView/StatsMethodModal'
-import { modalsLogic } from '../modalsLogic'
 import { LegacyExperimentDates } from './LegacyExperimentDates'
+import { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
 
 export const ExperimentLastRefresh = ({
     isRefreshing,
@@ -79,14 +78,13 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
-        usesNewQueryRunner,
         isSingleVariantShipped,
         shippedVariantKey,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
-    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
-        useActions(modalsLogic)
-    const { isDescriptionModalOpen } = useValues(modalsLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal } =
+        useActions(legacyExperimentModalsLogic)
+    const { isDescriptionModalOpen } = useValues(legacyExperimentModalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
@@ -109,6 +107,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
+    const isPaused = isExperimentPaused(experiment)
 
     return (
         <SceneContent>
@@ -117,7 +116,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                     <div className="flex flex-col" data-attr="experiment-status">
                         <Label intent="menu">Status</Label>
                         <div className="flex gap-1">
-                            <StatusTag status={status} />
+                            <StatusTag status={status} isPaused={isPaused} />
                             {isSingleVariantShipped && (
                                 <Tooltip title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}>
                                     <LemonTag type="completion" className="cursor-default">
@@ -131,10 +130,10 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                         <div className="flex flex-col">
                             <Label intent="menu">Feature flag</Label>
                             <div className="flex gap-1 items-center">
-                                {status === ExperimentProgressStatus.Running && !experiment.feature_flag.active && (
+                                {isPaused && (
                                     <Tooltip
                                         placement="bottom"
-                                        title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                        title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
                                         <IconWarning
                                             style={{ transform: 'translateY(2px)' }}
@@ -168,27 +167,13 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                         <Label intent="menu">Stats Engine</Label>
                         <div className="inline-flex deprecated-space-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
-                            {usesNewQueryRunner && (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() => {
-                                            openStatsEngineModal()
-                                        }}
-                                        icon={<IconGear />}
-                                        tooltip="Change stats engine"
-                                    />
-                                    <StatsMethodModal />
-                                </>
-                            )}
                         </div>
                     </div>
                 </div>
 
                 <div className="flex flex-col">
                     <div className="inline-flex deprecated-space-x-8">
-                        {experiment.start_date && (
+                        {status !== ExperimentStatus.Draft && (
                             <ExperimentLastRefresh
                                 isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                 lastRefresh={lastRefresh}

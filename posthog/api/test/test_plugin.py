@@ -31,7 +31,7 @@ def mocked_plugin_reload(*args, **kwargs):
 
 
 @mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
-@mock.patch("posthog.api.plugin.external_requests.get", side_effect=mocked_plugin_requests_get)
+@mock.patch("posthog.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
@@ -59,6 +59,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         activity_response = self._get_plugin_activity()
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
         self.maxDiff = None
         self.assertEqual(activity, expected)
 

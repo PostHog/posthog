@@ -35,6 +35,7 @@ jobs:
     build-and-test:
         name: Build & Test
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.oauth-proxy == 'true'
         steps:
@@ -48,13 +49,13 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Setup Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
 
             - name: Type check
               run: cd services/oauth-proxy && pnpm typecheck
@@ -66,6 +67,7 @@ jobs:
         needs: [changes, build-and-test]
         name: OAuth Proxy Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all oauth-proxy jobs

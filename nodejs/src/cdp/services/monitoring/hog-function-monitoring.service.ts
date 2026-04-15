@@ -2,8 +2,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { APP_METRICS_OUTPUT, AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { KafkaProducerWrapper } from '~/kafka/producer'
 
-import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { TimestampFormat } from '../../../types'
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -18,6 +21,7 @@ import {
     LogEntrySerialized,
     MetricLogSource,
     MinimalAppMetric,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { fixLogDeduplication } from '../../utils'
 
@@ -43,11 +47,12 @@ const hogFunctionMonitoringPendingEvents = new Gauge({
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
 })
 
+export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
+
 export type HogFunctionMonitoringMessage = {
-    topic: string
+    output: MonitoringOutput
     value: LogEntrySerialized | AppMetricType
     headers?: Record<string, string>
-    key: string
 }
 
 // Check if the result is of type CyclotronJobInvocationHogFunction
@@ -60,14 +65,19 @@ export const isHogFunctionResult = (
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
     eventsToCapture: InternalCaptureEvent[] = []
+    warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
+
+    private warehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(
-        private kafkaProducer: KafkaProducerWrapper,
+        private outputs: IngestionOutputs<MonitoringOutput>,
         private internalCaptureService: InternalCaptureService,
-        private teamManager: TeamManager,
-        private appMetricsTopic: string,
-        private logEntriesTopic: string
+        private teamManager: TeamManager
     ) {}
+
+    setWarehouseKafkaProducer(producer: KafkaProducerWrapper): void {
+        this.warehouseKafkaProducer = producer
+    }
 
     async flush() {
         const messages = [...this.messagesToProduce]
@@ -78,13 +88,15 @@ export class HogFunctionMonitoringService {
         this.eventsToCapture = []
         hogFunctionMonitoringPendingEvents.set(0)
 
+        const warehouseWebhookPayloads = [...this.warehouseWebhookPayloads]
+        this.warehouseWebhookPayloads = []
+
         await Promise.all([
             ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
-                return this.kafkaProducer
-                    .produce({
-                        topic: x.topic,
-                        key: x.key ? Buffer.from(x.key) : null,
+                return this.outputs
+                    .produce(x.output, {
+                        key: null,
                         value,
                         headers: x.headers,
                     })
@@ -94,8 +106,7 @@ export class HogFunctionMonitoringService {
                         logger.error('⚠️', `failed to produce message: ${error}`, {
                             error: String(error),
                             messageLength: value?.length,
-                            topic: x.topic,
-                            key: x.key,
+                            output: x.output,
                             headers: x.headers,
                         })
 
@@ -108,6 +119,24 @@ export class HogFunctionMonitoringService {
                     captureException(error)
                 })
             ),
+            ...(this.warehouseKafkaProducer
+                ? warehouseWebhookPayloads.map((payload) =>
+                      this.warehouseKafkaProducer!.produce({
+                          topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+                          key: Buffer.from(`${payload.team_id}:${payload.schema_id}`),
+                          value: Buffer.from(
+                              JSON.stringify({
+                                  schema_id: payload.schema_id,
+                                  team_id: payload.team_id,
+                                  payload: JSON.stringify(payload.payload),
+                              })
+                          ),
+                      }).catch((error) => {
+                          logger.error('Error producing warehouse webhook payload', { error })
+                          captureException(error)
+                      })
+                  )
+                : []),
         ])
     }
 
@@ -121,9 +150,8 @@ export class HogFunctionMonitoringService {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
-            topic: this.appMetricsTopic,
+            output: APP_METRICS_OUTPUT,
             value: appMetric,
-            key: appMetric.app_source_id,
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
@@ -142,9 +170,8 @@ export class HogFunctionMonitoringService {
 
         logs.forEach((logEntry) => {
             this.messagesToProduce.push({
-                topic: this.logEntriesTopic,
+                output: LOG_ENTRIES_OUTPUT,
                 value: logEntry,
-                key: logEntry.instance_id,
             })
         })
         hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
@@ -185,13 +212,18 @@ export class HogFunctionMonitoringService {
                         this.queueAppMetric(
                             {
                                 team_id: result.invocation.teamId,
-                                app_source_id: result.invocation.functionId,
+                                app_source_id: result.invocation.parentRunId ?? result.invocation.functionId,
                                 metric_kind: result.error ? 'failure' : 'success',
                                 metric_name: result.error ? 'failed' : 'succeeded',
                                 count: 1,
                             },
                             source
                         )
+                    }
+
+                    // Warehouse webhook payloads
+                    for (const payload of result.warehouseWebhookPayloads ?? []) {
+                        this.warehouseWebhookPayloads.push(payload)
                     }
 
                     // PostHog capture events

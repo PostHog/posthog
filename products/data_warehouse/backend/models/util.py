@@ -1,13 +1,14 @@
 import re
 import socket
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
 from django.db.models import Q
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
@@ -16,11 +17,18 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StructDatabaseField,
     UnknownDatabaseField,
 )
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+
+
+class DatabaseFieldFactory(Protocol):
+    __name__: str
+
+    def __call__(self, *args: Any, **kwargs: Any) -> DatabaseField: ...
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
@@ -107,6 +115,12 @@ def remove_named_tuples(type):
                     i += 1
                 if i < len(tokenified_type):
                     filtered_tokens.append(tokenified_type[i])
+        elif token == "`":
+            # Skip backtick-quoted identifiers (field names like `1`, `deal_id`)
+            i += 1
+            while i < len(tokenified_type) and tokenified_type[i] != "`":
+                i += 1
+            # Skip closing backtick
         elif (
             token == "Nullable" or (len(token) == 1 and not token.isalnum()) or token in CLICKHOUSE_HOGQL_MAPPING.keys()
         ):
@@ -130,7 +144,7 @@ def clean_type(column_type: str) -> str:
     return column_type
 
 
-CLICKHOUSE_HOGQL_MAPPING = {
+CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
@@ -160,7 +174,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Enum8": StringDatabaseField,
 }
 
-STR_TO_HOGQL_MAPPING = {
+STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
     "DateTimeDatabaseField": DateTimeDatabaseField,
@@ -170,14 +184,204 @@ STR_TO_HOGQL_MAPPING = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,
     "date": DateDatabaseField,
     "datetime": DateTimeDatabaseField,
+    "timestamp": DateTimeDatabaseField,
     "integer": IntegerDatabaseField,
+    "numeric": DecimalDatabaseField,
+    "decimal": DecimalDatabaseField,
     "float": FloatDatabaseField,
     "string": StringDatabaseField,
+    "text": StringDatabaseField,
+    "array": StringArrayDatabaseField,
+    "json": StringJSONDatabaseField,
+    "struct": StructDatabaseField,
+    "unknown": UnknownDatabaseField,
 }
+
+
+POSTGRES_TO_CLICKHOUSE_TYPE = {
+    "smallint": "Int16",
+    "integer": "Int32",
+    "bigint": "Int64",
+    "real": "Float32",
+    "double precision": "Float64",
+    "numeric": "Decimal",
+    "decimal": "Decimal",
+    "boolean": "Bool",
+    "date": "Date",
+    "timestamp without time zone": "DateTime64",
+    "timestamp with time zone": "DateTime64",
+    "character varying": "String",
+    "character": "String",
+    "text": "String",
+    "json": "String",
+    "jsonb": "String",
+    "uuid": "String",
+}
+
+
+CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
+    "Int16": "integer",
+    "Int32": "integer",
+    "Int64": "integer",
+    "Float32": "float",
+    "Float64": "float",
+    "Bool": "boolean",
+    "Date": "date",
+    "DateTime64": "datetime",
+    "String": "string",
+    "Decimal": "numeric",
+}
+
+
+def _split_top_level_items(value: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    depth = 0
+    quote: str | None = None
+    i = 0
+
+    while i < len(value):
+        char = value[i]
+
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                next_char = value[i + 1] if i + 1 < len(value) else None
+                if next_char == quote:
+                    current.append(next_char)
+                    i += 1
+                else:
+                    quote = None
+            i += 1
+            continue
+
+        if char in {"'", '"'}:
+            quote = char
+            current.append(char)
+        elif char == "(":
+            depth += 1
+            current.append(char)
+        elif char == ")":
+            depth = max(depth - 1, 0)
+            current.append(char)
+        elif char == "," and depth == 0:
+            item = "".join(current).strip()
+            if item:
+                items.append(item)
+            current = []
+        else:
+            current.append(char)
+
+        i += 1
+
+    final_item = "".join(current).strip()
+    if final_item:
+        items.append(final_item)
+
+    return items
+
+
+def _parse_struct_field(field: str) -> tuple[str, str] | None:
+    field = field.strip()
+    if not field:
+        return None
+
+    if field.startswith('"'):
+        identifier: list[str] = []
+        i = 1
+        while i < len(field):
+            char = field[i]
+            if char == '"':
+                if i + 1 < len(field) and field[i + 1] == '"':
+                    identifier.append('"')
+                    i += 2
+                    continue
+                break
+            identifier.append(char)
+            i += 1
+
+        if i >= len(field):
+            return None
+
+        field_name = "".join(identifier)
+        field_type = field[i + 1 :].strip()
+    else:
+        parts = field.split(None, 1)
+        if len(parts) != 2:
+            return None
+        field_name, field_type = parts
+
+    if not field_type:
+        return None
+
+    return field_name, field_type
+
+
+def _parse_postgres_struct_fields(postgres_type: str) -> dict[str, dict[str, Any]] | None:
+    match = re.match(r"(?is)^struct\s*\((.*)\)$", postgres_type.strip())
+    if match is None:
+        return None
+
+    fields: dict[str, dict[str, Any]] = {}
+    for field in _split_top_level_items(match.group(1)):
+        parsed_field = _parse_struct_field(field)
+        if parsed_field is None:
+            return None
+
+        field_name, field_type = parsed_field
+        fields[field_name] = postgres_column_to_dwh_column(field_name, field_type, False)
+
+    return fields
+
+
+def postgres_column_to_dwh_column(_column_name: str, postgres_type: str, nullable: bool) -> dict[str, Any]:
+    struct_fields = _parse_postgres_struct_fields(postgres_type)
+    if struct_fields is not None:
+        struct_clickhouse_type = f"Tuple({', '.join(str(field['clickhouse']) for field in struct_fields.values())})"
+        if nullable:
+            struct_clickhouse_type = f"Nullable({struct_clickhouse_type})"
+
+        return {
+            "clickhouse": struct_clickhouse_type,
+            "hogql": "StructDatabaseField",
+            "valid": True,
+            "fields": struct_fields,
+        }
+
+    normalized_type = postgres_type.lower()
+    clickhouse_type: str | None = POSTGRES_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+    if clickhouse_type is None:
+        if normalized_type.startswith("timestamp"):
+            clickhouse_type = "DateTime64"
+        elif normalized_type.startswith("numeric") or normalized_type.startswith("decimal"):
+            clickhouse_type = "Decimal"
+        elif "int" in normalized_type:
+            clickhouse_type = "Int64"
+        else:
+            clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
+        for column_name, postgres_type, nullable in columns
+    }
 
 
 def _is_safe_public_ip(host: str) -> bool:

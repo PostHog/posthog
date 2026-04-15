@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { DEBUG_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import { DebugMcpUiAppsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -8,7 +8,17 @@ const schema = DebugMcpUiAppsSchema
 
 type Params = z.infer<typeof schema>
 
-export const debugMcpUiAppsHandler: ToolBase<typeof schema>['handler'] = async (_context: Context, params: Params) => {
+type Result = {
+    message: string
+    timestamp: string
+    sdkInfo: { name: string; description: string }
+    sampleData: { numbers: number[]; nested: { key: string; array: string[] } }
+}
+
+export const debugMcpUiAppsHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    _context: Context,
+    params: Params
+) => {
     return {
         message: params.message || 'Hello from debug-mcp-ui-apps!',
         timestamp: new Date().toISOString(),
@@ -26,15 +36,9 @@ export const debugMcpUiAppsHandler: ToolBase<typeof schema>['handler'] = async (
     }
 }
 
-const tool = (): ToolBase<typeof schema> => ({
-    name: 'debug-mcp-ui-apps',
-    schema,
-    handler: debugMcpUiAppsHandler,
-    _meta: {
-        ui: {
-            resourceUri: DEBUG_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('debug', {
+        name: 'debug-mcp-ui-apps',
+        schema,
+        handler: debugMcpUiAppsHandler,
+    })

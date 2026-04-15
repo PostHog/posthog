@@ -3,9 +3,9 @@ import typing
 import datetime as dt
 import operator
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import workflows_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
@@ -37,8 +37,6 @@ async def assert_clickhouse_records_were_handled(
     include_events: list[str] | None = None,
     is_backfill: bool = False,
 ):
-    json_columns = {"properties", "set", "set_once", "person_properties"}
-
     handled_records = [json.loads(request.body)["clickhouse_event"] for request in handler.data]
     hog_function_ids = {request.hog_function_id for request in handler.data}
 
@@ -105,11 +103,6 @@ async def assert_clickhouse_records_were_handled(
                 for k, v in record.items():
                     if k == "_inserted_at":
                         continue
-                    elif k in json_columns and v is not None:
-                        if v == "":
-                            expected_record[k] = None
-                        else:
-                            expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC).isoformat()
                     else:

@@ -80,6 +80,14 @@ def log_notebook_activity(
     )
 
 
+_NOTEBOOK_FIELD_HELP_TEXTS = {
+    "id": {"help_text": "UUID of the notebook."},
+    "short_id": {"help_text": "Short alphanumeric identifier used in URLs and API lookups."},
+    "title": {"help_text": "Title of the notebook."},
+    "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
+}
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -100,6 +108,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "_create_in_folder",
         ]
         read_only_fields = fields
+        extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
@@ -129,10 +138,27 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
         ]
+        extra_kwargs = {
+            **_NOTEBOOK_FIELD_HELP_TEXTS,
+            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "text_content": {"help_text": "Plain text representation of the notebook content for search."},
+            "version": {
+                "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
+            },
+        }
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        # short_id is read-only in the serializer but can be provided on create
+        short_id = request.data.get("short_id")
+        if short_id:
+            if not isinstance(short_id, str) or not short_id.isalnum() or len(short_id) > 12:
+                raise serializers.ValidationError(
+                    {"short_id": "short_id must be an alphanumeric string up to 12 characters."}
+                )
+            validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
         content = validated_data.get("content")
@@ -380,7 +406,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
-            elif key == "search":
+            elif key == "search" and value:
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content

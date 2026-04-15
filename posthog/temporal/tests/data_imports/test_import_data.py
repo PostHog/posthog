@@ -81,6 +81,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
         await activity_environment.run(import_data_activity_sync, activity_inputs)
 
@@ -100,6 +101,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            is_initial_sync=True,
         )
 
 
@@ -120,6 +122,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
         await activity_environment.run(import_data_activity_sync, activity_inputs)
 
@@ -139,6 +142,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            is_initial_sync=True,
         )
 
 
@@ -171,6 +175,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
     with (
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
         await activity_environment.run(import_data_activity_sync, activity_inputs)
 
@@ -190,6 +195,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            is_initial_sync=True,
         )
 
 
@@ -237,6 +243,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
         mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
+        mock.patch("posthog.temporal.data_imports.sources.common.mixins._is_host_safe", return_value=(True, None)),
     ):
         await activity_environment.run(import_data_activity_sync, activity_inputs)
 
@@ -256,6 +263,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            is_initial_sync=True,
         )
 
 

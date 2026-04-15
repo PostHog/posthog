@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,11 +12,11 @@ import { mswDecorator } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
-import { Onboarding as RevenueAnalyticsOnboarding } from './Onboarding'
+import { Onboarding as RevenueAnalyticsOnboarding, type OnboardingProps } from './Onboarding'
 
 const MOCK_TEAM_WITHOUT_VIEWSET = { ...MOCK_DEFAULT_TEAM, managed_viewsets: { revenue_analytics: false } }
 
-const meta: Meta = {
+const meta: Meta<OnboardingProps> = {
     component: RevenueAnalyticsOnboarding,
     title: 'Scenes-App/Revenue Analytics/Onboarding',
     parameters: {
@@ -60,18 +60,20 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<OnboardingProps>
 export const Onboarding: Story = { args: { completeOnboarding: () => {} } }
 export const OnboardingAddSource: Story = { args: { initialSetupView: 'add-source', completeOnboarding: () => {} } }
-export const OnboardingWithViewsetFeatureFlag: StoryFn = () => {
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+export const OnboardingWithViewsetFeatureFlag: Story = {
+    render: () => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useOnMountEffect(() => {
-        loadCurrentTeamSuccess(MOCK_TEAM_WITHOUT_VIEWSET)
-    })
+        useOnMountEffect(() => {
+            loadCurrentTeamSuccess(MOCK_TEAM_WITHOUT_VIEWSET)
+        })
 
-    return <RevenueAnalyticsOnboarding completeOnboarding={() => {}} />
-}
-OnboardingWithViewsetFeatureFlag.parameters = {
-    featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],
+        return <RevenueAnalyticsOnboarding completeOnboarding={() => {}} />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],
+    },
 }

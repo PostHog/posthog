@@ -10,7 +10,9 @@ from posthog.test.base import BaseTest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import FeatureFlag, Insight, Survey
+from posthog.models import FeatureFlag, Insight
+
+from products.surveys.backend.models import Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
 
@@ -326,6 +328,57 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.conditions["url"] == "/pricing"
         assert survey.conditions["urlMatchType"] == "icontains"
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_sanitizes_question_html(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Sanitized Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="link",
+                    question="<b>Click here</b><script>alert('xss')</script>",
+                    description="<i>Learn more</i><script>evil()</script>",
+                    button_text="<strong>Open</strong><script>bad()</script>",
+                    link="https://example.com",
+                )
+            ],
+        )
+
+        assert "successfully" in content
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.questions is not None
+
+        question = survey.questions[0]
+        assert "<b>Click here</b>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<i>Learn more</i>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Open</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_rejects_javascript_link(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Unsafe Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="link",
+                    question="Open this link",
+                    link="javascript:alert('xss')",
+                )
+            ],
+        )
+
+        assert "validation failed" in content.lower()
+        assert artifact["error"] == "validation_failed"
+        assert "schemes" in artifact["error_message"]
+        assert not await sync_to_async(Survey.objects.filter(name="Unsafe Survey").exists)()
+
 
 class TestSurveyAnalysisTool(BaseTest):
     def setUp(self):
@@ -569,6 +622,99 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_edit_survey_questions_preserves_ids_with_numeric_labels(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="First (edited)?"),
+                SimpleSurveyQuestion(id="2", type="open", question="Second (edited)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-first"
+        assert updated_survey.questions[1]["id"] == "uuid-second"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_reorder_preserves_ids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="2", type="open", question="Second (now first)?"),
+                SimpleSurveyQuestion(id="1", type="open", question="First (now second)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-second"
+        assert updated_survey.questions[1]["id"] == "uuid-first"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_new_question_gets_fresh_id(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "open", "question": "Existing?", "id": "uuid-existing"}]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="Existing (kept)?"),
+                SimpleSurveyQuestion(type="open", question="Brand new?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-existing"
+        assert updated_survey.questions[1]["id"] != "uuid-existing"
+        assert updated_survey.questions[1]["id"]  # non-empty fresh UUID
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_remove_question_keeps_remaining_ids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="First (kept)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert len(updated_survey.questions) == 1
+        assert updated_survey.questions[0]["id"] == "uuid-first"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_edit_survey_url_targeting(self):
         tool = self._setup_tool()
         survey = await self._create_test_survey()
@@ -707,6 +853,67 @@ class TestEditSurveyTool(BaseTest):
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
         assert updated_survey.end_date is not None
         assert updated_survey.archived is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_sanitizes_question_html(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="1",
+                    type="open",
+                    question="<b>Updated question</b><script>alert('xss')</script>",
+                    description="<i>Details</i><script>bad()</script>",
+                    button_text="<strong>Send</strong><script>evil()</script>",
+                )
+            ],
+        )
+
+        assert "updated successfully" in content
+        assert "questions" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        question = updated_survey.questions[0]
+        assert "<b>Updated question</b>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<i>Details</i>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Send</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_rejects_javascript_link(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "link", "question": "Safe question?", "link": "https://example.com", "id": "q1"}]
+        )
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="1",
+                    type="link",
+                    question="Unsafe question?",
+                    link="javascript:alert('xss')",
+                )
+            ],
+        )
+
+        assert "validation failed" in content.lower()
+        assert artifact["error"] == "validation_failed"
+        assert "schemes" in artifact["error_message"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["question"] == "Safe question?"
+        assert updated_survey.questions[0]["link"] == "https://example.com"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

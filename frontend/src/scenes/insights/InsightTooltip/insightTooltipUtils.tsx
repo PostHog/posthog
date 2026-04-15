@@ -20,12 +20,14 @@ export interface SeriesDatum {
     compare_label?: CompareLabelType
     action?: ActionFilter
     label?: string
+    date_label?: string
     order: number
     dotted?: boolean
     color?: string
     count: number
     filter?: FilterType
     hideTooltip?: boolean
+    anomalyScore?: number | null
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -52,6 +54,7 @@ export interface TooltipConfig {
     getInspectLabel?: (referenceDatum: SeriesDatum | undefined) => string
     groupTypeLabel?: string
     filter?: (s: SeriesDatum) => boolean
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
 }
 
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount' | 'getInspectLabel'> {
@@ -73,6 +76,11 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     dateRange?: DateRange | null
     /** Show hint about holding shift to highlight individual bars in stacked charts */
     showShiftKeyHint?: boolean
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
+    /** Callback to close/unpin the tooltip. When provided, a close button is rendered. */
+    onClose?: () => void
+    /** Callback when a series row is clicked (e.g. to open the actors modal from a pinned tooltip). */
+    onRowClick?: (datum: SeriesDatum) => void
 }
 
 export interface FormattedDateOptions {
@@ -81,9 +89,6 @@ export interface FormattedDateOptions {
     timezone?: string
     weekStartDay?: number // 0 for Sunday, 1 for Monday, etc.
 }
-
-export const COL_CUTOFF = 4
-export const ROW_CUTOFF = 8
 
 export function getTooltipTitle(
     seriesData: SeriesDatum[],
@@ -128,7 +133,7 @@ function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
 }
 
 export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
-    const defaultOptions = {
+    const defaultOptions: FormattedDateOptions = {
         interval: 'day',
         timezone: 'UTC',
         weekStartDay: 0, // Default to Sunday
@@ -171,7 +176,8 @@ function getPillValues(
     s: SeriesDatum,
     breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: any,
-    formatPropertyValueForDisplay: any
+    formatPropertyValueForDisplay: any,
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
 ): string[] {
     const pillValues = []
     if (s.breakdown_value !== undefined) {
@@ -180,16 +186,23 @@ function getPillValues(
         )
     }
     if (s.compare_label) {
-        pillValues.push(capitalizeFirstLetter(String(s.compare_label)))
+        const formattedLabel = formatCompareLabel
+            ? formatCompareLabel(String(s.compare_label), s.date_label)
+            : capitalizeFirstLetter(String(s.compare_label))
+        pillValues.push(formattedLabel)
     }
     return pillValues
 }
 
-function getDatumTitle(s: SeriesDatum, breakdownFilter: BreakdownFilter | null | undefined): React.ReactNode {
+export function getDatumTitle(
+    s: SeriesDatum,
+    breakdownFilter: BreakdownFilter | null | undefined,
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
+): React.ReactNode {
     // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
     const cohorts = cohortsModel.findMounted()?.values?.allCohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
-    const pillValues = getPillValues(s, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+    const pillValues = getPillValues(s, breakdownFilter, cohorts, formatPropertyValueForDisplay, formatCompareLabel)
     const showPathCleaningHighlight = breakdownFilter?.breakdown_path_cleaning
 
     if (pillValues.length > 0) {
@@ -220,7 +233,8 @@ function getDatumTitle(s: SeriesDatum, breakdownFilter: BreakdownFilter | null |
 
 export function invertDataSource(
     seriesData: SeriesDatum[],
-    breakdownFilter: BreakdownFilter | null | undefined
+    breakdownFilter: BreakdownFilter | null | undefined,
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
 ): InvertedSeriesDatum[] {
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
 
@@ -234,7 +248,7 @@ export function invertDataSource(
                 id: datumKey,
                 datasetIndex: s.datasetIndex,
                 color: s.color,
-                datumTitle: getDatumTitle(s, breakdownFilter),
+                datumTitle: getDatumTitle(s, breakdownFilter, formatCompareLabel),
                 seriesData: [s],
             }
         }

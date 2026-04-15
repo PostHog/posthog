@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    error::UnhandledError,
+    error::{FrameError, UnhandledError},
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
         apple::{AppleDebugImage, RawAppleFrame},
@@ -17,11 +17,12 @@ use crate::{
         java::RawJavaFrame,
         js::RawJSFrame,
         node::RawNodeFrame,
+        php::RawPHPFrame,
         python::RawPythonFrame,
         ruby::RawRubyFrame,
     },
-    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
-    sanitize_string,
+    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
+    sanitize_source_line,
     symbol_store::Catalog,
 };
 
@@ -43,6 +44,8 @@ pub enum RawFrame {
     JavaScriptNode(RawNodeFrame),
     #[serde(rename = "go")]
     Go(RawGoFrame),
+    #[serde(rename = "php")]
+    Php(RawPHPFrame),
     #[serde(rename = "hermes")]
     Hermes(RawHermesFrame),
     #[serde(rename = "java")]
@@ -80,10 +83,10 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => (
-                to_vec(frame.resolve(team_id, catalog, debug_images).await),
-                "apple",
-            ),
+            RawFrame::Apple(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "apple")
+            }
+            RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
@@ -92,7 +95,7 @@ impl RawFrame {
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
-        // The raw id of the frame is set after it's resolved
+        // The raw id of the frame is set after it's resolved.
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
@@ -108,6 +111,29 @@ impl RawFrame {
         .label("lang", lang_tag)
         .fin();
 
+        if let Ok(frames) = &res {
+            for frame in frames {
+                if frame.resolved {
+                    metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
+                } else if let Some(err) = &frame.resolve_failure {
+                    let reason = err.metric_reason();
+                    match reason {
+                        "network_error" | "invalid_data" | "symbol_not_found" => {
+                            tracing::warn!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
+                        }
+                        _ => {
+                            tracing::debug!(lang = lang_tag, reason = reason, error = %err, "frame resolution failed");
+                        }
+                    }
+                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => reason)
+                        .increment(1);
+                } else {
+                    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang_tag, "reason" => "unknown")
+                        .increment(1);
+                }
+            }
+        }
+
         res
     }
 
@@ -119,6 +145,7 @@ impl RawFrame {
             RawFrame::Java(frame) => frame.symbol_set_ref(),
             // Frames with no symbol sets
             RawFrame::Python(_)
+            | RawFrame::Php(_)
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
@@ -131,6 +158,7 @@ impl RawFrame {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
+            RawFrame::Php(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
@@ -176,8 +204,13 @@ pub struct Frame {
     pub resolved_name: Option<String>, // The name of the function, after symbolification
     pub lang: String, // The language of the frame. Always known (I guess?)
     pub resolved: bool, // Did we manage to resolve the frame?
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+    #[serde(
+        serialize_with = "frame_error_serde::serialize",
+        skip_deserializing,
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub resolve_failure: Option<FrameError>, // If we failed to resolve the frame, why?
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
@@ -285,10 +318,11 @@ impl ContextLine {
         if line.len() > constrained.len() {
             constrained.push_str("...✂️");
         }
-
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 
@@ -306,9 +340,11 @@ impl ContextLine {
             baseline.saturating_sub((-offset) as u32)
         };
 
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 }
@@ -344,7 +380,11 @@ impl std::fmt::Display for Frame {
         writeln!(
             f,
             "  resolve_failure: {}",
-            self.resolve_failure.as_deref().unwrap_or("no failure")
+            self.resolve_failure
+                .as_ref()
+                .map(|e| e.to_string())
+                .as_deref()
+                .unwrap_or("no failure")
         )?;
 
         // Context
@@ -393,6 +433,25 @@ impl From<Frame> for FrameData {
             column: frame.column,
             lang: frame.lang,
             code_variables: frame.code_variables,
+        }
+    }
+}
+
+mod frame_error_serde {
+    use super::FrameError;
+    use serde::Serializer;
+
+    pub fn serialize<S>(value: &Option<FrameError>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // skip_serializing_if = "Option::is_none" guarantees value is Some here,
+        // but we match exhaustively to satisfy the type checker.
+        match value {
+            Some(err) => serializer.serialize_str(&err.to_string()),
+            None => {
+                unreachable!("skip_serializing_if = Option::is_none prevents None reaching here")
+            }
         }
     }
 }

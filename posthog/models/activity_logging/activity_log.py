@@ -66,6 +66,7 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -77,6 +78,7 @@ ActivityScope = Literal[
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
+    "LogsAlertConfiguration",
     "ProductTour",
     "Ticket",
 ]
@@ -286,6 +288,13 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_error_at",
     ],
     "Dashboard": ["last_accessed_at"],
+    "LogsAlertConfiguration": [
+        "next_check_at",
+        "last_notified_at",
+        "last_checked_at",
+        "consecutive_failures",
+        "state",
+    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -357,6 +366,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "featureflagoverride",
         "usage_dashboard",
         "analytics_dashboards",
+        "flag_evaluation_contexts",
     ],
     "Experiment": [
         "feature_flag",
@@ -368,6 +378,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "ExperimentSavedMetric": [
         "experiments",
         "experimenttosavedmetric_set",
+    ],
+    "ProjectSecretAPIKey": [
+        "secure_value",
     ],
     "Person": [
         "distinct_ids",
@@ -570,8 +583,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
 
 def describe_change(m: Any) -> Union[str, dict]:
     # Use lazy imports to avoid circular dependencies
-    from posthog.models.dashboard import Dashboard
-    from posthog.models.dashboard_tile import DashboardTile
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}

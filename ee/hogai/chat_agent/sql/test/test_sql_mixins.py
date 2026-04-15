@@ -156,9 +156,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         """Test that 'no viable alternative' errors get helpful messages."""
         mixin = self._node
 
-        # Create a query that will trigger the "no viable alternative" ANTLR error
+        # Create a query that will still trigger the generic "no viable alternative" ANTLR error.
         invalid_syntax_output = SQLSchemaGeneratorOutput(
-            query=AssistantHogQLQuery(query="SELECT FROM events"),
+            query=AssistantHogQLQuery(query="SELECT 1 IS TRUE AS value"),
             name="",
             description="",  # Missing column
         )
@@ -167,7 +167,7 @@ class TestSQLMixins(NonAtomicBaseTest):
             await mixin._quality_check_output(invalid_syntax_output)
 
         # Should replace unhelpful ANTLR error with better message
-        self.assertEqual(context.exception.llm_output, "SELECT FROM events")
+        self.assertEqual(context.exception.llm_output, "SELECT 1 IS TRUE AS value")
         self.assertIn("query isn't valid HogQL", context.exception.validation_message)
 
     async def test_quality_check_output_nonexistent_table_raises_exception(self):
@@ -198,3 +198,28 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         # Should not raise any exception for valid complex SQL
         await mixin._quality_check_output(complex_output)
+
+    async def test_quality_check_output_success_with_filters_date_range(self):
+        mixin = self._node
+
+        valid_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT event FROM events WHERE timestamp >= {filters.dateRange.from}"),
+            name="",
+            description="",
+        )
+
+        await mixin._quality_check_output(valid_output)
+
+    async def test_quality_check_output_with_unsupported_filter_placeholder(self):
+        mixin = self._node
+
+        invalid_output = SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(
+                query="SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}"
+            ),
+            name="",
+            description="",
+        )
+
+        with self.assertRaises(PydanticOutputParserException):
+            await mixin._quality_check_output(invalid_output)

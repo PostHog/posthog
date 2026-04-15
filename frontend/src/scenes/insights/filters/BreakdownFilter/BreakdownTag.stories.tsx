@@ -1,15 +1,18 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { BreakdownTag as BreakdownTagComponent } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import {
+    BreakdownTag as BreakdownTagComponent,
+    BreakdownTagProps,
+} from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
-const meta: Meta<typeof BreakdownTagComponent> = {
+const meta: Meta<BreakdownTagProps> = {
     title: 'Filters/Breakdown Tag',
     component: BreakdownTagComponent,
     tags: ['autodocs'],
 }
 
 export default meta
-type Story = StoryObj<typeof BreakdownTagComponent>
+type Story = StoryObj<BreakdownTagProps>
 
 export const BreakdownTag: Story = {
     render: () => (

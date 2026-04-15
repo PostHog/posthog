@@ -1,8 +1,11 @@
 import re
+from time import perf_counter
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 
+import orjson
+import structlog
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -29,6 +32,7 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
@@ -37,6 +41,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -56,6 +61,8 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
+
+logger = structlog.get_logger(__name__)
 
 
 def _process_query_request(
@@ -90,7 +97,7 @@ def _process_query_request(
     return query, query_id, execution_mode
 
 
-class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
@@ -133,13 +140,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        self._validate_query_kind(request, kwargs.get("query_kind"))
+        start_time = perf_counter()
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
+
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
+
             self._tag_client_query_id(client_query_id)
+            analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
@@ -162,15 +174,43 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
                 limit_context=limit_context,
-                request=request,
+                analytics_props=analytics_props,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
+
+            total_time_ms = round((perf_counter() - start_time) * 1000, 2)
+            try:
+                response_bytes = len(orjson.dumps(result))
+                report_user_or_team_action(
+                    "query api response",
+                    {
+                        "query_type": getattr(query, "kind", "Other"),
+                        "is_cached": result.get("is_cached", False),
+                        "execution_mode": execution_mode.value,
+                        "total_time_ms": total_time_ms,
+                        "response_bytes": response_bytes,
+                        "client_query_id": client_query_id,
+                    },
+                    user=request.user if isinstance(request.user, User) else None,
+                    team=self.team,
+                    organization=self.team.organization,
+                    analytics_props=analytics_props,
+                )
+            except Exception:
+                pass
+
             response_status = (
                 status.HTTP_202_ACCEPTED
                 if result.get("query_status") and result["query_status"].get("complete") is False
                 else status.HTTP_200_OK
             )
+
+            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
+                formatted = self._try_format_for_llm(query, result)
+                if formatted is not None:
+                    result["formatted_results"] = formatted
+
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -302,6 +342,36 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    @action(methods=["POST"], detail=False, url_path=r"(?P<query_kind>[A-Z][A-Za-z]*)")
+    def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
+        return self.create(request, *args, **kwargs)
+
+    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
+        if not query_kind:
+            return
+        if not isinstance(request.data, dict):
+            raise ValidationError("Query body must be a JSON object.")
+        query_payload = request.data.get("query")
+        if query_payload is not None and not isinstance(query_payload, dict):
+            raise ValidationError("Query must be a JSON object.")
+        body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
+        if query_kind != body_kind:
+            raise ValidationError(
+                f'Query kind mismatch: path kind "{query_kind}" does not match body kind "{body_kind}".'
+            )
+
+    def _try_format_for_llm(self, query: BaseModel, result: dict) -> str | None:
+        """Try to format query results as LLM-friendly text. Returns None on failure."""
+        if not settings.EE_AVAILABLE:
+            return None
+        try:
+            from ee.hogai.context.insight.format import format_query_results_for_llm
+
+            return format_query_results_for_llm(query, result, self.team)
+        except Exception:
+            logger.warning("mcp_llm_format_failed", exc_info=True)
+            return None
 
 
 MAX_QUERY_TIMEOUT = 600

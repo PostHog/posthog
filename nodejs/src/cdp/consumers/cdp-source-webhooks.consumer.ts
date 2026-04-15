@@ -47,6 +47,7 @@ export type HogFunctionWebhookResult = {
     status: number
     body: Record<string, any> | string
     contentType?: string
+    isBase64Encoded?: boolean
 }
 
 export const getCustomHttpResponse = (
@@ -57,6 +58,14 @@ export const getCustomHttpResponse = (
         return {
             status: 'status' in httpResponse && typeof httpResponse.status === 'number' ? httpResponse.status : 500,
             body: 'body' in httpResponse ? httpResponse.body : '',
+            contentType:
+                'contentType' in httpResponse && typeof httpResponse.contentType === 'string'
+                    ? httpResponse.contentType
+                    : undefined,
+            isBase64Encoded:
+                'isBase64Encoded' in httpResponse && typeof httpResponse.isBase64Encoded === 'boolean'
+                    ? httpResponse.isBase64Encoded
+                    : undefined,
         }
     }
 
@@ -81,7 +90,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
-        this.cyclotronJobQueue = new CyclotronJobQueue(config)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -111,8 +120,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             hogFlow.status === 'active' &&
             (hogFlow.trigger?.type === 'webhook' ||
                 hogFlow.trigger?.type === 'tracking_pixel' ||
-                hogFlow.trigger?.type === 'manual' ||
-                hogFlow.trigger?.type === 'schedule')
+                hogFlow.trigger?.type === 'manual')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
@@ -272,17 +280,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     hogFlow,
                     {} as HogFunctionFilterGlobals
                 )
-
-                const scheduledAt = hogFlow.trigger && 'scheduled_at' in hogFlow.trigger && hogFlow.trigger.scheduled_at
-                if (scheduledAt) {
-                    const scheduledDateTime = DateTime.fromISO(scheduledAt)
-                    if (!scheduledDateTime.isValid) {
-                        addLog('warn', `Invalid scheduled_at date format: ${scheduledAt}`)
-                    } else {
-                        hogFlowInvocation.queueScheduledAt = scheduledDateTime
-                        addLog('info', `Workflow run scheduled for ${scheduledAt}`)
-                    }
-                }
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 

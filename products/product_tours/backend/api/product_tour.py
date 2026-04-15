@@ -26,7 +26,6 @@ from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -35,6 +34,7 @@ from posthog.utils_cors import cors_response
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +296,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         )
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             ProductTourEventName.CREATED,
             {**instance.get_analytics_metadata(), "creation_context": creation_context},
             team=team,
@@ -739,6 +739,17 @@ class GenerateResponseSerializer(serializers.Serializer):
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
+    scope_object_read_actions = ["list", "retrieve", "draft_status"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "draft",
+        "publish_draft",
+        "discard_draft",
+        "generate",
+    ]
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
@@ -790,7 +801,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         )
 
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             ProductTourEventName.DELETED,
             analytics_metadata,
             team=self.team,
@@ -840,7 +851,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             )
 
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 ProductTourEventName.AI_CONTENT_GENERATED,
                 tour.get_analytics_metadata(),
                 team=self.team,

@@ -7,20 +7,69 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PauseStateResponseApi {
+    /**
+     * The timestamp the pipeline is paused until, or null if not paused/not running.
+     * @nullable
+     */
+    paused_until: string | null
+}
+
+export interface PaginatedPauseStateResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PauseStateResponseApi[]
+}
+
+export interface PauseUntilRequestApi {
+    /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+    timestamp: string
+}
+
+export interface PauseResponseApi {
+    /** Always 'paused'. */
+    status: string
+    /** The timestamp the pipeline is paused until. */
+    paused_until: string
+}
+
+export interface UnpauseResponseApi {
+    /** Always 'unpaused'. */
+    status: string
+    /** Whether the workflow was actually paused at the time of the call. */
+    was_paused: boolean
+}
+
 /**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
+ * `github` - GitHub
+ * `linear` - Linear
+ * `zendesk` - Zendesk
+ * `error_tracking` - Error tracking
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
 export const SourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Zendesk: 'zendesk',
+    ErrorTracking: 'error_tracking',
 } as const
 
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * `evaluation` - Evaluation
+ * `issue` - Issue
+ * `ticket` - Ticket
+ * `issue_created` - Issue created
+ * `issue_reopened` - Issue reopened
+ * `issue_spiking` - Issue spiking
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -28,6 +77,11 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -49,6 +103,17 @@ export interface PaginatedSignalSourceConfigListApi {
     /** @nullable */
     previous?: string | null
     results: SignalSourceConfigApi[]
+}
+
+export type SignalProcessingListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type SignalSourceConfigsListParams = {

@@ -6,7 +6,6 @@ This module provides unified batch operations for managing team-indexed HyperCac
 that specifies how to perform batch operations.
 
 Operations include:
-- Invalidating all caches for a namespace
 - Warming all caches with configurable batching and TTL staggering
 - Gathering cache statistics and coverage metrics
 """
@@ -59,12 +58,6 @@ HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
     "posthog_hypercache_signal_updates",
     "Cache updates triggered by Django signals",
     labelnames=["namespace", "operation", "result"],
-)
-
-HYPERCACHE_INVALIDATION_COUNTER = Counter(
-    "posthog_hypercache_invalidations",
-    "Full cache invalidations (schema changes)",
-    labelnames=["namespace"],
 )
 
 
@@ -247,46 +240,16 @@ class HyperCacheManagementConfig:
         """Name of management command for detailed analysis."""
         return f"analyze_{self.cache_name}_cache_sizes"
 
-
-def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
-    """
-    Invalidate all caches for a specific HyperCache namespace.
-
-    Scans Redis for all keys matching the cache pattern, deletes them,
-    and clears the expiry tracking sorted set.
-
-    Args:
-        config: Cache configuration specifying which cache to invalidate
-
-    Returns:
-        Number of cache keys deleted
-    """
-    try:
-        redis_client = get_client(config.hypercache.redis_url)
-
-        deleted = 0
-        for key in redis_client.scan_iter(match=config.redis_pattern, count=1000):
-            redis_client.delete(key)
-            deleted += 1
-
-        # Clear the expiry tracking sorted set
-        if config.hypercache.expiry_sorted_set_key:
-            redis_client.delete(config.hypercache.expiry_sorted_set_key)
-
-        HYPERCACHE_INVALIDATION_COUNTER.labels(namespace=config.namespace).inc()
-
-        logger.info(f"Invalidated all {config.log_prefix}", deleted_keys=deleted)
-        return deleted
-    except Exception as e:
-        logger.exception(f"Failed to invalidate {config.log_prefix}", error=str(e))
-        capture_exception(e)
-        return 0
+    def get_teams_queryset(self) -> "QuerySet":
+        """Return the base queryset of teams to process, falling back to all teams."""
+        if self.get_teams_queryset_fn is not None:
+            return self.get_teams_queryset_fn()
+        return Team.objects.all()
 
 
 def warm_caches(
     config: HyperCacheManagementConfig,
     batch_size: int = 1000,
-    invalidate_first: bool = False,
     stagger_ttl: bool = True,
     min_ttl_days: int = 5,
     max_ttl_days: int = 7,
@@ -297,8 +260,8 @@ def warm_caches(
     """
     Warm cache for teams (all or specific subset).
 
-    Run as a management command for initial cache build or when schema changes require
-    cache invalidation. Processes teams in batches with staggered TTLs to avoid
+    Run as a management command for initial cache build. Processes teams in batches
+    with staggered TTLs to avoid
     synchronized expiration. Continues on errors.
 
     Uses persistent database connection to avoid connection overhead across batches.
@@ -308,11 +271,11 @@ def warm_caches(
     Args:
         config: Cache configuration specifying which cache to warm
         batch_size: Number of teams to process at a time
-        invalidate_first: If True, clear all caches before warming (ignored when team_ids provided)
         stagger_ttl: If True, randomize TTLs between min/max to avoid synchronized expiration
         min_ttl_days: Minimum TTL in days (when staggering)
         max_ttl_days: Maximum TTL in days (when staggering)
-        team_ids: Optional list of team IDs to warm (if None, warms all teams)
+        team_ids: Optional list of team IDs to warm. Bypasses config scoping when provided.
+            If None, warms teams from config.get_teams_queryset().
         progress_callback: Optional callback for progress reporting.
             Called with (processed, total, successful, failed) after each batch.
         batch_start_callback: Optional callback called before each batch starts.
@@ -330,21 +293,10 @@ def warm_caches(
         connection.ensure_connection()
 
     try:
-        # Skip invalidation when warming specific teams (doesn't make sense for subset)
-        if invalidate_first:
-            if team_ids:
-                logger.warning("Skipping invalidation when warming specific teams")
-            else:
-                logger.info(f"Invalidating all existing {config.log_prefix} before warming")
-                invalidated = invalidate_all_caches(config)
-                logger.info("Invalidated caches", count=invalidated)
-
-        # Warm all teams (not just scoped ones) so every team has a cache entry.
-        # This prevents cache misses at read time for teams without flags, which
-        # would otherwise fall through to a database lookup on every request.
-        teams_queryset = Team.objects.select_related("organization", "project")
         if team_ids:
-            teams_queryset = teams_queryset.filter(id__in=team_ids)
+            teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+        else:
+            teams_queryset = config.get_teams_queryset().select_related("organization", "project")
 
         total_teams = teams_queryset.count()
 
@@ -353,7 +305,6 @@ def warm_caches(
             total_teams=total_teams,
             batch_size=batch_size,
             stagger_ttl=stagger_ttl,
-            invalidate_first=invalidate_first and not team_ids,
             specific_teams=team_ids is not None,
         )
 

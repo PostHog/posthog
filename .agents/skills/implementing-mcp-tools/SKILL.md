@@ -11,10 +11,9 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 
 ```sh
 # 1. Scaffold a starter YAML with all operations disabled.
-#    --product is a substring match on URL paths: it selects every endpoint
-#    whose path contains /<name>/ (hyphens normalized to underscores).
-#    The value can be a product name or any path-segment needle
-#    (e.g. --product actions matches /api/projects/{project_id}/actions/).
+#    --product discovers endpoints via x-explicit-tags (priority 1) then
+#    URL substring match (fallback). ViewSets in products/<name>/backend/
+#    are auto-tagged. ViewSets elsewhere need @extend_schema(tags=["<product>"]).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
@@ -27,6 +26,30 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 4. Generate handlers and schemas
 hogli build:openapi
 ```
+
+## Before you scaffold: fix the backend first
+
+The codegen pipeline can only generate correct tools if the Django backend exposes correct types.
+Read the [type system guide](../../../docs/published/handbook/engineering/type-system.md) for the full picture.
+
+Before scaffolding YAML, verify:
+
+1. **Serializers have explicit field types and `help_text`** —
+   these flow all the way to Zod `.describe()` in the generated tool.
+   Missing descriptions = agents guessing at parameters.
+   Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
+   and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
+   (see `posthog/api/alert.py` for the pattern).
+2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
+   without it, drf-spectacular can't discover the request body
+   and the generated tool gets `z.object({})` (zero parameters).
+   `ModelViewSet` with a `serializer_class` is fine; plain `ViewSet` with manual validation is not.
+3. **Query parameters use `@validated_request`** or `@extend_schema` with a query serializer —
+   otherwise boolean and array query params may produce type mismatches in the generated code.
+
+If a generated tool has an empty or wrong schema, the fix is almost always on the Django side,
+not in the YAML config.
+For a full audit checklist and before/after examples, use the `improving-drf-endpoints` skill.
 
 ## When to add MCP tools
 
@@ -44,13 +67,49 @@ Agents compose these primitives into higher-level workflows.
 Good: "List feature flags", "Get experiment by ID", "Create a survey".
 Bad: "Search for session recordings of an experiment" — bundles multiple concerns.
 
+## Tool naming constraints
+
+Tool names and feature identifiers are validated at build time and in CI.
+Violations fail the build.
+
+### Tool names
+
+- **Format**: lowercase kebab-case — only `[a-z0-9-]`, no leading/trailing hyphens
+- **Length**: 52 characters or fewer
+- **Convention**: `domain-action`, e.g. `cohorts-create`, `dashboard-get`, `feature-flags-list`
+
+### Feature identifiers
+
+- **Format**: lowercase snake*case — only `[a-z0-9*]`, must start with a letter
+- **Convention**: should match the product folder name, e.g. `error_tracking`, `feature_flags`
+
+### Why 52 characters?
+
+MCP clients enforce different limits on tool names. The 52-char limit is the safe zone
+that works across all known clients:
+
+| Client           | Limit                          | Notes                                                            |
+| ---------------- | ------------------------------ | ---------------------------------------------------------------- |
+| MCP spec (draft) | 1–128 chars, `[A-Za-z0-9_\-.]` | Official recommendation, not enforced                            |
+| Claude Code      | 64 chars                       | Hard limit; prefixes tool names with `mcp____`                   |
+| Cursor           | 60 chars combined              | `server_name + tool_name`; tools over this are silently filtered |
+| OpenAI API       | `^[a-zA-Z0-9_-]+$`, 64 chars   | No dots allowed                                                  |
+
+With the server name "posthog" (7 chars) plus a separator, tool names must stay at
+or below 52 characters to fit within Cursor's 60-char combined limit.
+
+### CI enforcement
+
+- `pnpm --filter=@posthog/mcp lint-tool-names` — validates length and pattern for YAML and JSON definitions
+- A vitest test validates all runtime `TOOL_MAP` and `GENERATED_TOOL_MAP` entries
+
 ## YAML definitions
 
 YAML files configure which operations are exposed as MCP tools.
 See existing definitions for patterns:
 
 - `products/<product>/mcp/*.yaml` — preferred, keeps config close to the code
-- `services/mcp/definitions/*.yaml` — shared location
+- `services/mcp/definitions/*.yaml` — fallback for functionality without a product folder
 
 The build pipeline discovers YAML files from both paths.
 
@@ -58,8 +117,8 @@ The build pipeline discovers YAML files from both paths.
 
 ```yaml
 category: Human readable name
-feature: snake_case_name
-url_prefix: /path
+feature: snake_case_name # should match the product folder name (used for runtime filtering)
+url_prefix: /path # frontend app route, used for enrich_url links
 tools:
   your-tool-name: # kebab-case
     operation: operationId_from_openapi
@@ -80,6 +139,10 @@ tools:
     param_overrides:
       name:
         description: Custom description for the LLM
+    response: # filter response fields (applied per-item on list endpoints)
+      include: [id, key, name] # keep only these fields (dot-path wildcards supported)
+      exclude: [filters.groups.*.properties] # remove these fields
+      # include and exclude are mutually exclusive
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`).

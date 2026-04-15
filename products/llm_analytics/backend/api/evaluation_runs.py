@@ -1,7 +1,6 @@
 import time
 import asyncio
 from datetime import timedelta
-from typing import cast
 
 from django.conf import settings
 
@@ -15,8 +14,8 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
@@ -84,6 +83,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             where_clauses.append("distinct_id = %(distinct_id)s")
             params["distinct_id"] = distinct_id
 
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
         query_result = query_with_columns(
             f"""
             SELECT
@@ -143,11 +143,12 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             # Track evaluation run triggered
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "llma evaluation run triggered",
                 {
                     "evaluation_id": evaluation_id,
                     "evaluation_name": evaluation.name,
+                    "evaluation_type": evaluation.evaluation_type,
                     "target_event_id": target_event_id,
                     "workflow_id": workflow_id,
                     "trigger_type": "manual",

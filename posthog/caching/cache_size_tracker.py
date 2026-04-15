@@ -17,19 +17,36 @@ logger = structlog.get_logger(__name__)
 CACHE_EVICTION_COUNTER = Counter(
     "query_cache_size_limit_evictions_total",
     "Cache entries evicted due to per-team size limits",
-    labelnames=["backend"],
+    labelnames=["team_id", "backend"],
 )
 
 CACHE_EVICTION_BYTES_COUNTER = Counter(
     "query_cache_size_limit_evicted_bytes_total",
     "Bytes evicted due to per-team size limits",
-    labelnames=["backend"],
+    labelnames=["team_id", "backend"],
+)
+
+CACHE_EVICTION_AGE_HISTOGRAM = Histogram(
+    "query_cache_eviction_age_seconds",
+    "Age of cache entries at eviction time (seconds since write)",
+    labelnames=["team_id", "backend"],
+    buckets=[
+        1800,  # 30 min
+        3600,  # 1 hour
+        14400,  # 4 hours
+        43200,  # 12 hours
+        86400,  # 1 day
+        172800,  # 2 days
+        345600,  # 4 days
+        604800,  # 7 days
+        float("inf"),
+    ],
 )
 
 CACHE_SIZE_HISTOGRAM = Histogram(
     "query_cache_team_size_bytes",
     "Distribution of per-team cache sizes in bytes",
-    labelnames=["backend"],
+    labelnames=["team_id", "backend"],
     buckets=[
         1_000_000,  # 1MB
         10_000_000,  # 10MB
@@ -128,16 +145,9 @@ class TeamCacheSizeTracker:
         self._cache = cache_backend or cache
         self.redis_client = redis_client or redis.get_client()
         self._is_cluster = is_cluster
-        if self._is_cluster:
-            # Redis Cluster requires all keys in a multi-key Lua script to be on the same shard
-            # Wrap in braces to only hash on team_id
-            self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
-            self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
-            self.total_key = f"posthog:cache_total:{{{team_id}}}"
-        else:
-            self.entries_key = f"posthog:cache_sizes:{team_id}"
-            self.sizes_key = f"posthog:cache_entry_sizes:{team_id}"
-            self.total_key = f"posthog:cache_total:{team_id}"
+        self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
+        self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
+        self.total_key = f"posthog:cache_total:{{{team_id}}}"
 
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)
@@ -167,7 +177,7 @@ class TeamCacheSizeTracker:
         total_size = self.get_total_size()
         entry_count = self.redis_client.zcard(self.entries_key)
         backend = BACKEND_CLUSTER if self._is_cluster else BACKEND_DEFAULT
-        CACHE_SIZE_HISTOGRAM.labels(backend=backend).observe(total_size)
+        CACHE_SIZE_HISTOGRAM.labels(team_id=self.team_id, backend=backend).observe(total_size)
 
         logger.info(
             "query_cache_write",
@@ -208,7 +218,7 @@ class TeamCacheSizeTracker:
             if not result:
                 break
 
-            cache_key = result[0][0]
+            cache_key, write_timestamp = result[0]
             if isinstance(cache_key, bytes):
                 cache_key = cache_key.decode()
 
@@ -226,8 +236,10 @@ class TeamCacheSizeTracker:
             evicted_keys.append(cache_key)
 
             backend = BACKEND_CLUSTER if self._is_cluster else BACKEND_DEFAULT
-            CACHE_EVICTION_COUNTER.labels(backend=backend).inc()
-            CACHE_EVICTION_BYTES_COUNTER.labels(backend=backend).inc(removed_size)
+            CACHE_EVICTION_COUNTER.labels(team_id=self.team_id, backend=backend).inc()
+            CACHE_EVICTION_BYTES_COUNTER.labels(team_id=self.team_id, backend=backend).inc(removed_size)
+            eviction_age = time.time() - float(write_timestamp)
+            CACHE_EVICTION_AGE_HISTOGRAM.labels(team_id=self.team_id, backend=backend).observe(eviction_age)
 
         return evicted_keys
 

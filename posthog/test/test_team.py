@@ -7,11 +7,16 @@ from parameterized import parameterized
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.models import Dashboard, DashboardTile, Organization, Team, User
+from posthog.models import Organization, Team, User
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import INTERNAL_TEST_USERS_COHORT_NAME, CohortKind
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.models.team.team import SessionRecordingRetentionPeriod
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .base import BaseTest
 
@@ -73,39 +78,87 @@ class TestTeam(BaseTest):
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+        # An internal/test users cohort should be created
+        test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
+
+        self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
+
+        # Cohort should have $internal_or_test_user filter AND email domain filter (posthog.com is not generic)
         self.assertEqual(
-            team.test_account_filters,
-            [
-                {
-                    "key": "email",
-                    "value": "@posthog.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "key": "$host",
-                    "operator": "not_regex",
-                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                    "type": "event",
-                },
-            ],
+            test_users_cohort.filters,
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$internal_or_test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "operator": "icontains",
+                                }
+                            ],
+                        },
+                    ],
+                }
+            },
         )
 
-        # test generic emails
+        # test_account_filters should reference the cohort with not_in
+        self.assertEqual(
+            team.test_account_filters,
+            [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}],
+        )
+
+    def test_create_team_with_generic_email_skips_domain_filter(self):
         user = User.objects.create(email="test@gmail.com")
         organization = Organization.objects.create()
         organization.members.set([user])
-        team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
+        team = Team.objects.create_with_data(initiating_user=user, organization=organization)
+
+        # Cohort should only have $internal_or_test_user filter (no email domain for gmail.com)
+        test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
+        self.assertEqual(test_users_cohort.kind, CohortKind.INTERNAL_TEST_USERS)
+        self.assertEqual(
+            test_users_cohort.filters,
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$internal_or_test_user",
+                                    "type": "person",
+                                    "value": [True],
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                    ],
+                }
+            },
+        )
+
+        # test_account_filters should still reference the cohort
         self.assertEqual(
             team.test_account_filters,
-            [
-                {
-                    "key": "$host",
-                    "operator": "not_regex",
-                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                    "type": "event",
-                }
-            ],
+            [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}],
         )
 
     def test_create_team_sets_primary_dashboard(self):
@@ -217,3 +270,45 @@ class TestTeam(BaseTest):
         with self.is_cloud(is_cloud):
             team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             assert getattr(team, field) == expected
+
+    @parameterized.expand(
+        [
+            ("Daily active users (DAUs)",),
+            ("Weekly active users (WAUs)",),
+        ]
+    )
+    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name=tile_name,
+        )
+        assert tile.insight is not None
+        assert tile.insight.query is not None
+        series = tile.insight.query["source"]["series"]
+        assert len(series) == 1
+        assert series[0]["kind"] == "GroupNode"
+        assert series[0]["operator"] == "OR"
+        assert series[0]["math"] == "dau"
+        assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
+
+    @parameterized.expand(
+        [
+            ("Retention", "RetentionQuery"),
+            ("Growth accounting", "LifecycleQuery"),
+            ("Referring domain (last 14 days)", "TrendsQuery"),
+            ("Pageview funnel, by browser", "FunnelsQuery"),
+        ]
+    )
+    def test_default_dashboard_pageview_only_tiles(self, tile_name, expected_kind):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name=tile_name,
+        )
+        assert tile.insight is not None
+        assert tile.insight.query is not None
+        source = tile.insight.query["source"]
+        assert source["kind"] == expected_kind
+        assert "GroupNode" not in str(source)
+        assert "$pageview" in str(source)

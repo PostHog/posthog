@@ -11,7 +11,7 @@ on:
             - '.github/workflows/ci-agent-skills.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -41,6 +41,7 @@ jobs:
     check-skills:
         name: Check agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.skills == 'true'
         permissions:
@@ -50,8 +51,10 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+                  bin/ci-wait-for-docker launch --down
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -63,6 +66,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install python dependencies
@@ -88,7 +92,9 @@ jobs:
               run: ./bin/hogli lint:skills
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data
               env:
@@ -119,6 +125,7 @@ jobs:
     release-skills:
         name: Release agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: check-skills
         if: github.ref == 'refs/heads/master'
         permissions:
@@ -130,8 +137,10 @@ jobs:
                   fetch-depth: 0
 
             - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+                  bin/ci-wait-for-docker launch --down
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -143,6 +152,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: false
 
             - name: Install python dependencies
@@ -165,7 +175,9 @@ jobs:
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data
               env:
@@ -196,6 +208,7 @@ jobs:
             - name: Determine next version
               id: version
               run: |
+                  git fetch --tags --force
                   LATEST_TAG=$(git tag -l 'agent-skills-v*' | grep -E '^agent-skills-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
                   if [ -z "$LATEST_TAG" ]; then LATEST_TAG="agent-skills-v0.0.0"; fi
                   MINOR=$(echo "${LATEST_TAG#agent-skills-v}" | cut -d. -f2)
@@ -204,10 +217,11 @@ jobs:
             - name: Create versioned release
               env:
                   GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
-                  gh release create "${{ steps.version.outputs.tag }}" \
+                  gh release create "$RELEASE_TAG" \
                       products/posthog_ai/dist/skills.zip \
-                      --title "Agent skills ${{ steps.version.outputs.tag }}" \
+                      --title "Agent skills $RELEASE_TAG" \
                       --notes "Build from ${{ github.sha }}" \
                       --target "${{ github.sha }}" \
                       --latest=false
@@ -215,17 +229,18 @@ jobs:
             - name: Update latest release
               env:
                   GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then
                       gh release upload agent-skills-latest \
                           products/posthog_ai/dist/skills.zip --clobber
                       gh release edit agent-skills-latest \
-                          --notes "Latest build — same as ${{ steps.version.outputs.tag }}"
+                          --notes "Latest build — same as $RELEASE_TAG"
                   else
                       gh release create agent-skills-latest \
                           products/posthog_ai/dist/skills.zip \
                           --title "Agent skills (Latest)" \
-                          --notes "Latest build — same as ${{ steps.version.outputs.tag }}" \
+                          --notes "Latest build — same as $RELEASE_TAG" \
                           --target "${{ github.sha }}" \
                           --latest=false
                   fi

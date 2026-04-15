@@ -1,3 +1,4 @@
+// Form logic for the backfill creation modal — date range selection, schedule display, and submission.
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
@@ -12,11 +13,13 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
-import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
+import { batchExportDataLogic } from './batchExportDataLogic'
+import { BatchExportContext } from './types'
 import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
     id: string
+    context?: BatchExportContext
 }
 
 /**
@@ -111,7 +114,7 @@ export function getMostRecentIntervalBoundary(
         return boundary
     }
 
-    // if hourly or every 5 minutes, return the current hour
+    // if hourly or sub-hourly, return the current hour
     return now.minute(0).second(0).millisecond(0)
 }
 
@@ -120,13 +123,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
     key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'batchExportBackfillModalLogic', key]),
     connect((props: BatchExportBackfillModalLogicProps) => ({
-        values: [
-            batchExportConfigurationLogic({
-                id: props.id,
-                service: null,
-            }),
-            ['batchExportConfig'],
-        ],
+        values: [batchExportDataLogic({ id: props.id }), ['batchExportConfig']],
     })),
     actions({
         openBackfillModal: true,
@@ -152,6 +149,10 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         ],
     }),
     selectors({
+        isHogFunction: [
+            () => [(_, props) => props],
+            (props: BatchExportBackfillModalLogicProps): boolean => props.context === 'hog_function',
+        ],
         interval: [
             (s) => [s.batchExportConfig],
             (batchExportConfig: BatchExportConfiguration | null): string | undefined => batchExportConfig?.interval,
@@ -240,12 +241,11 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
 
                 // Only validate format/business rules if fields are present
                 if (start_at && !errors.start_at) {
-                    // Validate minute intervals (e.g., 5-minute exports require multiples of 5)
+                    // Validate minute intervals (e.g., 5-minute exports require multiples of 5, 15-minute require multiples of 15)
                     if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
-                        // TODO: Make this generic for all minute frequencies.
-                        // Currently, only 5 minute batch exports are supported.
-                        if (start_at.minute() !== undefined && !(start_at.minute() % 5 === 0)) {
-                            errors.start_at = 'Start time must be a multiple of 5 minutes for 5-minute batch exports'
+                        const minuteFrequency = parseInt(values.batchExportConfig.interval.split(' ')[1], 10)
+                        if (start_at.minute() !== undefined && !(start_at.minute() % minuteFrequency === 0)) {
+                            errors.start_at = `Start time must be a multiple of ${minuteFrequency} minutes`
                         }
                     }
                     // validate that weekly exports are on a valid day of the week
@@ -259,10 +259,9 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                 if (end_at && !errors.end_at) {
                     // Validate minute intervals for end date
                     if (values.batchExportConfig && values.batchExportConfig.interval.endsWith('minutes')) {
-                        // TODO: Make this generic for all minute frequencies.
-                        // Currently, only 5 minute batch exports are supported.
-                        if (end_at.minute() !== undefined && !(end_at.minute() % 5 === 0)) {
-                            errors.end_at = 'End time must be a multiple of 5 minutes for 5-minute batch exports'
+                        const minuteFrequency = parseInt(values.batchExportConfig.interval.split(' ')[1], 10)
+                        if (end_at.minute() !== undefined && !(end_at.minute() % minuteFrequency === 0)) {
+                            errors.end_at = `End time must be a multiple of ${minuteFrequency} minutes`
                         }
                     }
 

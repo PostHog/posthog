@@ -48,7 +48,8 @@ This prevents name collisions between generated and manual types.
 Run after changing serializers, viewsets, or `@extend_schema` decorators:
 
 ```bash
-hogli build:openapi
+hogli build            # auto-detects what changed and rebuilds
+hogli build:openapi    # or run this pipeline explicitly
 ```
 
 CI will fail if generated types are stale.
@@ -63,6 +64,8 @@ CI will fail if generated types are stale.
 ViewSets in `products/*/backend/` are **automatically tagged** based on their module path. Manual `@extend_schema(tags=[...])` is not needed for products.
 
 Serializers are the source of truth for response types. Use explicit field types and `help_text` where helpful.
+
+For detailed guidance on serializer patterns, field typing, and annotations that improve OpenAPI generation, see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
 
 ### Documenting query parameters
 
@@ -116,7 +119,8 @@ Query types like `TrendsQuery`, `FunnelsQuery`, and HogQL filters are defined in
 ### Regenerating
 
 ```bash
-hogli build:schema
+hogli build            # auto-detects what changed and rebuilds
+hogli build:schema     # or run this pipeline explicitly
 ```
 
 This runs:

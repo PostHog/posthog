@@ -20,9 +20,16 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+
         self._setup_lazy_admin()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
+        # DEV_API_KEY lives in ee/settings.py — getattr returns None in OSS mode.
+        posthoganalytics.personal_api_key = os.environ.get(
+            "POSTHOG_PERSONAL_API_KEY",
+            getattr(settings, "DEV_API_KEY", None) if settings.DEBUG else None,
+        )
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
         posthoganalytics.log_captured_exceptions = True
@@ -69,6 +76,17 @@ class PostHogConfig(AppConfig):
                     event="development server launched",
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+        # Use HyperCache to provide flag definitions instead of per-process API polling.
+        # Falls back to the SDK's emergency API fetch (via personal_api_key) only when
+        # the cache is cold. In E2E testing personal_api_key is None, so a cold cache
+        # will result in no flag definitions being loaded — which is acceptable there.
+        if not posthoganalytics.disabled:
+            from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
+
+            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(
+                team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2"))
+            )
+
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
@@ -84,7 +102,8 @@ class PostHogConfig(AppConfig):
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
         # Skip during tests since we handle this in conftest.py
-        if not settings.TEST:
+        # Skip during collectstatic (STATIC_COLLECTION=1 in Dockerfile) — no Redis available at build time
+        if not settings.TEST and not settings.STATIC_COLLECTION:
             queue_sync_hog_function_templates()
 
         file_system_registrations.register_core_file_system_types()

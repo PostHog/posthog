@@ -1,10 +1,11 @@
 import { URL } from 'url'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
+import { HEATMAPS_OUTPUT, HeatmapsOutput } from '../analytics/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -17,10 +18,9 @@ export type ExtractHeatmapDataStepResult<TInput> = TInput & {
     preparedEvent: PreIngestionEvent
 }
 
-export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(deps: {
-    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    kafkaProducer: KafkaProducerWrapper
-}): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
+export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(
+    outputs: IngestionOutputs<HeatmapsOutput>
+): ProcessingStep<TInput, ExtractHeatmapDataStepResult<TInput>> {
     return async function extractHeatmapDataStep(
         input: TInput
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
@@ -41,13 +41,13 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
 
             if (heatmapEvents.length > 0) {
                 acks.push(
-                    deps.kafkaProducer.queueMessages({
-                        topic: deps.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                        messages: heatmapEvents.map((rawEvent) => ({
+                    outputs.queueMessages(
+                        HEATMAPS_OUTPUT,
+                        heatmapEvents.map((rawEvent) => ({
                             key: eventUuid,
-                            value: JSON.stringify(rawEvent),
-                        })),
-                    })
+                            value: Buffer.from(JSON.stringify(rawEvent)),
+                        }))
+                    )
                 )
             }
         } catch (e) {

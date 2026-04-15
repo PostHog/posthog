@@ -11,11 +11,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    PaginatedSandboxEnvironmentListListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
+    PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     RepositoryReadinessResponseApi,
+    SandboxEnvironmentApi,
+    SandboxListParams,
     TaskApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -27,6 +31,7 @@ import type {
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
+    TaskRunRelayMessageResponseApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -82,6 +87,56 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxListUrl = (projectId: string, params?: SandboxListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_environments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxList = async (
+    projectId: string,
+    params?: SandboxListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxEnvironmentListListApi> => {
+    return apiMutator<PaginatedSandboxEnvironmentListListApi>(getSandboxListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const getSandboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/`
+}
+
+export const sandboxCreate = async (
+    projectId: string,
+    sandboxEnvironmentApi: NonReadonly<SandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxEnvironmentApi),
     })
 }
 
@@ -443,8 +498,8 @@ export const tasksRunsRelayMessageCreate = async (
     id: string,
     taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunRelayMessageResponseApi> => {
+    return apiMutator<TaskRunRelayMessageResponseApi>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -502,11 +557,33 @@ export const tasksRunsSetOutputPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
+    patchedTaskRunSetOutputRequestApi: PatchedTaskRunSetOutputRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
+    })
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
+export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
+}
+
+export const tasksRunsStreamRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

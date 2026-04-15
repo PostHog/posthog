@@ -6,11 +6,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
+import { Breadcrumb, LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
 import {
     SURVEY_CREATED_SOURCE,
@@ -58,7 +59,12 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [surveyLogic({ id: props.id }), ['survey', 'surveyLoading']],
+        values: [
+            surveyLogic({ id: props.id }),
+            ['survey', 'surveyChanged', 'surveyLoading'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
 
     actions({
@@ -147,6 +153,22 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             },
         ],
         stepNumber: [(s) => [s.currentStep], (currentStep: WizardStep): number => WIZARD_STEPS.indexOf(currentStep)],
+        breadcrumbs: [
+            (s) => [s.survey],
+            (survey: Survey): Breadcrumb[] => [
+                {
+                    key: Scene.Surveys,
+                    name: 'Surveys',
+                    path: urls.surveys(),
+                    iconType: 'survey',
+                },
+                {
+                    key: [Scene.SurveyWizard, survey?.id || 'new'],
+                    name: survey?.name || 'New survey',
+                    iconType: 'survey',
+                },
+            ],
+        ],
         stepValidationErrors: [
             (s) => [s.survey],
             (survey: Survey): Record<WizardStep, string[]> => {
@@ -245,6 +267,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('appearance', {
                 ...defaultSurveyAppearance,
                 ...themeAppearance,
+                ...values.currentTeam?.survey_config?.appearance,
                 ...cleanTemplateBehavior,
             })
 
@@ -359,7 +382,15 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
     })),
 
     afterMount(({ actions, props, values }) => {
+        const shouldPreserveLocalChanges =
+            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+
         if (props.id === 'new') {
+            if (shouldPreserveLocalChanges) {
+                actions.setStep('questions')
+                return
+            }
+
             // Templates set both name AND questions, while default NEW_SURVEY has empty name
             const hasTemplateSelected = values.survey?.name && values.survey?.questions?.length > 0
             if (hasTemplateSelected) {
@@ -368,7 +399,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 actions.resetWizard()
                 actions.resetSurvey()
             }
-        } else {
+        } else if (!shouldPreserveLocalChanges) {
             actions.loadSurvey()
         }
 

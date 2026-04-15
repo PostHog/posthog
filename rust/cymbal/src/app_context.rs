@@ -10,13 +10,14 @@ use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CA
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
 use uuid::Uuid;
 
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
+    signals::{MaybeSignalClient, SignalClient},
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
         apple::AppleProvider,
@@ -47,6 +48,8 @@ pub struct AppContext {
     pub persons_pool: PgPool,
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
+    pub symbol_resolution_limiter: Arc<Semaphore>,
+    pub process_request_limiter: Arc<Semaphore>,
     pub config: Config,
     pub geoip_client: GeoIpClient,
 
@@ -56,6 +59,7 @@ pub struct AppContext {
 
     pub filtered_teams: Vec<i32>,
     pub filter_mode: FilterMode,
+    pub signal_client: MaybeSignalClient,
 }
 
 impl AppContext {
@@ -244,11 +248,25 @@ impl AppContext {
             _ => panic!("Invalid filter mode"),
         };
 
+        let signal_client = if config.signals_api_base_url.is_empty() {
+            MaybeSignalClient::disabled()
+        } else {
+            info!(
+                "Signal emission enabled, base_url={}",
+                config.signals_api_base_url
+            );
+            MaybeSignalClient::enabled(SignalClient::new(config))
+        };
+
         let symbol_resolver = Arc::new(LocalSymbolResolver::new(
             config,
             catalog.clone(),
             posthog_pool.clone(),
         ));
+        let symbol_resolution_limiter =
+            Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)));
+        let process_request_limiter =
+            Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
         Ok(Self {
             health_registry,
@@ -260,12 +278,15 @@ impl AppContext {
             persons_pool,
             catalog,
             config: config.clone(),
+            symbol_resolution_limiter,
+            process_request_limiter,
             team_manager,
             geoip_client,
             billing_limiter,
             issue_buckets_redis_client,
             filtered_teams,
             filter_mode,
+            signal_client,
             symbol_resolver,
         })
     }

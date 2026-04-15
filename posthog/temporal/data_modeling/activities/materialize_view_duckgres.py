@@ -1,5 +1,6 @@
 import time
 import typing
+import datetime as dt
 import dataclasses
 
 import posthoganalytics
@@ -13,6 +14,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.models import Node, NodeType
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 LOGGER = get_logger(__name__)
@@ -27,6 +29,7 @@ class DuckgresShadowInputs:
     dag_id: str
     node_id: str
     job_id: str
+    dangerously_execute_raw_sql: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -45,6 +48,8 @@ class DuckgresShadowResult:
     schema_name: str
     table_name: str
     error: str | None = None
+    file_size_bytes: int = 0
+    file_size_delta_bytes: int = 0
 
 
 def _is_duckgres_shadow_enabled(team: Team) -> bool:
@@ -59,7 +64,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
     try:
         return posthoganalytics.feature_enabled(
             FEATURE_FLAG,
-            str(team.uuid),
+            str(team.pk),
             groups={
                 "organization": str(team.organization_id),
                 "project": str(team.id),
@@ -90,7 +95,7 @@ def _get_shadow_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     if node.type == NodeType.TABLE or node.saved_query is None:
         raise ValueError(f"Node {node.name} is not materializable")
@@ -98,6 +103,31 @@ def _get_shadow_input_objects(
         id=node.saved_query.id, team_id=inputs.team_id
     )
     return (team, node, saved_query)
+
+
+@activity.defn
+async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
+    """Check whether the duckgres shadow flag is enabled for a team."""
+    team = await database_sync_to_async(Team.objects.get)(id=team_id)
+    return await database_sync_to_async(_is_duckgres_shadow_enabled)(team)
+
+
+@database_sync_to_async
+def _resolve_duckgres_job(job_id: str, result: "DuckgresShadowResult") -> None:
+    """Update the duckgres job to its terminal state based on the result."""
+    job = DataModelingJob.objects.get(id=job_id)
+    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+        return
+    if result.error is None:
+        job.status = DataModelingJobStatus.COMPLETED
+        job.rows_materialized = result.row_count
+        job.error = None
+    else:
+        job.status = DataModelingJobStatus.FAILED
+        job.rows_materialized = 0
+        job.error = result.error
+    job.last_run_at = dt.datetime.now(dt.UTC)
+    job.save()
 
 
 @activity.defn
@@ -112,11 +142,6 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     logger = LOGGER.bind()
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
-
-    if not await database_sync_to_async(_is_duckgres_shadow_enabled)(team):
-        await logger.ainfo("Duckgres shadow disabled for team", extra=inputs.properties_to_log)
-        return DuckgresShadowResult(row_count=0, duration_seconds=0.0, schema_name="", table_name="", error="disabled")
-
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"
     table_name = saved_query.normalized_name
@@ -131,7 +156,10 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     start_time = time.monotonic()
     sql: str = ""
     try:
-        sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
+        if inputs.dangerously_execute_raw_sql:
+            sql = hogql_query
+        else:
+            sql = await database_sync_to_async(_compile_hogql_to_postgres_sql)(hogql_query, team.pk)
         await logger.adebug("Duckgres shadow SQL generated", sql=sql)
 
         from posthog.ducklake.client import execute_ducklake_create_table
@@ -148,12 +176,16 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             table_name=result.table_name,
         )
 
-        return DuckgresShadowResult(
+        shadow_result = DuckgresShadowResult(
             row_count=result.row_count,
             duration_seconds=duration,
             schema_name=result.schema_name,
             table_name=result.table_name,
+            file_size_bytes=result.file_size_bytes,
+            file_size_delta_bytes=result.file_size_delta_bytes,
         )
+        await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        return shadow_result
     except Exception as e:
         duration = time.monotonic() - start_time
         capture_exception(e, {"sql": sql, "inputs": inputs})
@@ -163,10 +195,12 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
             error=str(e),
             duration_seconds=round(duration, 2),
         )
-        return DuckgresShadowResult(
+        shadow_result = DuckgresShadowResult(
             row_count=0,
             duration_seconds=duration,
             schema_name=schema_name,
             table_name=table_name,
             error=str(e),
         )
+        await _resolve_duckgres_job(inputs.job_id, shadow_result)
+        return shadow_result

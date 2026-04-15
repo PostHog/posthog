@@ -1,0 +1,184 @@
+{
+    "template_name": "Product Analytics",
+    "dashboard_description": "High-level overview of your product including daily active users, weekly active users, retention, and growth accounting.",
+    "dashboard_filters": {},
+    "tags": [],
+    "tiles": [
+        {
+            "name": "Daily active users (DAUs)",
+            "type": "INSIGHT",
+            "color": "blue",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": ["{DAILY_ACTIVE_USER}"],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "-30d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Shows the number of unique users that use your app every day."
+        },
+        {
+            "name": "Weekly active users (WAUs)",
+            "type": "INSIGHT",
+            "color": "green",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": ["{WEEKLY_ACTIVE_USER}"],
+                    "interval": "week",
+                    "dateRange": {
+                        "date_from": "-90d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Shows the number of unique users that use your app every week."
+        },
+        {
+            "name": "Retention",
+            "type": "INSIGHT",
+            "color": "blue",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "RetentionQuery",
+                    "dateRange": {
+                        "date_from": "-7d",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "retentionFilter": {
+                        "period": "Week",
+                        "targetEntity": "{DAILY_ACTIVE_USER}",
+                        "retentionType": "retention_first_time",
+                        "totalIntervals": 11,
+                        "returningEntity": "{DAILY_ACTIVE_USER}"
+                    },
+                    "filterTestAccounts": false
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "w": 6,
+                    "x": 6,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3
+                },
+                "xs": {
+                    "h": 5,
+                    "w": 1,
+                    "x": 0,
+                    "y": 10,
+                    "minH": 5,
+                    "minW": 3
+                }
+            },
+            "description": "Weekly retention of your users."
+        }
+    ],
+    "variables": [
+        {
+            "id": "DAILY_ACTIVE_USER",
+            "name": "Daily active user event",
+            "type": "event",
+            "default": {
+                "id": "$pageview",
+                "math": "dau",
+                "name": "$pageview",
+                "type": "events"
+            },
+            "required": false,
+            "description": "The event you use to define a daily active user. Defaults to pageview, but mobile apps should use an event like screenview."
+        },
+        {
+            "id": "WEEKLY_ACTIVE_USER",
+            "name": "Weekly active user event",
+            "type": "event",
+            "default": {
+                "id": "$pageview",
+                "math": "weekly_active",
+                "name": "$pageview",
+                "type": "events"
+            },
+            "required": false,
+            "description": "The event you use to define a weekly active user. Defaults to pageview, but mobile apps should use an event like screenview."
+        }
+    ],
+    "image_url": "https://posthog.com/template_art/analytics-dash.png",
+    "scope": "global",
+    "availability_contexts": null
+}

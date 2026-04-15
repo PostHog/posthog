@@ -844,10 +844,11 @@ describe('Session Recording Consumer Integration', () => {
 
         const ingester = new SessionRecordingIngester(
             hub as any,
-            false,
             hub.postgres,
             kafkaMetadataProducer,
-            kafkaMessageProducer
+            kafkaMessageProducer,
+            hub.redisPool,
+            hub.redisPool
         )
 
         return { ingester, kafkaMetadataProducer }
@@ -916,7 +917,7 @@ describe('Session Recording Consumer Integration', () => {
             SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         })
 
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         // Enable console log capture for the primary team so console log tests work
         await hub.postgres.query(

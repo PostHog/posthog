@@ -38,7 +38,7 @@ describe('HogFunctionHandler', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const emailService = new EmailService(
@@ -290,7 +290,7 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics[0]).toMatchObject({
             team_id: team.id,
             app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            instance_id: action.id,
             metric_kind: 'fetch',
             metric_name: 'billable_invocation',
             count: 1,
@@ -320,7 +320,7 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics[0]).toMatchObject({
             team_id: team.id,
             app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            instance_id: action.id,
             metric_kind: 'email',
             metric_name: 'billable_invocation',
             count: 1,
@@ -335,6 +335,7 @@ describe('HogFunctionHandler', () => {
             logs: [],
             metrics: [],
             capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {

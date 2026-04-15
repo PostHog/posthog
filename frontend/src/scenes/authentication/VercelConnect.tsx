@@ -13,10 +13,17 @@ export const scene: SceneExport = {
     component: VercelConnect,
 }
 
+interface Team {
+    id: number
+    name: string
+    already_linked: boolean
+}
+
 interface Organization {
     id: string
     name: string
     already_linked: boolean
+    teams: Team[]
 }
 
 interface SessionInfo {
@@ -27,7 +34,6 @@ interface SessionInfo {
 export function VercelConnect(): JSX.Element {
     const { searchParams } = useValues(router)
     const sessionKey = searchParams.session
-    const nextUrl = searchParams.next
 
     const [loading, setLoading] = useState(true)
     const [linking, setLinking] = useState(false)
@@ -35,6 +41,15 @@ export function VercelConnect(): JSX.Element {
     const [success, setSuccess] = useState(false)
     const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
     const [selectedOrg, setSelectedOrg] = useState<string | null>(null)
+    const [envMapping, setEnvMapping] = useState<{
+        production: number | null
+        preview: number | null
+        development: number | null
+    }>({
+        production: null,
+        preview: null,
+        development: null,
+    })
     const [linkedOrgName, setLinkedOrgName] = useState<string>('')
 
     useEffect(() => {
@@ -65,6 +80,19 @@ export function VercelConnect(): JSX.Element {
             })
     }, [sessionKey])
 
+    useEffect(() => {
+        if (selectedOrg && sessionInfo) {
+            const org = sessionInfo.organizations.find((o) => o.id === selectedOrg)
+            const teams = org?.teams.filter((t) => !t.already_linked) || []
+            if (teams.length === 1) {
+                const id = teams[0].id
+                setEnvMapping({ production: id, preview: id, development: id })
+            } else {
+                setEnvMapping({ production: null, preview: null, development: null })
+            }
+        }
+    }, [selectedOrg, sessionInfo])
+
     const handleLink = (): void => {
         if (!selectedOrg || !sessionKey) {
             return
@@ -82,6 +110,11 @@ export function VercelConnect(): JSX.Element {
             body: JSON.stringify({
                 session: sessionKey,
                 organization_id: selectedOrg,
+                environment_mapping: {
+                    production: envMapping.production,
+                    preview: envMapping.preview || envMapping.production,
+                    development: envMapping.development || envMapping.production,
+                },
             }),
         })
             .then((res) => {
@@ -97,7 +130,7 @@ export function VercelConnect(): JSX.Element {
                 setSuccess(true)
                 setLinking(false)
 
-                const returnUrl = sessionInfo?.next_url || nextUrl
+                const returnUrl = data.next_url
                 if (returnUrl) {
                     window.location.href = returnUrl
                 }
@@ -108,7 +141,7 @@ export function VercelConnect(): JSX.Element {
             })
     }
 
-    const redirectUrl = sessionInfo?.next_url || nextUrl
+    const redirectUrl = sessionInfo?.next_url
 
     if (loading) {
         return (
@@ -162,6 +195,8 @@ export function VercelConnect(): JSX.Element {
 
     const availableOrgs = sessionInfo?.organizations.filter((o) => !o.already_linked) || []
     const linkedOrgs = sessionInfo?.organizations.filter((o) => o.already_linked) || []
+    const selectedOrgData = sessionInfo?.organizations.find((o) => o.id === selectedOrg)
+    const availableTeams = selectedOrgData?.teams.filter((t) => !t.already_linked) || []
 
     return (
         <BridgePage view="vercel-connect">
@@ -193,11 +228,31 @@ export function VercelConnect(): JSX.Element {
                         />
                     </div>
 
+                    {selectedOrg && availableTeams.length > 0 && (
+                        <div className="mb-6 space-y-3">
+                            {(['production', 'preview', 'development'] as const).map((env) => (
+                                <div key={env}>
+                                    <label className="text-xs font-medium text-muted uppercase mb-1 block">{env}</label>
+                                    <LemonSelect
+                                        fullWidth
+                                        placeholder="Select a project"
+                                        value={envMapping[env]}
+                                        onChange={(value) => setEnvMapping((prev) => ({ ...prev, [env]: value }))}
+                                        options={availableTeams.map((t) => ({
+                                            value: t.id,
+                                            label: t.name,
+                                        }))}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <LemonButton
                         fullWidth
                         type="primary"
                         center
-                        disabled={!selectedOrg || linking}
+                        disabled={!selectedOrg || !envMapping.production || linking}
                         loading={linking}
                         onClick={handleLink}
                     >

@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
@@ -23,7 +24,6 @@
         "@types/papaparse": "*",
         "@types/react": "*",
         "ansi-colors": "*",
-        "classnames": "*",
         "clsx": "*",
         "eslint": "*",
         "fast-deep-equal": "*",

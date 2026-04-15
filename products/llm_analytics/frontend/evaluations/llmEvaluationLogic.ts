@@ -55,7 +55,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     connect(() => ({
         values: [
             llmProviderKeysLogic,
-            ['providerKeys', 'providerKeysLoading'],
+            ['providerKeys', 'providerKeysLoading', 'isTrialLimitReached'],
             signalSourcesLogic,
             ['sourceConfigs', 'sourceConfigsLoading'],
         ],
@@ -87,6 +87,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Signal emission
         setSignalEmission: (enabled: boolean) => ({ enabled }),
+
+        // Tab navigation
+        setActiveTab: (tab: string) => ({ tab }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -257,6 +260,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             '' as string,
             {
                 selectModelFromPicker: (_, { modelId }) => modelId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.model || '',
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
             },
         ],
@@ -264,6 +268,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             null as string | null,
             {
                 selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.provider_key_id || null,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],
@@ -338,6 +343,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 toggleSummaryExpanded: (state) => !state,
                 generateEvaluationSummarySuccess: () => true,
+            },
+        ],
+        activeTab: [
+            'configuration' as string,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                // Show runs tab for existing evaluations, configuration for new
+                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'configuration'),
             },
         ],
     }),
@@ -574,6 +587,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 return hasValidName && hasValidConfig && hasValidConditions
+            },
+        ],
+
+        canEnable: [
+            (s) => [s.evaluation, s.isTrialLimitReached],
+            (evaluation: EvaluationConfig | null, isTrialLimitReached: boolean): boolean => {
+                if (!evaluation || !isTrialLimitReached) {
+                    return true
+                }
+                // Can enable if the evaluation has a BYOK key
+                return !!evaluation.model_configuration?.provider_key_id
+            },
+        ],
+
+        canEnableReason: [
+            (s) => [s.canEnable],
+            (canEnable: boolean): string | null => {
+                if (canEnable) {
+                    return null
+                }
+                return 'Trial evaluation limit reached. Add a provider API key to re-enable this evaluation.'
             },
         ],
 

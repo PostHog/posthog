@@ -22,24 +22,23 @@ from .cohort import Cohort, CohortPeople, CohortCalculationHistory
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
-from .dashboard import Dashboard
-from .dashboard_templates import DashboardTemplate
+from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckgresServer, DuckLakeCatalog
-from .dashboard_tile import DashboardTile, Text
+from ..ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
+
+# TODO: remove noqa once the event filters API imports from posthog.models
+from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
-from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
-from .surveys.survey import Survey
-from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
@@ -57,12 +56,8 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
-from .link import Link
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
-from .message_template import MessageTemplate
-from .message_category import MessageCategory
-from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
@@ -98,8 +93,6 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .web_analytics_filter_preset import WebAnalyticsFilterPreset
-from .web_experiment import WebExperiment
-
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
@@ -127,23 +120,24 @@ __all__ = [
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
+    "DataDeletionRequest",
     "DashboardTile",
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
     "DuckgresServer",
+    "DuckLakeBackfill",
     "DuckLakeCatalog",
     "Element",
     "ElementGroup",
     "Entity",
+    "EvaluationContext",
+    "FeatureFlagEvaluationContext",
+    "TeamDefaultEvaluationContext",
     "Event",
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
-    "Experiment",
-    "ExperimentHoldout",
-    "ExperimentSavedMetric",
-    "ExperimentToSavedMetric",
     "ExportedAsset",
     "ExportedRecording",
     "FeatureFlag",
@@ -158,7 +152,6 @@ __all__ = [
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
-    "Link",
     "LLMPrompt",
     "HostDefinition",
     "Insight",
@@ -170,9 +163,6 @@ __all__ = [
     "InviteExpiredException",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
-    "MessageCategory",
-    "MessageRecipientPreference",
-    "MessageTemplate",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
@@ -218,14 +208,11 @@ __all__ = [
     "SharePassword",
     "SharingConfiguration",
     "Subscription",
-    "Survey",
-    "SurveyResponseArchive",
     "Tag",
     "TaggedItem",
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
-    "Text",
     "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
@@ -239,7 +226,6 @@ __all__ = [
     "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",
-    "WebExperiment",
     "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",

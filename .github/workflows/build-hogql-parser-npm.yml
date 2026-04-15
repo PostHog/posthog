@@ -18,6 +18,7 @@ jobs:
     check-package-version:
         name: Check npm package version
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         outputs:
             committed-version: ${{ steps.check-package-version.outputs.committed-version }}
             published-version: ${{ steps.check-package-version.outputs.published-version }}
@@ -32,7 +33,6 @@ jobs:
               id: changed-files
               uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
               with:
-                  since_last_remote_commit: true
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
@@ -47,9 +47,22 @@ jobs:
               if: steps.changed-files.outputs.parser_any_changed == 'true' && steps.check-package-version.outputs.is-new-version == 'false'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  COMMITTED_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
-                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) has changed since last push, but its version stayed the same at ${{ steps.check-package-version.outputs.committed-version }}. 👀\nMake sure to resolve this in \`common/hogql_parser/package.json\` before merging!${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || ''}}"
-                  gh pr comment ${{ github.event.pull_request.number }} --body "$message_body"
+                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) changed in this PR, but its version stayed the same at $COMMITTED_VERSION. 👀"
+                  message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/package.json\` before merging!"
+                  if [[ "$IS_FORK" == 'true' ]]; then
+                    message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
+                  fi
+                  # Post once, then edit in place on subsequent pushes
+                  existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser.*npm.*version stayed the same")) | .id' | tail -1)
+                  if [[ -n "$existing" ]]; then
+                    gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                  else
+                    gh pr comment "$PR_NUMBER" --body "$message_body"
+                  fi
 
     build-wasm:
         name: Build WASM
@@ -81,6 +94,7 @@ jobs:
         name: Publish on npm
         needs: build-wasm
         runs-on: ubuntu-24.04
+        timeout-minutes: 10
         permissions:
             contents: read
             id-token: write
@@ -93,10 +107,10 @@ jobs:
                   name: hogql-parser-dist
                   path: common/hogql_parser/dist
 
-            - name: Set up Node 24
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24
+                  node-version-file: .nvmrc
                   registry-url: https://registry.npmjs.org
 
             - name: Publish package to npm
@@ -121,11 +135,17 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
-            - name: Set up Node 24
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Update @posthog/hogql-parser in frontend
               shell: bash
@@ -147,6 +167,7 @@ jobs:
             - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
               with:
                   add: '["frontend/package.json", "pnpm-lock.yaml"]'
+                  commit: '--no-verify'
                   message: 'Use new @posthog/hogql-parser npm version'
                   default_author: github_actions
                   github_token: ${{ steps.app-token.outputs.token }}

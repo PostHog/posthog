@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
@@ -12,8 +12,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof ItemAppState>
-const meta: Meta<typeof ItemAppState> = {
+type Story = StoryObj<ItemAppStateProps>
+const meta: Meta<ItemAppStateProps> = {
     title: 'Components/PlayerInspector/ItemConsole',
     component: ItemAppState,
     decorators: [
@@ -21,77 +21,79 @@ const meta: Meta<typeof ItemAppState> = {
             get: {},
         }),
     ],
+    render: (props) => {
+        const propsToUse = props as ItemAppStateProps
+
+        return (
+            <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
+                <div className="flex flex-col gap-2 min-w-96">
+                    <h3>Collapsed</h3>
+                    <ItemAppState {...propsToUse} />
+                    <LemonDivider />
+                    <h3>Expanded</h3>
+                    <ItemAppStateDetail {...propsToUse} />
+                </div>
+            </BindLogic>
+        )
+    },
 }
 export default meta
 
-const BasicTemplate: StoryFn<typeof ItemAppState> = (props: Partial<ItemAppStateProps>) => {
-    const propsToUse = props as ItemAppStateProps
-
-    return (
-        <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '12345' }}>
-            <div className="flex flex-col gap-2 min-w-96">
-                <h3>Collapsed</h3>
-                <ItemAppState {...propsToUse} />
-                <LemonDivider />
-                <h3>Expanded</h3>
-                <ItemAppStateDetail {...propsToUse} />
-            </div>
-        </BindLogic>
-    )
-}
-
-export const AppStateItem: Story = BasicTemplate.bind({})
-AppStateItem.args = {
-    item: {
-        timestamp: dayjs('2019-01-30'),
-        timeInRecording: 123,
-        search: 'some text',
-        type: 'app-state',
-        action: 'USER_LOGGED_IN',
-        stateEvent: {
-            prevState: { user: null, nestedJson: { a: 1, b: { c: 2 } } },
-            payload: { user: { id: 1, name: 'John Doe' }, nestedJson: { a: 1, b: { c: 3 } } },
-            changedState: { user: { id: 1, name: 'John Doe' }, nestedJson: { b: { c: 3 } } },
+export const AppStateItem: Story = {
+    args: {
+        item: {
+            timestamp: dayjs('2019-01-30'),
+            timeInRecording: 123,
+            search: 'some text',
+            type: 'app-state',
+            action: 'USER_LOGGED_IN',
+            stateEvent: {
+                prevState: { user: null, nestedJson: { a: 1, b: { c: 2 } } },
+                payload: { user: { id: 1, name: 'John Doe' }, nestedJson: { a: 1, b: { c: 3 } } },
+                changedState: { user: { id: 1, name: 'John Doe' }, nestedJson: { b: { c: 3 } } },
+            },
+            key: 'id',
         },
-        key: 'id',
     },
 }
 
 /** keep support for these until Oct 2026 */
-export const OGFormatAppStateItem: Story = BasicTemplate.bind({})
-OGFormatAppStateItem.args = {
-    item: {
-        timestamp: dayjs('2019-01-30'),
-        timeInRecording: 123,
-        search: 'some text',
-        type: 'app-state',
-        action: 'USER_LOGGED_IN',
-        stateEvent: {
-            prevState: { user: null },
-            payload: { user: { id: 1, name: 'John Doe' } },
-            nextState: { user: { id: 1, name: 'John Doe' } },
+export const OGFormatAppStateItem: Story = {
+    args: {
+        item: {
+            timestamp: dayjs('2019-01-30'),
+            timeInRecording: 123,
+            search: 'some text',
+            type: 'app-state',
+            action: 'USER_LOGGED_IN',
+            stateEvent: {
+                prevState: { user: null },
+                payload: { user: { id: 1, name: 'John Doe' } },
+                nextState: { user: { id: 1, name: 'John Doe' } },
+            },
+            key: 'id',
         },
-        key: 'id',
     },
 }
 
 /** keep support for these until Oct 2026
  * mixed format is "impossible" in practice, but this is just to ensure backwards compatibility
  * */
-export const MixedFormatAppStateItem: Story = BasicTemplate.bind({})
-MixedFormatAppStateItem.args = {
-    item: {
-        timestamp: dayjs('2019-01-30'),
-        timeInRecording: 123,
-        search: 'some text',
-        type: 'app-state',
-        action: 'USER_LOGGED_IN',
-        stateEvent: {
-            prevState: { user: null },
-            payload: { user: { id: 1, name: 'John Doe' } },
-            nextState: { user: { id: 1, name: 'John Doe' } },
-            changedState: { user: { id: 1, name: 'John Doe' } },
+export const MixedFormatAppStateItem: Story = {
+    args: {
+        item: {
+            timestamp: dayjs('2019-01-30'),
+            timeInRecording: 123,
+            search: 'some text',
+            type: 'app-state',
+            action: 'USER_LOGGED_IN',
+            stateEvent: {
+                prevState: { user: null },
+                payload: { user: { id: 1, name: 'John Doe' } },
+                nextState: { user: { id: 1, name: 'John Doe' } },
+                changedState: { user: { id: 1, name: 'John Doe' } },
+            },
+            key: 'id',
         },
-        key: 'id',
     },
 }

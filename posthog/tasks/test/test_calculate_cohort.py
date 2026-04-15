@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
@@ -92,7 +93,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             # Test with person UUIDs
             calculate_cohort_from_list(
-                cohort.id, [str(person1.uuid), str(person2.uuid)], team_id=self.team.id, id_type="person_id"
+                cohort.id,
+                [str(person1.uuid), str(person2.uuid)],
+                team_id=self.team.id,
+                id_type="person_id",
             )
 
             # Verify persons were added to cohort
@@ -113,7 +117,12 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             cohort = Cohort.objects.create(team=self.team, is_static=True, name="test_distinct_id_cohort")
 
             # Test with distinct IDs
-            calculate_cohort_from_list(cohort.id, ["user123", "user456"], team_id=self.team.id, id_type="distinct_id")
+            calculate_cohort_from_list(
+                cohort.id,
+                ["user123", "user456"],
+                team_id=self.team.id,
+                id_type="distinct_id",
+            )
 
             # Verify persons were added to cohort
             cohort.refresh_from_db()
@@ -403,17 +412,23 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             not_calculating_cohort.refresh_from_db()
 
             self.assertTrue(not_stuck_cohort.is_calculating)  # Should still be calculating
-            self.assertTrue(static_cohort.is_calculating)  # Should still be calculating
+            self.assertFalse(static_cohort.is_calculating)  # Static cohorts are now also reset
             self.assertTrue(deleted_cohort.is_calculating)  # Should still be calculating
             self.assertTrue(null_last_calc_cohort.is_calculating)  # Should still be calculating
             self.assertFalse(not_calculating_cohort.is_calculating)  # Should remain not calculating
 
-            # Verify logging
-            mock_logger.warning.assert_called_once()
-            args, kwargs = mock_logger.warning.call_args
-            self.assertEqual(args[0], "reset_stuck_cohorts")
-            self.assertEqual(set(kwargs["cohort_ids"]), {stuck_cohort_1.pk, stuck_cohort_2.pk})
-            self.assertEqual(kwargs["count"], 2)
+            # Verify logging - both dynamic and static resets are logged
+            warning_calls = mock_logger.warning.call_args_list
+            dynamic_reset_call = [c for c in warning_calls if c[0][0] == "reset_stuck_cohorts"]
+            self.assertEqual(len(dynamic_reset_call), 1)
+            self.assertEqual(
+                set(dynamic_reset_call[0][1]["cohort_ids"]),
+                {stuck_cohort_1.pk, stuck_cohort_2.pk},
+            )
+
+            static_reset_call = [c for c in warning_calls if c[0][0] == "reset_stuck_static_cohorts"]
+            self.assertEqual(len(static_reset_call), 1)
+            self.assertIn(static_cohort.pk, static_reset_call[0][1]["cohort_ids"])
 
         @patch("posthog.tasks.calculate_cohort.logger")
         def test_reset_stuck_cohorts_respects_limit(self, mock_logger: MagicMock) -> None:
@@ -445,11 +460,77 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(reset_count, MAX_STUCK_COHORTS_TO_RESET)
 
             # Verify logging
-            mock_logger.warning.assert_called_once()
-            args, kwargs = mock_logger.warning.call_args
-            self.assertEqual(args[0], "reset_stuck_cohorts")
-            self.assertEqual(len(kwargs["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
-            self.assertEqual(kwargs["count"], MAX_STUCK_COHORTS_TO_RESET)
+            warning_calls = mock_logger.warning.call_args_list
+            dynamic_reset_calls = [c for c in warning_calls if c[0][0] == "reset_stuck_cohorts"]
+            self.assertEqual(len(dynamic_reset_calls), 1)
+            self.assertEqual(len(dynamic_reset_calls[0][1]["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
+            self.assertEqual(dynamic_reset_calls[0][1]["count"], MAX_STUCK_COHORTS_TO_RESET)
+
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_static_cohorts_retriggers_query(
+            self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
+        ) -> None:
+            now = timezone.now()
+
+            # Create a stuck static cohort with a query, null last_calculation, created > 1 hour ago
+            stuck_static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_static_with_query",
+                last_calculation=None,
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=0,
+                is_static=True,
+                query={
+                    "kind": "HogQLQuery",
+                    "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
+                },
+            )
+            # Set created_at to more than 1 hour ago (auto_now_add prevents setting on create)
+            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+            reset_stuck_cohorts()
+
+            stuck_static_cohort.refresh_from_db()
+            self.assertFalse(stuck_static_cohort.is_calculating)
+            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
+
+            # Verify insert_cohort_from_query was re-dispatched
+            mock_insert_cohort_from_query.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
+
+        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+        @patch("posthog.tasks.calculate_cohort.logger")
+        def test_reset_stuck_static_cohorts_stops_after_max_errors(
+            self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
+        ) -> None:
+            now = timezone.now()
+
+            # Create a stuck static cohort that has already hit MAX_ERRORS_CALCULATING
+            stuck_static_cohort = Cohort.objects.create(
+                team_id=self.team.pk,
+                name="stuck_static_max_errors",
+                last_calculation=None,
+                deleted=False,
+                is_calculating=True,
+                errors_calculating=MAX_ERRORS_CALCULATING,
+                is_static=True,
+                query={
+                    "kind": "HogQLQuery",
+                    "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
+                },
+            )
+            # Set created_at to more than 1 hour ago
+            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+            reset_stuck_cohorts()
+
+            stuck_static_cohort.refresh_from_db()
+            # Should NOT be picked up because errors_calculating is at the max
+            self.assertTrue(stuck_static_cohort.is_calculating)
+
+            # Verify insert_cohort_from_query was NOT called
+            mock_insert_cohort_from_query.delay.assert_not_called()
 
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
@@ -500,7 +581,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 filters={
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                        "values": [
+                            {
+                                "key": "$some_prop_a",
+                                "value": "something_a",
+                                "type": "person",
+                            }
+                        ],
                     }
                 },
                 is_static=False,
@@ -513,7 +600,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 filters={
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "$some_prop_b", "value": "something_b", "type": "person"}],
+                        "values": [
+                            {
+                                "key": "$some_prop_b",
+                                "value": "something_b",
+                                "type": "person",
+                            }
+                        ],
                     }
                 },
                 is_static=False,
@@ -540,7 +633,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 team=self.team,
                 name="Cohort D",
                 filters={
-                    "properties": {"type": "AND", "values": [{"key": "id", "value": cohort_c.id, "type": "cohort"}]}
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "id", "value": cohort_c.id, "type": "cohort"}],
+                    }
                 },
                 is_static=False,
             )
@@ -574,7 +670,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             actual_calls = mock_calculate_cohort_ch_si.call_args_list
             actual_cohort_order = [call[0][0] for call in actual_calls]  # Extract cohort IDs
 
-            self.assertEqual(set(actual_cohort_order), {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id})
+            self.assertEqual(
+                set(actual_cohort_order),
+                {cohort_a.id, cohort_b.id, cohort_c.id, cohort_d.id},
+            )
 
             # Verify dependency constraints:
             # Both A and B (leaf nodes) must come before C
@@ -607,7 +706,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 filters={
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "$some_prop", "value": "something", "type": "person"}],
+                        "values": [
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            }
+                        ],
                     }
                 },
                 is_static=False,
@@ -617,7 +722,11 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             mock_calculate_cohort_ch_delay.assert_called_once()
             call_args = mock_calculate_cohort_ch_delay.call_args[0]
-            self.assertEqual(len(call_args), 3, "Single cohort path should use .delay() with no countdown")
+            self.assertEqual(
+                len(call_args),
+                3,
+                "Single cohort path should use .delay() with no countdown",
+            )
 
         @patch("posthog.tasks.calculate_cohort.chain")
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
@@ -630,7 +739,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 filters={
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                        "values": [
+                            {
+                                "key": "$some_prop_a",
+                                "value": "something_a",
+                                "type": "person",
+                            }
+                        ],
                     }
                 },
                 is_static=False,
@@ -644,9 +759,17 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                     "properties": {
                         "type": "AND",
                         "values": [
-                            {"key": "id", "value": MISSING_COHORT_ID, "type": "cohort"},  # non-existent cohort
+                            {
+                                "key": "id",
+                                "value": MISSING_COHORT_ID,
+                                "type": "cohort",
+                            },  # non-existent cohort
                             {"key": "id", "value": cohort_a.id, "type": "cohort"},
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -703,8 +826,16 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                     "properties": {
                         "type": "AND",
                         "values": [
-                            {"key": "id", "value": static_cohort_a.id, "type": "cohort"},
-                            {"key": "$dynamic_prop", "value": "dynamic_value", "type": "person"},
+                            {
+                                "key": "id",
+                                "value": static_cohort_a.id,
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "$dynamic_prop",
+                                "value": "dynamic_value",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -757,7 +888,13 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 filters={
                     "properties": {
                         "type": "AND",
-                        "values": [{"key": "$some_prop_a", "value": "something_a", "type": "person"}],
+                        "values": [
+                            {
+                                "key": "$some_prop_a",
+                                "value": "something_a",
+                                "type": "person",
+                            }
+                        ],
                     }
                 },
                 is_static=False,
@@ -771,7 +908,11 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                         "type": "AND",
                         "values": [
                             {"key": "id", "value": cohort_a.id, "type": "cohort"},
-                            {"key": "$some_prop_b", "value": "something_b", "type": "person"},
+                            {
+                                "key": "$some_prop_b",
+                                "value": "something_b",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -786,7 +927,11 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                         "type": "AND",
                         "values": [
                             {"key": "id", "value": cohort_b.id, "type": "cohort"},
-                            {"key": "$some_prop_c", "value": "something_c", "type": "person"},
+                            {
+                                "key": "$some_prop_c",
+                                "value": "something_c",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -799,7 +944,11 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                     "type": "AND",
                     "values": [
                         {"key": "id", "value": cohort_c.id, "type": "cohort"},
-                        {"key": "$some_prop_a", "value": "something_a", "type": "person"},
+                        {
+                            "key": "$some_prop_a",
+                            "value": "something_a",
+                            "type": "person",
+                        },
                     ],
                 }
             }
@@ -835,127 +984,153 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             mock_chain.assert_called_once_with(mock_task, mock_task, mock_task)
             mock_chain_instance.apply_async.assert_called_once()
 
-        def test_safe_save_cohort_state_handles_errors(self) -> None:
-            """Test that _safe_save_cohort_state handles database errors gracefully"""
-            from unittest.mock import patch
-
-            # Create a static cohort
-            cohort = Cohort.objects.create(
-                team_id=self.team.pk,
-                name="test_cohort",
-                is_static=True,
-                count=0,
-            )
-
-            # Mock save to throw an exception
-            with patch.object(cohort, "save", side_effect=Exception("Database error")):
-                # This should not raise an exception - it should handle the error gracefully
-                cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=None)
-
-            # Verify cohort state is still set correctly in memory even though save failed
-            self.assertFalse(cohort.is_calculating)
-            self.assertEqual(cohort.errors_calculating, 0)  # Should be reset for successful processing
-
-        def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
-            """Test that insert_cohort_from_query updates count even when processing fails"""
-            from unittest.mock import patch
-
-            from posthog.tasks.calculate_cohort import insert_cohort_from_query
-
-            # Create a static cohort
-            cohort = Cohort.objects.create(
-                team_id=self.team.pk,
-                name="test_query_cohort",
-                is_static=True,
-                count=0,
-                query={"kind": "HogQLQuery", "query": "SELECT person_id FROM persons LIMIT 10"},
-            )
-
-            # Mock the query processing to fail
-            with (
-                patch("posthog.api.cohort.insert_cohort_query_actors_into_ch") as mock_insert_ch,
-                patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
-            ):
-                # Make the processing functions throw an exception
-                mock_insert_ch.side_effect = Exception("Simulated query processing error")
-                mock_insert_pg.side_effect = Exception("Simulated pg insert error")
-
-                # This should not raise an exception and should update the count using PostgreSQL
-                insert_cohort_from_query(cohort.id, self.team.pk)
-
-                # Verify count was updated despite processing errors (should be 0 since no people were inserted due to mocked failures)
-                cohort.refresh_from_db()
-                self.assertEqual(
-                    cohort.count, 0, "Count should be updated using PostgreSQL even when query processing fails"
-                )
-                self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
-                self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
-
-        @patch("posthog.tasks.calculate_cohort.chain")
-        @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
-        def test_increment_version_and_enqueue_calculate_cohort_with_referencing_cohorts(
-            self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
-        ) -> None:
-            # Create cohort A (base cohort)
-            cohort_a = Cohort.objects.create(
-                team=self.team,
-                name="Cohort A",
-                filters={
-                    "properties": {"type": "AND", "values": [{"key": "$browser", "value": "Chrome", "type": "person"}]}
-                },
-                is_static=False,
-            )
-
-            # Create cohort B that references A
-            cohort_b = Cohort.objects.create(
-                team=self.team,
-                name="Cohort B (references A)",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {"key": "id", "value": cohort_a.id, "type": "cohort"},
-                            {"key": "$os", "value": "Windows", "type": "person"},
-                        ],
-                    }
-                },
-                is_static=False,
-            )
-
-            # Create cohort C that references B
-            cohort_c = Cohort.objects.create(
-                team=self.team,
-                name="Cohort C (references B)",
-                filters={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {"key": "id", "value": cohort_b.id, "type": "cohort"},
-                            {"key": "$country", "value": "US", "type": "person"},
-                        ],
-                    }
-                },
-                is_static=False,
-            )
-
-            mock_chain_instance = MagicMock()
-            mock_chain.return_value = mock_chain_instance
-            mock_task = MagicMock()
-            mock_calculate_cohort_ch_si.return_value = mock_task
-
-            # Update cohort A - should trigger recalculation of A, B, then C
-            increment_version_and_enqueue_calculate_cohort(cohort_a, initiating_user=None)
-
-            # Should call calculate_cohort_ch.si for all 3 cohorts (A, B, C)
-            self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
-
-            # Verify all cohorts are included
-            actual_calls = mock_calculate_cohort_ch_si.call_args_list
-            actual_cohort_ids = {call[0][0] for call in actual_calls}
-            expected_cohort_ids = {cohort_a.id, cohort_b.id, cohort_c.id}
-            self.assertEqual(actual_cohort_ids, expected_cohort_ids)
-
-            mock_chain.assert_called_once()
-            mock_chain_instance.apply_async.assert_called_once()
-
     return TestCalculateCohort
+
+
+class TestCohortCalculationTasks(APIBaseTest):
+    def test_safe_save_cohort_state_handles_errors(self) -> None:
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_cohort",
+            is_static=True,
+            count=0,
+        )
+
+        with patch.object(cohort, "save", side_effect=Exception("Database error")) as mock_save:
+            cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=None)
+
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual(mock_save.call_count, 2)
+
+    @parameterized.expand(
+        [
+            ("success", None, ["is_calculating", "last_calculation", "errors_calculating", "count"]),
+            (
+                "error",
+                Exception("processing failed"),
+                ["is_calculating", "errors_calculating", "last_error_at", "count"],
+            ),
+        ]
+    )
+    def test_safe_save_cohort_state_passes_update_fields(
+        self, _name: str, processing_error: Exception | None, expected_update_fields: list[str]
+    ) -> None:
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_cohort",
+            is_static=True,
+            count=0,
+        )
+
+        with patch.object(cohort, "save") as mock_save:
+            cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=processing_error)
+
+        mock_save.assert_called_once_with(update_fields=expected_update_fields)
+
+    def test_safe_save_cohort_state_does_not_trigger_downstream_signals(self) -> None:
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_cohort",
+            is_static=True,
+            count=0,
+        )
+
+        with (
+            patch("posthog.models.cohort.dependencies._on_cohort_changed") as mock_dep_cache,
+            patch("posthog.tasks.feature_flags.update_team_flags_cache") as mock_flags_cache,
+            patch("posthog.tasks.hog_functions.refresh_affected_hog_functions") as mock_hog_refresh,
+        ):
+            cohort._safe_save_cohort_state(team_id=self.team.pk, processing_error=None)
+
+        mock_dep_cache.assert_not_called()
+        mock_flags_cache.delay.assert_not_called()
+        mock_hog_refresh.delay.assert_not_called()
+
+    def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_query_cohort",
+            is_static=True,
+            count=0,
+            query={"kind": "HogQLQuery", "query": "SELECT person_id FROM persons LIMIT 10"},
+        )
+
+        with (
+            patch("posthog.api.cohort.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
+        ):
+            mock_insert_ch.side_effect = Exception("Simulated query processing error")
+            mock_insert_pg.side_effect = Exception("Simulated pg insert error")
+
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+            cohort.refresh_from_db()
+            self.assertEqual(
+                cohort.count, 0, "Count should be updated using PostgreSQL even when query processing fails"
+            )
+            self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
+            self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
+
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+    def test_increment_version_and_enqueue_calculate_cohort_with_referencing_cohorts(
+        self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+    ) -> None:
+        cohort_a = Cohort.objects.create(
+            team=self.team,
+            name="Cohort A",
+            filters={
+                "properties": {"type": "AND", "values": [{"key": "$browser", "value": "Chrome", "type": "person"}]}
+            },
+            is_static=False,
+        )
+
+        cohort_b = Cohort.objects.create(
+            team=self.team,
+            name="Cohort B (references A)",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort_a.id, "type": "cohort"},
+                        {"key": "$os", "value": "Windows", "type": "person"},
+                    ],
+                }
+            },
+            is_static=False,
+        )
+
+        cohort_c = Cohort.objects.create(
+            team=self.team,
+            name="Cohort C (references B)",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort_b.id, "type": "cohort"},
+                        {"key": "$country", "value": "US", "type": "person"},
+                    ],
+                }
+            },
+            is_static=False,
+        )
+
+        mock_chain_instance = MagicMock()
+        mock_chain.return_value = mock_chain_instance
+        mock_task = MagicMock()
+        mock_calculate_cohort_ch_si.return_value = mock_task
+
+        increment_version_and_enqueue_calculate_cohort(cohort_a, initiating_user=None)
+
+        self.assertEqual(mock_calculate_cohort_ch_si.call_count, 3)
+
+        actual_calls = mock_calculate_cohort_ch_si.call_args_list
+        actual_cohort_ids = {call[0][0] for call in actual_calls}
+        expected_cohort_ids = {cohort_a.id, cohort_b.id, cohort_c.id}
+        self.assertEqual(actual_cohort_ids, expected_cohort_ids)
+
+        mock_chain.assert_called_once()
+        mock_chain_instance.apply_async.assert_called_once()

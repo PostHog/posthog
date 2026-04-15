@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -24,12 +24,13 @@ export interface InfoTableRow {
 
 export interface InfoTabLogicProps {
     tabId: string
+    viewId?: string
 }
 
 export const infoTabLogic = kea<infoTabLogicType>([
     path(['data-warehouse', 'editor', 'sidebar', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
-    key((props) => props.tabId),
+    key((props) => `${props.tabId}-${props.viewId ?? 'new'}`),
     connect((props: InfoTabLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),
@@ -39,6 +40,7 @@ export const infoTabLogic = kea<infoTabLogicType>([
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMap'],
         ],
+        actions: [sqlEditorLogic({ tabId: props.tabId }), ['loadUpstream']],
     })),
     actions({
         setStartingMaterialization: (starting: boolean) => ({ starting }),
@@ -124,8 +126,22 @@ export const infoTabLogic = kea<infoTabLogicType>([
         ],
         hasMoreJobsToLoad: [(s) => [s.dataModelingJobs], (dataModelingJobs) => !!dataModelingJobs?.next],
     }),
+    afterMount(({ actions, props }) => {
+        if (props.viewId) {
+            actions.loadDataModelingJobs(props.viewId)
+        }
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.viewId && props.viewId !== oldProps.viewId) {
+            actions.loadDataModelingJobs(props.viewId)
+        }
+    }),
     listeners(({ actions, cache }) => ({
         loadDataModelingJobsSuccess: ({ payload }) => {
+            if (payload) {
+                actions.loadUpstream(payload)
+            }
+
             cache.disposables.add(() => {
                 const timeoutId = setTimeout(() => {
                     if (payload) {
@@ -136,13 +152,5 @@ export const infoTabLogic = kea<infoTabLogicType>([
             }, 'dataModelingJobsRefreshTimeout')
         },
     })),
-    subscriptions(({ actions, values }) => ({
-        editingView: (editingView) => {
-            if (editingView) {
-                if (values.dataModelingJobs === null) {
-                    actions.loadDataModelingJobs(editingView.id)
-                }
-            }
-        },
-    })),
+    subscriptions(() => ({})),
 ])

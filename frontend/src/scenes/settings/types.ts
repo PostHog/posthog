@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
     | 'environment-customization'
     | 'environment-autocapture'
     | 'environment-heatmaps'
@@ -33,10 +34,11 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-error-tracking-configuration'
     | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
-    | 'environment-twig'
+    | 'environment-posthog-code'
     | 'environment-integrations'
     | 'environment-activity-logs'
     | 'environment-discussions'
@@ -54,7 +56,6 @@ export type SettingSectionId =
     | 'organization-integrations'
     | 'organization-oauth-apps'
     | 'organization-members'
-    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -64,6 +65,7 @@ export type SettingSectionId =
     | 'organization-billing'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
     | 'user-customization'
@@ -73,7 +75,14 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-api'
+    | 'conversations-notifications'
+    | 'conversations-slack'
+    | 'conversations-email'
+    | 'conversations-widget'
+    | 'conversations-workflows'
     | 'snippet-v2'
+    | 'js-snippet-version'
     | 'replay-triggers'
     | 'replay-integrations'
     | 'display-name'
@@ -90,6 +99,7 @@ export type SettingId =
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
     | 'person-display-name'
+    | 'person-last-seen-at'
     | 'path-cleaning'
     | 'datacapture'
     | 'human-friendly-comparison-periods'
@@ -128,7 +138,7 @@ export type SettingId =
     | 'error-tracking-spike-detection'
     | 'integration-webhooks'
     | 'integration-slack'
-    | 'integration-twig-slack'
+    | 'integration-posthog-code-slack'
     | 'integration-error-tracking'
     | 'integration-linear'
     | 'integration-github'
@@ -143,7 +153,6 @@ export type SettingId =
     | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'
@@ -156,6 +165,7 @@ export type SettingId =
     | 'change-password'
     | '2fa'
     | 'passkeys'
+    | 'connected-apps'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'
@@ -165,6 +175,7 @@ export type SettingId =
     | 'replay-ai-config'
     | 'heatmaps'
     | 'hedgehog-mode'
+    | 'sidebar-auto-suggest'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'session-join-mode'
@@ -200,6 +211,7 @@ export type SettingId =
     | 'logs'
     | 'logs-json-parse'
     | 'logs-retention'
+    | 'logs-alerting'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
@@ -272,4 +284,11 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * Sections with the same group will be nested under a group header.
      */
     group?: string
+
+    /**
+     * When true, the section is hidden from the settings page navigation and search
+     * but remains accessible when referenced directly via sectionId (e.g. from a
+     * product's own configuration scene).
+     */
+    hideFromNavigation?: boolean
 }

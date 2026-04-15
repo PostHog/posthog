@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -18,7 +19,8 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import Cohort, PropertyDefinition
 from posthog.models.insight_variable import InsightVariable
 
-from products.data_warehouse.backend.models import ExternalDataSource, ExternalDataSourceType
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -183,6 +185,244 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         metadata = self._expr("is_identified", "persons")
         self.assertEqual(metadata.isValid, True)
+
+    @patch("posthog.hogql.metadata.Database.create_for")
+    def test_metadata_resolves_database_from_connection_id(self, mock_create_for):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+
+        get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+            user=self.user,
+        )
+
+        self.assertEqual(mock_create_for.call_count, 1)
+        self.assertEqual(mock_create_for.call_args.kwargs["team"], self.team)
+        self.assertEqual(mock_create_for.call_args.kwargs["user"], self.user)
+        self.assertEqual(mock_create_for.call_args.kwargs["connection_id"], str(source.id))
+        self.assertIn("modifiers", mock_create_for.call_args.kwargs)
+
+    def test_metadata_rejects_soft_deleted_connection_id(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            deleted=True,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
+
+    def test_metadata_with_direct_connection_does_not_allow_posthog_tables(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM persons LIMIT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertTrue(any("persons" in (error.message or "") for error in metadata.errors))
+
+    def test_metadata_with_direct_connection_allows_canonical_direct_table_names(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_user",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM posthog_user LIMIT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
+
+    def test_metadata_with_direct_connection_allows_connection_metadata_function_in_expr(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            connection_metadata={"available_functions": ["icu_collate_nl"]},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"name": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_user",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL_EXPR,
+                query="icu_collate_nl(name, 'nl')",
+                sourceQuery=HogQLQuery(query="select * from posthog_user"),
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertTrue(metadata.isValid)
+        self.assertEqual(metadata.errors, [])
+
+    def test_metadata_with_direct_connection_does_not_allow_disabled_tables(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="posthog_user",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            name="posthog_user",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=False,
+        )
+
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT * FROM posthog_user LIMIT 1",
+                response=None,
+                connectionId=str(source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertTrue(any("posthog_user" in (error.message or "") for error in metadata.errors))
+
+    def test_metadata_rejects_non_direct_connection_id(self):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="SELECT 1",
+                response=None,
+                connectionId=str(selected_source.id),
+            ),
+            team=self.team,
+        )
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual([error.message for error in metadata.errors], ["Invalid connectionId for this team"])
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_metadata_in_cohort(self):
@@ -607,3 +847,66 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         # Doesn't include `name` because it's a property access and not a field
         # TODO: Should *probably* update the code to resolve that type as well
         self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])
+
+    def test_metadata_warns_about_similar_subquery_in_singular(self):
+        metadata = self._select(
+            """
+            SELECT *
+            FROM (
+                SELECT person_id, count() AS total
+                FROM events
+                GROUP BY person_id
+            ) a
+            JOIN (
+                SELECT person_id, max(timestamp) AS last_seen
+                FROM events
+                GROUP BY person_id
+            ) b ON a.person_id = b.person_id
+            """
+        )
+
+        self.assertTrue(any("very similar to 1 other subquery" in warning.message for warning in metadata.warnings))
+        self.assertTrue(all(warning.fix is None for warning in metadata.warnings))
+
+    def test_metadata_warns_about_similar_subquery_in_plural(self):
+        metadata = self._select(
+            """
+            SELECT *
+            FROM (
+                SELECT person_id, count() AS total
+                FROM events
+                GROUP BY person_id
+            ) a
+            JOIN (
+                SELECT person_id, max(timestamp) AS last_seen
+                FROM events
+                GROUP BY person_id
+            ) b ON a.person_id = b.person_id
+            JOIN (
+                SELECT person_id, min(timestamp) AS first_seen
+                FROM events
+                GROUP BY person_id
+            ) c ON a.person_id = c.person_id
+            """
+        )
+
+        self.assertTrue(any("very similar to 2 other subqueries" in warning.message for warning in metadata.warnings))
+        self.assertTrue(all(warning.fix is None for warning in metadata.warnings))
+
+    def test_metadata_does_not_warn_for_distinct_subquery_sources(self):
+        metadata = self._select(
+            """
+            SELECT *
+            FROM (
+                SELECT person_id, count() AS total
+                FROM events
+                GROUP BY person_id
+            ) a
+            JOIN (
+                SELECT id, created_at
+                FROM persons
+            ) b ON a.person_id = b.id
+            """
+        )
+
+        self.assertFalse(any("very similar" in warning.message for warning in metadata.warnings))

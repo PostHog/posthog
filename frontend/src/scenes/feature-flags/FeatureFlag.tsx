@@ -98,7 +98,7 @@ import {
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagForm } from './FeatureFlagForm'
@@ -232,7 +232,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Overview',
             key: FeatureFlagsTab.OVERVIEW,
             content: useFormUI ? (
-                <FeatureFlagOverviewV2 featureFlag={featureFlag} onGetFeedback={handleGetFeedback} />
+                <FeatureFlagOverviewV2 featureFlag={featureFlag} />
             ) : (
                 <>
                     <div className="flex flex-col gap-4">
@@ -305,20 +305,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL]) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Experiments</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.EXPERIMENTS,
-            content: <ExperimentsTab featureFlag={featureFlag} />,
-        })
-    }
+    tabs.push({
+        label: (
+            <div className="flex flex-row">
+                <div>Experiments</div>
+                <LemonTag className="ml-2 float-right uppercase" type="primary">
+                    New
+                </LemonTag>
+            </div>
+        ),
+        key: FeatureFlagsTab.EXPERIMENTS,
+        content: <ExperimentsTab featureFlag={featureFlag} />,
+    })
 
     return (
         <>
@@ -376,7 +374,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonBanner type="warning">
                                     This feature flag is linked to{' '}
                                     <Link target="_blank" to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        {experiment?.name || `experiment ${featureFlag.experiment_set[0]}`}
+                                        {experiment?.name ||
+                                            featureFlag.experiment_set_metadata?.[0]?.name ||
+                                            `experiment ${featureFlag.experiment_set[0]}`}
                                     </Link>
                                     . Make changes from the experiment page unless you need advanced flag settings.
                                 </LemonBanner>
@@ -605,39 +605,24 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             )}
                             <SceneDivider />
-                            <SceneSection
-                                title={
-                                    featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS]
-                                        ? 'Tags & evaluation contexts'
-                                        : 'Tags'
-                                }
-                            >
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                            <SceneSection title="Tags">
+                                {!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? null : (
                                     <div className="text-secondary text-sm mb-2">
-                                        Use tags to organize and filter your feature flags. Mark specific tags as{' '}
-                                        <strong>evaluation contexts</strong> to control when flags can be evaluated –
-                                        flags will only evaluate when the SDK provides matching evaluation contexts.{' '}
-                                        <Link
-                                            to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                            target="_blank"
-                                            targetBlankIcon
-                                        >
-                                            Learn more about evaluation contexts
-                                        </Link>
+                                        Use tags to organize and filter your feature flags.
                                     </div>
                                 )}
                                 <LemonField name="tags">
                                     {({ value: formTags, onChange: onChangeTags }) => (
                                         <>
                                             {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                <LemonField name="evaluation_tags">
-                                                    {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
-                                                        <FeatureFlagEvaluationTags
+                                                <LemonField name="evaluation_contexts">
+                                                    {({ value: formEvalContexts, onChange: onChangeEvalContexts }) => (
+                                                        <FeatureFlagEvaluationContexts
                                                             tags={formTags}
-                                                            evaluationTags={formEvalTags || []}
-                                                            onChange={(updatedTags, updatedEvaluationTags) => {
+                                                            evaluationContexts={formEvalContexts || []}
+                                                            onChange={(updatedTags, updatedEvaluationContexts) => {
                                                                 onChangeTags(updatedTags)
-                                                                onChangeEvalTags(updatedEvaluationTags)
+                                                                onChangeEvalContexts(updatedEvaluationContexts)
                                                             }}
                                                             tagsAvailable={tags.filter(
                                                                 (tag: string) => !formTags?.includes(tag)
@@ -728,14 +713,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <ScenePanel>
                             <ScenePanelInfoSection>
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                    <FeatureFlagEvaluationTags
+                                    <FeatureFlagEvaluationContexts
                                         tags={featureFlag.tags}
-                                        evaluationTags={featureFlag.evaluation_tags || []}
-                                        onSave={(updatedTags, updatedEvaluationTags) => {
+                                        evaluationContexts={featureFlag.evaluation_contexts || []}
+                                        onSave={(updatedTags, updatedEvaluationContexts) => {
                                             const updatedFlag = {
                                                 ...featureFlag,
                                                 tags: updatedTags,
-                                                evaluation_tags: updatedEvaluationTags,
+                                                evaluation_contexts: updatedEvaluationContexts,
                                             }
                                             updateFlag(updatedFlag)
                                             saveFeatureFlag(updatedFlag)
@@ -995,7 +980,11 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard
+                        id={dashboardId!.toString()}
+                        placement={DashboardPlacement.FeatureFlag}
+                        backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlagKey }}
+                    />
                 </>
             ) : (
                 <div>
@@ -1681,9 +1670,9 @@ function FeatureFlagRollout({
                             <SceneDivider />
                             <SceneSection title="Tags">
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                    <FeatureFlagEvaluationTags
+                                    <FeatureFlagEvaluationContexts
                                         tags={featureFlag.tags}
-                                        evaluationTags={featureFlag.evaluation_tags || []}
+                                        evaluationContexts={featureFlag.evaluation_contexts || []}
                                         flagId={featureFlag.id}
                                         context="static"
                                     />

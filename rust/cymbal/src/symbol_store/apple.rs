@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Cursor, Read};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use serde::Deserialize;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
+use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
+
 use crate::{
     error::{AppleError, ResolveError},
-    symbol_store::{Fetcher, Parser},
+    symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 /// Manifest format for source files bundled in the dSYM ZIP under `__source/`
@@ -28,6 +30,14 @@ pub struct ParsedAppleSymbols {
     /// Source file contents indexed by DWARF absolute path.
     /// None if the bundle doesn't contain source files.
     sources: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
+}
+
+impl Countable for ParsedAppleSymbols {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
+    }
 }
 
 pub struct AppleProvider {}
@@ -53,13 +63,26 @@ impl Parser for AppleProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
-        // CLI uploads raw zip data directly
-        ParsedAppleSymbols::from_dsym_zip(source)
+        // Try to unwrap symbol_data container first (new format),
+        // fall back to raw ZIP for backward compatibility with existing uploads.
+        // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
+        let (zip_data, decompressed_bytes) =
+            match read_symbol_data_with_byte_count::<AppleDsym>(source.clone()) {
+                Ok((dsym, bytes)) => (dsym.data, bytes),
+                Err(_) => {
+                    let len = source.len();
+                    (source, len)
+                }
+            };
+        ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
     }
 }
 
 impl ParsedAppleSymbols {
-    pub fn from_dsym_zip(zip_data: Vec<u8>) -> Result<Self, ResolveError> {
+    pub fn from_dsym_zip(
+        zip_data: Vec<u8>,
+        decompressed_bytes: usize,
+    ) -> Result<Self, ResolveError> {
         let cursor = Cursor::new(zip_data);
         let mut archive =
             ZipArchive::new(cursor).map_err(|e| AppleError::ParseError(e.to_string()))?;
@@ -74,6 +97,7 @@ impl ParsedAppleSymbols {
         Ok(Self {
             symcache_data,
             sources,
+            decompressed_bytes,
         })
     }
 
@@ -109,16 +133,54 @@ impl ParsedAppleSymbols {
     }
 
     /// Get the source content for a given DWARF absolute path.
+    ///
+    /// Uses a two-stage lookup to handle inlined cross-file frames under Swift WMO:
+    ///
+    /// 1. **Exact match** – fast path, works for physical-function frames where the
+    ///    CU's own path matches the manifest key verbatim.
+    ///
+    /// 2. **Basename fallback** – when the embedding CU's line table records a
+    ///    relative `include_directories` entry (e.g. `comp_dir="/"`,
+    ///    `dir="PostHogExample"`) symcache resolves `full_path` as
+    ///    `"/PostHogExample/Foo.swift"`, but the CLI built the manifest from the
+    ///    callee CU's absolute path `"/Users/…/PostHogExample/Foo.swift"`.
+    ///    The basename fallback matches by filename and is only applied when
+    ///    there is exactly one candidate (no ambiguity).
     pub fn get_source(&self, dwarf_path: &str) -> Option<&str> {
-        self.sources
-            .as_ref()
-            .and_then(|s| s.get(dwarf_path))
-            .map(|s| s.as_str())
+        let sources = self.sources.as_ref()?;
+
+        // 1. Exact match (fast path, works for physical-function frames)
+        if let Some(text) = sources.get(dwarf_path) {
+            return Some(text.as_str());
+        }
+
+        // 2. Basename fallback for inlined cross-file frames where the embedding
+        //    CU's line table records a relative path but the manifest was built
+        //    from the callee CU's absolute path (Swift WMO common case).
+        let basename = std::path::Path::new(dwarf_path).file_name()?.to_str()?;
+        let mut candidates = sources.iter().filter(|(k, _)| k.ends_with(basename));
+        let first = candidates.next();
+        // Only use the fallback if there is exactly one candidate (no ambiguity).
+        if first.is_some() && candidates.next().is_none() {
+            return first.map(|(_, v)| v.as_str());
+        }
+
+        None
     }
 
     fn extract_dwarf_from_zip(
         archive: &mut ZipArchive<Cursor<Vec<u8>>>,
     ) -> Result<Vec<u8>, ResolveError> {
+        // New format: single DWARF binary stored as "dwarf" at root level
+        if let Ok(mut file) = archive.by_name("dwarf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)
+                .map_err(|e| AppleError::ParseError(e.to_string()))?;
+            return Ok(data);
+        }
+
+        // Old format: full dSYM bundle with Contents/Resources/DWARF/<name>
+        // TODO(2026-09-24): Remove this fallback once all old uploads have expired.
         for i in 0..archive.len() {
             let mut file = archive
                 .by_index(i)
@@ -141,11 +203,39 @@ impl ParsedAppleSymbols {
         let archive =
             Archive::parse(dwarf_data).map_err(|e| AppleError::ParseError(e.to_string()))?;
 
-        let obj = archive
-            .objects()
-            .next()
-            .ok_or_else(|| AppleError::ParseError("No objects in archive".to_string()))?
-            .map_err(|e| AppleError::ParseError(e.to_string()))?;
+        // For fat (universal) Mach-O binaries the archive contains multiple slices.
+        // Crash reports from iOS/iPadOS devices are always arm64, so prefer that
+        // architecture when building the symcache.  Falling back to the first slice
+        // (the old behaviour) could pick x86_64 — the simulator architecture that
+        // comes first in fat binaries built by Xcode — producing completely wrong
+        // symbol names and line numbers for device crashes.
+        let obj = {
+            let mut preferred: Option<_> = None;
+            let mut fallback: Option<_> = None;
+            for result in archive.objects() {
+                match result {
+                    Ok(o) => {
+                        let arch_name = o.arch().name();
+                        tracing::debug!("[symcache] candidate arch: {}", arch_name);
+                        if arch_name.starts_with("arm64") {
+                            preferred = Some(Ok(o));
+                            break; // arm64 found — no need to look further
+                        } else if fallback.is_none() {
+                            fallback = Some(Ok(o));
+                        }
+                    }
+                    Err(e) => {
+                        if fallback.is_none() {
+                            fallback = Some(Err(e));
+                        }
+                    }
+                }
+            }
+            preferred
+                .or(fallback)
+                .ok_or_else(|| AppleError::ParseError("No objects in archive".to_string()))?
+                .map_err(|e| AppleError::ParseError(e.to_string()))?
+        };
 
         let mut converter = SymCacheConverter::new();
         converter
@@ -160,14 +250,20 @@ impl ParsedAppleSymbols {
         Ok(buffer)
     }
 
-    pub fn lookup(&self, addr: u64) -> Result<Option<SymbolInfo>, ResolveError> {
+    /// Look up all logical frames for an address, including inlined frames.
+    ///
+    /// The symcache iterator returns frames innermost-first:
+    /// - index 0 is the deepest inlined function (the actual code running at `addr`)
+    /// - last index is the outermost physical function that contains the address
+    ///
+    /// Returns an empty `Vec` when the address is not found in the symcache.
+    pub fn lookup(&self, addr: u64) -> Result<Vec<SymbolInfo>, ResolveError> {
         let symcache = SymCache::parse(&self.symcache_data)
             .map_err(|e| AppleError::ParseError(e.to_string()))?;
 
-        let lookup_result = symcache.lookup(addr).next();
-
-        match lookup_result {
-            Some(result) => {
+        let results = symcache
+            .lookup(addr)
+            .map(|result| {
                 let raw_name = result.function().name_for_demangling();
 
                 // Short name (no params/return type) for display as resolved_name
@@ -181,19 +277,19 @@ impl ParsedAppleSymbols {
                     .unwrap_or_else(|| raw_name.to_string());
 
                 let full_path = result.file().map(|f| f.full_path());
-
                 let filename = full_path.as_ref().and_then(|path| extract_filename(path));
 
-                Ok(Some(SymbolInfo {
+                SymbolInfo {
                     display_name,
                     full_name,
                     filename,
                     full_path,
                     line: result.line(),
-                }))
-            }
-            None => Ok(None),
-        }
+                }
+            })
+            .collect();
+
+        Ok(results)
     }
 }
 

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
@@ -21,6 +22,7 @@ export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromF
 
     connect({
         actions: [eventUsageLogic, ['reportExperimentCreated']],
+        values: [teamLogic, ['currentProjectId']],
     }),
 
     actions({
@@ -82,7 +84,10 @@ export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromF
             }
 
             try {
-                const experiment: Experiment = await api.create(`api/projects/@current/experiments`, payload)
+                const experiment: Experiment = await api.create(
+                    `api/projects/${values.currentProjectId}/experiments`,
+                    payload
+                )
                 actions.createDraftExperimentSuccess(experiment)
             } catch (error: any) {
                 const errorMessage = error?.detail || 'Failed to create experiment'
@@ -91,10 +96,6 @@ export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromF
         },
 
         createDraftExperimentSuccess: ({ experiment }) => {
-            actions.reportExperimentCreated(experiment, {
-                creation_source: 'feature_flag_quick_create',
-                has_linked_flag: true,
-            })
             lemonToast.success('Draft experiment created')
             router.actions.push(urls.experiment(experiment.id))
         },

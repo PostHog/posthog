@@ -11,12 +11,27 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_
 import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 
+import { PersonHogClient } from '../../ingestion/personhog/client'
+import { PersonHogGroupRepository } from '../../ingestion/personhog/personhog-group-repository'
+import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
+import { GroupsManagerService } from './managers/groups-manager.service'
+
+type MockPersonHogClient = {
+    groups: jest.Mocked<
+        Pick<
+            PersonHogClient['groups'],
+            'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
+        >
+    >
+    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
+}
 
 describe('BatchExportHogFunctionService', () => {
     let hub: Hub
@@ -41,9 +56,9 @@ describe('BatchExportHogFunctionService', () => {
 
     beforeAll(async () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, hub)
+        api = new CdpApi(hub, createCdpConsumerDeps(hub))
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -388,6 +403,111 @@ describe('BatchExportHogFunctionService', () => {
 
             const fetchBody = parseJSON(mockFetch.mock.calls[0][1].body)
             expect(fetchBody.groups).toEqual({})
+        })
+    })
+
+    describe('groups enrichment via PersonHogGroupRepository', () => {
+        let originalGroupsManager: GroupsManagerService
+
+        const setupGroups = async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, team.organization_id, [
+                { key: 'data_pipelines', name: 'Data Pipelines' },
+                { key: 'group_analytics', name: 'Group Analytics' },
+            ])
+            hub.teamManager['lazyLoader'].clear()
+
+            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
+            await hub.groupRepository.insertGroup(
+                team.id,
+                0 as any,
+                'acme-inc',
+                { name: 'Acme Inc', industry: 'Tech' },
+                DateTime.now(),
+                {},
+                {}
+            )
+        }
+
+        beforeEach(() => {
+            originalGroupsManager = api['batchExportHogFunctionService']['groupsManager']
+        })
+
+        afterEach(() => {
+            api['batchExportHogFunctionService']['groupsManager'] = originalGroupsManager
+        })
+
+        it('enriches globals identically when routed through gRPC mock', async () => {
+            await setupGroups()
+
+            // Build a mock gRPC client that returns the same data postgres holds
+            const mockGrpc: MockPersonHogClient = {
+                groups: {
+                    fetchGroup: jest.fn(),
+                    fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                        {
+                            team_id: team.id as TeamId,
+                            group_type_index: 0 as GroupTypeIndex,
+                            group_key: 'acme-inc',
+                            group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                        },
+                    ]),
+                    fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                        const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
+                        for (const id of teamIds) {
+                            result[id.toString()] = [{ group_type: 'company', group_type_index: 0 as GroupTypeIndex }]
+                        }
+                        return Promise.resolve(result)
+                    }),
+                    fetchGroupTypesByProjectIds: jest.fn(),
+                },
+                persons: {
+                    fetchPersonsByDistinctIds: jest.fn(),
+                    fetchPersonsByPersonIds: jest.fn(),
+                },
+            }
+
+            const personhogRepo = new PersonHogGroupRepository(
+                hub.groupRepository,
+                mockGrpc as unknown as PersonHogClient,
+                100,
+                new Set(),
+                'test'
+            )
+            const personhogGroupsManager = new GroupsManagerService(hub.teamManager, personhogRepo)
+            api['batchExportHogFunctionService']['groupsManager'] = personhogGroupsManager
+
+            clickhouseEvent.properties = JSON.stringify({
+                $lib_version: '1.0.0',
+                $groups: { company: 'acme-inc' },
+            })
+
+            mockFetch.mockImplementationOnce(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const res = await postInvocation({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+
+            const fetchBody = parseJSON(mockFetch.mock.calls[0][1].body)
+            expect(fetchBody.groups).toMatchObject({
+                company: expect.objectContaining({
+                    id: 'acme-inc',
+                    type: 'company',
+                    properties: { name: 'Acme Inc', industry: 'Tech' },
+                }),
+            })
+
+            // Verify gRPC was the path used (not postgres)
+            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalled()
+            expect(mockGrpc.groups.fetchGroupsByKeys).toHaveBeenCalled()
         })
     })
 })
