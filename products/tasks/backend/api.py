@@ -258,10 +258,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         run_source = request.validated_data.get("run_source")
         signal_report_id = request.validated_data.get("signal_report_id")
         github_user_token = request.validated_data.get("github_user_token")
+        initial_permission_mode = request.validated_data.get("initial_permission_mode")
 
         extra_state = None
         if pending_user_message is not None:
             extra_state = {"pending_user_message": pending_user_message}
+        if initial_permission_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["initial_permission_mode"] = initial_permission_mode
 
         if resume_from_run_id:
             # prevent cross-task resume

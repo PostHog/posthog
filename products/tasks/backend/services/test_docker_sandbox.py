@@ -241,6 +241,7 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(task_id) in command
                 assert shlex.quote(run_id) in command
                 assert shlex.quote(mode) in command
+                assert "--createPr true" in command
 
     def test_parse_repo_mount_map_empty(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -331,6 +332,7 @@ class TestDockerSandboxUnit:
 
         mock_setup_agentsh.assert_not_called()
         command = mock_execute.call_args_list[0][0][0]
+        assert "--createPr true" in command
         assert "agentsh exec" not in command
         assert "nohup" in command
         assert "./node_modules/.bin/agent-server" in command
@@ -360,8 +362,40 @@ class TestDockerSandboxUnit:
 
         mock_setup_agentsh.assert_not_called()
         command = mock_execute.call_args_list[0][0][0]
+        assert "--createPr true" in command
         assert "--allowedDomains" not in command
         assert "agentsh exec" not in command
+
+    @pytest.mark.parametrize(
+        ("create_pr", "expected_flag"),
+        [
+            (True, "--createPr true"),
+            (False, "--createPr false"),
+        ],
+    )
+    def test_start_agent_server_passes_create_pr_flag(self, create_pr: bool, expected_flag: str):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    create_pr=create_pr,
+                )
+
+        command = mock_execute.call_args_list[0][0][0]
+        assert expected_flag in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

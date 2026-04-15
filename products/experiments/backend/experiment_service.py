@@ -1255,6 +1255,8 @@ class ExperimentService:
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
         """
+        update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
+
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
         if "metrics" in update_data:
@@ -1301,8 +1303,13 @@ class ExperimentService:
                 saved_metric_serializer.is_valid(raise_exception=True)
                 saved_metric_serializer.save()
 
-        # --- feature flag variant sync for draft experiments ---------------
-        if experiment.is_draft:
+        # --- feature flag sync ------------------------------------------------
+        # Draft experiments always sync parameters to the linked feature flag.
+        # Running experiments only sync when update_feature_flag_params=True,
+        # to prevent accidental side effects (e.g. overwrites when the frontend
+        # spreads stale parameters alongside unrelated updates, or an agent
+        # calls MCP with too many params).
+        if experiment.is_draft or update_feature_flag_params:
             holdout = experiment.holdout
             if "holdout" in update_data:
                 holdout = update_data["holdout"]
