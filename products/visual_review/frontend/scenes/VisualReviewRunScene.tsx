@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import React from 'react'
 
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
@@ -26,6 +27,12 @@ const RESULT_DOT_COLORS: Record<string, string> = {
     unchanged: 'bg-muted',
 }
 
+const REVIEW_STATE_ICONS: Record<string, { symbol: string; color: string } | null> = {
+    approved: { symbol: '✓', color: 'text-success' },
+    tolerated: { symbol: '~', color: 'text-muted' },
+    pending: null,
+}
+
 function SnapshotThumbnail({
     snapshot,
     isSelected,
@@ -38,6 +45,7 @@ function SnapshotThumbnail({
     const parts = snapshot.identifier.split('--')
     const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
     const result = snapshot.result || 'unchanged'
+    const reviewIcon = REVIEW_STATE_ICONS[snapshot.review_state]
 
     return (
         <Tooltip title={snapshot.identifier}>
@@ -71,6 +79,9 @@ function SnapshotThumbnail({
                     <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>
                         {shortName}
                     </span>
+                    {reviewIcon && (
+                        <span className={`text-[10px] shrink-0 ${reviewIcon.color}`}>{reviewIcon.symbol}</span>
+                    )}
                 </div>
             </button>
         </Tooltip>
@@ -84,8 +95,6 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
-        hasChanges,
-        unapprovedChangesCount,
         changedSnapshots,
         snapshotHistory,
         snapshotHistoryLoading,
@@ -113,11 +122,23 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
-    // Count by result type — tolerated snapshots are excluded from the changed count
-    const toleratedCount = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
-    const changedCount = snapshots.filter((s: SnapshotApi) => s.result === 'changed').length - toleratedCount
-    const newCount = snapshots.filter((s: SnapshotApi) => s.result === 'new').length
-    const removedCount = snapshots.filter((s: SnapshotApi) => s.result === 'removed').length
+    // Diff summary (server-side counts are accurate, client-side for review states)
+    const diffChanged = run.summary.changed
+    const diffNew = run.summary.new
+    const diffRemoved = run.summary.removed
+    const autoTolerated = run.summary.tolerated_matched ?? 0
+
+    // Review summary (from loaded snapshots — paginated but covers actionable ones first)
+    const reviewPending = snapshots.filter(
+        (s: SnapshotApi) => s.result !== 'unchanged' && s.review_state === 'pending'
+    ).length
+    const reviewApproved = snapshots.filter((s: SnapshotApi) => s.review_state === 'approved').length
+    const reviewTolerated = snapshots.filter((s: SnapshotApi) => s.review_state === 'tolerated').length
+
+    // If server counts are higher than loaded, show "+" to hint at pagination
+    const totalActionable = diffChanged + diffNew + diffRemoved
+    const loadedActionable = reviewPending + reviewApproved + reviewTolerated
+    const hasMore = totalActionable > loadedActionable
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = changedSnapshots.length > 0 ? changedSnapshots : snapshots
@@ -151,9 +172,9 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    hasChanges && unapprovedChangesCount > 0 ? (
+                    !run.approved && reviewPending > 0 ? (
                         <LemonButton type="primary" onClick={approveChanges}>
-                            Approve {unapprovedChangesCount} change{unapprovedChangesCount !== 1 ? 's' : ''}
+                            Approve all changes
                         </LemonButton>
                     ) : undefined
                 }
@@ -163,21 +184,67 @@ export function VisualReviewRunScene(): JSX.Element {
             <div className="border rounded-lg overflow-hidden">
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
-                    <div className="flex items-center gap-3 px-3 pt-3 pb-2">
-                        <span className="text-sm font-semibold">Visual changes</span>
-                        <span className="text-xs text-muted">
-                            {changedCount > 0 && <span className="text-warning-dark">{changedCount} changed</span>}
-                            {changedCount > 0 && (newCount > 0 || removedCount > 0) && ' · '}
-                            {newCount > 0 && <span className="text-primary-dark">{newCount} new</span>}
-                            {newCount > 0 && removedCount > 0 && ' · '}
-                            {removedCount > 0 && <span className="text-danger">{removedCount} removed</span>}
-                            {toleratedCount > 0 && (
-                                <>
-                                    {(changedCount > 0 || newCount > 0 || removedCount > 0) && ' · '}
-                                    <span className="text-muted">{toleratedCount} tolerated</span>
-                                </>
-                            )}
-                        </span>
+                    <div className="px-3 pt-3 pb-2 space-y-1">
+                        {/* Diff summary — what the system found */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold">Diff</span>
+                            <span className="text-xs text-muted">
+                                {[
+                                    diffChanged > 0 && (
+                                        <span key="ch" className="text-warning-dark">
+                                            {diffChanged} changed
+                                        </span>
+                                    ),
+                                    diffNew > 0 && (
+                                        <span key="new" className="text-primary-dark">
+                                            {diffNew} added
+                                        </span>
+                                    ),
+                                    diffRemoved > 0 && (
+                                        <span key="rm" className="text-danger">
+                                            {diffRemoved} removed
+                                        </span>
+                                    ),
+                                    autoTolerated > 0 && (
+                                        <span key="tol" className="text-muted">
+                                            {autoTolerated} auto-tolerated
+                                        </span>
+                                    ),
+                                ]
+                                    .filter(Boolean)
+                                    .reduce<React.ReactNode[]>(
+                                        (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                        []
+                                    )}
+                            </span>
+                        </div>
+                        {/* Review summary — what humans decided */}
+                        {(reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold">Review</span>
+                                <span className="text-xs text-muted">
+                                    {[
+                                        reviewPending > 0 && (
+                                            <span key="pend">
+                                                {reviewPending}
+                                                {hasMore ? '+' : ''} pending
+                                            </span>
+                                        ),
+                                        reviewApproved > 0 && (
+                                            <span key="appr" className="text-success">
+                                                {reviewApproved} approved
+                                            </span>
+                                        ),
+                                        reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                            </div>
+                        )}
                     </div>
 
                     {navSnapshots.length > 0 && (
