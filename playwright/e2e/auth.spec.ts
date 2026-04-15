@@ -12,7 +12,7 @@ test.describe('Auth', () => {
 
     test('Logout', async ({ page }) => {
         await page.locator('[data-attr=new-account-menu-logout-button]').click()
-        await expect(page).toHaveURL('/login')
+        await expect(page).toHaveURL(/\/login/)
     })
 
     test('Logout and login', async ({ page }) => {
@@ -40,7 +40,7 @@ test.describe('Auth', () => {
             },
         } as Partial<PreflightStatus> as PreflightStatus)
 
-        await expect(page.locator('a[href="/login/google-oauth2/"]')).toBeVisible()
+        await expect(page.locator('a[href^="/login/google-oauth2/"]')).toBeVisible()
     })
 
     test('Try logging in improperly and then properly', async ({ page }) => {

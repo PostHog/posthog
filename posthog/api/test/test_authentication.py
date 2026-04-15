@@ -394,8 +394,7 @@ class TestLogoutRedirect(APIBaseTest):
     def test_logout_forwards_safe_next_param(self):
         response = self.client.post("/logout?next=/settings/user-notifications")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("next=%2Fsettings%2Fuser-notifications", response["Location"])
-        self.assertTrue(response["Location"].startswith(settings.LOGIN_URL))
+        self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
 
     @parameterized.expand(
         [
