@@ -6,11 +6,7 @@ from posthog.constants import HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
 
 
-def hackathon_subscription_feature(team_id: int) -> bool:
-    """True when `hackathons_subscriptions` is enabled for the team's project (environment).
-
-    Used to gate listing subscription delivery history in the API only; Temporal still persists deliveries.
-    """
+def _team_feature_enabled(flag_key: str, team_id: int) -> bool:
     from posthog.models import Team
 
     try:
@@ -21,7 +17,7 @@ def hackathon_subscription_feature(team_id: int) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY,
+                flag_key,
                 str(team.uuid),
                 groups={
                     "organization": str(team.organization_id),
@@ -38,3 +34,8 @@ def hackathon_subscription_feature(team_id: int) -> bool:
     except Exception as e:
         capture_exception(e)
         return False
+
+
+def hackathon_subscription_feature(team_id: int) -> bool:
+    """True when `hackathons_subscriptions` is enabled for the team's project."""
+    return _team_feature_enabled(HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY, team_id)

@@ -105,6 +105,8 @@ class TestSubscriptionTemporal(APILicensedTest):
             "integration_id": None,
             "invite_message": None,
             "summary": "sent every week",
+            "summary_enabled": False,
+            "summary_prompt_guide": "",
         }
 
         self.mock_temporal_client.start_workflow.assert_called_once()
