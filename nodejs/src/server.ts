@@ -26,7 +26,6 @@ import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfi
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
-import { MetricsIngestionConsumer } from './metrics-ingestion/metrics-ingestion-consumer'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
