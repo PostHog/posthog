@@ -1,0 +1,4 @@
+project_id: 296850
+metric: $pageview count (last 7 days)
+date_range_utc: 2026-04-08T00:00:00Z to 2026-04-15T00:00:00Z
+value: 2
