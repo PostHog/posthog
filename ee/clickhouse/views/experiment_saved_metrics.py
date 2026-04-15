@@ -71,7 +71,7 @@ class ExperimentSavedMetricSerializer(
 
     def validate_name(self, value: str) -> str:
         team = self.context["get_team"]()
-        qs = ExperimentSavedMetric.objects.filter(team=team, name=value)
+        qs = ExperimentSavedMetric.objects.filter(team=team, name__iexact=value)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
