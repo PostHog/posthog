@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconCheck, IconRefresh, IconX } from '@posthog/icons'
+import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { recommendationsTabLogic } from './recommendationsTabLogic'
@@ -75,7 +75,7 @@ export function CrossSellRecommendationCard({
             </div>
             <p className="text-xs text-secondary mt-1 mb-3">Complete your setup to get the full picture.</p>
             <div className="flex flex-col gap-0">
-                {products.map((product, i) => {
+                {products.map((product) => {
                     const info = CROSS_SELL_PRODUCT_INFO[product.key]
                     if (!info) {
                         return null
@@ -85,22 +85,14 @@ export function CrossSellRecommendationCard({
                             key={product.key}
                             className={`flex items-center gap-3 py-2 border-b last:border-b-0 ${product.enabled ? 'opacity-60' : ''}`}
                         >
-                            {product.enabled ? (
-                                <div className="w-6 h-6 rounded-full bg-success-highlight text-success flex items-center justify-center shrink-0">
-                                    <IconCheck className="text-xs" />
-                                </div>
-                            ) : (
-                                <div className="w-6 h-6 rounded-full bg-primary-alt-highlight text-primary-alt flex items-center justify-center text-xs font-bold shrink-0">
-                                    {i + 1}
-                                </div>
-                            )}
+                            <div
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${product.enabled ? 'bg-success' : 'bg-muted'}`}
+                            />
                             <div className="flex-1">
                                 <span className="text-sm font-medium">{info.name}</span>
                                 <p className="text-xs text-muted m-0">{info.reason}</p>
                             </div>
-                            {product.enabled ? (
-                                <span className="text-xs text-success font-medium">Enabled</span>
-                            ) : (
+                            {!product.enabled && (
                                 <LemonButton size="xsmall" type="secondary" to={info.enable_url}>
                                     Enable
                                 </LemonButton>
