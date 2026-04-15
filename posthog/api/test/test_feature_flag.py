@@ -12389,7 +12389,6 @@ class TestFeatureFlagVersions(APIBaseTest):
     def test_incomplete_history_returns_422(self):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
 
         FeatureFlag.objects.filter(id=flag_id).update(version=5)
 
@@ -12400,7 +12399,6 @@ class TestFeatureFlagVersions(APIBaseTest):
     def test_remote_config_flag_returns_400(self):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
-        from posthog.models.feature_flag.feature_flag import FeatureFlag
 
         FeatureFlag.objects.filter(id=flag_id).update(is_remote_configuration=True)
 

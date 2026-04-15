@@ -134,6 +134,9 @@ def reconstruct_flag_at_version(
                 field = change.get("field")
                 if field and field in RECONSTRUCTABLE_FIELDS:
                     fields[field] = change.get("before")
+        elif version_after < target_version:
+            # Entries are newest-first; falling below the target means its entry is missing.
+            break
 
     if not reached_target:
         if target_version == 1:

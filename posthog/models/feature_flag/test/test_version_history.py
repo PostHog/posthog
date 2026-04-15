@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, log_activity
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.version_history import (
@@ -95,14 +97,17 @@ class TestReconstructFlagAtVersion(BaseTest):
         assert result["key"] == "test-flag"
         assert result["id"] == flag.id
 
-    def test_version_out_of_range_raises(self):
+    @parameterized.expand(
+        [
+            ("below_range", 0),
+            ("above_range", 4),
+        ]
+    )
+    def test_version_out_of_range_raises(self, _name, target_version):
         flag = self._create_flag(version=3)
 
         with self.assertRaises(VersionNotFound):
-            reconstruct_flag_at_version(flag, target_version=0, team_id=self.team.id)
-
-        with self.assertRaises(VersionNotFound):
-            reconstruct_flag_at_version(flag, target_version=4, team_id=self.team.id)
+            reconstruct_flag_at_version(flag, target_version=target_version, team_id=self.team.id)
 
     def test_null_version_raises(self):
         flag = self._create_flag(version=None)
@@ -242,33 +247,21 @@ class TestReconstructFlagAtVersion(BaseTest):
         assert v4["version"] == 4
         assert v4["is_historical"] is False
 
-    def test_reconstruct_filters_without_groups_key_gets_normalized(self):
-        v1_filters: dict = {"some_legacy_key": "value"}
+    @parameterized.expand(
+        [
+            ("none", None, {"groups": []}),
+            ("empty_dict", {}, {"groups": []}),
+            ("missing_groups_key", {"some_legacy_key": "value"}, {"some_legacy_key": "value", "groups": []}),
+        ]
+    )
+    def test_reconstruct_filters_gets_normalized(self, _name, v1_filters, expected):
         v2_filters = {"groups": [{"rollout_percentage": 100}]}
 
         flag = self._create_flag(filters=v2_filters, version=1)
         self._simulate_update(flag, {"filters": (v1_filters, v2_filters)})
 
         result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
-        assert result["filters"] == {"some_legacy_key": "value", "groups": []}
-
-    def test_reconstruct_filters_none_gets_normalized(self):
-        v2_filters = {"groups": [{"rollout_percentage": 100}]}
-
-        flag = self._create_flag(filters=v2_filters, version=1)
-        self._simulate_update(flag, {"filters": (None, v2_filters)})
-
-        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
-        assert result["filters"] == {"groups": []}
-
-    def test_reconstruct_filters_empty_dict_gets_normalized(self):
-        v2_filters = {"groups": [{"rollout_percentage": 100}]}
-
-        flag = self._create_flag(filters=v2_filters, version=1)
-        self._simulate_update(flag, {"filters": ({}, v2_filters)})
-
-        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
-        assert result["filters"] == {"groups": []}
+        assert result["filters"] == expected
 
     def test_reconstruct_field_cleared_to_none(self):
         rollback = {"threshold": 5}
