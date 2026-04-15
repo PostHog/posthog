@@ -18,7 +18,6 @@ Modules: desired_state, state_diff, plan_generator, schema_graph,
 schema_introspect, tracking.
 """
 
-import sys
 from typing import Any
 
 from django.conf import settings
@@ -289,7 +288,6 @@ class Command(BaseCommand):
                     or "Code: 210" in exc_str
                     or "Connection refused" in exc_str
                     or "Name or service not known" in exc_str
-                    or "not found" in exc_str.lower()
                 )
                 if is_unreachable:
                     # Fall back to the migrations-cluster union so we still
@@ -644,7 +642,7 @@ class Command(BaseCommand):
             print("No schema drift detected across all clusters.")
             return
 
-        sys.exit(1)
+        raise CommandError(f"Schema drift detected across {len(all_diffs)} host(s).")
 
     # ------------------------------------------------------------------
     # schema
@@ -795,7 +793,7 @@ class Command(BaseCommand):
         print(f"Lint errors ({len(errors)}):\n")
         for err in errors:
             print(f"  - {err}")
-        sys.exit(1)
+        raise CommandError(f"Schema lint failed with {len(errors)} error(s).")
 
     # ------------------------------------------------------------------
     # orphans -- find undeclared tables
@@ -844,7 +842,6 @@ class Command(BaseCommand):
                     or "Code: 210" in exc_str
                     or "Connection refused" in exc_str
                     or "Name or service not known" in exc_str
-                    or "not found" in exc_str.lower()
                 )
                 if is_unreachable:
                     unreachable.append((cluster_name, exc_str[:200]))
