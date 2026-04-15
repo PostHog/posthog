@@ -44,7 +44,11 @@ function getDuration(timings, relativePath, browser) {
 function binPackShard(tests, shardCount, shardIndex, timings, browser) {
     // Canonical path order upfront — makes the entire partition deterministic
     // regardless of readdir order on the CI runner's filesystem.
-    const sorted = [...tests].sort((a, b) => getRelativePath(a).localeCompare(getRelativePath(b)))
+    const sorted = [...tests].sort((a, b) => {
+        const pa = getRelativePath(a)
+        const pb = getRelativePath(b)
+        return pa < pb ? -1 : pa > pb ? 1 : 0
+    })
 
     const known = []
     const unknown = []
