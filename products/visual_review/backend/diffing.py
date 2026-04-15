@@ -119,17 +119,33 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         )
         return
 
-    # Both below threshold — genuine noise
+    # Both below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
+    snapshot.classification_reason = "below_threshold"
     snapshot.diff_percentage = result.diff_percentage
     snapshot.diff_pixel_count = result.diff_pixel_count
-    snapshot.save(update_fields=["result", "diff_percentage", "diff_pixel_count"])
+    snapshot.save(update_fields=["result", "classification_reason", "diff_percentage", "diff_pixel_count"])
     logger.info(
         "visual_review.diff_below_threshold",
         snapshot_id=str(snapshot.id),
         identifier=snapshot.identifier,
         diff_percentage=result.diff_percentage,
         ssim_dissimilarity=round(ssim_dissimilarity, 4),
+    )
+
+    # Auto-populate tolerance cache so future runs skip diffing for this hash
+    from .models import ToleratedHash
+
+    ToleratedHash.objects.get_or_create(
+        repo_id=snapshot.run.repo_id,
+        identifier=snapshot.identifier,
+        baseline_hash=snapshot.baseline_hash,
+        content_hash=snapshot.current_hash,
+        defaults={
+            "team_id": snapshot.team_id,
+            "reason": "auto_threshold",
+            "source_run": snapshot.run,
+        },
     )
 
 
