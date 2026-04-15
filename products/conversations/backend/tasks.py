@@ -518,14 +518,17 @@ def wake_snoozed_tickets() -> None:
 
             for ticket in batch:
                 old_status = ticket.status
-                ticket.status = "open"
                 ticket.snoozed_until = None
-                ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
 
-                try:
-                    capture_ticket_status_changed(ticket, old_status, "open")
-                except Exception:
-                    logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
+                if old_status == "on_hold":
+                    ticket.status = "open"
+                    ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
+                    try:
+                        capture_ticket_status_changed(ticket, old_status, "open")
+                    except Exception:
+                        logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
+                else:
+                    ticket.save(update_fields=["snoozed_until", "updated_at"])
 
             total += len(batch)
             if len(batch) < WAKE_SNOOZE_BATCH_SIZE:
