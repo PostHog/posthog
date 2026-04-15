@@ -4,21 +4,22 @@ import os
 import uuid
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from braintrust import EvalAsync, EvalCase, EvalHooks
 from posthoganalytics import Posthog
 
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
-
 from .config import AgentArtifacts, SandboxedEvalCase
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import run_eval_case
+
+if TYPE_CHECKING:
+    from .conftest import SandboxedDemoData
 from .trace_capture import (
     ParsedLog,
     emit_evaluation_events,
@@ -109,7 +110,7 @@ async def SandboxedEval(
     cases: Sequence[SandboxedEvalCase],
     scorers: Sequence[Any],
     pytestconfig: pytest.Config,
-    sandbox_context_factory: Callable[[str], CustomPromptSandboxContext],
+    sandboxed_demo_data: SandboxedDemoData,
     is_public: bool = False,
     no_send_logs: bool = True,
     posthog_client: Posthog | None = None,
@@ -120,8 +121,8 @@ async def SandboxedEval(
     (sandbox provisioning, agent-server, prompt delivery, cleanup), polls S3 logs
     for results, and feeds parsed artifacts to the scorers.
 
-    ``sandbox_context_factory`` is invoked once per case with the case name,
-    returning a freshly isolated ``CustomPromptSandboxContext`` (own org/team/user)
+    ``sandboxed_demo_data.make_context(case_name)`` is invoked once per case and
+    returns a freshly isolated ``CustomPromptSandboxContext`` (own org/team/user)
     so cases can't pollute each other's state.
     """
     # Generate a unique experiment ID per eval run
@@ -174,7 +175,7 @@ async def SandboxedEval(
             # The factory does Django ORM work (fresh org/team/user, ClickHouse
             # copy SQL, PSQL person sync). Django's async-safety guard rejects
             # sync ORM calls from async contexts, so run it in a worker thread.
-            sandbox_context = await asyncio.to_thread(sandbox_context_factory, eval_case.name)
+            sandbox_context = await asyncio.to_thread(sandboxed_demo_data.make_context, eval_case.name)
             result = await run_eval_case(eval_case, sandbox_context)
 
             # Store trace_id in metadata so evaluation events can link to the trace

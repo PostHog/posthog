@@ -34,6 +34,16 @@ MASTER_ORG_NAME = "Hedgebox Master Seed"
 MASTER_USER_EMAIL = "eval-master-seed@posthog.test"
 
 
+def _build_hedgebox_matrix() -> HedgeboxMatrix:
+    return HedgeboxMatrix(
+        seed=EVAL_SEED,
+        days_past=120,
+        days_future=30,
+        n_clusters=500,
+        group_type_index_offset=0,
+    )
+
+
 def create_isolated_demo_data(
     django_db_blocker,
     *,
@@ -69,14 +79,7 @@ def create_isolated_demo_data(
             return existing_org, team, user
 
         logger.info("Generating demo data for %r", label)
-        matrix = HedgeboxMatrix(
-            seed=EVAL_SEED,
-            days_past=120,
-            days_future=30,
-            n_clusters=500,
-            group_type_index_offset=0,
-        )
-        matrix_manager = MatrixManager(matrix, use_pre_save=True, print_steps=True)
+        matrix_manager = MatrixManager(_build_hedgebox_matrix(), use_pre_save=True, print_steps=True)
         with override_settings(TEST=False):
             # Simulation saving should occur in non-test mode, so that Kafka isn't mocked.
             # Normally in tests we don't want to ingest via Kafka, but simulation saving is
@@ -119,17 +122,10 @@ def ensure_master_demo_team(django_db_blocker) -> int:
         User.objects.filter(email=MASTER_USER_EMAIL, organization_membership__isnull=True).delete()
 
         logger.info("Generating master demo team")
-        matrix = HedgeboxMatrix(
-            seed=EVAL_SEED,
-            days_past=120,
-            days_future=30,
-            n_clusters=500,
-            group_type_index_offset=0,
-        )
         # use_pre_save=False: we are the master — save simulation directly to this team
         # without going through MatrixManager._is_demo_data_pre_saved (which only checks PSQL
         # and lies when CH has been wiped independently).
-        matrix_manager = MatrixManager(matrix, use_pre_save=False, print_steps=True)
+        matrix_manager = MatrixManager(_build_hedgebox_matrix(), use_pre_save=False, print_steps=True)
         with override_settings(TEST=False):
             _org, team, _user = matrix_manager.ensure_account_and_save(
                 MASTER_USER_EMAIL, EVAL_USER_FULL_NAME, MASTER_ORG_NAME
@@ -193,17 +189,8 @@ def copy_demo_data_to_new_team(
 
         MatrixManager._sync_postgres_with_clickhouse_data(master_team_id, team.id)
 
-        # Lightweight matrix instance: constructor is cheap — we skip simulate().
-        # set_project_up creates Actions / Cohorts / FeatureFlags scoped to this team.
-        matrix = HedgeboxMatrix(
-            seed=EVAL_SEED,
-            days_past=120,
-            days_future=30,
-            n_clusters=500,
-            group_type_index_offset=0,
-        )
         with override_settings(TEST=False):
-            matrix.set_project_up(team, user)
+            _build_hedgebox_matrix().set_project_up(team, user)
 
         team.save()
         team.project.save()

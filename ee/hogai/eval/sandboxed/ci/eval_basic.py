@@ -19,7 +19,7 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, FilesModified, GitDiff
 
 
 @pytest.mark.django_db
-async def eval_bugfix(sandbox_context_factory, pytestconfig, posthog_client):
+async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client):
     cases = [
         SandboxedEvalCase(
             name="fix_divide_bug",
@@ -55,6 +55,6 @@ async def eval_bugfix(sandbox_context_factory, pytestconfig, posthog_client):
             TestsPass(),
         ],
         pytestconfig=pytestconfig,
-        sandbox_context_factory=sandbox_context_factory,
+        sandboxed_demo_data=sandboxed_demo_data,
         posthog_client=posthog_client,
     )
