@@ -227,36 +227,57 @@ async def _poll_for_turn(
                 elapsed - last_new_lines_at,
                 total_lines,
             )
-            # Terminal status: drain one last S3 read (S3 may not have flushed the final
-            # agent_message before Temporal marked the run done), with storage retries.
-            final_message = None
-            final_log = None
-            final_lines = skip_lines
-            final_empty_end_turn = False
-            for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
-                try:
-                    _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(_check_logs)(
-                        task_run, skip_lines
-                    )
-                    break
-                except ObjectStorageError:
-                    logger.warning(
-                        "custom_prompt - poll_for_turn: storage error on final log read (%d/%d)",
-                        attempt + 1,
-                        MAX_CONSECUTIVE_STORAGE_ERRORS,
-                        exc_info=True,
-                    )
-                    if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
-                        raise
-                    await asyncio.sleep(POLL_INTERVAL_SECONDS)
-            printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
-            if final_message:
-                return final_message, final_log, final_lines, printed_lines
-            reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
-            raise RuntimeError(
-                f"custom_prompt - poll_for_turn: TaskRun reached terminal status={refreshed.status} — {reason}"
+            return await _drain_final_log(
+                task_run,
+                refreshed_status=refreshed.status,
+                skip_lines=skip_lines,
+                printed_lines=printed_lines,
+                verbose=verbose,
+                output_fn=output_fn,
             )
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+
+
+async def _drain_final_log(
+    task_run,
+    *,
+    refreshed_status: str,
+    skip_lines: int,
+    printed_lines: int,
+    verbose: bool,
+    output_fn: OutputFn,
+) -> tuple[str, str | None, int, int]:
+    """
+    Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
+    before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+    """
+    final_message = None
+    final_log = None
+    final_lines = skip_lines
+    final_empty_end_turn = False
+    for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
+        try:
+            _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(_check_logs)(
+                task_run, skip_lines
+            )
+            break
+        except ObjectStorageError:
+            logger.warning(
+                "custom_prompt - drain_final_log: storage error on final log read (%d/%d)",
+                attempt + 1,
+                MAX_CONSECUTIVE_STORAGE_ERRORS,
+                exc_info=True,
+            )
+            if attempt + 1 >= MAX_CONSECUTIVE_STORAGE_ERRORS:
+                raise
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    if final_message:
+        return final_message, final_log, final_lines, printed_lines
+    reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
+    raise RuntimeError(
+        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} — {reason}"
+    )
 
 
 def _stream_new_lines(
