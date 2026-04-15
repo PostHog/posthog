@@ -139,7 +139,11 @@ class WorkflowsConsumer(Consumer):
     """Consumer that posts each record as a Hog Function invocation to the CDP API.
 
     One HTTP POST request per record is issued concurrently via `request_task_group`, up
-    to `max_concurrent_requests` in flight at a time.
+    to `max_concurrent_requests` in flight at a time. Each request is delegated to a
+    background task, of which up to `max_pending_requests` are created at a time. This
+    can be used to provide backpressure and protect memory usage. `max_pending_requests`
+    should be higher than `max_concurrent_requests` to allow space for retrying tasks to
+    wait without holding up the queue.
 
     A 2xx response with a `{"status": "error", ...}` body is treated as a Hog Function
     execution error (the CDP call succeeded but the function itself failed).
@@ -334,6 +338,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 if inputs.batch_export.batch_export_model
                 else "events",
                 max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
+                max_pending_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS,
             )
             try:
                 async with tg:
