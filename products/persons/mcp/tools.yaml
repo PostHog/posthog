@@ -27,6 +27,14 @@ tools:
         exclude_params:
             - format
             - properties
+        response:
+            include:
+                - id
+                - uuid
+                - name
+                - distinct_ids
+                - created_at
+                - last_seen_at
     persons-retrieve:
         operation: persons_retrieve
         enabled: true
@@ -42,6 +50,15 @@ tools:
             Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.
         exclude_params:
             - format
+        response:
+            include:
+                - id
+                - uuid
+                - name
+                - properties
+                - distinct_ids
+                - created_at
+                - last_seen_at
     persons-update:
         operation: persons_update
         enabled: false

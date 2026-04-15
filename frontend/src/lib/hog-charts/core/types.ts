@@ -1,6 +1,9 @@
 import type { AxisFormat, ChartTheme } from 'lib/charts/types'
 export type { AxisFormat, ChartTheme }
 
+/** Default axis id used when a series doesn't specify one. */
+export const DEFAULT_Y_AXIS_ID = 'left'
+
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
     key: string
@@ -35,6 +38,8 @@ export interface Series<Meta = unknown> {
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
+    /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
+    yAxisId?: string
 }
 
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
@@ -153,12 +158,25 @@ export type ResolveValueFn = (series: Series, dataIndex: number) => number
 /** Factory function that chart types provide to create their scales from dimensions and data. */
 export type CreateScalesFn = (series: Series[], labels: string[], dimensions: ChartDimensions) => ChartScales
 
+/** Per-axis scale: a mapping function and its tick values. */
+export interface YAxisScale {
+    /** Maps a y value to a pixel coordinate on this axis. */
+    scale: (value: number) => number
+    /** Returns tick values for this axis. */
+    ticks: () => number[]
+    /** Visual position of this axis. */
+    position: 'left' | 'right'
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. */
     x: (label: string) => number | undefined
-    /** Maps a y value to a pixel coordinate. */
+    /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
-    /** Returns tick values for the y-axis. */
+    /** Returns tick values for the default (left) y-axis. */
     yTicks: () => number[]
+    /** Per-axis y scales keyed by axis id. Present when dual axes are active.
+     *  When absent, all series use `y` / `yTicks`. */
+    yAxes?: Record<string, YAxisScale>
 }

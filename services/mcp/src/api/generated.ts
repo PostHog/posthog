@@ -4251,7 +4251,7 @@ export namespace Schemas {
       name?: string | null;
       /** @nullable */
       response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode)[];
+      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
       /** @nullable */
       sharedMetricId?: number | null;
       /** @nullable */
@@ -11295,6 +11295,9 @@ export namespace Schemas {
       Channel: 'channel',
       Source: 'source',
       Campaign: 'campaign',
+      Medium: 'medium',
+      Content: 'content',
+      Term: 'term',
     } as const;
 
     export interface IntegrationFilter {
@@ -15246,6 +15249,8 @@ export namespace Schemas {
       readonly sync_time_of_day: string | null;
       /** @nullable */
       readonly description: string | null;
+      /** @nullable */
+      readonly primary_key_columns: readonly string[] | null;
       readonly cdc_table_mode: CdcTableModeEnum;
     }
 
@@ -19955,6 +19960,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly is_not_active_reason: string | null;
+      /**
+       * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+       * @nullable
+       */
+      readonly is_pending_deletion: boolean | null;
     }
 
     /**
@@ -19985,6 +19995,11 @@ export namespace Schemas {
        * @nullable
        */
       is_not_active_reason?: string | null;
+      /**
+       * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+       * @nullable
+       */
+      is_pending_deletion?: boolean | null;
     }
 
     export interface OrganizationDomain {
@@ -22441,6 +22456,7 @@ export namespace Schemas {
       readonly email_from: string | null;
       /** @nullable */
       readonly email_to: string | null;
+      readonly cc_participants: unknown;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -24158,6 +24174,8 @@ export namespace Schemas {
       readonly sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
+      /** @nullable */
+      readonly primary_key_columns?: readonly string[] | null;
       readonly cdc_table_mode?: CdcTableModeEnum;
     }
 
@@ -24953,6 +24971,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly is_not_active_reason?: string | null;
+      /**
+       * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+       * @nullable
+       */
+      readonly is_pending_deletion?: boolean | null;
     }
 
     export interface PatchedOrganizationDomain {
@@ -26375,6 +26398,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export interface PatchedTaskRunSetOutputRequest {
+      /** Output data from the run. Validated against the task's json_schema if one is set. */
+      output?: unknown;
+    }
+
     /**
      * * `not_started` - not_started
     * `queued` - queued
@@ -26678,6 +26706,7 @@ export namespace Schemas {
       readonly email_from?: string | null;
       /** @nullable */
       readonly email_to?: string | null;
+      readonly cc_participants?: unknown;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }

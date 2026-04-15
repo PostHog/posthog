@@ -8,7 +8,6 @@ import {
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
-    SurveyEventProperties,
 } from '~/types'
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
@@ -25,14 +24,6 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
                 {
                     id: SurveyEventName.SENT,
                     type: 'events',
-                    properties: [
-                        {
-                            key: SurveyEventProperties.SURVEY_RESPONSE,
-                            type: PropertyFilterType.Event,
-                            value: 'is_set',
-                            operator: PropertyOperator.IsSet,
-                        },
-                    ],
                 },
             ],
         },
