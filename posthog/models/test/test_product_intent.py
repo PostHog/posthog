@@ -721,62 +721,6 @@ class TestProductIntent(BaseTest):
         assert user_product_lists.count() == 1
         assert user_product_lists.get().reason == UserProductList.Reason.PRODUCT_INTENT
 
-    def _make_web_analytics_intent(self, contexts: dict) -> ProductIntent:
-        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.WEB_ANALYTICS).delete()
-        return ProductIntent.objects.create(
-            team=self.team,
-            product_type=ProductKey.WEB_ANALYTICS,
-            contexts=contexts,
-        )
-
-    def test_has_activated_web_analytics_with_authorized_domain_and_enough_interactions(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        intent = self._make_web_analytics_intent({"web_analytics_insight": 2, "web_analytics_errors": 1})
-
-        assert intent.has_activated_web_analytics() is True
-
-    def test_has_activated_web_analytics_counts_across_multiple_contexts(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        intent = self._make_web_analytics_intent(
-            {
-                "web_analytics_insight": 1,
-                "web_analytics_errors": 1,
-                "web_analytics_frustrating_pages": 1,
-            }
-        )
-
-        assert intent.has_activated_web_analytics() is True
-
-    def test_has_not_activated_web_analytics_without_authorized_domain(self):
-        self.team.app_urls = []
-        self.team.save()
-        intent = self._make_web_analytics_intent({"web_analytics_insight": 5})
-
-        assert intent.has_activated_web_analytics() is False
-
-    def test_has_not_activated_web_analytics_with_only_null_authorized_domains(self):
-        self.team.app_urls = [None]
-        self.team.save()
-        intent = self._make_web_analytics_intent({"web_analytics_insight": 5})
-
-        assert intent.has_activated_web_analytics() is False
-
-    def test_has_not_activated_web_analytics_without_enough_interactions(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        intent = self._make_web_analytics_intent({"web_analytics_insight": 2})
-
-        assert intent.has_activated_web_analytics() is False
-
-    def test_has_not_activated_web_analytics_without_intent(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.WEB_ANALYTICS).delete()
-
-        assert self.product_intent.has_activated_web_analytics() is False
-
     def _make_ai_generation_event_definition(self) -> EventDefinition:
         return EventDefinition.objects.create(team=self.team, name="$ai_generation")
 

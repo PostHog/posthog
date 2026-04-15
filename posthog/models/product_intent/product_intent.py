@@ -184,30 +184,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
         return self.team.ingested_event
 
-    def has_activated_web_analytics(self) -> bool:
-        # The team needs at least one authorized domain configured for web analytics to be useful
-        if not self.team.app_urls or not any(self.team.app_urls):
-            return False
-
-        intent = ProductIntent.objects.filter(
-            team=self.team,
-            product_type="web_analytics",
-        ).first()
-
-        if not intent:
-            return False
-
-        contexts = intent.contexts or {}
-
-        # Sum interactions across the web analytics intent contexts emitted from the web analytics scene
-        interaction_count = (
-            contexts.get("web_analytics_insight", 0)
-            + contexts.get("web_analytics_errors", 0)
-            + contexts.get("web_analytics_frustrating_pages", 0)
-        )
-
-        return interaction_count >= 3
-
     def has_activated_llm_analytics(self) -> bool:
         # The team needs to have instrumented at least one LLM generation event
         has_ai_generation = EventDefinition.objects.filter(team=self.team, name="$ai_generation").exists()
@@ -242,7 +218,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             "error_tracking": self.has_activated_error_tracking,
             "product_analytics": self.has_activated_product_analytics,
             "surveys": self.has_activated_surveys,
-            "web_analytics": self.has_activated_web_analytics,
             "llm_analytics": self.has_activated_llm_analytics,
             "workflows": self.has_activated_workflows,
         }
