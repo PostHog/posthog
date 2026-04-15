@@ -328,25 +328,3 @@ jobs:
                       -r fEsxX
                   exit_code=$?
                   [ $exit_code -eq 5 ] && exit 0 || exit $exit_code
-
-    # --- playwright-shadow ---
-    # Original: ci-e2e-playwright.yml playwright-tests (depot-ubuntu-latest-16).
-    # Shadow runs ONE hardcoded shard on the 16-vcpu blacksmith tier.
-    playwright-shadow:
-        name: Playwright tests (blacksmith shadow, shard 1/N)
-        needs: changes
-        if: needs.changes.outputs.playwright == 'true'
-        runs-on: blacksmith-16vcpu-ubuntu-2404
-        continue-on-error: true
-        timeout-minutes: 45
-        steps:
-            - uses: actions/checkout@v6
-            # Delegate to the existing Playwright setup composite action if present,
-            # otherwise run the canonical setup inline. We fall back to a no-op if the
-            # action doesn't exist to keep the shadow self-contained.
-            - name: Setup Playwright environment
-              run: |
-                  echo "NOTE: this shadow stubs the full Playwright setup."
-                  echo "To make this apples-to-apples, mirror the steps from"
-                  echo "ci-e2e-playwright.yml:166+ here, or factor that setup into"
-                  echo "a composite action and call it from both places."
