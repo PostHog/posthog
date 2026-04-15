@@ -80,7 +80,7 @@ class TestsPass(Scorer):
 
         should_pass = True
         if expected:
-            should_pass = expected.get("tests_should_pass", True)
+            should_pass = expected.get(self._name(), {}).get("should_pass", True)
 
         passed = test_exit_code == 0
         # If we expect tests to pass, score 1 when they do; if we expect failure, score 1 when they fail
@@ -148,7 +148,8 @@ class FilesModified(Scorer):
         if not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
 
-        expected_files = set(expected.get("files_modified", [])) if expected else set()
+        slice_ = expected.get(self._name(), {}) if expected else {}
+        expected_files = set(slice_.get("files", []))
         if not expected_files:
             return Score(name=self._name(), score=None, metadata={"reason": "No expected files specified"})
 

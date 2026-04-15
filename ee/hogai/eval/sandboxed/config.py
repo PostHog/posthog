@@ -5,25 +5,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class SandboxedExpected(BaseModel):
-    """Expected outcomes for scoring a sandboxed agent eval case."""
-
-    files_modified: list[str] | None = None
-    """Paths (relative to repo root) that should be modified by the agent."""
-
-    tests_should_pass: bool = True
-    """Whether the test suite should pass after the agent runs."""
-
-    lint_should_pass: bool = True
-    """Whether the linter should pass after the agent runs."""
-
-    pr_created: bool = False
-    """Whether the agent should create a PR."""
-
-    custom_assertions: dict[str, Any] = Field(default_factory=dict)
-    """Scorer-specific expected values (e.g. expected file contents, patterns)."""
-
-
 class SandboxedEvalCase(BaseModel):
     """A single eval case for the sandboxed coding agent."""
 
@@ -36,8 +17,12 @@ class SandboxedEvalCase(BaseModel):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
-    expected: SandboxedExpected = Field(default_factory=SandboxedExpected)
-    """Expected outcomes for scoring."""
+    expected: dict[str, Any] = Field(default_factory=dict)
+    """Expected values for scoring, keyed by scorer ``_name()``.
+
+    Each scorer reads its own sub-entry — e.g. ``{"tests_pass": {"should_pass": True}}``.
+    Missing keys mean the scorer falls back to its default behavior.
+    """
 
     metadata: dict[str, Any] = Field(default_factory=dict)
     """Arbitrary metadata for tracking and filtering."""

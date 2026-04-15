@@ -159,7 +159,7 @@ async def SandboxedEval(
         eval_cases.append(
             EvalCase(
                 input={"name": case.name, "prompt": case.prompt, "repo_fixture": case.repo_fixture},
-                expected=case.expected.model_dump(),
+                expected=case.expected,
                 metadata=case.metadata,
             )
         )
