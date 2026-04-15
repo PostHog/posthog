@@ -299,26 +299,33 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         finally:
             # Finalize delivery record with whatever state we have
             if delivery_id is not None:
-                await temporalio.workflow.execute_activity(
-                    update_delivery_record,
-                    UpdateDeliveryRecordInputs(
-                        delivery_id=delivery_id,
-                        status=final_status,
-                        exported_asset_ids=delivery_exported_asset_ids,
-                        content_snapshot=delivery_content_snapshot,
-                        recipient_results=delivery_recipient_results,
-                        error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                        if caught_error
-                        else None,
-                        finished=True,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=5),
-                        maximum_interval=dt.timedelta(minutes=1),
-                        maximum_attempts=3,
-                    ),
-                )
+                try:
+                    await temporalio.workflow.execute_activity(
+                        update_delivery_record,
+                        UpdateDeliveryRecordInputs(
+                            delivery_id=delivery_id,
+                            status=final_status,
+                            exported_asset_ids=delivery_exported_asset_ids or None,
+                            content_snapshot=delivery_content_snapshot or None,
+                            recipient_results=delivery_recipient_results or None,
+                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
+                            if caught_error
+                            else None,
+                            finished=True,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            initial_interval=dt.timedelta(seconds=5),
+                            maximum_interval=dt.timedelta(minutes=1),
+                            maximum_attempts=3,
+                        ),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
+                    )
+                    if caught_error is None:
+                        raise
 
             # Advance schedule — always for scheduled deliveries, even on failure
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:

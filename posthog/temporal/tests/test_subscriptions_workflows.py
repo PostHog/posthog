@@ -1,6 +1,8 @@
 import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -59,24 +61,30 @@ from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscr
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
-SUBSCRIPTION_SCHEDULE_ACTIVITIES = [
-    fetch_due_subscriptions_activity,
-    create_delivery_record,
-    create_export_assets,
-    export_asset_activity,
-    deliver_subscription,
-    update_delivery_record,
-    advance_next_delivery_date,
-]
+SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
+    Sequence[Callable[..., Any]],
+    [
+        fetch_due_subscriptions_activity,
+        create_delivery_record,
+        create_export_assets,
+        export_asset_activity,
+        deliver_subscription,
+        update_delivery_record,
+        advance_next_delivery_date,
+    ],
+)
 
-SUBSCRIPTION_PROCESS_ACTIVITIES = [
-    create_delivery_record,
-    create_export_assets,
-    export_asset_activity,
-    deliver_subscription,
-    update_delivery_record,
-    advance_next_delivery_date,
-]
+SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
+    Sequence[Callable[..., Any]],
+    [
+        create_delivery_record,
+        create_export_assets,
+        export_asset_activity,
+        deliver_subscription,
+        update_delivery_record,
+        advance_next_delivery_date,
+    ],
+)
 
 
 @pytest_asyncio.fixture
@@ -529,6 +537,98 @@ async def test_update_delivery_record_merges_snapshot_and_finalizes(team, user):
     assert row.content_snapshot["insights"] == [{"id": 99, "short_id": "x", "name": "snap", "query_hash": "qh"}]
     assert "dashboard" in row.content_snapshot
     assert row.finished_at is not None
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_none_omits_collection_fields(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="omit01", name="Omit fields")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-omit",
+            idempotency_key="idem-omit",
+            scheduled_at=None,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[42],
+            recipient_results=[{"recipient": "a@b.com", "status": "success"}],
+            finished=True,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.FAILED,
+            error={"message": "downstream", "type": "RuntimeError"},
+            finished=True,
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.status == SubscriptionDelivery.Status.FAILED
+    assert row.exported_asset_ids == [42]
+    assert row.recipient_results == [{"recipient": "a@b.com", "status": "success"}]
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_empty_lists_persist(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="empty01", name="Empty lists")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-empty",
+            idempotency_key="idem-empty",
+            scheduled_at=None,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[1, 2],
+            recipient_results=[{"recipient": "x@y.com", "status": "success"}],
+            finished=True,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[],
+            recipient_results=[],
+            finished=True,
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.exported_asset_ids == []
+    assert row.recipient_results == []
 
 
 @patch("posthog.slo.events.posthoganalytics")
