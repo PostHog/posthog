@@ -16,7 +16,7 @@ class VersionHistoryIncomplete(Exception):
 def _get_reconstructable_fields() -> frozenset[str]:
     """Derive tracked fields dynamically so new FeatureFlag fields are picked up automatically."""
     excluded = set(common_field_exclusions) | set(field_exclusions.get("FeatureFlag", []))
-    return frozenset(f.name for f in FeatureFlag._meta.get_fields() if f.name not in excluded)
+    return frozenset(f.name for f in FeatureFlag._meta.get_fields() if f.name not in excluded and hasattr(f, "column"))
 
 
 RECONSTRUCTABLE_FIELDS = _get_reconstructable_fields()

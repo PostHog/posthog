@@ -1,8 +1,9 @@
 from posthog.test.base import BaseTest
 
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, log_activity
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.version_history import (
+    RECONSTRUCTABLE_FIELDS,
     VersionHistoryIncomplete,
     VersionNotFound,
     reconstruct_flag_at_version,
@@ -47,6 +48,7 @@ class TestReconstructFlagAtVersion(BaseTest):
         flag: FeatureFlag,
         changes: dict,
     ) -> None:
+        assert flag.version is not None
         old_version = flag.version
         new_version = old_version + 1
 
@@ -54,12 +56,13 @@ class TestReconstructFlagAtVersion(BaseTest):
             Change(type="FeatureFlag", action="changed", field="version", before=old_version, after=new_version)
         ]
         for field, (before, after) in changes.items():
-            if before is None and after is not None:
-                action = "created"
-            elif before is not None and after is None:
-                action = "deleted"
-            else:
-                action = "changed"
+            action: ChangeAction = (
+                "created"
+                if before is None and after is not None
+                else "deleted"
+                if before is not None and after is None
+                else "changed"
+            )
             activity_changes.append(Change(type="FeatureFlag", action=action, field=field, before=before, after=after))
 
         # Update the flag in the DB
@@ -75,6 +78,13 @@ class TestReconstructFlagAtVersion(BaseTest):
             flag=flag,
             changes=activity_changes,
         )
+
+    def test_reconstructable_fields_are_concrete_model_fields(self):
+        flag = self._create_flag()
+        for field in RECONSTRUCTABLE_FIELDS:
+            assert hasattr(flag, field), (
+                f"RECONSTRUCTABLE_FIELDS contains '{field}' which is not a concrete attribute on FeatureFlag"
+            )
 
     def test_current_version_returns_current_state(self):
         flag = self._create_flag(version=3)
