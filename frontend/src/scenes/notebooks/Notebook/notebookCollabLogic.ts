@@ -3,6 +3,8 @@ import { Step } from '@tiptap/pm/transform'
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { TTEditor } from 'lib/components/RichContentEditor/types'
 
 import type { notebookCollabLogicType } from './notebookCollabLogicType'
@@ -49,7 +51,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 editor.view.dispatch(tr)
             } catch (e) {
                 posthog.captureException(e as Error, { action: 'notebook collab rebase' })
-                throw e
+                lemonToast.error('Failed to sync notebook changes. Please reload the page.')
             }
         },
     })),

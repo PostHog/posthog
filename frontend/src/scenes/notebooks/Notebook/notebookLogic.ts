@@ -392,13 +392,8 @@ export const notebookLogic = kea<notebookLogicType>([
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.steps) {
-                                try {
-                                    actions.rebaseFromSteps(error.data.steps, error.data.client_ids)
-                                } catch (rebaseError) {
-                                    // TODO: Temporary path for debugging, remove after confirming this does not occur
-                                    lemonToast.error(`Collab rebase failed: ${rebaseError}`)
-                                    return values.notebook
-                                }
+                                actions.rebaseFromSteps(error.data.steps, error.data.client_ids)
+
                                 // Retry after rebase
                                 actions.saveNotebook({
                                     content: values.editor?.getJSON() ?? notebook.content,
