@@ -122,17 +122,21 @@ def _sharded_table(table: str, cluster: str) -> dict[str, Any]:
     }
 
 
+def _empty_ecosystem(table: str, cluster: str) -> dict[str, Any]:
+    return {
+        "ecosystem": table,
+        "cluster": cluster,
+        "tables": {},
+    }
+
+
 def _add_column(table: str, cluster: str) -> dict[str, Any]:
     """Placeholder for add-column -- user should edit an existing YAML file instead."""
     print(f"To add a column, edit the existing schema file: posthog/clickhouse/schema/{table}.yaml")
     print("Add the column to the sharded table's columns list.")
     print("Inherited columns will propagate automatically.")
     print("Then run: ch_migrate plan")
-    return {
-        "ecosystem": table,
-        "cluster": cluster,
-        "tables": {},
-    }
+    return _empty_ecosystem(table, cluster)
 
 
 def _cross_cluster_readable(table: str, cluster: str) -> dict[str, Any]:
@@ -173,8 +177,4 @@ def _drop_table(table: str, cluster: str) -> dict[str, Any]:
     """Empty ecosystem -- plan will show drops for existing tables not in desired state."""
     print(f"To drop tables, remove them from posthog/clickhouse/schema/{table}.yaml")
     print("or delete the file entirely. Then run: ch_migrate plan")
-    return {
-        "ecosystem": table,
-        "cluster": cluster,
-        "tables": {},
-    }
+    return _empty_ecosystem(table, cluster)

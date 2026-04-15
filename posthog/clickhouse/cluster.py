@@ -260,7 +260,11 @@ class ClickhouseCluster:
         # silently no-op and their tables never get created.
         if not result and (settings.DEBUG or settings.TEST):
             unique_connections = {host.connection_info for host in hosts}
-            if NodeRole.LOGS in node_roles and len(unique_connections) > 1:
+            if (
+                NodeRole.LOGS in node_roles
+                and all(role == NodeRole.LOGS for role in node_roles)
+                and len(unique_connections) > 1
+            ):
                 return result
             deduped: dict[ConnectionInfo, HostInfo] = {}
             for host in hosts:

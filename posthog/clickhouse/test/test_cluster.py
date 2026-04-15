@@ -505,12 +505,15 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
 
 
-def test_logs_role_does_not_trigger_dev_fallback() -> None:
-    """P1-6 (Codex round 2): the DEBUG/TEST fallback in __hosts_by_roles was
-    originally added for INGESTION_* roles that have no dedicated dev node.
-    LOGS has a dedicated clickhouse-logs node in the multi-node dev stack, so
-    the fallback must NOT fire for LOGS. Otherwise a LOGS-role migration
-    fans out onto every main-cluster host instead of just the logs node."""
+@pytest.mark.parametrize(
+    "role,expect_empty",
+    [
+        (NodeRole.LOGS, True),
+        (NodeRole.INGESTION_SMALL, False),
+    ],
+)
+def test_hosts_by_roles_dev_fallback(role: NodeRole, expect_empty: bool) -> None:
+    """Multi-node dev stack: LOGS has no fallback, INGESTION_SMALL does."""
     # Main cluster has only data+coordinator nodes — no LOGS host in this view.
     bootstrap_client_mock = Mock()
     bootstrap_client_mock.execute = Mock(
@@ -527,18 +530,22 @@ def test_logs_role_does_not_trigger_dev_fallback() -> None:
     all_hosts = cluster._ClickhouseCluster__hosts  # type: ignore[attr-defined]
 
     with patch("posthog.clickhouse.cluster.settings.DEBUG", True):
-        # LOGS role with no matching host should return empty set — caller
-        # decides how to handle the miss. Fallback to all hosts would be wrong
-        # because LOGS migrations must not hit the main cluster's data nodes.
-        result = hosts_by_roles(all_hosts, [NodeRole.LOGS])
-        assert result == set(), (
-            f"LOGS role should not trigger dev fallback: got {[h.host_cluster_role for h in result]}"
+        result = hosts_by_roles(all_hosts, [role])
+        assert (result == set()) == expect_empty, (
+            f"Unexpected fallback for role {role}: got {[h.host_cluster_role for h in result]}"
         )
 
-        # INGESTION_SMALL has no dedicated dev node — the fallback SHOULD still
-        # fire for it, to match legacy migrate_clickhouse behavior.
-        ingestion_result = hosts_by_roles(all_hosts, [NodeRole.INGESTION_SMALL])
-        assert len(ingestion_result) > 0, "INGESTION_SMALL should still hit the DEBUG fallback (no dedicated dev node)"
+
+def test_logs_single_node_triggers_dev_fallback() -> None:
+    """Single-node stacks must allow LOGS fallback so legacy logs migrations run."""
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(return_value=[("node1", "9000", "1", "1", "online", "data")])
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+    hosts_by_roles = cluster._ClickhouseCluster__hosts_by_roles  # type: ignore[attr-defined]
+    all_hosts = cluster._ClickhouseCluster__hosts  # type: ignore[attr-defined]
+    with patch("posthog.clickhouse.cluster.settings.DEBUG", True):
+        result = hosts_by_roles(all_hosts, [NodeRole.LOGS])
+        assert result != set(), "LOGS should fall back on single-node stacks"
 
 
 class TestClusterRegistry:
