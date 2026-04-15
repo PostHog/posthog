@@ -16,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.logs.backend.alert_check_query import AlertCheckQuery
 from products.logs.backend.alert_state_machine import (
+    AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
     CheckResult,
@@ -225,6 +226,17 @@ def _evaluate_single_alert(
 
         alert.save(update_fields=update_fields)
 
+    transitioned_to_broken = committed_state == AlertState.BROKEN and state_before != AlertState.BROKEN.value
+    if transitioned_to_broken:
+        logger.warning(
+            "Alert broken after consecutive failures",
+            alert_id=str(alert.id),
+            alert_name=alert.name,
+            team_id=alert.team_id,
+            consecutive_failures=outcome.consecutive_failures,
+        )
+        _emit_auto_disabled_event(alert, outcome, now)
+
     stats["checked"] += 1
 
     if outcome.error_message:
@@ -252,31 +264,12 @@ def _evaluate_single_alert(
         logger.exception("Failed to record alert check metrics", alert_id=str(alert.id))
 
 
-def _emit_alert_event(
+def _produce_alert_internal_event(
     alert: LogsAlertConfiguration,
     event_name: str,
-    check_result: CheckResult,
+    properties: dict,
     now: datetime,
-    *,
-    date_from: datetime,
-    date_to: datetime,
 ) -> bool:
-    """Produce an internal event to Kafka for CDP processing. Returns True on success."""
-    properties: dict = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "threshold_count": alert.threshold_count,
-        "threshold_operator": alert.threshold_operator,
-        "window_minutes": alert.window_minutes,
-        "result_count": check_result.result_count,
-        "filters": alert.filters,
-        "service_names": alert.filters.get("serviceNames", []),
-        "severity_levels": alert.filters.get("severityLevels", []),
-        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
-        "triggered_at": now.isoformat(),
-    }
-
     try:
         produce_internal_event(
             team_id=alert.team_id,
@@ -291,3 +284,47 @@ def _emit_alert_event(
     except Exception as e:
         capture_exception(e, {"alert_id": str(alert.id), "event": event_name})
         return False
+
+
+def _emit_alert_event(
+    alert: LogsAlertConfiguration,
+    event_name: str,
+    check_result: CheckResult,
+    now: datetime,
+    *,
+    date_from: datetime,
+    date_to: datetime,
+) -> bool:
+    properties: dict = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name,
+        "team_id": alert.team_id,
+        "threshold_count": alert.threshold_count,
+        "threshold_operator": alert.threshold_operator,
+        "window_minutes": alert.window_minutes,
+        "result_count": check_result.result_count,
+        "filters": alert.filters,
+        "service_names": alert.filters.get("serviceNames", []),
+        "severity_levels": alert.filters.get("severityLevels", []),
+        "logs_url_params": build_logs_url_params(alert.filters, date_from=date_from, date_to=date_to),
+        "triggered_at": now.isoformat(),
+    }
+    return _produce_alert_internal_event(alert, event_name, properties, now)
+
+
+def _emit_auto_disabled_event(
+    alert: LogsAlertConfiguration,
+    outcome: AlertCheckOutcome,
+    now: datetime,
+) -> None:
+    properties: dict = {
+        "alert_id": str(alert.id),
+        "alert_name": alert.name,
+        "team_id": alert.team_id,
+        "consecutive_failures": outcome.consecutive_failures,
+        "last_error_message": outcome.error_message or "",
+        "service_names": alert.filters.get("serviceNames", []),
+        "severity_levels": alert.filters.get("severityLevels", []),
+        "triggered_at": now.isoformat(),
+    }
+    _produce_alert_internal_event(alert, "$logs_alert_auto_disabled", properties, now)
