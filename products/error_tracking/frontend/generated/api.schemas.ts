@@ -306,25 +306,37 @@ export interface ErrorTrackingIssueMergeResponseApi {
     success: boolean
 }
 
-export interface ErrorTrackingIssueSplitFingerprintApi {
-    /** Fingerprint to split into a new issue. */
-    fingerprint: string
-    /** Optional name for the new issue created from this fingerprint. */
-    name?: string
-    /** Optional description for the new issue created from this fingerprint. */
-    description?: string
+/**
+ * * `cross_sell` - Cross sell
+ */
+export type ErrorTrackingRecommendationTypeEnumApi =
+    (typeof ErrorTrackingRecommendationTypeEnumApi)[keyof typeof ErrorTrackingRecommendationTypeEnumApi]
+
+export const ErrorTrackingRecommendationTypeEnumApi = {
+    CrossSell: 'cross_sell',
+} as const
+
+export interface ErrorTrackingRecommendationApi {
+    readonly id: string
+    readonly type: ErrorTrackingRecommendationTypeEnumApi
+    readonly meta: unknown
+    /** @nullable */
+    readonly computed_at: string | null
+    /** @nullable */
+    readonly dismissed_at: string | null
+    /** @nullable */
+    readonly next_refresh_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
-export interface ErrorTrackingIssueSplitRequestApi {
-    /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
-    fingerprints?: ErrorTrackingIssueSplitFingerprintApi[]
-}
-
-export interface ErrorTrackingIssueSplitResponseApi {
-    /** Whether the split completed successfully. */
-    success: boolean
-    /** IDs of the new issues created by the split. */
-    new_issue_ids: string[]
+export interface PaginatedErrorTrackingRecommendationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingRecommendationApi[]
 }
 
 export interface ErrorTrackingReleaseApi {
@@ -541,6 +553,17 @@ export type ErrorTrackingGroupingRulesListParams = {
 }
 
 export type ErrorTrackingIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
      */

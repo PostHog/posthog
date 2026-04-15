@@ -608,20 +608,6 @@ export namespace Schemas {
       actionId: number;
     }
 
-    /**
-     * * `add` - add
-    * `remove` - remove
-    * `set` - set
-     */
-    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
-
-
-    export const ActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
-
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -5756,7 +5742,6 @@ export namespace Schemas {
       new: number;
       removed: number;
       unchanged: number;
-      tolerated_matched?: number;
     }
 
     export type RunMetadata = {[key: string]: unknown};
@@ -6904,37 +6889,6 @@ export namespace Schemas {
       DistinctId: 'distinct_id',
       DeviceId: 'device_id',
     } as const;
-
-    export interface BulkUpdateTagsError {
-      id: number;
-      reason: string;
-    }
-
-    export interface BulkUpdateTagsItem {
-      id: number;
-      tags: string[];
-    }
-
-    export interface BulkUpdateTagsRequest {
-      /**
-       * List of object IDs to update tags on.
-       * @maxItems 500
-       */
-      ids: number[];
-      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
-
-    * `add` - add
-    * `remove` - remove
-    * `set` - set */
-      action: ActionEnum;
-      /** Tag names to add, remove, or set. */
-      tags: string[];
-    }
-
-    export interface BulkUpdateTagsResponse {
-      updated: BulkUpdateTagsItem[];
-      skipped: BulkUpdateTagsError[];
-    }
 
     /**
      * * `b2b` - B2B
@@ -14334,25 +14288,28 @@ export namespace Schemas {
       success: boolean;
     }
 
-    export interface ErrorTrackingIssueSplitFingerprint {
-      /** Fingerprint to split into a new issue. */
-      fingerprint: string;
-      /** Optional name for the new issue created from this fingerprint. */
-      name?: string;
-      /** Optional description for the new issue created from this fingerprint. */
-      description?: string;
-    }
+    /**
+     * * `cross_sell` - Cross sell
+     */
+    export type ErrorTrackingRecommendationTypeEnum = typeof ErrorTrackingRecommendationTypeEnum[keyof typeof ErrorTrackingRecommendationTypeEnum];
 
-    export interface ErrorTrackingIssueSplitRequest {
-      /** Fingerprints to split into new issues. Each fingerprint becomes its own new issue. */
-      fingerprints?: ErrorTrackingIssueSplitFingerprint[];
-    }
 
-    export interface ErrorTrackingIssueSplitResponse {
-      /** Whether the split completed successfully. */
-      success: boolean;
-      /** IDs of the new issues created by the split. */
-      new_issue_ids: string[];
+    export const ErrorTrackingRecommendationTypeEnum = {
+      CrossSell: 'cross_sell',
+    } as const;
+
+    export interface ErrorTrackingRecommendation {
+      readonly id: string;
+      readonly type: ErrorTrackingRecommendationTypeEnum;
+      readonly meta: unknown;
+      /** @nullable */
+      readonly computed_at: string | null;
+      /** @nullable */
+      readonly dismissed_at: string | null;
+      /** @nullable */
+      readonly next_refresh_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingRelease {
@@ -15094,7 +15051,7 @@ export namespace Schemas {
       name: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 3000
+       * @maxLength 400
        * @nullable
        */
       description?: string | null;
@@ -19183,7 +19140,6 @@ export namespace Schemas {
     * `pending_resolve` - Pending resolve
     * `errored` - Errored
     * `snoozed` - Snoozed
-    * `broken` - Broken
      */
     export type LogsAlertConfigurationStateEnum = typeof LogsAlertConfigurationStateEnum[keyof typeof LogsAlertConfigurationStateEnum];
 
@@ -19194,7 +19150,6 @@ export namespace Schemas {
       PendingResolve: 'pending_resolve',
       Errored: 'errored',
       Snoozed: 'snoozed',
-      Broken: 'broken',
     } as const;
 
     export interface LogsAlertConfiguration {
@@ -19251,46 +19206,6 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** @nullable */
       readonly updated_at: string | null;
-    }
-
-    /**
-     * * `slack` - slack
-    * `webhook` - webhook
-     */
-    export type LogsAlertCreateDestinationTypeEnum = typeof LogsAlertCreateDestinationTypeEnum[keyof typeof LogsAlertCreateDestinationTypeEnum];
-
-
-    export const LogsAlertCreateDestinationTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
-
-    export interface LogsAlertCreateDestination {
-      /** Destination type — slack or webhook.
-
-    * `slack` - slack
-    * `webhook` - webhook */
-      type: LogsAlertCreateDestinationTypeEnum;
-      /** Integration ID for the Slack workspace. Required when type=slack. */
-      slack_workspace_id?: number;
-      /** Slack channel ID. Required when type=slack. */
-      slack_channel_id?: string;
-      /** Human-readable channel name for display. */
-      slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook. */
-      webhook_url?: string;
-    }
-
-    export interface LogsAlertDeleteDestination {
-      /**
-       * HogFunction IDs to delete as one atomic destination group.
-       * @minItems 1
-       */
-      hog_function_ids: string[];
-    }
-
-    export interface LogsAlertDestinationResponse {
-      hog_function_ids: string[];
     }
 
     export interface LogsAlertSimulateBucket {
@@ -19583,10 +19498,6 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
-    }
-
-    export interface MarkToleratedInput {
-      snapshot_id: string;
     }
 
     /**
@@ -20331,14 +20242,7 @@ export namespace Schemas {
       results: Action[];
     }
 
-    export interface PaginatedActivityLogList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ActivityLog[];
-    }
+    export type PaginatedActivityLogList = ActivityLog[];
 
     export interface PaginatedAlertList {
       count: number;
@@ -20700,6 +20604,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingIssueFull[];
+    }
+
+    export interface PaginatedErrorTrackingRecommendationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingRecommendation[];
     }
 
     export interface PaginatedErrorTrackingReleaseList {
@@ -21864,7 +21777,6 @@ export namespace Schemas {
     * `github` - GitHub
     * `linear` - Linear
     * `zendesk` - Zendesk
-    * `conversations` - Conversations
     * `error_tracking` - Error tracking
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
@@ -21876,7 +21788,6 @@ export namespace Schemas {
       Github: 'github',
       Linear: 'linear',
       Zendesk: 'zendesk',
-      Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
     } as const;
 
@@ -21949,7 +21860,6 @@ export namespace Schemas {
       id: string;
       identifier: string;
       result: string;
-      classification_reason: string;
       /** @nullable */
       diff_percentage: number | null;
       /** @nullable */
@@ -21958,8 +21868,6 @@ export namespace Schemas {
       /** @nullable */
       reviewed_at: string | null;
       approved_hash: string;
-      /** @nullable */
-      tolerated_hash_id?: string | null;
       metadata?: SnapshotMetadata;
     }
 
@@ -22148,9 +22056,6 @@ export namespace Schemas {
        * @nullable
        */
       invite_message?: string | null;
-      summary_enabled?: boolean;
-      /** @maxLength 500 */
-      summary_prompt_guide?: string;
     }
 
     export interface PaginatedSubscriptionList {
@@ -22845,25 +22750,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TicketView[];
-    }
-
-    export interface ToleratedHashEntry {
-      id: string;
-      alternate_hash: string;
-      baseline_hash: string;
-      reason: string;
-      created_at: string;
-      /** @nullable */
-      source_run_id: string | null;
-    }
-
-    export interface PaginatedToleratedHashEntryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ToleratedHashEntry[];
     }
 
     export interface TraceReviewScore {
@@ -24399,7 +24285,7 @@ export namespace Schemas {
       name?: string;
       /**
        * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 3000
+       * @maxLength 400
        * @nullable
        */
       description?: string | null;
@@ -26100,9 +25986,6 @@ export namespace Schemas {
        * @nullable
        */
       invite_message?: string | null;
-      summary_enabled?: boolean;
-      /** @maxLength 500 */
-      summary_prompt_guide?: string;
     }
 
     /**
@@ -30998,18 +30881,6 @@ export namespace Schemas {
       Mapped: 'mapped',
     } as const;
 
-    /**
-     * * `severity` - severity
-    * `service` - service
-     */
-    export type SparklineBreakdownByEnum = typeof SparklineBreakdownByEnum[keyof typeof SparklineBreakdownByEnum];
-
-
-    export const SparklineBreakdownByEnum = {
-      Severity: 'severity',
-      Service: 'service',
-    } as const;
-
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -32029,6 +31900,13 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface UnpauseResponse {
+      /** Always 'unpaused'. */
+      status: string;
+      /** Whether the workflow was actually paused at the time of the call. */
+      was_paused: boolean;
+    }
+
     /**
      * The release condition to evaluate
      */
@@ -32248,29 +32126,6 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
-    }
-
-    export interface _LogsSparklineBody {
-      /** Date range for the sparkline. Defaults to last hour. */
-      dateRange?: _DateRange;
-      /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
-      /** Filter by service names. */
-      serviceNames?: string[];
-      /** Full-text search term to filter log bodies. */
-      searchTerm?: string;
-      /** Property filters for the query. */
-      filterGroup?: _LogPropertyFilter[];
-      /** Break down sparkline by "severity" (default) or "service".
-
-    * `severity` - severity
-    * `service` - service */
-      sparklineBreakdownBy?: SparklineBreakdownByEnum;
-    }
-
-    export interface _LogsSparklineRequest {
-      /** The sparkline query to execute. */
-      query: _LogsSparklineBody;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -32529,18 +32384,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
-    format?: EnvironmentsDashboardsBulkUpdateTagsCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsBulkUpdateTagsCreateFormat = typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsDashboardsBulkUpdateTagsCreateFormat];
-
-
-    export const EnvironmentsDashboardsBulkUpdateTagsCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -32805,11 +32648,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-      valid?: boolean;
-      errors?: string[];
     };
 
     export type EnvironmentsExternalDataSourcesConnectionsListParams = {
@@ -33233,18 +33071,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
-    format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
-    };
-
-    export type EnvironmentsInsightsBulkUpdateTagsCreateFormat = typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat[keyof typeof EnvironmentsInsightsBulkUpdateTagsCreateFormat];
-
-
-    export const EnvironmentsInsightsBulkUpdateTagsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsInsightsCancelCreateParams = {
     format?: EnvironmentsInsightsCancelCreateFormat;
     };
@@ -33362,21 +33188,13 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: EnvironmentsLogsAttributesRetrieveAttributeType;
-    /**
-     * Date range to search within. Defaults to last hour.
-     */
-    dateRange?: _DateRange;
-    /**
-     * Property filters to narrow which logs are scanned for attributes.
-     */
-    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -33393,10 +33211,6 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
-    /**
-     * Filter attributes to those appearing in logs from these services.
-     */
-    serviceNames?: string[];
     };
 
     export type EnvironmentsLogsAttributesRetrieveAttributeType = typeof EnvironmentsLogsAttributesRetrieveAttributeType[keyof typeof EnvironmentsLogsAttributesRetrieveAttributeType];
@@ -33409,7 +33223,7 @@ export namespace Schemas {
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource". Defaults to "log".
+     * Type of attribute: "log" or "resource"
 
     * `log` - log
     * `resource` - resource
@@ -33417,22 +33231,10 @@ export namespace Schemas {
      */
     attribute_type?: EnvironmentsLogsValuesRetrieveAttributeType;
     /**
-     * Date range to search within. Defaults to last hour.
-     */
-    dateRange?: _DateRange;
-    /**
-     * Property filters to narrow which logs are scanned for values.
-     */
-    filterGroup?: _LogPropertyFilter[];
-    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
-    /**
-     * Filter values to those appearing in logs from these services.
-     */
-    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -34219,6 +34021,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingRecommendationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
@@ -34974,18 +34787,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type ActionsBulkUpdateTagsCreateParams = {
-    format?: ActionsBulkUpdateTagsCreateFormat;
-    };
-
-    export type ActionsBulkUpdateTagsCreateFormat = typeof ActionsBulkUpdateTagsCreateFormat[keyof typeof ActionsBulkUpdateTagsCreateFormat];
-
-
-    export const ActionsBulkUpdateTagsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type ActivityLogListParams = {
     /**
      * Filter by the ID of the affected resource.
@@ -35267,17 +35068,6 @@ export namespace Schemas {
      */
     is_system?: boolean | null;
     item_ids?: string[];
-    /**
-     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
-     * @minimum 1
-     */
-    page?: number;
-    /**
-     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
-     * @minimum 1
-     * @maximum 1000
-     */
-    page_size?: number;
     scopes?: string[];
     search_text?: string;
     start_date?: string;
@@ -35733,18 +35523,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type DashboardsBulkUpdateTagsCreateParams = {
-    format?: DashboardsBulkUpdateTagsCreateFormat;
-    };
-
-    export type DashboardsBulkUpdateTagsCreateFormat = typeof DashboardsBulkUpdateTagsCreateFormat[keyof typeof DashboardsBulkUpdateTagsCreateFormat];
-
-
-    export const DashboardsBulkUpdateTagsCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type DashboardsCreateFromTemplateJsonCreateParams = {
     format?: DashboardsCreateFromTemplateJsonCreateFormat;
     };
@@ -36111,11 +35889,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-      valid?: boolean;
-      errors?: string[];
     };
 
     export type ExternalDataSourcesConnectionsListParams = {
@@ -36726,18 +36499,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type InsightsBulkUpdateTagsCreateParams = {
-    format?: InsightsBulkUpdateTagsCreateFormat;
-    };
-
-    export type InsightsBulkUpdateTagsCreateFormat = typeof InsightsBulkUpdateTagsCreateFormat[keyof typeof InsightsBulkUpdateTagsCreateFormat];
-
-
-    export const InsightsBulkUpdateTagsCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type InsightsCancelCreateParams = {
     format?: InsightsCancelCreateFormat;
     };
@@ -36898,21 +36659,13 @@ export namespace Schemas {
 
     export type LogsAttributesRetrieveParams = {
     /**
-     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes
 
     * `log` - log
     * `resource` - resource
      * @minLength 1
      */
     attribute_type?: LogsAttributesRetrieveAttributeType;
-    /**
-     * Date range to search within. Defaults to last hour.
-     */
-    dateRange?: _DateRange;
-    /**
-     * Property filters to narrow which logs are scanned for attributes.
-     */
-    filterGroup?: _LogPropertyFilter[];
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -36929,10 +36682,6 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
-    /**
-     * Filter attributes to those appearing in logs from these services.
-     */
-    serviceNames?: string[];
     };
 
     export type LogsAttributesRetrieveAttributeType = typeof LogsAttributesRetrieveAttributeType[keyof typeof LogsAttributesRetrieveAttributeType];
@@ -36945,7 +36694,7 @@ export namespace Schemas {
 
     export type LogsValuesRetrieveParams = {
     /**
-     * Type of attribute: "log" or "resource". Defaults to "log".
+     * Type of attribute: "log" or "resource"
 
     * `log` - log
     * `resource` - resource
@@ -36953,22 +36702,10 @@ export namespace Schemas {
      */
     attribute_type?: LogsValuesRetrieveAttributeType;
     /**
-     * Date range to search within. Defaults to last hour.
-     */
-    dateRange?: _DateRange;
-    /**
-     * Property filters to narrow which logs are scanned for values.
-     */
-    filterGroup?: _LogPropertyFilter[];
-    /**
      * The attribute key to get values for
      * @minLength 1
      */
     key: string;
-    /**
-     * Filter values to those appearing in logs from these services.
-     */
-    serviceNames?: string[];
     /**
      * Search filter for attribute values
      * @minLength 1
@@ -37666,7 +37403,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalsProcessingListParams = {
+    export type SignalProcessingListParams = {
     /**
      * Number of results to return per page.
      */
@@ -37677,7 +37414,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type SignalsSourceConfigsListParams = {
+    export type SignalSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -37938,21 +37675,6 @@ export namespace Schemas {
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type VisualReviewRunsToleratedHashesListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string;
     /**
      * Number of results to return per page.
      */
