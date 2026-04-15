@@ -43,7 +43,7 @@ const conversationsTicketsList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: result.results.map((item: any) =>
+            results: (result.results ?? []).map((item: any) =>
                 pickResponseFields(item, [
                     'id',
                     'ticket_number',
