@@ -134,9 +134,7 @@ export function LogsRetentionSettings(): JSX.Element {
         LemonDialog.open({
             title: 'Change logs retention period?',
             description:
-                retentionDays < currentRetention
-                    ? 'Reducing retention will permanently delete logs older than the new retention period. This cannot be undone.'
-                    : 'Changing retention only affects logs from this point forwards. Existing logs will keep their original retention period.',
+                'Changing retention only affects logs from this point forwards. Existing logs will keep their original retention period.',
             primaryButton: {
                 children: `Change retention to ${label}`,
                 onClick: () =>
