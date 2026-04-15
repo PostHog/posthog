@@ -78,6 +78,7 @@ FULL_RUN_PATTERNS = (
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior
     "frontend/src/queries/schema.json",
+    "frontend/src/products.json",  # Loaded at runtime by posthog/products.py
     "frontend/public/email/",
     "rust/feature-flags/src/properties/property_models.rs",
     "common/plugin_transpiler/src",
