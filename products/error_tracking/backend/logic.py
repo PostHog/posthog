@@ -21,6 +21,20 @@ class ErrorTrackingIssueNotFoundError(Exception):
     pass
 
 
+SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
+    {
+        Integration.IntegrationKind.LINEAR,
+        Integration.IntegrationKind.GITHUB,
+        Integration.IntegrationKind.GITLAB,
+        Integration.IntegrationKind.JIRA,
+    }
+)
+
+
+def is_supported_external_issue_provider(kind: str) -> bool:
+    return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+
+
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
 

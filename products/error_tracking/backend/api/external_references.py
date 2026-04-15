@@ -48,6 +48,10 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         external_url = logic.build_external_issue_url(reference)
         if external_url:
             return external_url
+
+        if logic.is_supported_external_issue_provider(reference.integration.kind):
+            raise ValidationError("Missing required external context fields")
+
         raise ValidationError("Provider not supported")
 
     def validate(self, data):
