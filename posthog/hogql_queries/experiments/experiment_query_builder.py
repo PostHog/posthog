@@ -304,8 +304,10 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_query_legacy(self) -> ast.SelectQuery:
         """
-        Legacy funnel query: 3 CTEs (exposures, metric_events, entity_metrics).
-        Used when precomputed exposures are available.
+        3-CTE funnel query: exposures, metric_events, entity_metrics.
+        Called "legacy" because it predates the single-scan optimized path,
+        but this is the primary path for precomputed queries — both exposures
+        and metric_events CTEs can read from precomputed tables here.
 
         Supports two patterns:
         1. Events-only: Single query with boolean step columns
