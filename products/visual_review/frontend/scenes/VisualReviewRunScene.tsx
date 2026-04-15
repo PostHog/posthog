@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -9,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
+import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -18,19 +19,6 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { runId } }): VisualReviewRunSceneLogicProps => ({
         runId: runId || '',
     }),
-}
-
-const RESULT_DOT_COLORS: Record<string, string> = {
-    changed: 'bg-warning',
-    new: 'bg-primary',
-    removed: 'bg-danger',
-    unchanged: 'bg-muted',
-}
-
-const REVIEW_STATE_ICONS: Record<string, { symbol: string; color: string } | null> = {
-    approved: { symbol: '✓', color: 'text-success' },
-    tolerated: { symbol: '~', color: 'text-muted' },
-    pending: null,
 }
 
 function SnapshotThumbnail({
@@ -44,47 +32,39 @@ function SnapshotThumbnail({
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
     const shortName = parts.length > 1 ? parts[parts.length - 1] : parts[0]
-    const result = snapshot.result || 'unchanged'
-    const reviewIcon = REVIEW_STATE_ICONS[snapshot.review_state]
 
     return (
-        <Tooltip title={snapshot.identifier}>
-            <button
-                type="button"
-                onClick={onClick}
-                className="flex flex-col items-center gap-1 shrink-0 rounded p-1.5 transition-colors"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    background: isSelected ? 'var(--primary-3000-button-bg)' : 'transparent',
-                    border: '1.5px solid',
-                    borderColor: isSelected ? 'var(--primary-3000-button-border)' : 'var(--border)',
-                    boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
-                }}
-            >
-                <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
-                    {snapshot.current_artifact?.download_url ? (
-                        <img
-                            src={snapshot.current_artifact.download_url}
-                            alt=""
-                            className="w-full h-full object-contain"
-                        />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                            <span className="text-[10px] text-muted">No image</span>
-                        </div>
-                    )}
-                </div>
-                <div className="flex items-center gap-1 max-w-[108px]">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${RESULT_DOT_COLORS[result] || 'bg-muted'}`} />
-                    <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>
-                        {shortName}
-                    </span>
-                    {reviewIcon && (
-                        <span className={`text-[10px] shrink-0 ${reviewIcon.color}`}>{reviewIcon.symbol}</span>
-                    )}
-                </div>
-            </button>
-        </Tooltip>
+        <button
+            type="button"
+            onClick={onClick}
+            className="flex flex-col items-center gap-1 shrink-0 rounded p-1.5 transition-colors"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                background: isSelected ? 'var(--primary-3000-button-bg)' : 'transparent',
+                border: '1.5px solid',
+                borderColor: isSelected ? 'var(--primary-3000-button-border)' : 'var(--border)',
+                boxShadow: isSelected ? '0 3px 0 -1px var(--primary-3000-frame-bg)' : 'none',
+            }}
+        >
+            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000">
+                {snapshot.current_artifact?.download_url ? (
+                    <img src={snapshot.current_artifact.download_url} alt="" className="w-full h-full object-contain" />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-[10px] text-muted">No image</span>
+                    </div>
+                )}
+            </div>
+            <div className="flex items-center gap-1 max-w-[108px]">
+                <SnapshotStatusIndicator
+                    result={snapshot.result || 'unchanged'}
+                    reviewState={snapshot.review_state}
+                    classificationReason={snapshot.classification_reason}
+                    compact
+                />
+                <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>{shortName}</span>
+            </div>
+        </button>
     )
 }
 

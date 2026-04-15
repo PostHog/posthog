@@ -1,9 +1,10 @@
-import { IconCheck, IconChevronLeft, IconChevronRight, IconGithub } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 
 import type { SnapshotApi, SnapshotHistoryEntryApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
@@ -84,19 +85,15 @@ export function SnapshotDiffViewer({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {/* Transition indicator */}
-                        <span className="text-xs text-muted font-mono">
-                            {snapshot.result === 'changed' && '(baseline) → changed'}
-                            {snapshot.result === 'new' && '→ new'}
-                            {snapshot.result === 'removed' && '(baseline) → removed'}
-                            {snapshot.result === 'unchanged' &&
-                                snapshot.classification_reason === 'tolerated_hash' &&
-                                '(baseline) → auto-tolerated'}
-                        </span>
+                        <SnapshotStatusIndicator
+                            result={snapshot.result || 'unchanged'}
+                            reviewState={snapshot.review_state}
+                            classificationReason={snapshot.classification_reason}
+                        />
 
                         {needsAction && (
                             <>
-                                <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
+                                <LemonButton type="primary" size="small" onClick={onApprove}>
                                     Accept change
                                 </LemonButton>
                                 {snapshot.result === 'changed' && (
@@ -105,17 +102,6 @@ export function SnapshotDiffViewer({
                                     </LemonButton>
                                 )}
                             </>
-                        )}
-
-                        {isApproved && (
-                            <span className="flex items-center gap-1 text-sm text-success font-medium">
-                                <IconCheck className="w-4 h-4" />
-                                Approved
-                            </span>
-                        )}
-
-                        {isTolerated && (
-                            <span className="flex items-center gap-1 text-sm text-muted font-medium">Tolerated</span>
                         )}
                     </div>
                 </div>
