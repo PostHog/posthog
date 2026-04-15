@@ -2618,6 +2618,9 @@ class IntegrationKind(StrEnum):
     FIREBASE = "firebase"
     JIRA = "jira"
     PINTEREST_ADS = "pinterest-ads"
+    CUSTOMERIO_APP = "customerio-app"
+    CUSTOMERIO_WEBHOOK = "customerio-webhook"
+    CUSTOMERIO_TRACK = "customerio-track"
 
 
 class IntervalType(StrEnum):

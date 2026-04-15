@@ -21318,7 +21318,10 @@
                 "azure-blob",
                 "firebase",
                 "jira",
-                "pinterest-ads"
+                "pinterest-ads",
+                "customerio-app",
+                "customerio-webhook",
+                "customerio-track"
             ],
             "type": "string"
         },
