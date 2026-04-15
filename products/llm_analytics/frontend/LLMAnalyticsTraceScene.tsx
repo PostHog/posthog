@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import {
@@ -58,6 +58,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { ClustersTabContent } from './components/ClustersTabContent'
+import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
@@ -1044,12 +1045,11 @@ function TraceSidebar({
     showBillingInfo?: boolean
 }): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
-    const ref = useRef<HTMLDivElement | null>(null)
+    useMountedLogic(llmAnalyticsTraceDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { mostRelevantEvent, searchOccurrences } = useValues(traceDataLogic)
+    const { searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
     const { searchQuery } = useValues(traceLogic)
-    const { setSearchQuery, setEventId } = useActions(traceLogic)
+    const { setSearchQuery } = useActions(traceLogic)
     const showTraceWorkflow = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const [searchValue, setSearchValue] = useState(searchQuery)
@@ -1067,23 +1067,11 @@ function TraceSidebar({
         debouncedSetSearchQuery(value)
     }
 
-    useEffect(() => {
-        if (eventId && ref.current) {
-            const selectedNode = ref.current.querySelector(`[aria-current=true]`)
-            if (selectedNode) {
-                selectedNode.scrollIntoView({ block: 'center' })
-            }
-        }
-    }, [eventId])
-
-    useEffect(() => {
-        if (mostRelevantEvent && searchQuery.trim()) {
-            setEventId(mostRelevantEvent.id)
-        }
-    }, [mostRelevantEvent, searchQuery, setEventId])
-
     return (
-        <aside className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80" ref={ref}>
+        <aside
+            className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80"
+            id="trace-events-sidebar"
+        >
             {showTraceWorkflow ? <TraceWorkflowPanel traceId={trace.id} /> : null}
             <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -1543,24 +1531,29 @@ const EventContent = React.memo(
                                 />
                             )}
                             {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                            {aggregation && (
-                                <div className="flex flex-row flex-wrap items-center gap-2">
-                                    {aggregation.totalCost > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            Total Cost: {formatLLMCost(aggregation.totalCost)}
-                                        </LemonTag>
+                            {(aggregation || showEvalsTab) && (
+                                <div className="flex flex-col gap-1">
+                                    {aggregation && (
+                                        <div className="flex flex-row flex-wrap items-center gap-2">
+                                            {aggregation.totalCost > 0 && (
+                                                <LemonTag type="muted" size="small">
+                                                    Total Cost: {formatLLMCost(aggregation.totalCost)}
+                                                </LemonTag>
+                                            )}
+                                            {aggregation.totalLatency > 0 && (
+                                                <LemonTag type="muted" size="small">
+                                                    Total Latency: {formatLLMLatency(aggregation.totalLatency)}
+                                                </LemonTag>
+                                            )}
+                                            {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
+                                                <LemonTag type="muted" size="small">
+                                                    Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
+                                                    {aggregation.inputTokens + aggregation.outputTokens})
+                                                </LemonTag>
+                                            )}
+                                        </div>
                                     )}
-                                    {aggregation.totalLatency > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            Total Latency: {formatLLMLatency(aggregation.totalLatency)}
-                                        </LemonTag>
-                                    )}
-                                    {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
-                                        <LemonTag type="muted" size="small">
-                                            Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
-                                            {aggregation.inputTokens + aggregation.outputTokens})
-                                        </LemonTag>
-                                    )}
+                                    {showEvalsTab && <EvalResultBadges generationEventId={event.id} />}
                                 </div>
                             )}
                             {(showPromptButton ||
