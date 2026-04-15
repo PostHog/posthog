@@ -1671,7 +1671,7 @@ def snapshot_clickhouse_queries(fn_or_class):
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
         for attr in dir(fn_or_class):
-            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+            if attr.startswith("test_") and callable(getattr(fn_or_class, attr)):
                 setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
         return fn_or_class
 
@@ -1743,7 +1743,7 @@ def snapshot_hogql_queries(fn_or_class):
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
         for attr in dir(fn_or_class):
-            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+            if attr.startswith("test_") and callable(getattr(fn_or_class, attr)):
                 setattr(fn_or_class, attr, snapshot_hogql_queries(getattr(fn_or_class, attr)))
         return fn_or_class
 
