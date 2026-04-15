@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
     -- AI-generated session tags from the summarization pipeline
     ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-    -- AI-generated flag indicating the session is especially interesting or worth watching
+    -- AI-generated flag indicating the session is highlighted / worth watching
     ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
 ) ENGINE = {engine}
 """

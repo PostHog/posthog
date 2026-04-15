@@ -354,7 +354,7 @@ ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSI
 
 # =========================
 # MIGRATION: Add AI-generated columns for session tagging
-# The summarization pipeline produces tags and an "interesting" flag per session.
+# The summarization pipeline produces tags and a "highlighted" flag per session.
 # These are written back to Kafka and merged via the MV, same pattern as is_deleted.
 # =========================
 
