@@ -503,6 +503,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=item_trends)
 
         with freeze_time("2020-01-20T13:00:01Z"):
+            # Re-sync caching state under the new "now" — in production the periodic
+            # sync_insight_cache_states warmer does this. Cache keys include resolved
+            # relative dates, so rows written under the previous freeze_time don't
+            # match today's queries until re-synced.
+            from posthog.caching.insight_caching_state import upsert as upsert_caching_state
+
+            for tile in dashboard.tiles.all():
+                upsert_caching_state(self.team, tile)
+            upsert_caching_state(self.team, item_default)
+            upsert_caching_state(self.team, item_trends)
+
             response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": True})
 
             self.assertEqual(response_data["tiles"][0]["is_cached"], False)
