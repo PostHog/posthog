@@ -317,6 +317,11 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     {cohort.is_static && (
                                         <div className="flex flex-col gap-y-2">
                                             <strong>Populate from</strong>
+                                            <p className="text-muted text-sm my-0">
+                                                {staticCohortMode === 'criteria'
+                                                    ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
+                                                    : 'Manually add people via CSV upload or by selecting them individually.'}
+                                            </p>
                                             <LemonSelect
                                                 disabledReason={
                                                     isNewCohort
@@ -325,16 +330,12 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 }
                                                 options={[
                                                     {
-                                                        label: 'Criteria',
+                                                        label: 'Criteria · One-time snapshot',
                                                         value: 'criteria' as const,
-                                                        tooltip:
-                                                            'Take a one-time snapshot of people matching filters. The list is frozen at creation time.',
                                                     },
                                                     {
                                                         label: 'Upload or add people',
                                                         value: 'people' as const,
-                                                        tooltip:
-                                                            'Manually add people by uploading a CSV or selecting individuals.',
                                                     },
                                                 ]}
                                                 value={staticCohortMode}
@@ -342,11 +343,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 fullWidth
                                                 data-attr="static-cohort-mode"
                                             />
-                                            <p className="text-muted text-xs mt-1 mb-0">
-                                                {staticCohortMode === 'criteria'
-                                                    ? 'People matching these criteria will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
-                                                    : 'Manually add people via CSV upload or by selecting them individually.'}
-                                            </p>
                                         </div>
                                     )}
 
