@@ -267,10 +267,34 @@ async function eachBatchEvaluationScheduler(
     const eventsByTeam = groupEventsByTeam(aiGenerationEvents)
     const teamIds = Array.from(eventsByTeam.keys())
 
-    const [evaluationsByTeam, taggersByTeam] = await Promise.all([
+    // Fetch evaluations and taggers independently — a transient DB failure on one
+    // side must not take down dispatch for the other. If either side fails we log
+    // and fall back to an empty map so the matched workflows just don't trigger
+    // this batch, instead of failing the whole Kafka consumer loop.
+    const [evaluationsResult, taggersResult] = await Promise.allSettled([
         evaluationManager.getEvaluationsForTeams(teamIds),
         taggerManager.getTaggersForTeams(teamIds),
     ])
+    const evaluationsByTeam =
+        evaluationsResult.status === 'fulfilled'
+            ? evaluationsResult.value
+            : (logger.error('Failed to fetch evaluations for teams', {
+                  error:
+                      evaluationsResult.reason instanceof Error
+                          ? evaluationsResult.reason.message
+                          : String(evaluationsResult.reason),
+              }),
+              {} as Awaited<ReturnType<typeof evaluationManager.getEvaluationsForTeams>>)
+    const taggersByTeam =
+        taggersResult.status === 'fulfilled'
+            ? taggersResult.value
+            : (logger.error('Failed to fetch taggers for teams', {
+                  error:
+                      taggersResult.reason instanceof Error
+                          ? taggersResult.reason.message
+                          : String(taggersResult.reason),
+              }),
+              {} as Awaited<ReturnType<typeof taggerManager.getTaggersForTeams>>)
     const matcher = new EvaluationMatcher()
     const tasks: Promise<void>[] = []
 

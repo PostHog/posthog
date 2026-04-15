@@ -111,9 +111,12 @@ export class TaggerManagerService {
     private async fetchTaggers(ids: string[]): Promise<Record<string, Tagger | undefined>> {
         logger.debug('[TaggerManager]', 'Fetching taggers', { ids })
 
+        // Filter deleted and disabled rows even though team-level discovery already
+        // filters — taggers can be soft-deleted or disabled between discovery and
+        // detail fetch, and we don't want to dispatch a run-tagger workflow for one.
         const response = await this.postgres.query<Tagger>(
             PostgresUse.COMMON_READ,
-            `SELECT ${TAGGER_FIELDS.join(', ')} FROM llm_analytics_tagger WHERE id = ANY($1)`,
+            `SELECT ${TAGGER_FIELDS.join(', ')} FROM llm_analytics_tagger WHERE id = ANY($1) AND deleted = FALSE AND enabled = TRUE`,
             [ids],
             'fetchTaggers'
         )
