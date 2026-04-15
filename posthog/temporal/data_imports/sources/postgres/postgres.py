@@ -44,9 +44,22 @@ SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def source_requires_ssl(source: ExternalDataSource) -> bool:
-    """Return whether this source must connect over SSL/TLS."""
-    return source.created_at >= SSL_REQUIRED_AFTER_DATE
+def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
+    """Return whether this source must connect over SSL/TLS.
+
+    SSL is required for sources created after the cutoff date, unless the
+    user has explicitly opted out via the ``require_tls`` toggle on an active
+    SSH tunnel.
+    """
+    if source.created_at < SSL_REQUIRED_AFTER_DATE:
+        return False
+
+    if source_config is not None:
+        ssh_tunnel = source_config.ssh_tunnel
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
+            return False
+
+    return True
 
 
 class SSLRequiredError(Exception):

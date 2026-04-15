@@ -119,6 +119,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "session_id",
             "session_context",
             "sla_due_at",
+            "snoozed_until",
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
@@ -276,6 +277,13 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             elif sla_param == "on-track":
                 queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
 
+        snoozed_param = self.request.query_params.get("snoozed")
+        if snoozed_param is not None:
+            if snoozed_param.lower() == "true":
+                queryset = queryset.filter(snoozed_until__isnull=False)
+            elif snoozed_param.lower() == "false":
+                queryset = queryset.filter(snoozed_until__isnull=True)
+
         tags_param = self.request.query_params.get("tags")
         if tags_param:
             try:
@@ -290,6 +298,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             "-updated_at",
             "sla_due_at",
             "-sla_due_at",
+            "snoozed_until",
+            "-snoozed_until",
             "created_at",
             "-created_at",
             "ticket_number",
@@ -516,6 +526,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         old_status = instance.status
         old_priority = instance.priority
         old_sla_due_at = instance.sla_due_at
+        old_snoozed_until = instance.snoozed_until
 
         # Extract assignee without mutating request.data
         assignee = request.data.get("assignee", ...) if "assignee" in request.data else ...
@@ -524,7 +535,21 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Update other fields normally
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
+
+        explicit_status = "status" in data
+        with transaction.atomic():
+            self.perform_update(serializer)
+
+            # Auto-status on snooze transitions (only when user didn't explicitly set status)
+            new_snoozed_until = instance.snoozed_until
+            snooze_changed = old_snoozed_until != new_snoozed_until
+            if snooze_changed and not explicit_status:
+                if old_snoozed_until is None and new_snoozed_until is not None:
+                    instance.status = Status.ON_HOLD
+                    instance.save(update_fields=["status"])
+                elif old_snoozed_until is not None and new_snoozed_until is None:
+                    instance.status = Status.OPEN
+                    instance.save(update_fields=["status"])
 
         # Handle assignee update if provided (not ... sentinel)
         if assignee is not ...:
@@ -593,6 +618,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     action="changed",
                 )
             )
+        if snooze_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="snoozed_until",
+                    before=old_snoozed_until.isoformat() if old_snoozed_until else None,
+                    after=new_snoozed_until.isoformat() if new_snoozed_until else None,
+                    action="changed",
+                )
+            )
 
         if changes:
             try:
@@ -613,7 +648,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 capture_exception(e, {"ticket_id": str(instance.id)})
 
         # Track internal analytics
-        if status_changed or priority_changed or assignee_changed or sla_changed:
+        if status_changed or priority_changed or assignee_changed or sla_changed or snooze_changed:
             try:
                 report_user_action(
                     request.user,
