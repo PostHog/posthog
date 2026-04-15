@@ -15,6 +15,16 @@ class HogQLPrinter(BasePrinter):
     def _render_aggregation_name(self, node: ast.Call, func_meta) -> str:
         return node.name
 
+    def _ensure_team_id_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType,
+    ):
+        return
+
+    def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
+        return table_type.table.to_printed_hogql()
+
     def _tuple_access_separator(self, nullish: bool) -> str:
         return "?." if nullish else "."
 

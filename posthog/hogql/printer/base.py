@@ -411,10 +411,11 @@ class BasePrinter(Visitor[str]):
     ):
         """Inject a ``team_id`` guard into the WHERE clause for SQL-lowering dialects.
 
-        Default is a no-op (HogQL output doesn't lower to a real query so no guard is needed).
-        ``ClickHousePrinter`` and ``PostgresPrinter`` override this with their team-id enforcement.
+        Fail-fast by default: every SQL dialect must override this to enforce team isolation.
+        ``HogQLPrinter`` overrides to a no-op because it never produces a real query; CH and PG
+        enforce the guard.
         """
-        return
+        raise NotImplementedError("BasePrinter._ensure_team_id_where_clause not overridden")
 
     def _get_table_predicates(
         self,
@@ -430,8 +431,11 @@ class BasePrinter(Visitor[str]):
         return [resolve_types(clone_expr(pred), self.context, self.dialect, [scope]) for pred in predicates]
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        """Print a table reference. Default is the HogQL identifier; SQL dialects override."""
-        return table_type.table.to_printed_hogql()
+        """Print a table reference. Fail-fast by default: each dialect must override.
+
+        ``HogQLPrinter`` returns the HogQL identifier; SQL dialects resolve to real table names.
+        """
+        raise ImpossibleASTError(f"Unsupported dialect {type(self).__name__}")
 
     def _render_lazy_table_join_expr(self, node: ast.JoinExpr) -> str:
         """Render a ``LazyTableType`` join target. SQL dialects resolve these before printing."""
