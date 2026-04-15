@@ -72,6 +72,8 @@ export function DashboardItems(): JSX.Element {
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
+    const resizingItemRef = useRef(resizingItem)
+    resizingItemRef.current = resizingItem
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
@@ -212,14 +214,12 @@ export function DashboardItems(): JSX.Element {
         return dashboard.id
     }, [dashboard])
 
-    const handleResize = useCallback(
-        (_layout: any, _oldItem: any, newItem: any) => {
-            if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
-                setResizingItem(newItem)
-            }
-        },
-        [resizingItem]
-    )
+    const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
+        const current = resizingItemRef.current
+        if (!current || current.w !== newItem.w || current.h !== newItem.h) {
+            setResizingItem(newItem)
+        }
+    }, [])
 
     const handleResizeStop = useCallback(() => {
         setResizingItem(null)
