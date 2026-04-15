@@ -4,10 +4,9 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
@@ -47,6 +46,7 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel } = useValues(marketingAnalyticsLogic)
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
+    const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -102,13 +102,48 @@ export const MarketingAnalyticsTable = ({
                             data-attr="marketing-analytics-search"
                         />
                         {hasDrillDown && (
-                            <LemonSegmentedButton
+                            <LemonSelect
                                 value={drillDownLevel}
-                                onChange={setDrillDownLevel}
+                                onChange={(value) => value && setDrillDownLevel(value)}
                                 options={[
-                                    { value: MarketingAnalyticsDrillDownLevel.Channel, label: 'Channel' },
-                                    { value: MarketingAnalyticsDrillDownLevel.Source, label: 'Source' },
-                                    { value: MarketingAnalyticsDrillDownLevel.Campaign, label: 'Campaign' },
+                                    {
+                                        title: 'Platform',
+                                        options: [
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Channel,
+                                                label: 'Channel',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Source,
+                                                label: 'Source',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Campaign,
+                                                label: 'Campaign',
+                                            },
+                                        ],
+                                    },
+                                    ...(hasExtendedDrillDown
+                                        ? [
+                                              {
+                                                  title: 'UTM',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                          label: 'Medium',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Content,
+                                                          label: 'Content',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Term,
+                                                          label: 'Term',
+                                                      },
+                                                  ],
+                                              },
+                                          ]
+                                        : []),
                                 ]}
                                 size="small"
                             />

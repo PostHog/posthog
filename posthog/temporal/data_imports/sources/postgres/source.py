@@ -303,7 +303,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             )
 
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
-        require_ssl = source_requires_ssl(schema.source)
+        require_ssl = source_requires_ssl(schema.source, config)
 
         return postgres_source(
             tunnel=ssh_tunnel,
