@@ -1078,11 +1078,20 @@ class TestDirectPostgresQuery(APIBaseTest):
         },
     }
 
+    _SSH_TUNNEL_DISABLED_TLS_OFF = {
+        "ssh_tunnel": {
+            **_SSH_TUNNEL_CONFIG["ssh_tunnel"],
+            "enabled": False,
+            "require_tls": {"enabled": False},
+        },
+    }
+
     @parameterized.expand(
         [
             ("no_tunnel", {}, "require"),
             ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
             ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
+            ("disabled_tunnel_tls_off_ignored", _SSH_TUNNEL_DISABLED_TLS_OFF, "require"),
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
