@@ -275,9 +275,17 @@ function CDCRequirementsPanel(): JSX.Element {
                             database.
                         </li>
                         <li>
-                            Database user with the <code>REPLICATION</code> role for PostHog-managed mode (
-                            <code>ALTER USER &lt;user&gt; WITH REPLICATION</code>). For self-managed mode, only{' '}
-                            <code>SELECT</code> is needed.
+                            Database user with <code>REPLICATION</code> (
+                            <code>ALTER USER &lt;user&gt; WITH REPLICATION</code>) — or, on AWS RDS, membership in{' '}
+                            <code>rds_replication</code>. Required for both PostHog-managed and self-managed modes;
+                            PostHog creates and reads the replication slot either way.
+                        </li>
+                        <li>
+                            <strong>PostHog-managed mode</strong> additionally needs ownership of the synced tables (or
+                            a superuser) so PostHog can run <code>CREATE PUBLICATION</code>. In{' '}
+                            <strong>self-managed mode</strong> the owner creates just the publication once — PostHog
+                            connects with a user that only needs <code>SELECT</code> on the tables and{' '}
+                            <code>REPLICATION</code>.
                         </li>
                         <li>Every table you want to sync must have a primary key.</li>
                         <li>
@@ -359,10 +367,12 @@ function CDCPrerequisitesCheck(): JSX.Element {
                     source_type: 'Postgres' as ExternalDataSourceType,
                     ...payload,
                     cdc_management_mode: managementMode,
-                    // Pre-selection: no table list yet. Slot/pub checks only relevant in self_managed popup.
+                    // Pre-setup check: no tables selected yet, and in self-managed mode the
+                    // slot/publication don't exist yet — the popup after schema selection
+                    // verifies those once the user has run the generated SQL.
                     tables: [],
-                    cdc_slot_name: managementMode === 'self_managed' ? payload.cdc_slot_name : null,
-                    cdc_publication_name: managementMode === 'self_managed' ? payload.cdc_publication_name : null,
+                    cdc_slot_name: null,
+                    cdc_publication_name: null,
                 },
                 currentTeamId
             )
@@ -378,19 +388,8 @@ function CDCPrerequisitesCheck(): JSX.Element {
         | 'posthog'
         | 'self_managed'
 
-    // When running as PostHog-managed and the only blockers are PostHog-managed-specific
-    // (replication role, slot capacity), self-managed mode is a valid escape hatch.
-    const posthogManagedOnlyBlockers =
-        result &&
-        !result.valid &&
-        checkedManagementMode === 'posthog' &&
-        result.errors.length > 0 &&
-        result.errors.every(
-            (err) =>
-                err.includes('cannot create logical replication slots') ||
-                err.includes('REPLICATION role') ||
-                err.includes('No replication slot capacity available')
-        )
+    // The "switch to self-managed to avoid REPLICATION" shortcut was wrong — self-managed
+    // still reads from the slot so still needs REPLICATION. No useful narrow hint here today.
 
     return (
         <div>
@@ -400,7 +399,15 @@ function CDCPrerequisitesCheck(): JSX.Element {
             {result && (
                 <LemonBanner type={result.valid ? 'success' : 'error'} className="mt-2">
                     {result.valid ? (
-                        <p className="m-0">Your database is ready for CDC.</p>
+                        <>
+                            <p className="m-0">Your database is ready for CDC.</p>
+                            {checkedManagementMode === 'self_managed' && (
+                                <p className="m-0 text-xs mt-1">
+                                    After you pick your tables in the next step, we'll show you the SQL to create the
+                                    replication slot and publication.
+                                </p>
+                            )}
+                        </>
                     ) : (
                         <>
                             <p className="font-semibold mb-1">Some prerequisites are not met:</p>
@@ -411,16 +418,6 @@ function CDCPrerequisitesCheck(): JSX.Element {
                             </ul>
                         </>
                     )}
-                </LemonBanner>
-            )}
-            {posthogManagedOnlyBlockers && (
-                <LemonBanner type="info" className="mt-2">
-                    <p className="m-0 text-sm">
-                        Your database is otherwise ready — these blockers only apply to PostHog-managed CDC. Switch to{' '}
-                        <strong>Self-managed</strong> below: you (or your DBA) create the replication slot and
-                        publication once using an admin user, and PostHog connects with a read-only user that only needs{' '}
-                        <code>SELECT</code>.
-                    </p>
                 </LemonBanner>
             )}
         </div>
@@ -495,8 +492,11 @@ function CDCConfigSection(): JSX.Element {
                                                         <div>
                                                             <div>Self-managed</div>
                                                             <div className="text-xs text-secondary">
-                                                                You manage your own replication slot and publication.
-                                                                PostHog only needs SELECT access.
+                                                                You (or your DBA) create just the publication once as
+                                                                the table owner. PostHog creates and manages the
+                                                                replication slot itself, and still needs REPLICATION (or
+                                                                rds_replication on RDS) plus SELECT on the synced
+                                                                tables.
                                                             </div>
                                                         </div>
                                                     ),
@@ -510,15 +510,6 @@ function CDCConfigSection(): JSX.Element {
                                     {({ value: managementMode }) =>
                                         managementMode === 'self_managed' ? (
                                             <div className="space-y-4">
-                                                <LemonField name="cdc_slot_name" label="Replication slot name">
-                                                    {({ value, onChange }) => (
-                                                        <LemonInput
-                                                            placeholder="posthog_slot"
-                                                            value={value || ''}
-                                                            onChange={onChange}
-                                                        />
-                                                    )}
-                                                </LemonField>
                                                 <LemonField name="cdc_publication_name" label="Publication name">
                                                     {({ value, onChange }) => (
                                                         <LemonInput
@@ -531,8 +522,9 @@ function CDCConfigSection(): JSX.Element {
                                                 <LemonBanner type="info">
                                                     <p className="font-semibold mb-1">Setup SQL comes next</p>
                                                     <p className="text-xs m-0">
-                                                        After you pick the tables to sync, we'll show you the exact SQL
-                                                        to create the replication slot and publication for those tables.
+                                                        After you pick the tables to sync, we'll show you a{' '}
+                                                        <code>CREATE PUBLICATION</code> statement to run as the table
+                                                        owner. PostHog creates and manages the replication slot itself.
                                                     </p>
                                                 </LemonBanner>
                                             </div>

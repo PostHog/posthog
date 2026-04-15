@@ -100,6 +100,30 @@ def create_slot_and_publication(
     return consistent_point
 
 
+def create_slot(conn: psycopg.Connection, slot_name: str) -> str:
+    """Create just a logical replication slot against an already-existing publication.
+
+    Used by self-managed CDC: the customer's DBA creates the publication with an owner
+    account, then PostHog creates and manages the slot with its own REPLICATION user.
+
+    Returns the consistent_point LSN from slot creation.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL("SELECT lsn FROM pg_create_logical_replication_slot({}, 'pgoutput')").format(
+                sql.Literal(slot_name),
+            )
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"pg_create_logical_replication_slot returned no result for slot '{slot_name}'")
+        consistent_point: str = row[0]
+        conn.commit()
+
+    logger.info("Created replication slot '%s' at LSN %s", slot_name, consistent_point)
+    return consistent_point
+
+
 def drop_slot_and_publication(
     conn: psycopg.Connection,
     slot_name: str,

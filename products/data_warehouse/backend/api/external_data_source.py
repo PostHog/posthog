@@ -882,11 +882,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def _setup_cdc_slot(
         self, source_impl, source_config, source_model: ExternalDataSource, payload: dict
     ) -> Response | None:
-        """Create replication slot + publication for PostHog-managed CDC sources.
+        """Set up CDC replication slot and publication on the source database.
 
-        For self-managed mode, validates that the provided slot/publication exist.
-        Updates source_model.job_inputs with CDC config.
-        Returns a Response on error, None on success.
+        PostHog-managed: PostHog creates both the publication and the slot (requires
+        table ownership on the source, plus REPLICATION).
+
+        Self-managed: the customer's DBA creates the publication out-of-band; PostHog
+        only verifies it exists and then creates the slot itself (publication creation
+        requires table ownership, slot creation only requires REPLICATION — which the
+        PostHog user must have either way to read the slot).
+
+        Updates source_model.job_inputs with CDC config. Returns a Response on error,
+        None on success.
         """
         from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 
@@ -929,28 +936,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
 
         elif management_mode == "self_managed":
-            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import publication_exists, slot_exists
+            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import create_slot, publication_exists
 
             try:
                 with cdc_pg_connection(source_model) as conn:
-                    if not slot_exists(conn, slot_name):
-                        source_model.delete()
-                        return Response(
-                            status=status.HTTP_400_BAD_REQUEST,
-                            data={"message": f"Replication slot '{slot_name}' does not exist"},
-                        )
                     if not publication_exists(conn, pub_name):
                         source_model.delete()
                         return Response(
                             status=status.HTTP_400_BAD_REQUEST,
-                            data={"message": f"Publication '{pub_name}' does not exist"},
+                            data={
+                                "message": (
+                                    f"Publication '{pub_name}' does not exist. Run the CREATE PUBLICATION "
+                                    f"statement we showed you, then retry."
+                                )
+                            },
                         )
+                    consistent_point = create_slot(conn, slot_name)
+                    job_inputs["cdc_consistent_point"] = consistent_point
             except Exception as e:
                 source_model.delete()
-                logger.exception("Failed to validate self-managed CDC slot", error=str(e))
+                logger.exception("Failed to set up self-managed CDC slot", error=str(e))
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Failed to validate replication slot: {e}"},
+                    data={"message": f"Failed to create replication slot: {e}"},
                 )
 
         source_model.job_inputs = job_inputs

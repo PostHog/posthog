@@ -259,7 +259,6 @@ function CDCSelfManagedSetupDialog(): JSX.Element | null {
         [databaseSchema]
     )
     const schema = (sourceConnectionDetails?.payload?.schema as string) || 'public'
-    const slotName = (payload.cdc_slot_name as string) || 'posthog_slot'
     const pubName = (payload.cdc_publication_name as string) || 'posthog_pub'
     const dbUser = (sourceConnectionDetails?.payload?.user as string) || '<your_user>'
 
@@ -268,16 +267,19 @@ function CDCSelfManagedSetupDialog(): JSX.Element | null {
             ? cdcTableNames.map((t) => `"${schema}"."${t}"`).join(', ')
             : `"${schema}"."your_table"`
 
-    const sql = `-- 1. Grants (if the database user doesn't already own these tables)
+    const sql = `-- 1. Grants for the PostHog user
+--    Reading a replication slot requires REPLICATION (or rds_replication on RDS).
+--    Run ONE of the lines below, depending on your environment:
+ALTER USER "${dbUser}" WITH REPLICATION;             -- self-hosted / most clouds
+-- GRANT rds_replication TO "${dbUser}";             -- AWS RDS
 GRANT USAGE ON SCHEMA "${schema}" TO "${dbUser}";
 GRANT SELECT ON ${tableList} TO "${dbUser}";
 
 -- 2. Publication covering the ${cdcTableNames.length} selected table${cdcTableNames.length === 1 ? '' : 's'}
+--    Run this as the table owner (or a superuser). PostHog will create and manage
+--    the replication slot itself once the source is created.
 CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
   WITH (publish_via_partition_root = true);
-
--- 3. Logical replication slot
-SELECT pg_create_logical_replication_slot('${slotName}', 'pgoutput');
 
 -- Later, to add a new table to the publication:
 -- ALTER PUBLICATION "${pubName}" ADD TABLE "${schema}"."new_table";`
@@ -300,7 +302,8 @@ SELECT pg_create_logical_replication_slot('${slotName}', 'pgoutput');
                     source_type: 'Postgres' as ExternalDataSourceType,
                     ...connectionPayload,
                     cdc_management_mode: 'self_managed',
-                    cdc_slot_name: slotName,
+                    // PostHog creates the slot itself — only verify the publication exists.
+                    cdc_slot_name: null,
                     cdc_publication_name: pubName,
                     tables: cdcTableNames,
                 },
@@ -331,8 +334,8 @@ SELECT pg_create_logical_replication_slot('${slotName}', 'pgoutput');
         <LemonModal
             isOpen
             onClose={closeCdcSelfManagedSetupDialog}
-            title="Create your replication slot and publication"
-            description={`Self-managed CDC needs the slot and publication to exist in your Postgres before PostHog connects. Run the SQL below against ${cdcTableNames.length} table${cdcTableNames.length === 1 ? '' : 's'} you selected for CDC, then click Verify & create.`}
+            title="Create your publication"
+            description={`Self-managed CDC needs the publication to exist before PostHog connects — PostHog will create and manage the replication slot itself. Run the SQL below (covering the ${cdcTableNames.length} table${cdcTableNames.length === 1 ? '' : 's'} you selected for CDC) as the table owner, then click Verify & create.`}
             width={720}
             footer={
                 <>
