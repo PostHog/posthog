@@ -137,6 +137,7 @@ class Run(models.Model):
     changed_count = models.PositiveIntegerField(default=0)
     new_count = models.PositiveIntegerField(default=0)
     removed_count = models.PositiveIntegerField(default=0)
+    tolerated_match_count = models.PositiveIntegerField(default=0)
 
     error_message = models.TextField(blank=True)
 
@@ -212,6 +213,16 @@ class RunSnapshot(models.Model):
     result = models.CharField(
         max_length=20, choices=[(r.value, r.value) for r in SnapshotResult], default=SnapshotResult.UNCHANGED
     )
+    # Why this snapshot was classified as UNCHANGED:
+    #   "exact" — hash matches baseline
+    #   "tolerated_hash" — matched a known tolerated alternate
+    #   "below_threshold" — newly diffed this run, below pixel/SSIM threshold
+    #   "" — not applicable (CHANGED, NEW, REMOVED)
+    classification_reason = models.CharField(max_length=20, blank=True, default="")
+    # Set when classification used a tolerated alternate hash
+    tolerated_hash_match = models.ForeignKey(
+        "ToleratedHash", on_delete=models.SET_NULL, null=True, blank=True, related_name="matched_snapshots"
+    )
 
     # Diff metrics
     diff_percentage = models.FloatField(null=True, blank=True)
@@ -253,3 +264,49 @@ class RunSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"{self.identifier} ({self.result})"
+
+
+class ToleratedHash(models.Model):
+    """
+    Previously seen alternate hashes that were determined acceptable for a
+    specific baseline and snapshot identifier, allowing future runs to skip
+    expensive diff processing.
+
+    Keyed by (repo, identifier, baseline_hash, content_hash) — when the
+    canonical baseline changes, old tolerations expire naturally because
+    baseline_hash no longer matches.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="tolerated_hashes")
+    team_id = models.BigIntegerField(db_index=True)
+
+    identifier = models.CharField(max_length=512)
+    baseline_hash = models.CharField(max_length=128)
+    content_hash = models.CharField(max_length=128)
+
+    reason = models.CharField(
+        max_length=20,
+        choices=[("auto_threshold", "auto_threshold"), ("human", "human")],
+    )
+
+    # Which run caused this toleration to be recorded
+    source_run = models.ForeignKey(Run, on_delete=models.SET_NULL, null=True, blank=True)
+    # Who marked it (for human reason)
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repo", "identifier", "baseline_hash", "content_hash"],
+                name="unique_tolerated_hash",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["repo", "identifier", "baseline_hash"], name="tolerated_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.identifier} {self.content_hash[:12]}... ({self.reason})"
