@@ -22,12 +22,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     Tests for the endpoint execution API.
 
     Design principles:
-    1. `variables` is the only mechanism for passing dynamic values
+    1. `variables` is the preferred mechanism for passing dynamic values
     2. API behavior is consistent regardless of query type (HogQL vs Insight)
     3. API behavior is consistent regardless of materialization status
     4. `date_from` and `date_to` are magic variables for insight endpoints
     5. `query_override` is not allowed
-    6. `filters_override` is not allowed — use variables instead
+    6. `filters_override` is deprecated but supported for insight endpoints (not HogQL)
     7. Unknown variables cause errors
     """
 
@@ -218,7 +218,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("filters_override is no longer supported", response.json()["detail"])
+        self.assertIn("Not allowed for HogQL endpoints. Use variables instead.", response.json()["detail"])
 
     # =========================================================================
     # NON-MATERIALIZED INSIGHT ENDPOINTS
@@ -345,6 +345,98 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("query_override", response.json()["detail"])
+
+    def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
+        endpoint = create_endpoint_with_version(
+            name="trends_filters_override",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={
+                    "date_from": "2026-01-01",
+                    "date_to": "2026-01-10",
+                },  # Explicit range covering all test events
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Get baseline without date filter (all 10 events)
+        response_baseline = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"refresh": "force"},
+            format="json",
+        )
+        self.assertEqual(response_baseline.status_code, status.HTTP_200_OK)
+        baseline_total = sum(response_baseline.json()["results"][0]["data"])
+
+        # Use filters_override to filter by date - should have fewer results (days 5-10)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"filters_override": {"date_from": "2026-01-05", "date_to": "2026-01-10"}, "refresh": "force"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        filtered_total = sum(response.json()["results"][0]["data"])
+        self.assertLess(filtered_total, baseline_total)
+
+    def test_insight_endpoint_filters_override_returns_deprecation_header(self):
+        endpoint = create_endpoint_with_version(
+            name="trends_deprecation_header",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"filters_override": {"date_from": "2026-01-01"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("X-PostHog-Warn", response.headers)
+        self.assertIn("filters_override is deprecated", response.headers["X-PostHog-Warn"])
+
+    def test_insight_endpoint_filters_override_takes_precedence_over_variables(self):
+        endpoint = create_endpoint_with_version(
+            name="trends_precedence",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "-30d"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # filters_override uses date_from 2026-01-08 (days 8-10), variables uses 2026-01-02 (days 2-10)
+        # If filters_override wins, we should have fewer results
+        response_filters = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {
+                "filters_override": {"date_from": "2026-01-08"},
+                "variables": {"date_from": "2026-01-02"},
+                "refresh": "force",
+            },
+            format="json",
+        )
+        self.assertEqual(response_filters.status_code, status.HTTP_200_OK)
+        filters_total = sum(response_filters.json()["results"][0]["data"])
+
+        # Use only variables with same date to verify
+        response_vars = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"date_from": "2026-01-08"}, "refresh": "force"},
+            format="json",
+        )
+        self.assertEqual(response_vars.status_code, status.HTTP_200_OK)
+        vars_total = sum(response_vars.json()["results"][0]["data"])
+
+        # Both should have same result since filters_override wins with same date
+        self.assertEqual(filters_total, vars_total)
 
     # =========================================================================
     # MATERIALIZED HOGQL ENDPOINTS
@@ -1025,6 +1117,30 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("$browser", response.json()["detail"])
         self.assertIn("required", response.json()["detail"].lower())
+
+    def test_materialized_insight_endpoint_accepts_filters_override_instead_of_variable(self):
+        endpoint = create_endpoint_with_version(
+            name="mat_trends_filters_fallback",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter={"breakdowns": [{"property": "$browser", "type": "event"}]},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        self._materialize_endpoint(endpoint)
+
+        # Using filters_override instead of variables should work (backwards compat)
+        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_exec.assert_called()
 
     def test_materialized_insight_endpoint_direct_refresh_bypasses_materialization(self):
         endpoint = create_endpoint_with_version(
@@ -1875,3 +1991,168 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # cte2 filters by event_name, so should return count for $pageleave only
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], 10)
+
+    # =========================================================================
+    # METRICS
+    # =========================================================================
+
+    def _make_simple_hogql_endpoint(self, name: str):
+        return create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events",
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+    def test_execution_metric_records_query_kind_label(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_query_kind")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_validation_error_metric_unknown_variable(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_unknown_var",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"reason": "unknown_variable"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"nonexistent": "x"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_observed_on_success(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_result_rows")
+        labels = {"execution_type": "inline"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_not_observed_for_insight_endpoint(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_insight_no_rows",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        def total_count() -> float:
+            total = 0.0
+            for metric in REGISTRY.collect():
+                if metric.name != "posthog_endpoint_hogql_result_rows":
+                    continue
+                for sample in metric.samples:
+                    if sample.name.endswith("_count"):
+                        total += sample.value
+            return total
+
+        before = total_count()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = total_count()
+        self.assertEqual(after - before, 0.0)
+
+    def test_cache_outcome_metric_records_miss_on_first_execution(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_cache_outcome")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "outcome": "miss"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"refresh": "force"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_cache_outcome_only_uses_hit_or_miss_labels(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_no_stale_served")
+        for _ in range(2):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        observed_outcomes: set[str] = set()
+        for metric in REGISTRY.collect():
+            if metric.name != "posthog_endpoint_cache_result_total":
+                continue
+            for sample in metric.samples:
+                outcome = sample.labels.get("outcome")
+                if outcome and sample.value > 0:
+                    observed_outcomes.add(outcome)
+
+        self.assertTrue(observed_outcomes.issubset({"hit", "miss"}), f"Unexpected outcomes: {observed_outcomes}")
+        self.assertNotIn("stale_served", observed_outcomes)
+
+    def test_disable_materialization_no_op_does_not_increment_counter(self):
+        from prometheus_client import REGISTRY
+
+        from products.endpoints.backend.api import EndpointViewSet
+
+        endpoint = self._make_simple_hogql_endpoint("metric_disable_no_op")
+        labels = {"action": "disable", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+
+        viewset = EndpointViewSet()
+        viewset.team_id = self.team.id
+        viewset._disable_materialization(endpoint)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+        self.assertEqual(after - before, 0.0)

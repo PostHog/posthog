@@ -1,0 +1,83 @@
+name: Backend CI - Test selection shadow
+
+on:
+    pull_request:
+        branches: [master]
+
+permissions:
+    contents: read
+
+jobs:
+    shadow-test-selection:
+        name: Shadow test selection
+        if: |
+            github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Check dorny pattern sync
+              run: uv run bin/find_affected_tests.py --check-sync
+
+            - name: Compute affected tests (shadow mode)
+              id: selection
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch --no-tags origin "$BASE_SHA"
+                  echo "### Changed files" >&2
+                  git diff --name-only "$BASE_SHA"...HEAD >&2
+
+                  RESULT=$(git diff --name-only "$BASE_SHA"...HEAD | uv run bin/find_affected_tests.py --stdin 2>/dev/stderr | tail -1)
+                  echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+
+            - name: Write job summary
+              env:
+                  RESULT: ${{ steps.selection.outputs.result }}
+                  CURRENT_SHARDS: 38
+                  SHARD_OVERHEAD_MINUTES: 4
+              run: |
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
+
+                  if [ "$MODE" = "selective" ]; then
+                    COUNT=$(echo "$RESULT" | jq -r '.affected_test_count')
+                    TOTAL=$(echo "$RESULT" | jq -r '.total_test_count')
+                    SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
+                    AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
+                    TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+
+                    SAVED_TESTS=$(($TOTAL - $COUNT))
+                    SAVED_SHARDS=$(($CURRENT_SHARDS - $SHARDS))
+                    # Each shard has fixed overhead (docker, deps, migrations) + test time
+                    FULL_MINUTES=$(( ($CURRENT_SHARDS * $SHARD_OVERHEAD_MINUTES) + ($TOTAL_DUR / 60) ))
+                    SELECTIVE_MINUTES=$(( ($SHARDS * $SHARD_OVERHEAD_MINUTES) + ($AFFECTED_DUR / 60) ))
+                    SAVED_MINUTES=$(($FULL_MINUTES - $SELECTIVE_MINUTES))
+
+                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow test selection
+
+                  | Metric | Full run | Selective | Saved |
+                  |---|---|---|---|
+                  | Test files | $TOTAL | $COUNT | **$SAVED_TESTS** |
+                  | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
+                  | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
+                  | Est. test duration | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$(($TOTAL_DUR - $AFFECTED_DUR))s** |
+                  EOF
+                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: .mode, affected: .affected_test_count, total: .total_test_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
+                  else
+                    REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
+                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow test selection
+
+                  **Full run required:** $REASON
+                  EOF
+                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: "full", reason: .reason}')"
+                  fi

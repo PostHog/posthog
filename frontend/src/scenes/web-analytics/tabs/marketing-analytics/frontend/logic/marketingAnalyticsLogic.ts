@@ -50,6 +50,12 @@ export enum MarketingAnalyticsTab {
     INTEGRATION_HEALTH = 'integration-health',
 }
 
+const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
+    MarketingAnalyticsDrillDownLevel.Medium,
+    MarketingAnalyticsDrillDownLevel.Content,
+    MarketingAnalyticsDrillDownLevel.Term,
+])
+
 export enum MarketingSourceStatus {
     Warning = 'Warning',
     Error = 'Error',
@@ -409,10 +415,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     selectors({
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
-            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) =>
-                featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]
-                    ? level
-                    : MarketingAnalyticsDrillDownLevel.Campaign,
+            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
+                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                if (
+                    EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
+                    !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
+                ) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                return level
+            },
         ],
         validSourcesMap: [
             (s) => [s.sources_map],

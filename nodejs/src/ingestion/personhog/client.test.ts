@@ -115,6 +115,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     checkCohortMembership: () => ({ memberships: [] }),
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
+    deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {

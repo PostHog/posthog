@@ -90,6 +90,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadIssue: true,
         loadSummary: true,
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
+        setMobileDetailOpen: (mobileDetailOpen: boolean) => ({ mobileDetailOpen }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setLastSeen: (lastSeen: string) => ({ lastSeen }),
@@ -115,6 +116,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         lastSeen: null as Dayjs | null,
         initialEvent: null as ErrorEventType | null,
         selectedEvent: null as ErrorEventType | null,
+        mobileDetailOpen: false as boolean,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
         similarIssuesMaxDistance: 0.2 as number,
@@ -156,6 +158,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return event
             },
+        },
+        mobileDetailOpen: {
+            setMobileDetailOpen: (_, { mobileDetailOpen }) => mobileDetailOpen,
         },
         listDateRange: {
             setListDateRange: (_, { dateRange }) => dateRange,

@@ -218,6 +218,12 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class TaskRunSetOutputRequestSerializer(serializers.Serializer):
+    output = serializers.JSONField(
+        help_text="Output data from the run. Validated against the task's json_schema if one is set."
+    )
+
+
 class ErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Error message")
 
@@ -495,6 +501,12 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
         max_value=5000,
         help_text="Maximum number of entries to return (default 1000, max 5000)",
     )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Zero-based offset into the filtered log entries",
+    )
 
 
 class SandboxEnvironmentSerializer(serializers.ModelSerializer):
@@ -524,6 +536,7 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "environment_variables",
             "has_environment_variables",
             "private",
+            "internal",
             "effective_domains",
             "created_by",
             "created_at",
@@ -531,6 +544,7 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "internal",
             "created_by",
             "created_at",
             "updated_at",
@@ -572,6 +586,7 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "allowed_domains",
             "repositories",
             "private",
+            "internal",
             "created_by",
             "created_at",
             "updated_at",

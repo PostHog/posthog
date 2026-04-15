@@ -50,7 +50,7 @@ pub(crate) const CAPTURE_V1_EVENTS_QUOTA_LIMITED: &str = "capture_v1_events_quot
 /// Counter/gauge key for the per-token global rate limiter.
 pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 
-/// Detail tag for events dropped by the per-token:distinct_id rate limiter.
+/// Detail tag for events flagged by the per-token:distinct_id rate limiter.
 pub(super) const DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID: &str = "rate_limited_token_distinct_id";
 
 // ---------------------------------------------------------------------------

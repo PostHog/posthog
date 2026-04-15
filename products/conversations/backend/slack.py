@@ -14,7 +14,6 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from django.conf import settings
 from django.db.models import F
 
 import structlog
@@ -25,7 +24,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .cache import get_cached_slack_user, set_cached_slack_user
+from .cache import get_cached_slack_avatar, get_cached_slack_user, set_cached_slack_avatar, set_cached_slack_user
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
@@ -126,6 +125,35 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     except Exception as e:
         logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
         return dict(_UNKNOWN_USER)
+
+
+def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
+    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
+    if not email:
+        return None
+
+    cached = get_cached_slack_avatar(email)
+    if cached is not None:
+        return cached or None  # empty string = negative cache
+
+    try:
+        response = client.users_lookupByEmail(email=email)
+        raw_data = response.data if hasattr(response, "data") else None
+        data: dict = raw_data if isinstance(raw_data, dict) else {}
+
+        if not data.get("ok"):
+            set_cached_slack_avatar(email, "")
+            return None
+
+        profile = (data.get("user") or {}).get("profile") or {}
+        avatar = profile.get("image_72") or ""
+        set_cached_slack_avatar(email, avatar)
+        return avatar or None
+    except Exception:
+        # Don't negative-cache on transient errors (rate limits, network)
+        # so the next reply retries the lookup.
+        logger.warning("slack_avatar_lookup_failed", email=email)
+        return None
 
 
 def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:
@@ -448,7 +476,7 @@ def create_or_update_slack_ticket(
     )
 
     # Post a confirmation reply in the Slack thread
-    ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
+    # ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
     support_settings = team.conversations_settings or {}
     confirmation_kwargs: dict = {
         "channel": slack_channel_id,
@@ -462,16 +490,16 @@ def create_or_update_slack_ticket(
                     "text": f":ticket: Ticket #{ticket.ticket_number} created",
                 },
             },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
-                        "url": ticket_url,
-                    }
-                ],
-            },
+            # {
+            #     "type": "actions",
+            #     "elements": [
+            #         {
+            #             "type": "button",
+            #             "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+            #             "url": ticket_url,
+            #         }
+            #     ],
+            # },
         ],
     }
     bot_display_name = support_settings.get("slack_bot_display_name")
@@ -659,7 +687,18 @@ def _backfill_thread_replies(
         posthog_user = posthog_user_cache[reply_user]
         is_team_member = posthog_user is not None
 
-        cleaned_text, rich_content = slack_to_content_and_rich_content(reply_text, reply_blocks)
+        # Resolve in-message @mentions to display names
+        mentioned_ids = extract_slack_user_ids(reply_text, reply_blocks)
+        reply_user_names: dict[str, str] = {}
+        for uid in mentioned_ids:
+            if uid not in user_cache:
+                user_cache[uid] = resolve_slack_user(client, uid)
+            if user_cache[uid]["name"] != "Unknown":
+                reply_user_names[uid] = user_cache[uid]["name"]
+
+        cleaned_text, rich_content = slack_to_content_and_rich_content(
+            reply_text, reply_blocks, user_names=reply_user_names
+        )
         if not cleaned_text and not images:
             continue
 
