@@ -18,7 +18,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { externalDataSourcesLogic } from '../../../shared/logics/sourcesDataLogic'
+import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import {
     SSH_FIELD,
@@ -83,7 +83,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     key(({ id }) => id),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
-        actions: [externalDataSourcesLogic, ['updateSource']],
+        actions: [sourcesDataLogic, ['updateSource']],
     })),
     actions({
         setSourceId: (id: string) => ({ id }),
@@ -312,7 +312,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
 
                 try {
-                    await externalDataSourcesLogic.asyncActions.updateSource({
+                    await sourcesDataLogic.asyncActions.updateSource({
                         ...values.source!,
                         job_inputs: newJobInputs,
                         prefix: prefix !== undefined ? prefix : values.source?.prefix,

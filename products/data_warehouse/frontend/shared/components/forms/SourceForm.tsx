@@ -24,7 +24,7 @@ import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
-import { IntegrationChoice } from './IntegrationChoice'
+import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
 
 export interface SourceFormProps {
@@ -177,7 +177,7 @@ export const sourceFieldToElement = (
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
                 {({ value, onChange }) => (
-                    <IntegrationChoice
+                    <SourceIntegrationChoice
                         key={field.name}
                         sourceConfig={sourceConfig}
                         value={value}

@@ -10,11 +10,15 @@ import { SourceConfig } from '~/queries/schema/schema-general'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 
-export type IntegrationChoiceProps = IntegrationConfigureProps & {
+export type SourceIntegrationChoiceProps = IntegrationConfigureProps & {
     sourceConfig: SourceConfig
 }
 
-export function IntegrationChoice({ sourceConfig, integration, ...props }: IntegrationChoiceProps): JSX.Element {
+export function SourceIntegrationChoice({
+    sourceConfig,
+    integration,
+    ...props
+}: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
     const sourceKind = sourceConfig.name.toLowerCase()
     return (
