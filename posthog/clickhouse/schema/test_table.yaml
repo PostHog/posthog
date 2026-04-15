@@ -1,0 +1,20 @@
+ecosystem: test
+cluster: main
+tables:
+    ch_migrate_test:
+        engine: MergeTree
+        on_nodes: all
+        order_by:
+            - team_id
+            - id
+        columns:
+            - name: id
+              type: UInt64
+            - name: team_id
+              type: UInt32
+            - name: name
+              type: String
+            - name: created_at
+              type: DateTime
+              default_kind: DEFAULT
+              default_expression: now()
