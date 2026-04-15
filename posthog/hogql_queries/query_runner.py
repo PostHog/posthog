@@ -107,7 +107,7 @@ from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
-from posthog.utils import generate_cache_key, get_from_dict_or_attr, relative_date_parse, to_json
+from posthog.utils import generate_cache_key, get_from_dict_or_attr, relative_date_parse_with_delta_mapping, to_json
 
 logger = structlog.get_logger(__name__)
 
@@ -1617,22 +1617,32 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
 
     def _resolve_relative_date_for_cache(self, value: Optional[str]) -> Optional[str]:
-        """Resolve a relative date expression (e.g. "-7d") to a day-truncated ISO date.
+        """Resolve a relative date expression (e.g. "-7d") to a truncated ISO date string.
 
-        Used only for cache key computation — absolute values and unrecognized inputs pass
-        through unchanged. Day truncation keeps sibling tiles in the same request consistent
-        even if they hit this path microseconds apart.
+        Used only for cache key computation. Absolute dates and unrecognized inputs (including
+        "all") pass through unchanged. Truncation granularity matches the expression kind —
+        hour/minute/second expressions keep sub-day precision so live hourly dashboards don't
+        all hash to the same key; day-or-coarser expressions truncate to the day so sibling
+        tiles dispatched microseconds apart remain consistent.
         """
         if not value or not isinstance(value, str):
             return value
-        is_relative = value.startswith(("-", "+")) or value in {"all", "dStart", "mStart", "yStart"}
-        if not is_relative:
-            return value
         try:
-            resolved = relative_date_parse(value, self.team.timezone_info)
-            return resolved.date().isoformat()
+            resolved, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, self.team.timezone_info)
         except Exception:
             return value
+        # delta_mapping is None for absolute ISO inputs, {} when the parser found no relative
+        # tokens (e.g. "all"). In both cases leave the original value in the cache key — it's
+        # already stable across calls.
+        if not delta_mapping:
+            return value
+        if "seconds" in delta_mapping:
+            return resolved.replace(microsecond=0).isoformat()
+        if "minutes" in delta_mapping:
+            return resolved.replace(second=0, microsecond=0).isoformat()
+        if "hours" in delta_mapping:
+            return resolved.replace(minute=0, second=0, microsecond=0).isoformat()
+        return resolved.date().isoformat()
 
     def apply_series_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """

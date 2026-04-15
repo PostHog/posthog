@@ -310,6 +310,37 @@ class TestQueryRunner(BaseTest):
 
         assert key_on_apr_8 == key_on_apr_15
 
+    def test_cache_key_all_time_filter_is_stable_across_days(self):
+        # "all" means everything — resolving it to today would give a new cache key every
+        # day, defeating caching for a filter whose result changes extremely slowly.
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange())
+        runner = TrendsQueryRunner(team=self.team, query=query)
+        runner.apply_dashboard_filters(DashboardFilter(date_from="all"))
+
+        with freeze_time("2026-04-08T12:00:00Z"):
+            key_on_apr_8 = runner.get_cache_key()
+        with freeze_time("2026-04-15T12:00:00Z"):
+            key_on_apr_15 = runner.get_cache_key()
+
+        assert key_on_apr_8 == key_on_apr_15
+
+    def test_cache_key_hourly_relative_preserves_hour_granularity(self):
+        # "-1h" on a live hourly dashboard must change across hours but stay stable within
+        # the same hour — day-truncation here would make 01:00 and 23:00 hash identically.
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange())
+        runner = TrendsQueryRunner(team=self.team, query=query)
+        runner.apply_dashboard_filters(DashboardFilter(date_from="-1h"))
+
+        with freeze_time("2026-04-15T01:00:00Z"):
+            key_at_01 = runner.get_cache_key()
+        with freeze_time("2026-04-15T01:30:00Z"):
+            key_at_01_30 = runner.get_cache_key()
+        with freeze_time("2026-04-15T23:00:00Z"):
+            key_at_23 = runner.get_cache_key()
+
+        assert key_at_01 == key_at_01_30
+        assert key_at_01 != key_at_23
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()
