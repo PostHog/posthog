@@ -250,6 +250,9 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
         is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
 
+        bedrock_kwargs = self._get_bedrock_kwargs()
+        is_routing_through_llm_gateway = bool(bedrock_kwargs)
+
         base_model = MaxChatAnthropic(
             model=model_name,
             streaming=True,
@@ -267,7 +270,8 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
             conversation_start_dt=state.start_dt,
             billable=True,
-            **self._get_bedrock_kwargs(),
+            bypass_proxy=is_routing_through_llm_gateway,
+            **bedrock_kwargs,
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.

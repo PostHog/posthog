@@ -225,6 +225,16 @@ Responsibilities:
 - Convert frozen dataclasses → JSON responses
 - No business logic
 
+Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. This is enforced by import-linter in CI.
+
+### Where do cross-cutting utilities go?
+
+If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
+
+- **Presentation concern** (response caching, rate limiting) → `presentation/`
+- **Business concern** (domain-level caching, permission checks) → `logic/`, exposed through the facade
+- **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
 ### Why not mix with the facade?
 
 - Keeps HTTP concerns decoupled
@@ -294,10 +304,16 @@ def process_artifact(artifact: Artifact) -> None:
 
 Global `[[interfaces]]` blocks in `tach.toml` control which paths inside a product other modules can import. All modules — including core (`posthog`, `ee`) — sit in a single `modules` layer, so interface enforcement applies everywhere. tach will reject any import that doesn't go through the declared `expose` patterns.
 
-Products with legacy interface leaks (where core still imports internals directly) get explicit TODO blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+Products with legacy interface leaks (where core still imports internals directly) get explicit blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+
+### What import-linter enforces
+
+[import-linter](https://github.com/seddonym/import-linter) enforces internal product architecture: presentation layers must not import any backend internals directly — they can only reach `facade` and other `presentation` modules. This is configured as a single forbidden contract in `pyproject.toml` that blocks `products.*.backend` from presentation, with allowlist ignores for facade and self-imports. Any new internal module (cache, helpers, etc.) is blocked automatically.
+
+tach handles _inter_-module boundaries (what can cross a product boundary). import-linter handles _intra_-product architecture (how code is structured within a product). Both run in CI.
 
 > [!TIP]
-> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and tach boundary enforcement step by step.
+> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and boundary enforcement step by step.
 
 During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
 

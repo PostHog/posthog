@@ -150,7 +150,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             _add_name_variants(nonsensitive, field.name)
             # SSH tunnel has a known nested structure not declared in the field tree.
             # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
-            nonsensitive.update({"host", "port", "username", "auth", "auth_type"})
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
             sensitive.update({"password", "passphrase", "private_key"})
 
     return nonsensitive, sensitive
@@ -194,7 +194,7 @@ def get_direct_postgres_connection_metadata(
 
     from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
-    require_ssl = source_model is not None and source_requires_ssl(source_model)
+    require_ssl = source_model is not None and source_requires_ssl(source_model, source_config)
 
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
@@ -391,6 +391,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 # Normalize 'type' (legacy) -> 'selection'
                 if "type" in auth and "selection" not in auth:
                     auth["selection"] = auth.pop("type")
+            # Backfill require_tls default for sources created before the toggle existed
+            if "require_tls" not in tunnel:
+                tunnel["require_tls"] = {"enabled": True}
 
         representation["job_inputs"] = strip_sensitive_from_dict(job_inputs, nonsensitive, sensitive)
         return representation
@@ -756,6 +759,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
 
@@ -792,6 +796,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
                 }
             elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -1214,6 +1219,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
+                "available_columns": [
+                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    for col_name, col_type, nullable in schema.columns
+                ],
+                "detected_primary_keys": schema.detected_primary_keys,
             }
             for schema in schemas
         ]
