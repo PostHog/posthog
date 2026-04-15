@@ -362,6 +362,9 @@ class TestBillingAPI(APILicensedTest):
             "has_active_subscription": True,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "current_total_amount_usd": "100.00",
+            "current_total_amount_usd_after_discount": "100.00",
+            "discount_percent": None,
+            "discount_amount_usd": None,
             "deactivated": False,
             "products": [
                 {
@@ -432,6 +435,7 @@ class TestBillingAPI(APILicensedTest):
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
+                "interval": "month",
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
@@ -461,6 +465,7 @@ class TestBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "customer_id": "cus_123",
+            "customer_trust_scores": {},
             "license": {"plan": "cloud"},
             "custom_limits_usd": {},
             "has_active_subscription": False,
@@ -551,10 +556,14 @@ class TestBillingAPI(APILicensedTest):
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
+                "interval": "month",
             },
             "usage_summary": create_usage_summary(),
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
+            "current_total_amount_usd_after_discount": "0.00",
+            "discount_percent": None,
+            "discount_amount_usd": None,
             "deactivated": False,
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
