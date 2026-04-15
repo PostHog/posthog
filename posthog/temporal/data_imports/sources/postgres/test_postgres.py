@@ -930,3 +930,91 @@ class TestGetTable:
             )
             table = _get_table(dj_cursor, "public", "test_get_table_matview", logger)
             assert table.type == "materialized_view"
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_probes_scale_from_data(self):
+        """Unconstrained `numeric` columns get their scale from the actual data, not a static default."""
+        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
+
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_numeric (id INTEGER PRIMARY KEY, val NUMERIC)")
+            # Value with actual scale 20 — matches the real-world shape that broke the customer.
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_unconstrained_numeric VALUES (1, 0.84497449830783164117::numeric)"
+            )
+            dj_cursor.execute("INSERT INTO test_get_table_unconstrained_numeric VALUES (2, 0::numeric)")
+
+            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_numeric", logger)
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_scale == 20, (
+                f"expected probed scale 20, got {val_col.numeric_scale} (would have been {DEFAULT_NUMERIC_SCALE} without probe)"
+            )
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_empty_table_falls_back_to_default(self):
+        """Empty unconstrained `numeric` column has no data to probe, so falls back to DEFAULT_NUMERIC_SCALE."""
+        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
+
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_empty (id INTEGER PRIMARY KEY, val NUMERIC)")
+            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_empty", logger)
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
+    def test_constrained_numeric_skips_probe(self):
+        """Columns declared with explicit precision/scale use those values directly, no data probe."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_constrained_numeric (id INTEGER PRIMARY KEY, val NUMERIC(10, 2))"
+            )
+            # Even though there's no data, the declared scale is used — no probe attempted.
+            table = _get_table(dj_cursor, "public", "test_get_table_constrained_numeric", logger)
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == 10
+            assert val_col.numeric_scale == 2
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_clamps_to_max_scale(self):
+        """If probed scale exceeds MAX_NUMERIC_SCALE, it's clamped to prevent pathological schemas."""
+        from posthog.temporal.data_imports.pipelines.pipeline.utils import MAX_NUMERIC_SCALE
+
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_clamp_scale (id INTEGER PRIMARY KEY, val NUMERIC)")
+            # Scale 40 exceeds MAX_NUMERIC_SCALE (32) — should clamp.
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_clamp_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)"
+            )
+            table = _get_table(dj_cursor, "public", "test_get_table_clamp_scale", logger)
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_scale == MAX_NUMERIC_SCALE
+
+    @pytest.mark.django_db
+    def test_unconstrained_numeric_multiple_columns_probed_together(self):
+        """Multiple unconstrained numeric columns are probed in a single aggregation query."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_multi_numeric "
+                "(id INTEGER PRIMARY KEY, a NUMERIC, b NUMERIC, c NUMERIC(5, 2))"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_multi_numeric VALUES "
+                "(1, 0.12345::numeric, 0.1234567890::numeric, 1.23::numeric(5,2))"
+            )
+            table = _get_table(dj_cursor, "public", "test_get_table_multi_numeric", logger)
+            cols_by_name = {c.name: c for c in table.columns}
+            assert cols_by_name["a"].numeric_scale == 5
+            assert cols_by_name["b"].numeric_scale == 10
+            # Constrained column is untouched.
+            assert cols_by_name["c"].numeric_precision == 5
+            assert cols_by_name["c"].numeric_scale == 2

@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -1133,11 +1134,53 @@ def _get_table(
     cursor.execute(query)
 
     numeric_data_types = {"numeric", "decimal"}
+    metadata_rows = cursor.fetchall()
+
+    # For unconstrained numeric columns (declared as `numeric` with no precision/scale),
+    # postgres returns NULL for numeric_precision/numeric_scale in information_schema. Falling
+    # back to a static default scale (18) causes the delta column to be created with less scale
+    # than the actual data requires, which later breaks merges when a chunk contains values with
+    # trailing non-zero digits past that default scale. Probe the actual data for its max used
+    # scale so the delta column is sized correctly from the start.
+    unconstrained_numeric_columns = [
+        name
+        for name, data_type, _nullable, _np, numeric_scale_candidate in metadata_rows
+        if data_type in numeric_data_types and numeric_scale_candidate is None
+    ]
+    probed_scales: dict[str, int | None] = {}
+    if unconstrained_numeric_columns:
+        try:
+            select_parts = sql.SQL(", ").join(
+                sql.SQL("MAX(scale({col}))").format(col=sql.Identifier(col_name))
+                for col_name in unconstrained_numeric_columns
+            )
+            probe_query = sql.SQL("SELECT {parts} FROM {table}").format(
+                parts=select_parts,
+                table=sql.Identifier(schema, table_name),
+            )
+            logger.debug(f"Probing numeric scales: {probe_query.as_string()}")
+            cursor.execute(probe_query)
+            row = cursor.fetchone()
+            if row is not None:
+                for col_name, scale_val in zip(unconstrained_numeric_columns, row):
+                    probed_scales[col_name] = scale_val
+        except Exception as e:
+            # Probe is best-effort. If it fails (permissions, timeout, weird column type),
+            # fall back to DEFAULT_NUMERIC_SCALE rather than blocking the sync.
+            logger.warning(f"Failed to probe numeric scales for {schema}.{table_name}: {e}")
+
     columns = []
-    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
         if data_type in numeric_data_types:
             numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+            if numeric_scale_candidate is not None:
+                numeric_scale = numeric_scale_candidate
+            else:
+                probed = probed_scales.get(name)
+                if probed is not None and probed > 0:
+                    numeric_scale = min(probed, MAX_NUMERIC_SCALE)
+                else:
+                    numeric_scale = DEFAULT_NUMERIC_SCALE
         else:
             numeric_precision = None
             numeric_scale = None
