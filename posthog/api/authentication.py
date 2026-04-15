@@ -2,18 +2,20 @@ import json
 import time
 import datetime
 from typing import Any, Optional, TypedDict, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth import (
     authenticate,
     login,
+    logout as auth_logout,
     views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
@@ -110,6 +112,26 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
         check_and_cache_login_device(user.id, country, short_user_agent)
 
 
+def _get_post_logout_next(request: HttpRequest) -> str | None:
+    next_param = request.GET.get("next") or request.POST.get("next")
+    if not next_param:
+        return None
+
+    if not url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
+        return None
+
+    parsed = urlsplit(next_param)
+    path = parsed.path or "/"
+
+    if path == "/":
+        return None
+
+    if path.startswith("/login") or path.startswith("/logout"):
+        return None
+
+    return next_param
+
+
 @csrf_protect
 def logout(request):
     clear_two_factor_session_flags(request)
@@ -121,11 +143,11 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    # Preserve any safe `next` so after re-login the user lands back where they were.
-    next_param = request.GET.get("next") or request.POST.get("next")
-    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
-        login_url = f"{settings.LOGIN_URL}?{urlencode({'next': next_param})}"
-        return auth_views.LogoutView.as_view(next_page=login_url)(request)
+    # Preserve any safe `next` param
+    next_param = _get_post_logout_next(request)
+    if next_param:
+        auth_logout(request)
+        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
 
     return auth_views.logout_then_login(request)
 

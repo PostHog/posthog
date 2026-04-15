@@ -397,11 +397,31 @@ class TestLogoutRedirect(APIBaseTest):
         self.assertIn("next=%2Fsettings%2Fuser-notifications", response.url)
         self.assertTrue(response.url.startswith(settings.LOGIN_URL))
 
-    def test_logout_ignores_unsafe_next_param(self):
-        for unsafe in ["//evil.com/path", "https://evil.com", "javascript:alert(1)"]:
-            response = self.client.post("/logout", {"next": unsafe})
-            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-            self.assertEqual(response.url, settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
+    @parameterized.expand(
+        [
+            ("root", "/"),
+            ("login", "/login"),
+            ("login_with_next", "/login?next=/settings"),
+            ("logout", "/logout"),
+            ("logout_with_next", "/logout?next=/settings"),
+        ]
+    )
+    def test_logout_skips_self_round_tripping_next_param(self, _name, skipped):
+        response = self.client.post("/logout", {"next": skipped})
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, settings.LOGIN_URL, f"Round-tripping next was preserved: {skipped}")
+
+    @parameterized.expand(
+        [
+            ("scheme_relative", "//evil.com/path"),
+            ("absolute_url", "https://evil.com"),
+            ("javascript_url", "javascript:alert(1)"),
+        ]
+    )
+    def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
+        response = self.client.post("/logout", {"next": unsafe})
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.url, settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
 
 
 class TestTwoFactorAPI(APIBaseTest):
