@@ -64,6 +64,7 @@ class License(models.Model):
         AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
         AvailableFeature.WHITE_LABELLING,
         AvailableFeature.SUBSCRIPTIONS,
+        AvailableFeature.SUBSCRIPTION_CHANGE_SUMMARIES,
         AvailableFeature.APP_METRICS,
         AvailableFeature.RECORDINGS_PLAYLISTS,
         AvailableFeature.RECORDINGS_FILE_EXPORT,

@@ -60,6 +60,7 @@ class DeliverSubscriptionInputs:
     is_new_subscription_target: bool = False
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
+    change_summary: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -89,6 +90,19 @@ class TrackedSubscriptionInputs:
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
     trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+
+
+@dataclasses.dataclass
+class SnapshotInsightsInputs:
+    subscription_id: int
+    team_id: int
+    summary_enabled: bool = False
+
+
+@dataclasses.dataclass
+class SnapshotInsightsResult:
+    summary_text: str | None = None
+    is_initial_summary: bool = False
 
 
 @dataclasses.dataclass

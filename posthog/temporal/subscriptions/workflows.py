@@ -24,12 +24,14 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
 )
+from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     FetchDueSubscriptionsActivityInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
+    SnapshotInsightsInputs,
     SubscriptionInfo,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
@@ -215,6 +217,25 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
+            # Phase 2.5: Snapshot insight state to Redis and generate LLM summary (best-effort)
+            change_summary: str | None = None
+            try:
+                snapshot_result = await temporalio.workflow.execute_activity(
+                    snapshot_subscription_insights,
+                    SnapshotInsightsInputs(
+                        subscription_id=inputs.subscription_id,
+                        team_id=inputs.team_id,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                )
+                change_summary = snapshot_result.summary_text
+            except Exception:
+                temporalio.workflow.logger.warning(
+                    "process_subscription.snapshot_failed",
+                    extra={"subscription_id": inputs.subscription_id},
+                )
+
             # Phase 3: Deliver — send all assets including failed ones (they show
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
@@ -231,6 +252,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     is_new_subscription_target=is_new,
                     previous_value=inputs.previous_value,
                     invite_message=inputs.invite_message,
+                    change_summary=change_summary,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(

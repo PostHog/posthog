@@ -8,6 +8,7 @@ import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/Inte
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -18,6 +19,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -74,6 +76,7 @@ export function EditSubscription({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
 
+    const summaryEnabled = useFeatureFlag('SUBSCRIPTION_CHANGE_SUMMARIES')
     const emailDisabled = !preflight?.email_service_available
 
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
@@ -421,6 +424,35 @@ export function EditSubscription({
                                 </div>
                             )}
                         </div>
+
+                        {summaryEnabled && (
+                            <>
+                                <LemonField name="summary_enabled">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onChange}
+                                            bordered
+                                            label="AI change summary"
+                                            fullWidth
+                                        />
+                                    )}
+                                </LemonField>
+
+                                {subscription.summary_enabled && (
+                                    <LemonField
+                                        name="summary_prompt_guide"
+                                        label="Context for the AI summary"
+                                        showOptional
+                                    >
+                                        <LemonTextArea
+                                            placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                            maxLength={500}
+                                        />
+                                    </LemonField>
+                                )}
+                            </>
+                        )}
 
                         {insightShortId && (
                             <div>
