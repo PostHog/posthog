@@ -26,12 +26,8 @@ import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfi
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
-import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
-import { onShutdown } from './lifecycle'
-import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { MetricsIngestionConsumer } from './metrics-ingestion/metrics-ingestion-consumer'
-import { SessionRecordingIngester } from './session-recording/consumer'
-import { RecordingApi } from './session-replay/recording-api/recording-api'
+import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
 import { PostgresRouter } from './utils/db/postgres'
@@ -97,8 +93,6 @@ export class PluginServer implements NodeServer {
         )
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
-        const needsLogs = !!capabilities.logsIngestion
-        const needsMetrics = !!capabilities.metricsIngestion
 
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
@@ -131,11 +125,6 @@ export class PluginServer implements NodeServer {
             : undefined
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
-            // 4. CDP + Logs services (posthog redis, quota limiting)
-            let cdpLogsServices: ReturnType<typeof this.createCdpLogsServices> | undefined
-            if (needsCdp || needsLogs || needsMetrics) {
-                cdpLogsServices = this.createCdpLogsServices(teamManager)
-            }
 
         if (capabilities.evaluationScheduler) {
             serviceLoaders.push(() =>
@@ -251,24 +240,24 @@ export class PluginServer implements NodeServer {
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
-            if (capabilities.metricsIngestion) {
-                serviceLoaders.push(async () => {
-                    const consumer = new MetricsIngestionConsumer(this.config, {
-                        teamManager,
-                        quotaLimiting: cdpLogsServices!.quotaLimiting,
-                    })
-                    await consumer.start()
-                    return consumer.service
+        if (capabilities.metricsIngestion) {
+            serviceLoaders.push(async () => {
+                const consumer = new MetricsIngestionConsumer(this.config, {
+                    teamManager,
+                    quotaLimiting: cdpLogsServices!.quotaLimiting,
                 })
-            }
+                await consumer.start()
+                return consumer.service
+            })
+        }
 
-            if (capabilities.cdpBatchHogFlow) {
-                serviceLoaders.push(async () => {
-                    const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
-                    await consumer.start()
-                    return consumer.service
-                })
-            }
+        if (capabilities.cdpBatchHogFlow) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
 
         if (capabilities.cdpPrecalculatedFilters) {
             serviceLoaders.push(async () => {

@@ -6,7 +6,6 @@ import {
 } from '../config/kafka-topics'
 import { isProdEnv } from '../utils/env-utils'
 
-
 export type MetricsIngestionConsumerConfig = {
     METRICS_INGESTION_CONSUMER_GROUP_ID: string
     METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: string
