@@ -516,6 +516,7 @@ jobs:
 
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
