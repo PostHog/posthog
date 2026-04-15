@@ -101,15 +101,22 @@ export interface ClusteringRunOption {
     label: string // Formatted date for display
 }
 
-// Summary from $ai_trace_summary or $ai_generation_summary events
+// Summary from $ai_trace_summary or $ai_generation_summary events — or, for
+// evaluation-level clusters, a shim of the underlying $ai_evaluation event
+// (evaluator name, verdict, reasoning, linked generation id) rendered into the
+// same interface so the list component doesn't need a separate prop.
 export interface TraceSummary {
-    traceId: string // Always set - the trace ID (or parent trace for generations)
-    generationId?: string // Only set for generation-level summaries
+    traceId: string // Always set - the trace ID (or parent trace for generations / eval's $ai_trace_id)
+    generationId?: string // Set for generation-level summaries; for eval, the linked generation uuid
     title: string
     flowDiagram: string
     bullets: string
     interestingNotes: string
     timestamp: string
+    // Evaluation-only fields (empty/undefined for trace/generation summaries)
+    evaluationVerdict?: 'pass' | 'fail' | 'n/a' | 'unknown'
+    evaluationReasoning?: string
+    evaluationRuntime?: string
 }
 
 // Clustering job configuration

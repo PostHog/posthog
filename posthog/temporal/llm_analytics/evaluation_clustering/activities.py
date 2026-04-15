@@ -167,7 +167,11 @@ def _items_from_eval_ids(eval_ids: list[str]) -> list[ClusterItem]:
 def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationClusteringComputeResult:
     team = Team.objects.get(id=inputs.team_id)
 
-    base_run_id = f"{inputs.team_id}_evaluation_{inputs.job_id}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    # Layout must match trace/generation: {team_id}_{level}_{YYYYMMDD}_{HHMMSS}[_{job_id}].
+    # Putting job_id before the timestamp made the frontend's getTimestampBoundsFromRunId
+    # parse the UUID as a date — the `3657-` chunk of a UUIDv7 got interpreted as the
+    # year, and the `timestamp BETWEEN` filter on the day-window query never matched.
+    base_run_id = f"{inputs.team_id}_evaluation_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
     eval_ids, embeddings_map = fetch_evaluation_embeddings(
