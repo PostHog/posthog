@@ -663,15 +663,18 @@ describe('dashboardLogic', () => {
                 if (mode === 'all-stale') {
                     expect(loaded.tiles?.length).toBeGreaterThan(0)
                     for (const tile of loaded.tiles) {
-                        if (tile.insight) {
-                            await expectLogic(logic, () => {
-                                dashboardsModel.actions.updateDashboardInsight(
-                                    { ...tile.insight, last_refresh: staleIso, query: tile.insight.query ?? null },
-                                    undefined,
-                                    5
-                                )
-                            }).toFinishAllListeners()
+                        const insight = tile.insight
+                        if (!insight) {
+                            continue
                         }
+
+                        await expectLogic(logic, () => {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...insight, last_refresh: staleIso, query: insight.query ?? null },
+                                undefined,
+                                5
+                            )
+                        }).toFinishAllListeners()
                     }
                 } else {
                     const insightTiles = loaded.tiles.filter((t) => !!t.insight)
