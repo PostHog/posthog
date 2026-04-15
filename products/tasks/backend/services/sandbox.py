@@ -79,7 +79,7 @@ class SandboxConfig(BaseModel):
 
 WORKING_DIR = "/tmp/workspace"
 
-PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox-dummy"})
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
 
 

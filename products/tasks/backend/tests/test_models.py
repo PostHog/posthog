@@ -127,10 +127,10 @@ class TestTask(TestCase):
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             user_id=user.id,
-            repository="posthog/hedgebox-dummy",
+            repository="posthog/hedgebox",
         )
 
-        self.assertEqual(task.repository, "posthog/hedgebox-dummy")
+        self.assertEqual(task.repository, "posthog/hedgebox")
         self.assertIsNone(task.github_integration)
         mock_execute_workflow.assert_called_once()
 
