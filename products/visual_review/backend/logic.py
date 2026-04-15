@@ -1363,6 +1363,49 @@ def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> lis
     ]
 
 
+def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> RunSnapshot:
+    """Mark a changed snapshot as a known tolerated alternate (human decision).
+
+    Creates a ToleratedHash entry tied to the current baseline, reclassifies the
+    snapshot as UNCHANGED, and recalculates run summary counts.
+    """
+    run = get_run(run_id, team_id=team_id)
+    snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
+
+    if snapshot.result != SnapshotResult.CHANGED:
+        raise ValueError(f"Can only mark CHANGED snapshots as tolerated (current: {snapshot.result})")
+
+    if not snapshot.current_hash:
+        raise ValueError("Snapshot has no current hash")
+
+    tolerated, _ = ToleratedHash.objects.get_or_create(
+        repo_id=run.repo_id,
+        identifier=snapshot.identifier,
+        baseline_hash=snapshot.baseline_hash,
+        content_hash=snapshot.current_hash,
+        defaults={
+            "team_id": team_id,
+            "reason": "human",
+            "source_run": run,
+            "created_by_id": user_id,
+        },
+    )
+
+    snapshot.result = SnapshotResult.UNCHANGED
+    snapshot.classification_reason = "tolerated_hash"
+    snapshot.tolerated_hash_match = tolerated
+    snapshot.save(update_fields=["result", "classification_reason", "tolerated_hash_match"])
+
+    _update_run_counts(run, using=WRITER_DB)
+
+    return snapshot
+
+
+def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[ToleratedHash]:
+    """List all tolerated hashes for a snapshot identifier, most recent first."""
+    return list(ToleratedHash.objects.filter(repo_id=repo_id, identifier=identifier).order_by("-created_at"))
+
+
 def update_snapshot_diff(
     snapshot_id: UUID,
     diff_artifact: Artifact,
