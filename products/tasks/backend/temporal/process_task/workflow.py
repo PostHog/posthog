@@ -113,24 +113,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.SIGNAL_RECEIVED
 
     async def _wait_for_inactivity(self):
-        await asyncio.sleep(INACTIVITY_TIMEOUT.total_seconds())
+        await workflow.sleep(INACTIVITY_TIMEOUT.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_ci_follow_up(self):
-        await asyncio.sleep(CI_FOLLOW_UP.total_seconds())
+        await workflow.sleep(CI_FOLLOW_UP.total_seconds())
         return TaskEvent.CI_FOLLOW_UP
 
-    async def _wait_for_event(self):
+    async def _wait_for_event(self) -> TaskEvent:
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_signal()),
             asyncio.create_task(self._wait_for_inactivity()),
         ]
         if self._context and self._context.pr_loop_enabled and self._ci_repetitions < MAX_CI_REPETITIONS:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
-        done, pending = await asyncio.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
-        return done.pop()
+        return done.pop().result()
 
     @temporalio.workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
