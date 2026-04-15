@@ -8,6 +8,29 @@ from typing import Any
 from posthog.clickhouse.client import sync_execute
 
 
+def _prop_str(name: str, props: dict) -> str | None:
+    val = props.get(name)
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return json.dumps(val)
+    return str(val)
+
+
+def _prop_int(name: str, props: dict) -> int | None:
+    val = props.get(name)
+    if val is None:
+        return None
+    return int(val)
+
+
+def _prop_float(name: str, props: dict) -> float | None:
+    val = props.get(name)
+    if val is None:
+        return None
+    return float(val)
+
+
 def bulk_create_ai_events(events: list[dict[str, Any]]) -> None:
     """
     Insert AI events directly into the ai_events ClickHouse table for testing.
@@ -51,6 +74,7 @@ def bulk_create_ai_events(events: list[dict[str, Any]]) -> None:
                 %(span_id_{i})s,
                 %(span_type_{i})s,
                 %(generation_id_{i})s,
+                %(experiment_id_{i})s,
                 %(span_name_{i})s,
                 %(trace_name_{i})s,
                 %(prompt_name_{i})s,
@@ -99,26 +123,6 @@ def bulk_create_ai_events(events: list[dict[str, Any]]) -> None:
             )""".format(i=index)
         )
 
-        def _prop_str(name: str, _props: dict = properties) -> str | None:
-            val = _props.get(name)
-            if val is None:
-                return None
-            if isinstance(val, (dict, list)):
-                return json.dumps(val)
-            return str(val)
-
-        def _prop_int(name: str, _props: dict = properties) -> int | None:
-            val = _props.get(name)
-            if val is None:
-                return None
-            return int(val)
-
-        def _prop_float(name: str, _props: dict = properties) -> float | None:
-            val = _props.get(name)
-            if val is None:
-                return None
-            return float(val)
-
         params.update(
             {
                 f"uuid_{index}": event_uuid,
@@ -128,53 +132,54 @@ def bulk_create_ai_events(events: list[dict[str, Any]]) -> None:
                 f"distinct_id_{index}": str(event_data["distinct_id"]),
                 f"person_id_{index}": person_id,
                 f"properties_{index}": properties_json,
-                f"trace_id_{index}": _prop_str("$ai_trace_id"),
-                f"session_id_{index}": _prop_str("$ai_session_id"),
-                f"parent_id_{index}": _prop_str("$ai_parent_id"),
-                f"span_id_{index}": _prop_str("$ai_span_id"),
-                f"span_type_{index}": _prop_str("$ai_span_type"),
-                f"generation_id_{index}": _prop_str("$ai_generation_id"),
-                f"span_name_{index}": _prop_str("$ai_span_name"),
-                f"trace_name_{index}": _prop_str("$ai_trace_name"),
-                f"prompt_name_{index}": _prop_str("$ai_prompt_name"),
-                f"model_{index}": _prop_str("$ai_model"),
-                f"provider_{index}": _prop_str("$ai_provider"),
-                f"framework_{index}": _prop_str("$ai_framework"),
-                f"total_tokens_{index}": _prop_int("$ai_total_tokens"),
-                f"input_tokens_{index}": _prop_int("$ai_input_tokens"),
-                f"output_tokens_{index}": _prop_int("$ai_output_tokens"),
-                f"text_input_tokens_{index}": _prop_int("$ai_text_input_tokens"),
-                f"text_output_tokens_{index}": _prop_int("$ai_text_output_tokens"),
-                f"image_input_tokens_{index}": _prop_int("$ai_image_input_tokens"),
-                f"image_output_tokens_{index}": _prop_int("$ai_image_output_tokens"),
-                f"audio_input_tokens_{index}": _prop_int("$ai_audio_input_tokens"),
-                f"audio_output_tokens_{index}": _prop_int("$ai_audio_output_tokens"),
-                f"video_input_tokens_{index}": _prop_int("$ai_video_input_tokens"),
-                f"video_output_tokens_{index}": _prop_int("$ai_video_output_tokens"),
-                f"reasoning_tokens_{index}": _prop_int("$ai_reasoning_tokens"),
-                f"cache_read_input_tokens_{index}": _prop_int("$ai_cache_read_input_tokens"),
-                f"cache_creation_input_tokens_{index}": _prop_int("$ai_cache_creation_input_tokens"),
-                f"web_search_count_{index}": _prop_int("$ai_web_search_count"),
-                f"input_cost_usd_{index}": _prop_float("$ai_input_cost_usd"),
-                f"output_cost_usd_{index}": _prop_float("$ai_output_cost_usd"),
-                f"total_cost_usd_{index}": _prop_float("$ai_total_cost_usd"),
-                f"request_cost_usd_{index}": _prop_float("$ai_request_cost_usd"),
-                f"web_search_cost_usd_{index}": _prop_float("$ai_web_search_cost_usd"),
-                f"audio_cost_usd_{index}": _prop_float("$ai_audio_cost_usd"),
-                f"image_cost_usd_{index}": _prop_float("$ai_image_cost_usd"),
-                f"video_cost_usd_{index}": _prop_float("$ai_video_cost_usd"),
-                f"latency_{index}": _prop_float("$ai_latency"),
-                f"time_to_first_token_{index}": _prop_float("$ai_time_to_first_token"),
-                f"is_error_{index}": 1 if str(_prop_str("$ai_is_error") or "") == "true" else 0,
-                f"error_{index}": _prop_str("$ai_error"),
-                f"error_type_{index}": _prop_str("$ai_error_type"),
-                f"error_normalized_{index}": _prop_str("$ai_error_normalized"),
-                f"input_{index}": _prop_str("$ai_input"),
-                f"output_{index}": _prop_str("$ai_output"),
-                f"output_choices_{index}": _prop_str("$ai_output_choices"),
-                f"input_state_{index}": _prop_str("$ai_input_state"),
-                f"output_state_{index}": _prop_str("$ai_output_state"),
-                f"tools_{index}": _prop_str("$ai_tools"),
+                f"trace_id_{index}": _prop_str("$ai_trace_id", properties),
+                f"session_id_{index}": _prop_str("$ai_session_id", properties),
+                f"parent_id_{index}": _prop_str("$ai_parent_id", properties),
+                f"span_id_{index}": _prop_str("$ai_span_id", properties),
+                f"span_type_{index}": _prop_str("$ai_span_type", properties),
+                f"generation_id_{index}": _prop_str("$ai_generation_id", properties),
+                f"experiment_id_{index}": _prop_str("$ai_experiment_id", properties),
+                f"span_name_{index}": _prop_str("$ai_span_name", properties),
+                f"trace_name_{index}": _prop_str("$ai_trace_name", properties),
+                f"prompt_name_{index}": _prop_str("$ai_prompt_name", properties),
+                f"model_{index}": _prop_str("$ai_model", properties),
+                f"provider_{index}": _prop_str("$ai_provider", properties),
+                f"framework_{index}": _prop_str("$ai_framework", properties),
+                f"total_tokens_{index}": _prop_int("$ai_total_tokens", properties),
+                f"input_tokens_{index}": _prop_int("$ai_input_tokens", properties),
+                f"output_tokens_{index}": _prop_int("$ai_output_tokens", properties),
+                f"text_input_tokens_{index}": _prop_int("$ai_text_input_tokens", properties),
+                f"text_output_tokens_{index}": _prop_int("$ai_text_output_tokens", properties),
+                f"image_input_tokens_{index}": _prop_int("$ai_image_input_tokens", properties),
+                f"image_output_tokens_{index}": _prop_int("$ai_image_output_tokens", properties),
+                f"audio_input_tokens_{index}": _prop_int("$ai_audio_input_tokens", properties),
+                f"audio_output_tokens_{index}": _prop_int("$ai_audio_output_tokens", properties),
+                f"video_input_tokens_{index}": _prop_int("$ai_video_input_tokens", properties),
+                f"video_output_tokens_{index}": _prop_int("$ai_video_output_tokens", properties),
+                f"reasoning_tokens_{index}": _prop_int("$ai_reasoning_tokens", properties),
+                f"cache_read_input_tokens_{index}": _prop_int("$ai_cache_read_input_tokens", properties),
+                f"cache_creation_input_tokens_{index}": _prop_int("$ai_cache_creation_input_tokens", properties),
+                f"web_search_count_{index}": _prop_int("$ai_web_search_count", properties),
+                f"input_cost_usd_{index}": _prop_float("$ai_input_cost_usd", properties),
+                f"output_cost_usd_{index}": _prop_float("$ai_output_cost_usd", properties),
+                f"total_cost_usd_{index}": _prop_float("$ai_total_cost_usd", properties),
+                f"request_cost_usd_{index}": _prop_float("$ai_request_cost_usd", properties),
+                f"web_search_cost_usd_{index}": _prop_float("$ai_web_search_cost_usd", properties),
+                f"audio_cost_usd_{index}": _prop_float("$ai_audio_cost_usd", properties),
+                f"image_cost_usd_{index}": _prop_float("$ai_image_cost_usd", properties),
+                f"video_cost_usd_{index}": _prop_float("$ai_video_cost_usd", properties),
+                f"latency_{index}": _prop_float("$ai_latency", properties),
+                f"time_to_first_token_{index}": _prop_float("$ai_time_to_first_token", properties),
+                f"is_error_{index}": 1 if str(_prop_str("$ai_is_error", properties) or "").lower() == "true" else 0,
+                f"error_{index}": _prop_str("$ai_error", properties),
+                f"error_type_{index}": _prop_str("$ai_error_type", properties),
+                f"error_normalized_{index}": _prop_str("$ai_error_normalized", properties),
+                f"input_{index}": _prop_str("$ai_input", properties),
+                f"output_{index}": _prop_str("$ai_output", properties),
+                f"output_choices_{index}": _prop_str("$ai_output_choices", properties),
+                f"input_state_{index}": _prop_str("$ai_input_state", properties),
+                f"output_state_{index}": _prop_str("$ai_output_state", properties),
+                f"tools_{index}": _prop_str("$ai_tools", properties),
                 f"retention_days_{index}": 10000,
                 f"_timestamp_{index}": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             }
@@ -183,7 +188,7 @@ def bulk_create_ai_events(events: list[dict[str, Any]]) -> None:
     query = f"""
         INSERT INTO sharded_ai_events (
             uuid, event, timestamp, team_id, distinct_id, person_id, properties,
-            trace_id, session_id, parent_id, span_id, span_type, generation_id,
+            trace_id, session_id, parent_id, span_id, span_type, generation_id, experiment_id,
             span_name, trace_name, prompt_name,
             model, provider, framework,
             total_tokens, input_tokens, output_tokens,

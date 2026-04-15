@@ -5,18 +5,24 @@ from typing import Any, Optional
 import orjson
 
 from posthog.caching.utils import ThresholdMode, is_stale
-from posthog.models.team.team import Team
 
 # Mapping from ai_events dedicated columns to their original property names.
 # These are stripped from the properties JSON by the MV and stored in dedicated columns.
-HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {
-    "input": "$ai_input",
-    "output": "$ai_output",
-    "output_choices": "$ai_output_choices",
-    "input_state": "$ai_input_state",
-    "output_state": "$ai_output_state",
-    "tools": "$ai_tools",
-}
+# Derived from AI_PROPERTY_TO_COLUMN to avoid drift between the two mappings.
+from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
+from posthog.models.team.team import Team
+
+_HEAVY_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "$ai_input",
+        "$ai_output",
+        "$ai_output_choices",
+        "$ai_input_state",
+        "$ai_output_state",
+        "$ai_tools",
+    }
+)
+HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {v: k for k, v in AI_PROPERTY_TO_COLUMN.items() if k in _HEAVY_PROPERTIES}
 
 # Ordered tuple of heavy column names. Used for unpacking event tuples from ClickHouse.
 # Keep in sync with the SQL tuple in trace_query_runner.py _build_query().
@@ -37,7 +43,10 @@ def merge_heavy_properties(
     ClickHouse).  Empty strings are skipped (the column default when the
     property was absent).
     """
-    props: dict[str, Any] = orjson.loads(properties_json) if properties_json else {}
+    try:
+        props: dict[str, Any] = orjson.loads(properties_json) if properties_json else {}
+    except (orjson.JSONDecodeError, TypeError):
+        props = {}
     for column_name, raw_value in heavy_columns.items():
         if not raw_value:
             continue

@@ -7,7 +7,7 @@ import posthoganalytics
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
 
@@ -61,10 +61,20 @@ def execute_with_ai_events_fallback(
 
     with tags_context(product=Product.LLM_ANALYTICS):
         if is_ai_events_enabled(team):
+            tag_queries(ai_query_source="dedicated_table")
             ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
             result = execute_hogql_query(query=query, placeholders=ai_placeholders, **kwargs)
+            # Fallback: if ai_events returned no rows, re-run on the shared events table.
+            # This handles the rollout window where older data may only exist in the shared
+            # table. Only ~4% of queries fall outside the dedicated table's 30-day TTL
+            # (https://us.posthog.com/project/2/insights/39oE9bLO), so for populated teams
+            # the fallback fires rarely. Legitimately-empty queries do incur a redundant
+            # second round-trip — acceptable during rollout, removed when the flag is retired.
             if result.results:
                 return result
+            tag_queries(ai_query_source="shared_table_fallback")
+        else:
+            tag_queries(ai_query_source="shared_table")
 
         events_query = rewrite_query_for_events_table(query)
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
