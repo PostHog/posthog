@@ -205,7 +205,7 @@ const activityLogList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/activity')
     },
 })
 
@@ -260,7 +260,7 @@ const advancedActivityLogsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/activity')
     },
 })
 

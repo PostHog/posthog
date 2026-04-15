@@ -77,6 +77,11 @@ export const ToolConfigSchema = z
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
          */
+        /**
+         * Override the category-level URL prefix for `_posthogUrl` enrichment.
+         * Useful when a single category YAML covers tools that link to different frontend pages.
+         */
+        url_prefix: z.string().optional(),
         response: z
             .object({
                 /** Dot-path patterns of response fields to keep. Only matched fields are preserved. */

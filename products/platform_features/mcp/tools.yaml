@@ -139,6 +139,7 @@ tools:
             destructive: false
             idempotent: true
         list: true
+        url_prefix: /activity
         title: List recent activity in the project.
         description: >
             List recent activity log entries for the project. Shows who did what and when —
@@ -172,6 +173,7 @@ tools:
             destructive: false
             idempotent: true
         list: true
+        url_prefix: /activity
         title: List activity logs with advanced filtering.
         description: >
             List activity log entries with advanced filtering, sorting, and field-level diffs.
@@ -204,6 +206,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        url_prefix: /activity
         title: Get available activity log filter options.
         description: >
             Get the available filter options for activity logs — scopes, activity types, and
