@@ -926,8 +926,7 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             if deleted_state:
-                flags_using_cohort = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True)
-                flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
+                flags_with_cohort = get_flags_using_cohort(cohort)
                 if flags_with_cohort:
                     flag_names = [flag.name or flag.key for flag in flags_with_cohort]
                     raise ValidationError(
@@ -955,21 +954,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
                 # Check if cohort is used in insights
-
-                # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
-                # This finds cohort references at any depth in the JSON structure
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                insights_using_cohort = Insight.objects.filter(
-                    team_id=cohort.team_id,
-                    deleted=False,
-                ).extra(
-                    where=[
-                        """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
-                        OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
-                            AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
-                    ],
-                    params=[cohort.id, cohort.id, cohort.id],
-                )
+                insights_using_cohort = get_insights_using_cohort(cohort)
 
                 if insights_using_cohort.exists():
                     count = insights_using_cohort.count()
@@ -985,20 +970,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
                 # Check if cohort is used as criteria in other cohorts
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                dependent_cohorts = (
-                    Cohort.objects.filter(
-                        team__project_id=cohort.team.project_id,
-                        deleted=False,
-                    )
-                    .exclude(id=cohort.id)
-                    .extra(
-                        where=[
-                            """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
-                        ],
-                        params=[cohort.id, cohort.id],
-                    )
-                )
+                dependent_cohorts = get_cohorts_using_cohort(cohort)
 
                 if dependent_cohorts.exists():
                     count = dependent_cohorts.count()
@@ -1073,6 +1045,46 @@ class CohortSerializer(serializers.ModelSerializer):
             instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
         )
         return representation
+
+
+def get_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
+    """Return active feature flags that reference this cohort in their targeting conditions."""
+    active_flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True)
+    return [flag for flag in active_flags if cohort.id in flag.get_cohort_ids()]
+
+
+def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
+    """Return insights that reference this cohort in their query filters or breakdown."""
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    return Insight.objects.filter(
+        team_id=cohort.team_id,
+        deleted=False,
+    ).extra(
+        where=[
+            """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+            OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+        ],
+        params=[cohort.id, cohort.id, cohort.id],
+    )
+
+
+def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
+    """Return other cohorts that include this cohort as criteria."""
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+    return (
+        Cohort.objects.filter(
+            team__project_id=cohort.team.project_id,
+            deleted=False,
+        )
+        .exclude(id=cohort.id)
+        .extra(
+            where=[
+                """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+            ],
+            params=[cohort.id, cohort.id],
+        )
+    )
 
 
 @extend_schema(tags=["core"])
@@ -1413,57 +1425,23 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def used_in(self, request: request.Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
 
-        # Find feature flags using this cohort in their targeting conditions
-        active_flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True)
-        flags_using_cohort = [
-            {"id": flag.id, "key": flag.key, "name": flag.name}
-            for flag in active_flags
-            if cohort.id in flag.get_cohort_ids()
-        ]
+        flags_with_cohort = get_flags_using_cohort(cohort)
+        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_with_cohort]
 
-        # Find insights referencing this cohort in their query filters or breakdown
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        insights_using_cohort = list(
-            Insight.objects.filter(
-                team_id=cohort.team_id,
-                deleted=False,
-            )
-            .extra(
-                where=[
-                    """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
-                    OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
-                        AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
-                ],
-                params=[cohort.id, cohort.id, cohort.id],
-            )
-            .values("id", "short_id", "name", "derived_name")[:100]
+        insights_data = list(
+            get_insights_using_cohort(cohort).values("id", "short_id", "name", "derived_name")[:100]
         )
-        for insight in insights_using_cohort:
-            insight["name"] = insight["name"] or insight.pop("derived_name", None) or "Unnamed"
+        for insight in insights_data:
+            insight["name"] = insight["name"] or insight.get("derived_name") or "Unnamed"
             insight.pop("derived_name", None)
 
-        # Find other cohorts that include this cohort as criteria
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-        cohorts_using_cohort = list(
-            Cohort.objects.filter(
-                team__project_id=cohort.team.project_id,
-                deleted=False,
-            )
-            .exclude(id=cohort.id)
-            .extra(
-                where=[
-                    """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
-                ],
-                params=[cohort.id, cohort.id],
-            )
-            .values("id", "name")[:100]
-        )
+        cohorts_data = list(get_cohorts_using_cohort(cohort).values("id", "name")[:100])
 
         return Response(
             {
-                "feature_flags": flags_using_cohort,
-                "insights": insights_using_cohort,
-                "cohorts": cohorts_using_cohort,
+                "feature_flags": flags_data,
+                "insights": insights_data,
+                "cohorts": cohorts_data,
             }
         )
 
