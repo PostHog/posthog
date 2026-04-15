@@ -86,6 +86,8 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
+                        # Skip bath export changes as they don't use Dagster
+                        - '!products/batch_exports/**/*'
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
