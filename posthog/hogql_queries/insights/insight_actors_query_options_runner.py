@@ -22,6 +22,10 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
     def source_runner(self) -> QueryRunner:
         return get_query_runner(self.query.source.source, self.team, self.timings, self.limit_context)
 
+    def validate(self) -> None:
+        super().validate()
+        self.source_runner.validate()
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to query")
 

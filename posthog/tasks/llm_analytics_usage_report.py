@@ -597,17 +597,18 @@ def get_llm_feedback_survey_metrics(
         dict mapping team_id to TeamLLMSurveyMetrics
     """
     ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
+    survey_id_expr, _ = get_property_string_expr("events", "$survey_id", "'$survey_id'", "properties")
 
     query_template = f"""
         SELECT
             team_id,
-            JSONExtractString(properties, '$survey_id') as survey_id,
+            {survey_id_expr} as survey_id,
             countIf(event = 'survey sent') as response_count
         FROM events
         WHERE team_id IN %(team_ids)s
           AND event IN ('survey sent', 'survey shown')
           AND {ai_trace_id_expr} != ''
-          AND JSONExtractString(properties, '$survey_id') != ''
+          AND {survey_id_expr} != ''
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
         GROUP BY team_id, survey_id

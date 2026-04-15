@@ -17,7 +17,7 @@ import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
-const INITIAL_DATE_FROM = '-1h' as string | null
+const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface LLMEvaluationsLogicProps {

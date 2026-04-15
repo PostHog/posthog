@@ -55,7 +55,11 @@ from products.data_warehouse.backend.models import (
 )
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.surveys.backend.models import Survey
-from products.surveys.backend.util import get_unique_survey_event_uuids_sql_subquery
+from products.surveys.backend.util import (
+    SurveyEventProperties,
+    get_survey_property_string_expr,
+    get_unique_survey_event_uuids_sql_subquery,
+)
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -978,6 +982,8 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+
     # Get survey IDs that are linked to product tours (these are free and shouldn't be billed)
     product_tour_survey_ids = list(
         Survey.objects.filter(product_tour__isnull=False).values_list("id", flat=True).distinct()
@@ -990,14 +996,14 @@ def get_teams_with_survey_responses_count_in_period(
         ],
         group_by_prefix_expressions=[
             "team_id",
-            "JSONExtractString(properties, '$survey_id')",  # Deduplicate per team_id, per survey_id
+            survey_id_expr,  # Deduplicate per team_id, per survey_id
         ],
     )
 
     # Build exclusion clause for product tour surveys
     product_tour_exclusion = ""
     if product_tour_survey_ids:
-        product_tour_exclusion = "AND JSONExtractString(properties, '$survey_id') NOT IN %(product_tour_survey_ids)s"
+        product_tour_exclusion = f"AND {survey_id_expr} NOT IN %(product_tour_survey_ids)s"
 
     query = f"""
         SELECT

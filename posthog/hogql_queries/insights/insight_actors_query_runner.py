@@ -62,6 +62,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def source_runner(self) -> QueryRunner:
         return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
 
+    def validate(self) -> None:
+        super().validate()
+        self.source_runner.validate()
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
