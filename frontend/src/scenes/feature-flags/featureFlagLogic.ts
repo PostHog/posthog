@@ -15,7 +15,8 @@ import {
 } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -2525,6 +2526,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
     })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            if (!logic.isMounted() || !logic.values.featureFlagChanged) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
+        message: 'Leave feature flag?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            logic.actions.resetFeatureFlag()
+        },
+    })),
+
     afterMount(({ props, actions }) => {
         // Open the History tab when deep-linking to a specific activity item on initial page load
         if (router.values.searchParams.activity != null) {
