@@ -53,21 +53,24 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         self.use_v2_tables = team_version == "v2" if team_version is not None else use_v2_tables
         self.used_preaggregated_tables = False
 
-        paginator_kwargs = {
-            "limit_context": LimitContext.QUERY,
-            "limit": self.query.limit if self.query.limit else None,
-            "offset": self.query.offset if self.query.offset else None,
-        }
+        limit = self.query.limit if self.query.limit else None
+        offset = self.query.offset if self.query.offset else None
         if is_web_analytics_events_prefilter_team(self.team.pk):
             date_from, date_to = self._events_prefilter_date_bounds()
-            self.paginator = PrefilterHogQLHasMorePaginator.from_limit_context(
+            self.paginator = PrefilterHogQLHasMorePaginator.create(
+                limit_context=LimitContext.QUERY,
                 team_id=self.team.pk,
                 date_from=date_from,
                 date_to=date_to,
-                **paginator_kwargs,
+                limit=limit,
+                offset=offset,
             )
         else:
-            self.paginator = HogQLHasMorePaginator.from_limit_context(**paginator_kwargs)
+            self.paginator = HogQLHasMorePaginator.from_limit_context(
+                limit_context=LimitContext.QUERY,
+                limit=limit,
+                offset=offset,
+            )
 
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 

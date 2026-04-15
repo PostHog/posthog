@@ -1,10 +1,15 @@
-from typing import Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryResponse
 
 
 class _EventsFieldCollector(TraversingVisitor):
@@ -55,6 +60,8 @@ class EventsPrefilterTransformer(TraversingVisitor):
             return
 
         events_table_type = join.type
+        if events_table_type is None:
+            return
 
         def make_field(name: str) -> ast.Field:
             return ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=events_table_type))
@@ -99,6 +106,7 @@ class EventsPrefilterTransformer(TraversingVisitor):
 
         join.table = subquery
         join.alias = "events"
+        assert subquery.type is not None
         join.type = ast.SelectQueryAliasType(alias="events", select_query_type=subquery.type)
         self.wraps_applied += 1
 
@@ -113,7 +121,7 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
         self.date_to = date_to
 
     @classmethod
-    def from_limit_context(
+    def create(
         cls,
         *,
         limit_context: LimitContext,
@@ -122,7 +130,7 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
         date_to: str,
         limit: int | None = None,
         offset: int | None = None,
-    ) -> "PrefilterHogQLHasMorePaginator":
+    ) -> PrefilterHogQLHasMorePaginator:
         from posthog.hogql.constants import get_default_limit_for_context, get_max_limit_for_context
 
         max_rows = get_max_limit_for_context(limit_context)
@@ -143,7 +151,7 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
         *,
         query_type: str,
         **kwargs,
-    ) -> "HogQLQueryResponse":  # noqa: F821
+    ) -> HogQLQueryResponse:
         from posthog.schema import HogQLQueryResponse
 
         from posthog.hogql.printer.utils import print_prepared_ast

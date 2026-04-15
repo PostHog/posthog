@@ -20,6 +20,7 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         ):
             runner = WebStatsTableQueryRunner(team=self.team, query=query)
             runner.calculate()
+            assert runner.paginator.response is not None
             return runner.paginator.response.clickhouse or ""
 
     def test_bounce_query_wraps_from_events(self):
