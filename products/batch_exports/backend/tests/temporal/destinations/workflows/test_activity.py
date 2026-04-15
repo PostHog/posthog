@@ -286,7 +286,7 @@ async def test_insert_into_workflows_activity_from_stage_fails_with_empty_url(
 
 
 @pytest.mark.parametrize("hog_function_error", [True], indirect=True)
-async def test_insert_into_workflows_activity_tracks_hog_function_failures(
+async def test_insert_into_workflows_activity_from_stage_fails_when_hog_function_error_threshold_exceeded(
     clickhouse_client,
     activity_environment,
     data_interval_start,
@@ -298,6 +298,70 @@ async def test_insert_into_workflows_activity_tracks_hog_function_failures(
     handler,
     hog_function_id,
 ):
+    """When every hog function execution errors, the activity should abort after the threshold trips."""
+    model = BatchExportModel(name="events", schema=None)
+
+    batch_export_id = str(uuid.uuid4())
+    batch_export_inputs = BatchExportInsertInputs(
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        batch_export_id=batch_export_id,
+    )
+    workflows_inputs = WorkflowsInsertInputs(
+        batch_export=batch_export_inputs,
+        url=urllib.parse.urlunsplit((server.scheme, f"{server.host}:{server.port}", "/", "", "")),
+        hog_function_id=hog_function_id,
+    )
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=workflows_inputs.batch_export.team_id,
+            batch_export_id=batch_export_id,
+            data_interval_start=workflows_inputs.batch_export.data_interval_start,
+            data_interval_end=workflows_inputs.batch_export.data_interval_end,
+            exclude_events=workflows_inputs.batch_export.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            num_partitions=1,
+            is_workflows=True,
+            batch_export_model=workflows_inputs.batch_export.batch_export_model,
+            batch_export_schema=workflows_inputs.batch_export.batch_export_schema,
+            destination_default_fields=workflows_default_fields(batch_export_id),
+        ),
+    )
+
+    result = await activity_environment.run(insert_into_workflows_activity_from_stage, workflows_inputs)
+
+    assert result.error is not None
+    assert result.error.type == "HogFunctionErrorThresholdExceeded"
+    assert "Hog Function error rate above threshold" in result.error.message
+    assert "Hog Function failed" in result.error.message
+    # Threshold requires >=100 requests to have been made before aborting.
+    assert len(handler.data) >= 100
+    # And the run aborted before consuming every generated event.
+    events_created, _ = generate_test_data
+    assert len(handler.data) < len(events_created)
+
+
+@pytest.mark.parametrize("hog_function_error_count", [10], indirect=True)
+async def test_insert_into_workflows_activity_from_stage_tolerates_hog_function_errors_below_threshold(
+    clickhouse_client,
+    activity_environment,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    server,
+    path,
+    handler,
+    hog_function_id,
+    hog_function_error_count,
+):
+    """A small number of hog function errors (well under the threshold) should not fail the run."""
     model = BatchExportModel(name="events", schema=None)
 
     result = await _run_activity(
@@ -313,7 +377,6 @@ async def test_insert_into_workflows_activity_tracks_hog_function_failures(
         sort_key="event",
     )
 
-    total_events = len(handler.data)
-    assert total_events > 0
-    assert result.records_failed == total_events
-    assert result.records_completed == 0
+    assert result.error is None
+    assert result.records_failed == hog_function_error_count
+    assert result.records_completed == len(handler.data) - hog_function_error_count

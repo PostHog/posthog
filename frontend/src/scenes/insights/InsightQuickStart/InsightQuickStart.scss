@@ -1,9 +1,9 @@
-.InsightOptions__card {
+.InsightQuickStart__card {
     opacity: 0;
-    animation: InsightOptions__cardEnter 0.4s ease-out forwards;
+    animation: InsightQuickStart__cardEnter 0.4s ease-out forwards;
 }
 
-@keyframes InsightOptions__cardEnter {
+@keyframes InsightQuickStart__cardEnter {
     from {
         opacity: 0;
         transform: translateY(12px);

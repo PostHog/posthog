@@ -14,8 +14,6 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import createInsightTool from '@/tools/insights/create'
-import updateInsightTool from '@/tools/insights/update'
 import type { Context } from '@/tools/types'
 
 describe('Dashboards', { concurrent: false }, () => {
@@ -198,8 +196,6 @@ describe('Dashboards', { concurrent: false }, () => {
 
     describe('dashboard-reorder-tiles tool', () => {
         const createDashboard = getToolByName('dashboard-create')
-        const createInsight = createInsightTool()
-        const updateInsight = updateInsightTool()
         const reorderTiles = getToolByName('dashboard-reorder-tiles')
         const getOneDashboard = getToolByName('dashboard-get')
         const deleteDashboard = getToolByName('dashboard-delete')
@@ -221,47 +217,51 @@ describe('Dashboards', { concurrent: false }, () => {
             const dashboard2 = parseToolResponse(dashboard2Result)
             createdResources.dashboards.push(dashboard2.id)
 
-            // Create two insights
-            const insight1Result = await createInsight.handler(context, {
-                data: {
+            // Create two insights via API
+            const projectId = await context.stateManager.getProjectId()
+            const insight1 = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
                     name: generateUniqueKey('Insight 1'),
                     description: 'First insight',
                     query: SAMPLE_HOGQL_QUERIES.pageviews,
-                    favorited: false,
+                    saved: true,
                 },
             })
-            const insight1 = parseToolResponse(insight1Result)
             createdResources.insights.push(insight1.id)
 
-            const insight2Result = await createInsight.handler(context, {
-                data: {
+            const insight2 = await context.api.request<any>({
+                method: 'POST',
+                path: `/api/projects/${projectId}/insights/`,
+                body: {
                     name: generateUniqueKey('Insight 2'),
                     description: 'Second insight',
                     query: SAMPLE_HOGQL_QUERIES.topEvents,
-                    favorited: false,
+                    saved: true,
                 },
             })
-            const insight2 = parseToolResponse(insight2Result)
             createdResources.insights.push(insight2.id)
 
             // Add insight1 to the primary dashboard
-            await updateInsight.handler(context, {
-                insightId: String(insight1.id),
-                data: { dashboards: [dashboard.id] },
+            await context.api.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/insights/${insight1.id}/`,
+                body: { dashboards: [dashboard.id] },
             })
 
             // Add insight2 to the secondary dashboard first, then append the primary
             // dashboard — this verifies full-replacement semantics (must include all IDs)
-            await updateInsight.handler(context, {
-                insightId: String(insight2.id),
-                data: { dashboards: [dashboard2.id] },
+            await context.api.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/insights/${insight2.id}/`,
+                body: { dashboards: [dashboard2.id] },
             })
-            const updatedInsight2 = parseToolResponse(
-                await updateInsight.handler(context, {
-                    insightId: String(insight2.id),
-                    data: { dashboards: [dashboard2.id, dashboard.id] },
-                })
-            )
+            const updatedInsight2 = await context.api.request<any>({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/insights/${insight2.id}/`,
+                body: { dashboards: [dashboard2.id, dashboard.id] },
+            })
             expect(updatedInsight2.dashboards).toContain(dashboard.id)
             expect(updatedInsight2.dashboards).toContain(dashboard2.id)
 

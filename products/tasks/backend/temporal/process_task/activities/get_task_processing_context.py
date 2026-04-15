@@ -38,6 +38,7 @@ class TaskProcessingContext:
     _branch: str | None = None
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
+    json_schema: dict | None = None
 
     @property
     def mode(self) -> str:
@@ -164,4 +165,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
+        json_schema=task.json_schema,
     )

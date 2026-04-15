@@ -43,14 +43,13 @@ class DataDeletionRequest(UUIDModel):
     end_time = models.DateTimeField()
     events = ArrayField(
         models.CharField(max_length=400),
-        help_text="Enter event names as a comma-separated list, e.g. ['$pageview', '$autocapture'].",
+        help_text="Event names to match.",
     )
     properties = ArrayField(
         models.CharField(max_length=400),
         blank=True,
         default=list,
-        help_text="Enter property names as a comma-separated list, e.g. ['$ip', '$geoip_city']. "
-        "Required for property_removal requests.",
+        help_text="Property names to remove. Required for property_removal requests.",
     )
     status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
 

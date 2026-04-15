@@ -818,12 +818,18 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         cdc_table_mode: currentSyncMethodModalSchema.cdc_table_mode,
                         incremental_fields: schemaIncrementalFields.incremental_fields,
                         supports_webhooks: schemaIncrementalFields?.supports_webhooks ?? false,
+                        primary_key_columns: currentSyncMethodModalSchema.primary_key_columns ?? null,
+                        available_columns: [],
+                        detected_primary_keys: null,
                     }}
+                    availableColumns={schemaIncrementalFields.available_columns ?? []}
+                    detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
+                    primaryKeyLocked={!!currentSyncMethodModalSchema.table}
                     onClose={() => {
                         resetSchemaIncrementalFields()
                         closeSyncMethodModal()
                     }}
-                    onSave={(syncType, incrementalField, incrementalFieldType, cdcTableMode) => {
+                    onSave={(syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode) => {
                         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
                         updateSchema({
                             ...currentSyncMethodModalSchema,
@@ -832,6 +838,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                             incremental_field: noIncrementalField ? null : incrementalField,
                             incremental_field_type: noIncrementalField ? null : incrementalFieldType,
                             sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
+                            primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                             ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
                         })
                     }}

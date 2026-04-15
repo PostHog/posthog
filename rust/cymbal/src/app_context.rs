@@ -10,7 +10,7 @@ use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CA
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
 use uuid::Uuid;
 
@@ -48,6 +48,8 @@ pub struct AppContext {
     pub persons_pool: PgPool,
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
+    pub symbol_resolution_limiter: Arc<Semaphore>,
+    pub process_request_limiter: Arc<Semaphore>,
     pub config: Config,
     pub geoip_client: GeoIpClient,
 
@@ -261,6 +263,10 @@ impl AppContext {
             catalog.clone(),
             posthog_pool.clone(),
         ));
+        let symbol_resolution_limiter =
+            Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)));
+        let process_request_limiter =
+            Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
         Ok(Self {
             health_registry,
@@ -272,6 +278,8 @@ impl AppContext {
             persons_pool,
             catalog,
             config: config.clone(),
+            symbol_resolution_limiter,
+            process_request_limiter,
             team_manager,
             geoip_client,
             billing_limiter,
