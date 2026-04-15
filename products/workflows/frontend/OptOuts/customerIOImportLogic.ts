@@ -486,9 +486,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 await new ApiRequest().messagingCategoriesRemoveTrackConfig().delete()
                 actions.setTrackSiteId('')
                 actions.setTrackApiKey('')
-                actions.loadSyncConfig()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to remove track integration')
+            } finally {
+                actions.loadSyncConfig()
             }
         },
         submitImportFormFailure: () => {},
