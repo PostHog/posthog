@@ -63,22 +63,24 @@ export const OutputTypeEnumApi = {
  * `gemini` - Gemini
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
+ * `azure_openai` - Azure Openai
  */
-export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
+export type ProviderC68EnumApi = (typeof ProviderC68EnumApi)[keyof typeof ProviderC68EnumApi]
 
-export const Provider519EnumApi = {
+export const ProviderC68EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
     Openrouter: 'openrouter',
     Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
 } as const
 
 /**
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider519EnumApi
+    provider: ProviderC68EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -424,7 +426,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider519EnumApi
+    provider: ProviderC68EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -432,6 +434,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -450,7 +469,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider519EnumApi
+    provider?: ProviderC68EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -458,6 +477,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display?: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi

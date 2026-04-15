@@ -14475,23 +14475,25 @@ export namespace Schemas {
     * `gemini` - Gemini
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
+    * `azure_openai` - Azure Openai
      */
-    export type Provider519Enum = typeof Provider519Enum[keyof typeof Provider519Enum];
+    export type ProviderC68Enum = typeof ProviderC68Enum[keyof typeof ProviderC68Enum];
 
 
-    export const Provider519Enum = {
+    export const ProviderC68Enum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
+      AzureOpenai: 'azure_openai',
     } as const;
 
     /**
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: Provider519Enum;
+      provider: ProviderC68Enum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -19027,7 +19029,7 @@ export namespace Schemas {
 
     export interface LLMProviderKey {
       readonly id: string;
-      provider: Provider519Enum;
+      provider: ProviderC68Enum;
       /** @maxLength 255 */
       name: string;
       readonly state: LLMProviderKeyStateEnum;
@@ -19035,6 +19037,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -24751,7 +24770,7 @@ export namespace Schemas {
 
     export interface PatchedLLMProviderKey {
       readonly id?: string;
-      provider?: Provider519Enum;
+      provider?: ProviderC68Enum;
       /** @maxLength 255 */
       name?: string;
       readonly state?: LLMProviderKeyStateEnum;
@@ -24759,6 +24778,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display?: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
