@@ -594,13 +594,21 @@ export class HogFlowExecutorService {
 
     /**
      * Creates conversion event subscriptions if the hogflow has conversion.events configured.
+     * Conversion subscriptions are rebuilt from scratch on every park so they do not
+     * accumulate across park/wake cycles as the workflow moves through successive steps.
      */
     private async createConversionSubscriptions(
         invocation: CyclotronJobInvocationHogFlow,
         expiresAt: DateTime
     ): Promise<void> {
+        if (!this.eventSubscriptionsService) {
+            return
+        }
+
+        await this.eventSubscriptionsService.deleteForJob(invocation.id, 'conversion')
+
         const conversionEvents = invocation.hogFlow.conversion?.events
-        if (!conversionEvents?.length || !this.eventSubscriptionsService) {
+        if (!conversionEvents?.length) {
             return
         }
 
