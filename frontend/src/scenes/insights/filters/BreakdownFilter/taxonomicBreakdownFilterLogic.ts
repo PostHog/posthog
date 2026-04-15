@@ -72,14 +72,6 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         }),
         removeBreakdown: (breakdown: string | number, breakdownType: string) => ({ breakdown, breakdownType }),
         setBreakdownLimit: (value: number | undefined) => ({ value }),
-        // Tracks the raw value in the breakdown limit input (including temporarily
-        // empty while the user is retyping). Commits only when a valid number is
-        // entered. `NaN` is normalized to `undefined` so downstream code doesn't
-        // have to handle it.
-        setBreakdownLimitInput: (value: number | undefined) => ({
-            value: value === undefined || Number.isNaN(value) ? undefined : value,
-        }),
-        resetBreakdownLimitInput: true,
         setHistogramBinsUsed: (
             breakdown: string | number,
             breakdownType: string,
@@ -128,23 +120,6 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             undefined as number | undefined,
             {
                 setBreakdownLimit: (_, { value }) => value,
-            },
-        ],
-        breakdownLimitInput: [
-            undefined as number | undefined,
-            {
-                setBreakdownLimitInput: (_, { value }) => value,
-            },
-        ],
-        // Whether the input is currently being edited — when true, the input
-        // shows `breakdownLimitInput` (which may be `undefined` for an empty
-        // field); when false, it falls back to the committed `breakdownLimit`.
-        breakdownLimitInputActive: [
-            false,
-            {
-                setBreakdownLimitInput: () => true,
-                resetBreakdownLimitInput: () => false,
-                setBreakdownLimit: () => false,
             },
         ],
         localNormalizeBreakdownURL: [
@@ -246,14 +221,6 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownLimit: [
             (s) => [s.breakdownFilter, s.localBreakdownLimit],
             (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
-        ],
-        // Value shown in the breakdown limit input. While editing, it mirrors
-        // the raw input state (may be `undefined` for an empty field). When
-        // not editing, it falls back to the committed `breakdownLimit`.
-        breakdownLimitInputValue: [
-            (s) => [s.breakdownLimit, s.breakdownLimitInput, s.breakdownLimitInputActive],
-            (breakdownLimit, breakdownLimitInput, breakdownLimitInputActive): number | undefined =>
-                breakdownLimitInputActive ? breakdownLimitInput : breakdownLimit,
         ],
         normalizeBreakdownUrl: [
             (s) => [s.breakdownFilter, s.localNormalizeBreakdownURL],
@@ -517,16 +484,6 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 ...values.breakdownFilter,
                 breakdown_limit: value,
             })
-        },
-        setBreakdownLimitInput: ({ value }) => {
-            // Only commit valid numbers — an empty/cleared input should not
-            // trigger a reload. `setBreakdownLimit`'s own listener debounces
-            // the actual filter update. Clamp to [1, 1000]: the selector's
-            // `|| 25` fallback would otherwise silently swallow `0`/negatives.
-            if (value === undefined) {
-                return
-            }
-            actions.setBreakdownLimit(Math.min(Math.max(value, 1), 1000))
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL, breakdown, breakdownType }) => {
             if (values.isMultipleBreakdownsEnabled && !isSingleBreakdown(values.breakdownFilter)) {
