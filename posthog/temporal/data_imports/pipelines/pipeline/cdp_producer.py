@@ -13,7 +13,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import _AsyncKafkaProducer, get_async_warpstream_kafka_producer
+from posthog.kafka_client.client import _AsyncKafkaProducer
+from posthog.kafka_client.routing import KafkaClusterProfile, get_async_producer
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.hog_functions import HogFunction
 from posthog.sync import database_sync_to_async_pool
@@ -132,10 +133,7 @@ class CDPProducer:
         )
 
     def _get_kafka_producer(self) -> _AsyncKafkaProducer:
-        return get_async_warpstream_kafka_producer(
-            kafka_hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
-            kafka_security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL or "PLAINTEXT",
-        )
+        return get_async_producer(profile=KafkaClusterProfile.CYCLOTRON)
 
     async def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
