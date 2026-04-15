@@ -17,7 +17,7 @@ export const scene: SceneExport<TaskDetailSceneLogicProps> = {
 }
 
 export function TaskDetailScene({ taskId }: TaskDetailSceneLogicProps): JSX.Element {
-    const isEnabled = useFeatureFlag('TASKS')
+    const isEnabled = true
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />

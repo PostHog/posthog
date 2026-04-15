@@ -21,6 +21,15 @@ provision_api_key &
 
 cd "$REPO_ROOT/services/llm-gateway"
 
+# Source local env file for secrets (e.g. LLM_GATEWAY_ANTHROPIC_API_KEY)
+# so you don't have to add them to bin/mprocs.yaml. .env.local is gitignored.
+if [ -f ".env.local" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env.local
+    set +a
+fi
+
 unset VIRTUAL_ENV
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 
