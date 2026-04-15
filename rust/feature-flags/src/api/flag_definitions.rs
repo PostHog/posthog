@@ -413,7 +413,11 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
             1,
         );
 
-        // Look up the full Team object by the team_id embedded in the token
+        // Look up the full Team object by team_id. This hits PG directly because
+        // the team_metadata HyperCache is keyed by api_token (which we don't have
+        // here — only team_id from the auth data). Acceptable since the token-absent
+        // path is a small minority of traffic (~2.6 req/s). To avoid PG entirely,
+        // we'd need to include api_token in the cached TokenAuthData.
         let flag_service = FlagService::new(
             state.redis_client.clone(),
             state.database_pools.non_persons_reader.clone(),
