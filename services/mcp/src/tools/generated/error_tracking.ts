@@ -454,6 +454,16 @@ const AssistantErrorTrackingQuery = z.object({
         .optional(),
 })
 
+const QueryErrorTrackingIssuesSchema = AssistantErrorTrackingQuery.extend({
+    limit: AssistantErrorTrackingQuery.shape.limit.default(50).optional(),
+    orderBy: AssistantErrorTrackingQuery.shape.orderBy.default('occurrences').optional(),
+    volumeResolution: AssistantErrorTrackingQuery.shape.volumeResolution.default(1).optional(),
+    dateRange: AssistantErrorTrackingQuery.shape.dateRange.default({ date_from: '-7d' }).optional(),
+    filterTestAccounts: AssistantErrorTrackingQuery.shape.filterTestAccounts.default(true).optional(),
+    status: AssistantErrorTrackingQuery.shape.status.default('active').optional(),
+    orderDirection: AssistantErrorTrackingQuery.shape.orderDirection.default('DESC').optional(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
@@ -461,9 +471,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
-        schema: AssistantErrorTrackingQuery,
+        schema: QueryErrorTrackingIssuesSchema,
         kind: 'ErrorTrackingQuery',
-        uiResourceUri: 'ui://posthog/query-results.html',
+        uiResourceUri: 'ui://posthog/error-issue-list.html',
         urlPrefix: '/error_tracking',
     }),
 }

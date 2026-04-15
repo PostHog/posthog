@@ -306,39 +306,6 @@ export interface ErrorTrackingIssueMergeResponseApi {
     success: boolean
 }
 
-/**
- * * `cross_sell` - Cross sell
- */
-export type ErrorTrackingRecommendationTypeEnumApi =
-    (typeof ErrorTrackingRecommendationTypeEnumApi)[keyof typeof ErrorTrackingRecommendationTypeEnumApi]
-
-export const ErrorTrackingRecommendationTypeEnumApi = {
-    CrossSell: 'cross_sell',
-} as const
-
-export interface ErrorTrackingRecommendationApi {
-    readonly id: string
-    readonly type: ErrorTrackingRecommendationTypeEnumApi
-    readonly meta: unknown
-    /** @nullable */
-    readonly computed_at: string | null
-    /** @nullable */
-    readonly dismissed_at: string | null
-    /** @nullable */
-    readonly next_refresh_at: string | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedErrorTrackingRecommendationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingRecommendationApi[]
-}
-
 export interface ErrorTrackingReleaseApi {
     readonly id: string
     hash_id: string
@@ -553,17 +520,6 @@ export type ErrorTrackingGroupingRulesListParams = {
 }
 
 export type ErrorTrackingIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
      */

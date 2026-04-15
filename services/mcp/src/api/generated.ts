@@ -14288,30 +14288,6 @@ export namespace Schemas {
       success: boolean;
     }
 
-    /**
-     * * `cross_sell` - Cross sell
-     */
-    export type ErrorTrackingRecommendationTypeEnum = typeof ErrorTrackingRecommendationTypeEnum[keyof typeof ErrorTrackingRecommendationTypeEnum];
-
-
-    export const ErrorTrackingRecommendationTypeEnum = {
-      CrossSell: 'cross_sell',
-    } as const;
-
-    export interface ErrorTrackingRecommendation {
-      readonly id: string;
-      readonly type: ErrorTrackingRecommendationTypeEnum;
-      readonly meta: unknown;
-      /** @nullable */
-      readonly computed_at: string | null;
-      /** @nullable */
-      readonly dismissed_at: string | null;
-      /** @nullable */
-      readonly next_refresh_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
     export interface ErrorTrackingRelease {
       readonly id: string;
       hash_id: string;
@@ -20604,15 +20580,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingIssueFull[];
-    }
-
-    export interface PaginatedErrorTrackingRecommendationList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ErrorTrackingRecommendation[];
     }
 
     export interface PaginatedErrorTrackingReleaseList {
@@ -34011,17 +33978,6 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
      */
