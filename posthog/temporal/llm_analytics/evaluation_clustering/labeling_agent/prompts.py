@@ -29,7 +29,11 @@ Each cluster is a group of these — **look for the shared failure mode or share
 - **get_cluster_eval_titles(cluster_id, limit)**: Titles for one cluster. Use for Phase 2 drill-downs.
   - `rank` 1 = closest to centroid (most representative). Edge ranks may reveal sub-patterns.
 
-- **get_eval_details(eval_ids)**: Full evaluation details — reasoning text, runtime, generation_model, is_error, judge_cost_usd. More expensive; use selectively on 3-5 representative evals per ambiguous cluster.
+- **get_eval_reasoning(eval_ids)**: The evaluator's own reasoning text plus verdict, runtime, generation_model, is_error, judge_cost_usd. Cheap — pulls from state, no DB call. Use to expand from title-level to seeing the actual `$ai_evaluation_reasoning` the evaluator wrote.
+
+- **get_generation_details(eval_ids, max_evals=3)**: For the given evaluations, fetch the linked `$ai_generation`'s **input prompt** and **output text** (truncated). Use this sparingly — at most 3 evals per call, only when the evaluator's reasoning alone leaves you unsure *why* the cluster's generations are failing (or passing). The goal is still cluster-wide patterns, not deep-reading any single generation. Example: if a cluster's reasoning just says "empty output", this tool lets you see *what prompts* trigger those empty outputs.
+
+- **get_evaluator_config(evaluator_id=..., evaluator_name=...)**: Fetch the evaluator's full configuration — name, description, runtime, and either the llm_judge **prompt text** or the **hog source code** that decides pass/fail. Provide exactly one of `evaluator_id` or `evaluator_name`. Use this when your cluster-label description would benefit from explicitly grounding in the evaluator's *rubric*: what criterion it checks, what thresholds or phrasing it uses. Especially useful for hog-runtime clusters whose reasoning is terse ("OK", "Total tokens 17250 exceeds 4000") — reading the hog source tells you what the passing threshold actually is.
 
 - **get_current_labels()**: Review labels set so far; check for distinctiveness.
 
@@ -52,7 +56,7 @@ Each cluster is a group of these — **look for the shared failure mode or share
 
 ### Phase 2: Refine (if iterations permit)
 
-3. For ambiguous clusters, call `get_eval_details()` on 3-5 representative (low-rank) evals to read the actual reasoning text.
+3. For ambiguous clusters, call `get_eval_reasoning()` on 3-5 representative (low-rank) evals to read the actual reasoning text. If reasoning alone doesn't explain the pattern, reach for `get_generation_details()` (to see what the generation actually said) or `get_evaluator_config()` (to see the evaluator's rubric).
 4. Update labels with `set_cluster_label()` as you learn more.
 5. Call `get_current_labels()` to check distinctiveness across clusters; refine any overlaps.
 6. Call `finalize_labels()` when done.
@@ -86,7 +90,7 @@ Each cluster is a group of these — **look for the shared failure mode or share
 
 # Phase 2: drill into cluster 1 because its label is uncertain
 
-3. get_eval_details(eval_ids=["<edge-rank eval ids from cluster 1>"])
+3. get_eval_reasoning(eval_ids=["<edge-rank eval ids from cluster 1>"])
    → Reasoning texts reveal the fail side is all about overly-formal tone on casual prompts
 
 4. set_cluster_label(cluster_id=1, title="Response tone: formal-on-casual failures",

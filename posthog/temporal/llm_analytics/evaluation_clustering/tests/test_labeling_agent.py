@@ -22,7 +22,7 @@ from posthog.temporal.llm_analytics.evaluation_clustering.labeling_agent.tools i
     get_cluster_eval_titles,
     get_clusters_overview,
     get_current_labels,
-    get_eval_details,
+    get_eval_reasoning,
     set_cluster_label,
 )
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel
@@ -123,9 +123,9 @@ class TestEvalLabelingTools:
         result = json.loads(get_cluster_eval_titles.invoke({"state": state, "cluster_id": 99, "limit": 10}))
         assert result == []
 
-    def test_get_eval_details_returns_full_content(self):
+    def test_get_eval_reasoning_returns_full_content(self):
         state = _sample_state()
-        result = json.loads(get_eval_details.invoke({"state": state, "eval_ids": ["e1", "e3"]}))
+        result = json.loads(get_eval_reasoning.invoke({"state": state, "eval_ids": ["e1", "e3"]}))
         by_id = {d["eval_id"]: d for d in result}
         assert by_id["e1"]["reasoning"] == "Answer was correct"
         assert by_id["e1"]["verdict"] == "pass"
@@ -133,9 +133,9 @@ class TestEvalLabelingTools:
         assert by_id["e3"]["runtime"] == "hog"
         assert by_id["e3"]["generation_model"] is None
 
-    def test_get_eval_details_skips_unknown_ids(self):
+    def test_get_eval_reasoning_skips_unknown_ids(self):
         state = _sample_state()
-        result = json.loads(get_eval_details.invoke({"state": state, "eval_ids": ["missing", "e1"]}))
+        result = json.loads(get_eval_reasoning.invoke({"state": state, "eval_ids": ["missing", "e1"]}))
         assert len(result) == 1
         assert result[0]["eval_id"] == "e1"
 

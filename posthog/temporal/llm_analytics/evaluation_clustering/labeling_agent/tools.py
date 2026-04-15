@@ -82,7 +82,7 @@ def get_cluster_eval_titles(
 
     Use this to scan what's in a cluster without pulling full reasoning text.
     ``rank`` indicates distance to centroid (1 = most representative); edge
-    ranks may reveal sub-patterns worth drilling into with ``get_eval_details``.
+    ranks may reveal sub-patterns worth drilling into with ``get_eval_reasoning``.
     """
     cluster_data = state["cluster_data"].get(cluster_id)
     if not cluster_data:
@@ -106,14 +106,22 @@ def get_cluster_eval_titles(
 
 
 @tool
-def get_eval_details(
+def get_eval_reasoning(
     state: Annotated[dict, InjectedState],
     eval_ids: list[str],
 ) -> str:
-    """Get full evaluation details including reasoning, runtime, and linked generation metadata.
+    """Get the evaluator's full reasoning text plus its verdict, runtime, and linked generation metadata.
 
-    Use strategically on evaluations you want to examine closely — more
-    expensive than the titles call because it includes the full reasoning text.
+    This surfaces what the evaluator itself *said* about each item — the free-text
+    ``$ai_evaluation_reasoning`` that was embedded for clustering. Use when the
+    short "{evaluator_name}: {verdict}" titles aren't enough to see the shared
+    pattern. Cheap — all returned fields already live in state, no DB call.
+
+    For grounding outside the evaluator's own voice, reach for:
+    - ``get_generation_details`` to read the generation's input/output that the
+      evaluator was judging.
+    - ``get_evaluator_config`` to read the evaluator's rubric (llm_judge prompt
+      or hog source).
     """
     details = []
     contents = state["all_eval_contents"]
@@ -190,6 +198,105 @@ def bulk_set_labels(
 
 
 @tool
+def get_generation_details(
+    state: Annotated[dict, InjectedState],
+    eval_ids: list[str],
+    max_evals: int = 3,
+) -> str:
+    """Fetch the linked $ai_generation's input/output text for the given evaluations.
+
+    Use **sparingly** — at most 3 representative evals per call — when the evaluator's
+    reasoning alone leaves you uncertain about the cluster's shared pattern. Seeing the
+    actual prompt/output the evaluator reacted to can sharpen a label, but the goal is
+    still cluster-wide patterns, not deep-reading any single generation.
+
+    Returns ``{eval_id, generation_id, model, input, output}`` per eval. Input/output
+    text is truncated to bound token usage. Evaluations with no linked generation
+    (or purged generations) are silently skipped.
+    """
+    # Local import to keep the workflow-side import graph clean of data-layer deps.
+    from posthog.models.team import Team
+    from posthog.temporal.llm_analytics.evaluation_clustering.data import fetch_generation_contents
+
+    # Resolve eval_id → target_generation_id from state; skip anything missing.
+    contents = state["all_eval_contents"]
+    pairs: list[tuple[str, str]] = []
+    for eval_id in eval_ids[:max_evals]:
+        c = contents.get(eval_id)
+        if c and c.get("target_generation_id"):
+            pairs.append((eval_id, c["target_generation_id"]))
+    if not pairs:
+        return json.dumps([])
+
+    team = Team.objects.get(id=state["team_id"])
+    generation_ids = [gen_id for _, gen_id in pairs]
+    fetched = fetch_generation_contents(team=team, generation_ids=generation_ids)
+
+    result = []
+    for eval_id, gen_id in pairs:
+        gen = fetched.get(gen_id)
+        if gen is None:
+            # Generation purged or missing — tell the agent so it doesn't silently
+            # assume the eval has no linked generation.
+            result.append({"eval_id": eval_id, "generation_id": gen_id, "missing": True})
+            continue
+        result.append(
+            {
+                "eval_id": eval_id,
+                "generation_id": gen_id,
+                "model": gen["model"],
+                "input": gen["input"],
+                "output": gen["output"],
+            }
+        )
+    return json.dumps(result, indent=2)
+
+
+@tool
+def get_evaluator_config(
+    state: Annotated[dict, InjectedState],
+    evaluator_id: str | None = None,
+    evaluator_name: str | None = None,
+) -> str:
+    """Fetch the full Evaluation config (name, description, prompt / hog code, output shape).
+
+    Provide exactly one of ``evaluator_id`` (the $ai_evaluation_id UUID) or
+    ``evaluator_name`` (resolved via state). Use this to ground a cluster label in
+    the evaluator's actual rubric — the llm_judge prompt, the hog source, the N/A
+    config, the output schema — rather than inferring it from reasoning alone.
+
+    Returns the row as a dict with ``evaluation_config`` and ``output_config``
+    expanded. Hog code lives under ``evaluation_config.hog_source`` for runtime=hog,
+    llm_judge prompts under ``evaluation_config.prompt``.
+    """
+    from posthog.models.team import Team
+    from posthog.temporal.llm_analytics.evaluation_clustering.data import fetch_evaluator_configs
+
+    if not evaluator_id and not evaluator_name:
+        return json.dumps({"error": "Provide evaluator_id or evaluator_name"})
+
+    # Resolve by name via state if id not given — iterate contents for a match.
+    resolved_id = evaluator_id
+    if not resolved_id and evaluator_name:
+        for c in state["all_eval_contents"].values():
+            if c.get("evaluation_name") == evaluator_name and c.get("evaluation_id"):
+                resolved_id = c["evaluation_id"]
+                break
+        if not resolved_id:
+            return json.dumps({"error": f"No evaluation_id found for name {evaluator_name!r}"})
+
+    team = Team.objects.get(id=state["team_id"])
+    configs = fetch_evaluator_configs(team=team, evaluator_ids=[resolved_id])
+    config = configs.get(resolved_id)
+    if config is None:
+        return json.dumps({"error": f"No Evaluation row for id {resolved_id}"})
+
+    # Stringify UUID for JSON
+    config = {**config, "id": str(config.get("id"))}
+    return json.dumps(config, indent=2, default=str)
+
+
+@tool
 def finalize_labels(
     state: Annotated[dict, InjectedState],
 ) -> str:
@@ -203,7 +310,9 @@ EVAL_LABELING_TOOLS = [
     get_clusters_overview,
     get_all_clusters_with_sample_titles,
     get_cluster_eval_titles,
-    get_eval_details,
+    get_eval_reasoning,
+    get_generation_details,
+    get_evaluator_config,
     get_current_labels,
     set_cluster_label,
     bulk_set_labels,

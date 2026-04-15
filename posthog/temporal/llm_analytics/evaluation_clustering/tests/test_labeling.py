@@ -14,6 +14,7 @@ from posthog.temporal.llm_analytics.trace_clustering.models import ClusterItem, 
 def _meta(eval_id: str, **kwargs) -> EvaluationMetadata:
     defaults = {
         "eval_event_id": eval_id,
+        "evaluation_id": "cfg-accuracy",
         "evaluation_name": "Accuracy",
         "evaluation_result": True,
         "evaluation_applicable": None,

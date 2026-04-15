@@ -76,6 +76,7 @@ def _build_eval_contents(
         eval_id = item.generation_id or item.trace_id
         meta = eval_metadata.get(eval_id)
         contents[eval_id] = EvalContent(
+            evaluation_id=meta.evaluation_id if meta else None,
             evaluation_name=meta.evaluation_name if meta else None,
             verdict=_derive_verdict(meta),
             reasoning=meta.evaluation_reasoning if meta else None,
@@ -83,6 +84,7 @@ def _build_eval_contents(
             generation_model=meta.generation_model if meta else None,
             is_error=meta.generation_is_error if meta else None,
             judge_cost_usd=meta.judge_cost_usd if meta else None,
+            target_generation_id=meta.target_generation_id if meta else None,
         )
     return contents
 

@@ -18,8 +18,13 @@ class EvalContent(TypedDict):
     Fields intentionally optional with sensible None handling: evaluations
     whose linked generation was retention-purged will have None operational
     fields, but the eval-specific reasoning/verdict/name are always usable.
+
+    ``target_generation_id`` and ``evaluation_id`` are carried so the agent's
+    deeper-grounding tools (``get_generation_details``, ``get_evaluator_config``)
+    can resolve the corresponding $ai_generation event and Evaluation model row.
     """
 
+    evaluation_id: str | None  # $ai_evaluation_id — links to the Evaluation model row
     evaluation_name: str | None  # $ai_evaluation_name
     verdict: str  # "pass" | "fail" | "n/a" | "unknown" — derived from result + applicable
     reasoning: str | None  # $ai_evaluation_reasoning
@@ -27,6 +32,7 @@ class EvalContent(TypedDict):
     generation_model: str | None  # Model that produced the output being judged
     is_error: bool | None
     judge_cost_usd: float | None  # Only populated for llm_judge
+    target_generation_id: str | None  # $ai_target_event_id on the eval — the linked $ai_generation uuid
 
 
 class EvalMetadata(TypedDict):

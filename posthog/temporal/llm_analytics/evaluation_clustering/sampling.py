@@ -17,7 +17,10 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.llm_analytics.evaluation_clustering.constants import LLMA_EVALUATION_DOCUMENT_TYPE
+from posthog.temporal.llm_analytics.evaluation_clustering.constants import (
+    LLMA_EVALUATION_DOCUMENT_TYPE,
+    LLMA_EVALUATION_EMBEDDING_MODEL,
+)
 from posthog.temporal.llm_analytics.evaluation_clustering.models import SamplerActivityInputs, SamplerActivityResult
 
 from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_PRODUCT
@@ -155,7 +158,15 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
     # Keep the rendering format identical to trace/generation clustering so Stage B can
     # read eval embeddings with the same endsWith(rendering, '_{job_id}') pattern.
     rendering = f"{team.id}_{inputs.run_ts}_{inputs.job_id}"
-    embedder = LLMTracesSummarizerEmbedder(team=team)
+    # Use the small (1536-dim) model — see LLMA_EVALUATION_EMBEDDING_MODEL in constants.py.
+    # The lazy import keeps EmbeddingModelName out of the module top-level (avoids pulling
+    # posthog.schema into the workflow-side graph via the activity module).
+    from posthog.schema import EmbeddingModelName
+
+    embedder = LLMTracesSummarizerEmbedder(
+        team=team,
+        embedding_model_name=EmbeddingModelName(LLMA_EVALUATION_EMBEDDING_MODEL),
+    )
 
     # Enrich the composed text with each evaluator's description (from the Evaluation
     # model) so the embedding picks up on rubric/intent, not just the emitted reasoning.

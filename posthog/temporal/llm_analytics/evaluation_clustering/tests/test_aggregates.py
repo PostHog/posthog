@@ -26,6 +26,7 @@ def _meta(
 ) -> EvaluationMetadata:
     return EvaluationMetadata(
         eval_event_id=eval_id,
+        evaluation_id=f"cfg-{name or 'unknown'}",
         evaluation_name=name,
         evaluation_result=result,
         evaluation_applicable=applicable,
