@@ -235,6 +235,21 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
+    # Short-circuit if the job is already FAILED: redelivered DLQ'd messages
+    # (the retry state stays in Redis until its 72h TTL) would otherwise spam
+    # status updates and latest_error rewrites for a terminal job.
+    existing = ExternalDataJob.objects.filter(
+        id=export_signal.job_id, team_id=export_signal.team_id, status=ExternalDataJob.Status.FAILED
+    ).first()
+    if existing is not None:
+        logger.info(
+            "job_already_marked_failed",
+            job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            schema_id=export_signal.schema_id,
+        )
+        return
+
     job = update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,

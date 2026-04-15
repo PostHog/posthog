@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -294,15 +295,42 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     return query, params
 
 
+def _sanitize_query_for_cohort(query_dict: dict) -> dict:
+    """Strip fields unnecessary for cohort population.
+
+    Cohort population only needs person IDs, so we remove recordings data
+    (which can use complex UDFs like aggregate_funnel_array that may not
+    be available or are needlessly expensive) and search terms (the cohort
+    should include all matching persons, not just those matching a search).
+    """
+    query_dict = copy.deepcopy(query_dict)
+
+    if query_dict.get("kind") == "ActorsQuery":
+        select = query_dict.get("select", [])
+        query_dict["select"] = [s for s in select if s != "matched_recordings"]
+        if not query_dict["select"]:
+            query_dict["select"] = ["actor"]
+
+        # Intentionally strip search: the cohort should capture all persons matching
+        # the query, not just those matching an ad-hoc search in the persons modal.
+        query_dict.pop("search", None)
+
+        source = query_dict.get("source", {})
+        if isinstance(source, dict) and source.get("includeRecordings"):
+            source["includeRecordings"] = False
+
+    return query_dict
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query = get_query_runner(
-        cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
-    ).to_query()
+    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+
+    query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 
     uses_distinct_id = False
     uses_actor_id = False

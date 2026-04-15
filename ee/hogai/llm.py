@@ -1,10 +1,12 @@
 import datetime
 from collections.abc import Mapping
-from typing import Any
+from functools import cached_property
+from typing import Any, cast
 
 from django.conf import settings
 
 import pytz
+import anthropic
 import structlog
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
@@ -236,6 +238,45 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     This subclass automatically injects project, organization, and user context as the final part of the system prompt.
     It also makes sure we retry automatically in case of errors.
     """
+
+    bypass_proxy: bool = False
+    """
+    When True, build the underlying httpx client with ``trust_env=False`` so that
+    ``HTTP(S)_PROXY`` / ``NO_PROXY`` env vars are ignored. Set this only when routing
+    traffic to the internal LLM gateway, which must not be reached via the Smokescreen
+    egress proxy (private-range resolution is blocked). When False, upstream default
+    behavior is preserved so traffic to ``api.anthropic.com`` still flows through the
+    egress proxy as expected.
+    """
+
+    @cached_property
+    def _client(self) -> anthropic.Client:
+        if not self.bypass_proxy:
+            # Defer to upstream so the lru_cache'd httpx client and default proxy behavior are preserved.
+            return cast(anthropic.Client, ChatAnthropic._client.func(self))  # type: ignore[attr-defined]
+        client_params = self._client_params
+        http_client_kwargs: dict[str, Any] = {
+            "base_url": client_params["base_url"] or "https://api.anthropic.com",
+            "trust_env": False,
+        }
+        if "timeout" in client_params:
+            http_client_kwargs["timeout"] = client_params["timeout"]
+        return anthropic.Client(**client_params, http_client=anthropic.DefaultHttpxClient(**http_client_kwargs))
+
+    @cached_property
+    def _async_client(self) -> anthropic.AsyncClient:
+        if not self.bypass_proxy:
+            return cast(anthropic.AsyncClient, ChatAnthropic._async_client.func(self))  # type: ignore[attr-defined]
+        client_params = self._client_params
+        http_client_kwargs: dict[str, Any] = {
+            "base_url": client_params["base_url"] or "https://api.anthropic.com",
+            "trust_env": False,
+        }
+        if "timeout" in client_params:
+            http_client_kwargs["timeout"] = client_params["timeout"]
+        return anthropic.AsyncClient(
+            **client_params, http_client=anthropic.DefaultAsyncHttpxClient(**http_client_kwargs)
+        )
 
     def generate(
         self,

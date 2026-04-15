@@ -45,6 +45,7 @@ from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_sche
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
@@ -212,6 +213,44 @@ async def create_salesforce_usage_enrichment_schedule(client: Client):
             client,
             "salesforce-usage-enrichment-schedule",
             salesforce_usage_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_salesforce_stripe_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce stripe enrichment workflow.
+
+    Runs daily at 4 AM UTC to push Stripe customer data and billing customer
+    names to Salesforce Accounts. The workflow is incremental via a Redis
+    watermark, so a long backfill run is only expected on the first execution;
+    ``SKIP`` prevents the next day's run from starting while a backfill is still
+    in progress.
+    """
+    salesforce_stripe_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-stripe-enrichment",
+            asdict(StripeEnrichmentInputs()),
+            id="salesforce-stripe-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 4 AM UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "salesforce-stripe-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-stripe-enrichment-schedule", salesforce_stripe_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-stripe-enrichment-schedule",
+            salesforce_stripe_enrichment_schedule,
             trigger_immediately=False,
         )
 
@@ -490,6 +529,7 @@ if settings.EE_AVAILABLE:
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
         schedules.append(create_salesforce_usage_enrichment_schedule)
+        schedules.append(create_salesforce_stripe_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():

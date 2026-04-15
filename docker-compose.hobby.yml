@@ -476,7 +476,7 @@ services:
                 echo "Kafka broker is accepting requests, creating topics..."
                 # Create topics needed by rust services
                 # Note: $$ escapes $ for docker-compose variable substitution
-                for topic in exceptions_ingestion clickhouse_events_json; do
+                for topic in clickhouse_events_json; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
                     else
@@ -507,8 +507,6 @@ services:
             - ./share:/share
         environment:
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_CONSUMER_GROUP: cymbal
-            KAFKA_CONSUMER_TOPIC: exceptions_ingestion
             OBJECT_STORAGE_BUCKET: posthog
             OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
