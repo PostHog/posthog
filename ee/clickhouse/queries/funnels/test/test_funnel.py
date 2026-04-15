@@ -20,40 +20,40 @@ from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_
 
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(
+    funnel_breakdown_group_test_factory(  # type: ignore[misc]
         ClickhouseFunnel,
         ClickhouseFunnelActors,
         _create_event,
         _create_action,
         _create_person,
     ),
-):  # type: ignore
+):
     pass
 
 
 class TestUnorderedFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(
+    funnel_breakdown_group_test_factory(  # type: ignore[misc]
         ClickhouseFunnel,
         ClickhouseFunnelUnorderedActors,
         _create_event,
         _create_action,
         _create_person,
     ),
-):  # type: ignore
+):
     pass
 
 
 class TestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(
+    funnel_breakdown_group_test_factory(  # type: ignore[misc]
         ClickhouseFunnel,
         ClickhouseFunnelStrictActors,
         _create_event,
         _create_action,
         _create_person,
     ),
-):  # type: ignore
+):
     pass
 
 

@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this dashboard.",
+            "type": "number"
+        },
+        "output_format": {
+            "description": "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.",
+            "enum": ["json", "optimized"],
+            "type": "string"
+        },
+        "refresh": {
+            "description": "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.",
+            "enum": ["blocking", "force_blocking", "force_cache"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

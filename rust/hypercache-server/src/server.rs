@@ -1,5 +1,6 @@
 use std::{future::Future, net::SocketAddr, sync::Arc};
 
+use common_cache::NegativeCache;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig};
 use tokio::net::TcpListener;
@@ -59,7 +60,36 @@ where
             None => return,
         };
 
-    let app = crate::router::router(surveys_hypercache_reader, config_hypercache_reader, config);
+    // Build one negative cache per namespace when enabled. Keeping them separate
+    // avoids false positives: a token missing from surveys can legitimately exist
+    // in remote config.
+    let (surveys_negative_cache, config_negative_cache) = if *config.negative_cache_enabled {
+        tracing::info!(
+            max_entries = config.negative_cache_max_entries,
+            ttl_seconds = config.negative_cache_ttl_seconds,
+            "Negative cache enabled"
+        );
+        (
+            Some(NegativeCache::new(
+                config.negative_cache_max_entries,
+                config.negative_cache_ttl_seconds,
+            )),
+            Some(NegativeCache::new(
+                config.negative_cache_max_entries,
+                config.negative_cache_ttl_seconds,
+            )),
+        )
+    } else {
+        (None, None)
+    };
+
+    let app = crate::router::router(
+        surveys_hypercache_reader,
+        config_hypercache_reader,
+        surveys_negative_cache,
+        config_negative_cache,
+        config,
+    );
 
     tracing::info!(
         "listening on {:?}",
