@@ -8,30 +8,14 @@ interface SnapshotStatusIndicatorProps {
     compact?: boolean
 }
 
-const RESULT_COLORS: Record<string, { dot: string; text: string }> = {
-    changed: { dot: 'bg-warning', text: 'text-warning-dark' },
-    new: { dot: 'bg-primary', text: 'text-primary-dark' },
-    removed: { dot: 'bg-danger', text: 'text-danger' },
-    unchanged: { dot: 'bg-muted', text: 'text-muted' },
+const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; bg: string }> = {
+    changed: { dot: 'bg-warning', text: 'text-warning-dark', label: 'Changed', bg: 'bg-warning-highlight' },
+    new: { dot: 'bg-primary', text: 'text-primary-dark', label: 'New', bg: 'bg-primary-highlight' },
+    removed: { dot: 'bg-danger', text: 'text-danger', label: 'Removed', bg: 'bg-danger-highlight' },
+    unchanged: { dot: 'bg-muted', text: 'text-muted', label: 'Unchanged', bg: 'bg-fill-secondary' },
 }
 
-function transitionLabel(result: string, classificationReason?: string): string {
-    if (result === 'new') {
-        return '→ new'
-    }
-    if (result === 'removed') {
-        return '(baseline) → removed'
-    }
-    if (result === 'unchanged' && classificationReason === 'tolerated_hash') {
-        return '(baseline) → auto-tolerated'
-    }
-    if (result === 'changed') {
-        return '(baseline) → changed'
-    }
-    return ''
-}
-
-function reviewLabel(reviewState: string): { text: string; className: string } | null {
+function reviewBadge(reviewState: string): { text: string; className: string } | null {
     if (reviewState === 'approved') {
         return { text: 'Approved', className: 'text-success' }
     }
@@ -41,22 +25,30 @@ function reviewLabel(reviewState: string): { text: string; className: string } |
     return null
 }
 
+function resultLabel(result: string, classificationReason?: string): string {
+    if (result === 'unchanged' && classificationReason === 'tolerated_hash') {
+        return 'Auto-tolerated'
+    }
+    return RESULT_STYLES[result]?.label || result
+}
+
 export function SnapshotStatusIndicator({
     result,
     reviewState,
     classificationReason,
     compact = false,
 }: SnapshotStatusIndicatorProps): JSX.Element {
-    const colors = RESULT_COLORS[result] || RESULT_COLORS.unchanged
-    const review = reviewLabel(reviewState)
-    const transition = transitionLabel(result, classificationReason)
+    const styles = RESULT_STYLES[result] || RESULT_STYLES.unchanged
+    const review = reviewBadge(reviewState)
+    const label = resultLabel(result, classificationReason)
+    const hasBaseline = result !== 'new'
 
     if (compact) {
-        const tooltip = [transition, review?.text].filter(Boolean).join(' · ') || result
+        const tooltip = [label, review?.text].filter(Boolean).join(' · ')
         return (
             <Tooltip title={tooltip}>
                 <span className="flex items-center gap-0.5">
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${colors.dot}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${styles.dot}`} />
                     {review && (
                         <span className={`text-[9px] leading-none shrink-0 ${review.className}`}>
                             {reviewState === 'approved' ? '✓' : '~'}
@@ -69,10 +61,16 @@ export function SnapshotStatusIndicator({
 
     return (
         <span className="flex items-center gap-2">
-            {transition && <span className={`text-xs font-mono ${colors.text}`}>{transition}</span>}
+            {/* Transition pill */}
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${styles.bg}`}>
+                {hasBaseline && <span className="text-muted">baseline</span>}
+                <span className={styles.text}>→ {label.toLowerCase()}</span>
+            </span>
+
+            {/* Review badge */}
             {review && (
                 <span className={`flex items-center gap-1 text-sm font-medium ${review.className}`}>
-                    {reviewState === 'approved' && <IconCheck className="w-4 h-4" />}
+                    {reviewState === 'approved' && <IconCheck className="w-3.5 h-3.5" />}
                     {review.text}
                 </span>
             )}

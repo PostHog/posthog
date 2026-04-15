@@ -2,6 +2,7 @@ import { IconChevronLeft, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import type { SnapshotApi, SnapshotHistoryEntryApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
@@ -97,7 +98,24 @@ export function SnapshotDiffViewer({
                                     Accept change
                                 </LemonButton>
                                 {snapshot.result === 'changed' && (
-                                    <LemonButton type="secondary" size="small" onClick={onMarkTolerated}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Tolerate this visual difference?',
+                                                description:
+                                                    'This marks the difference as acceptable rendering noise (e.g. font hinting, animation timing). ' +
+                                                    'Future runs producing the same hash will pass automatically.\n\n' +
+                                                    'If this is a real bug or unintended change, fix the underlying issue instead of tolerating it.',
+                                                primaryButton: {
+                                                    children: 'Tolerate',
+                                                    onClick: onMarkTolerated,
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }}
+                                    >
                                         Tolerate
                                     </LemonButton>
                                 )}

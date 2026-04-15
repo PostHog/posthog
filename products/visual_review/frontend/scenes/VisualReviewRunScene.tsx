@@ -166,7 +166,8 @@ export function VisualReviewRunScene(): JSX.Element {
                 <div className="bg-bg-light border-b">
                     <div className="flex items-center justify-between px-3 pt-3 pb-2">
                         {/* Review summary (left) — what humans decided */}
-                        <span className="text-xs text-muted">
+                        <span className="text-xs text-muted flex items-center gap-1.5">
+                            <span className="font-semibold text-default">Review</span>
                             {[
                                 reviewPending > 0 && (
                                     <span key="pend">
@@ -185,7 +186,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                 .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
                         </span>
                         {/* Diff summary (right) — what the system found */}
-                        <span className="text-xs text-muted">
+                        <span className="text-xs text-muted flex items-center gap-1.5">
+                            <span className="font-semibold text-default">Diff</span>
                             {[
                                 diffChanged > 0 && (
                                     <span key="ch" className="text-warning-dark">
