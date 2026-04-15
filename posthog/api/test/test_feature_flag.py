@@ -12396,12 +12396,18 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "incomplete" in response.json()["detail"].lower()
 
-    def test_remote_config_flag_returns_400(self):
+    @parameterized.expand(
+        [
+            ("remote_configuration", {"is_remote_configuration": True}),
+            ("encrypted_payloads", {"has_encrypted_payloads": True}),
+        ]
+    )
+    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
 
-        FeatureFlag.objects.filter(id=flag_id).update(is_remote_configuration=True)
+        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "remote configuration" in response.json()["detail"].lower()
+        assert "not available" in response.json()["detail"].lower()

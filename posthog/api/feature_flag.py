@@ -2328,9 +2328,9 @@ class FeatureFlagViewSet(
     def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
         feature_flag: FeatureFlag = self.get_object()
 
-        if feature_flag.is_remote_configuration:
+        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
             return Response(
-                {"detail": "Version history is not available for remote configuration flags."},
+                {"detail": "Version history is not available for remote configuration or encrypted flags."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
