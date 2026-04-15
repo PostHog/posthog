@@ -179,6 +179,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
+        actions: [llmAnalyticsTraceLogic({ tabId: props.tabId }), ['setEventId']],
     })),
     actions({
         reportSingleTraceLoadIfReady: true,
@@ -440,6 +441,24 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                         mainContent.scrollTo({ top: mainContent.scrollHeight })
                     }
                 })
+            }
+        },
+        eventId: (eventId: string | null) => {
+            // When the selected event changes, scroll the sidebar tree to keep it visible
+            if (eventId) {
+                requestAnimationFrame(() => {
+                    const sidebar = document.getElementById('trace-events-sidebar')
+                    const selectedNode = sidebar?.querySelector('[aria-current=true]')
+                    if (selectedNode) {
+                        selectedNode.scrollIntoView({ block: 'center' })
+                    }
+                })
+            }
+        },
+        mostRelevantEvent: (mostRelevantEvent: LLMTraceEvent | null) => {
+            // When search finds a most relevant event, navigate to it
+            if (mostRelevantEvent && values.searchQuery.trim()) {
+                actions.setEventId(mostRelevantEvent.id)
             }
         },
         trace: (trace: LLMTrace | undefined) => {
