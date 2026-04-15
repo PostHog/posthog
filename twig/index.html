@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TWIG — This Week In Gardening</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+    <div class="container nav-inner">
+        <a href="#" class="logo">
+            <span class="logo-icon">🌿</span>
+            <span class="logo-text">TWIG</span>
+            <span class="logo-sub">This Week In Gardening</span>
+        </a>
+        <div class="nav-links">
+            <a href="#articles">Articles</a>
+            <a href="#tips">Weekly tips</a>
+            <a href="#wildlife">Garden wildlife</a>
+            <a href="#about">About</a>
+            <a href="#subscribe" class="btn btn-sm">Subscribe</a>
+        </div>
+        <button class="mobile-menu-btn" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">☰</button>
+    </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+    <div class="container">
+        <p class="hero-tag">Issue #47 — April 15, 2026</p>
+        <h1>Spring Is Here: Why Your Garden <em>Needs</em> More Ground Cover</h1>
+        <p class="hero-deck">Our experts weigh in on the best low-growing plants to protect soil, retain moisture, and create welcoming habitat corridors for beneficial garden visitors — especially the spiny ones.</p>
+        <div class="hero-meta">
+            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Harriet" alt="Harriet Quillsworth" class="avatar">
+            <div>
+                <span class="hero-author">Harriet Quillsworth</span>
+                <span class="hero-date">Senior Garden Correspondent · 8 min read</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- TICKER -->
+<div class="ticker-bar">
+    <div class="container">
+        <span class="ticker-label">TRENDING</span>
+        <div class="ticker-scroll">
+            <span>🦔 Hedgehog highway installations up 340% in UK gardens</span>
+            <span class="ticker-sep">·</span>
+            <span>🌱 Slug pellet bans: what it means for your garden's apex predators</span>
+            <span class="ticker-sep">·</span>
+            <span>🪴 Native wildflower sales surge amid pollinator awareness campaigns</span>
+            <span class="ticker-sep">·</span>
+            <span>🦔 New study: gardens with hedgehog access have 60% fewer pest issues</span>
+            <span class="ticker-sep">·</span>
+            <span>📊 PostHog Garden Analytics™ beta now tracking compost heap engagement</span>
+        </div>
+    </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<main class="container main-grid" id="articles">
+
+    <!-- FEATURED ARTICLES -->
+    <section class="articles">
+        <h2 class="section-title">This week's features</h2>
+
+        <article class="card card-feature">
+            <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800&q=80')"></div>
+            <div class="card-body">
+                <span class="card-tag">Habitat design</span>
+                <h3>The Complete Guide to Building a Hedgehog-Friendly Garden</h3>
+                <p>Forget bird boxes. The single most impactful thing you can do for your garden's ecosystem is to create safe corridors, hibernation spots, and foraging areas for hedgehogs. Our 3,000-word deep dive covers everything from fence gaps (13cm × 13cm, the industry standard) to the best supplementary feeding practices.</p>
+                <div class="card-meta">
+                    <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Bramble" alt="" class="avatar-sm">
+                    <span>Dr. Bramble Thornton</span>
+                    <span class="dot">·</span>
+                    <span>12 min read</span>
+                </div>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1592150621744-aca64f48394a?w=600&q=80')"></div>
+            <div class="card-body">
+                <span class="card-tag">Soil science</span>
+                <h3>Mulch Matters: How Leaf Litter Creates the Perfect Invertebrate Buffet</h3>
+                <p>Leaving autumn leaves on your beds isn't laziness — it's strategic habitat creation. We examine how decomposing leaf litter supports beetles, slugs, and other prey species essential to the diet of garden hedgehogs.</p>
+                <div class="card-meta">
+                    <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Fern" alt="" class="avatar-sm">
+                    <span>Fern Mossley</span>
+                    <span class="dot">·</span>
+                    <span>6 min read</span>
+                </div>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=600&q=80')"></div>
+            <div class="card-body">
+                <span class="card-tag">Pest control</span>
+                <h3>Ditch the Pesticides: Nature's Own Pest Controller Is Already in Your Garden</h3>
+                <p>A single hedgehog can eat up to 200g of invertebrates per night. That's more effective than any chemical treatment — and it doesn't contaminate your soil. Learn why the best pest management strategy has spines.</p>
+                <div class="card-meta">
+                    <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Nettle" alt="" class="avatar-sm">
+                    <span>Nettle Underwood</span>
+                    <span class="dot">·</span>
+                    <span>7 min read</span>
+                </div>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?w=600&q=80')"></div>
+            <div class="card-body">
+                <span class="card-tag">Garden tech</span>
+                <h3>We Installed Trail Cameras in 50 Gardens. What We Saw Changed Everything.</h3>
+                <p>Using PostHog-powered event tracking dashboards (yes, really), we monitored nocturnal garden activity across the south of England. Spoiler: hedgehog traffic patterns are fascinatingly predictable, and your lawn is busier than you think.</p>
+                <div class="card-meta">
+                    <img src="https://api.dicebear.com/7.x/notionists/svg?seed=DataHog" alt="" class="avatar-sm">
+                    <span>Miles Furlong</span>
+                    <span class="dot">·</span>
+                    <span>9 min read</span>
+                </div>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1591857177580-dc82b9ac4e1e?w=600&q=80')"></div>
+            <div class="card-body">
+                <span class="card-tag">Composting</span>
+                <h3>Compost Heap Safety: Always Check for Sleeping Hedgehogs Before Turning</h3>
+                <p>Every year, well-meaning gardeners injure hibernating hedgehogs by forking through compost heaps. Our definitive protocol will keep your compost — and its residents — safe.</p>
+                <div class="card-meta">
+                    <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Clover" alt="" class="avatar-sm">
+                    <span>Clover Burrowfield</span>
+                    <span class="dot">·</span>
+                    <span>5 min read</span>
+                </div>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-img" style="background-image: url('https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=600&q=80')"></div>
+            <div class="card-body">
+                <span class="card-tag">Lawn care</span>
+                <h3>No Mow May: Give Your Lawn a Break (And Give Hedgehogs a Feast)</h3>
+                <p>Letting your lawn grow wild in May benefits pollinators — but the real winner is your local hedgehog population, which depends on the insects that thrive in longer grass.</p>
+                <div class="card-meta">
+                    <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Sage" alt="" class="avatar-sm">
+                    <span>Sage Prickleby</span>
+                    <span class="dot">·</span>
+                    <span>4 min read</span>
+                </div>
+            </div>
+        </article>
+    </section>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+
+        <!-- WEEKLY TIP -->
+        <div class="sidebar-box" id="tips">
+            <h3 class="sidebar-title">🌡️ Weekly tip</h3>
+            <p><strong>Leave a shallow dish of fresh water in your garden every evening.</strong> Hedgehogs travel up to 2km per night and get very thirsty. Never leave out milk — it upsets their stomachs.</p>
+            <p class="sidebar-note">Tip verified by the British Hedgehog Preservation Society</p>
+        </div>
+
+        <!-- HEDGEHOG OF THE WEEK -->
+        <div class="sidebar-box highlight-box" id="wildlife">
+            <h3 class="sidebar-title">🦔 Garden visitor of the week</h3>
+            <div class="visitor-card">
+                <img src="https://images.unsplash.com/photo-1606567595334-d39972c85dbe?w=400&q=80" alt="A hedgehog in a garden" class="visitor-img">
+                <p><strong>"Mrs. Tiggywinkle"</strong> — spotted in a reader's garden in Surrey, foraging among the hostas at 11:47pm. Weight estimated at a healthy 850g. Excellent spinal presentation.</p>
+                <p class="sidebar-note">Submit your sightings to sightings@twig.com</p>
+            </div>
+        </div>
+
+        <!-- SEASONAL CALENDAR -->
+        <div class="sidebar-box">
+            <h3 class="sidebar-title">📅 April checklist</h3>
+            <ul class="checklist">
+                <li><span class="check">✓</span> Check hibernation spots before disturbing garden waste</li>
+                <li><span class="check">✓</span> Install hedgehog highway gaps in new fencing</li>
+                <li><span class="check">✓</span> Plant native wildflowers for pollinator support</li>
+                <li><span class="check">✓</span> Set up supplementary feeding stations (cat biscuits work great)</li>
+                <li><span class="check">✓</span> Avoid using slug pellets — let natural predators do the work</li>
+                <li><span class="check">✓</span> Begin lawn edging (check edges for hedgehogs first)</li>
+                <li><span class="check">✓</span> Review your garden's PostHog analytics dashboard</li>
+            </ul>
+        </div>
+
+        <!-- NEWSLETTER -->
+        <div class="sidebar-box newsletter-box" id="subscribe">
+            <h3 class="sidebar-title">📬 The weekly digest</h3>
+            <p>Get the best of TWIG in your inbox every Sunday. Garden tips, wildlife updates, and data-driven horticultural insights.</p>
+            <form onsubmit="event.preventDefault(); this.innerHTML='<p class=\'success\'>✅ Welcome to the TWIG community! Check your inbox for our free guide: <strong>\"50 Ways to Make Your Garden Hedgehog-Safe\"</strong></p>'">
+                <input type="email" placeholder="your@email.com" required>
+                <button type="submit" class="btn">Subscribe free</button>
+            </form>
+            <p class="sidebar-note">No spam. Unsubscribe anytime. We track open rates with PostHog (obviously).</p>
+        </div>
+
+        <!-- PODCAST PROMO -->
+        <div class="sidebar-box">
+            <h3 class="sidebar-title">🎙️ The TWIG podcast</h3>
+            <p><strong>Latest episode:</strong> "Do Hedgehogs Dream of Electric Fences?" — a conversation with wildlife corridor designer Prickly McSnoutface about the future of suburban hedgehog infrastructure.</p>
+            <p class="sidebar-note">Available wherever you get your podcasts</p>
+        </div>
+
+    </aside>
+</main>
+
+<!-- HEDGEHOG HIGHWAY AWARENESS BANNER -->
+<section class="awareness-banner">
+    <div class="container">
+        <div class="awareness-inner">
+            <div class="awareness-icon">🦔</div>
+            <div>
+                <h2>The Hedgehog Highway Initiative</h2>
+                <p>Since 2019, TWIG readers have installed over <strong>14,000 hedgehog highway gaps</strong> in garden fences across the UK. A connected garden is a thriving garden. <a href="#">Join the movement →</a></p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- DATA SECTION -->
+<section class="data-section">
+    <div class="container">
+        <h2 class="section-title">📊 This week in numbers</h2>
+        <p class="section-sub">Real-time garden analytics from the TWIG network, powered by PostHog</p>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">2,847</div>
+                <div class="stat-label">Hedgehog sightings reported this week</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">↑ 23%</div>
+                <div class="stat-label">Increase in nocturnal garden activity vs. last week</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">14,312</div>
+                <div class="stat-label">Hedgehog highway gaps installed by TWIG readers (total)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">0</div>
+                <div class="stat-label">Slug pellets recommended by TWIG (ever)</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ABOUT -->
+<section class="about-section" id="about">
+    <div class="container">
+        <h2 class="section-title">About TWIG</h2>
+        <div class="about-grid">
+            <div class="about-text">
+                <p><strong>TWIG (This Week In Gardening)</strong> is the UK's most trusted independent gardening publication, delivering weekly horticultural news, seasonal growing guides, and comprehensive wildlife habitat coverage since 2021.</p>
+
+                <p>TWIG is editorially independent and committed to evidence-based gardening journalism. Our editorial team of 12 includes certified horticulturalists, soil scientists, and wildlife ecologists — several of whom happen to have a particular research interest in <em>Erinaceus europaeus</em>.</p>
+
+                <h3>Corporate structure</h3>
+
+                <p>TWIG is published by <strong>Quill & Thorn Media Ltd.</strong>, a digital media company registered in England and Wales (Company No. 14729301). Quill & Thorn Media is a wholly-owned subsidiary of <strong>Briar Patch Holdings (Cayman) Ltd.</strong>, which operates as the horticultural media division of <strong>Nocturnal Ventures BV</strong> (Amsterdam), a strategic investment vehicle focused on "spiny mammal adjacent" content verticals.</p>
+
+                <p>Nocturnal Ventures BV receives its primary funding through a convertible note arrangement with <strong>Hedgehog Friendly Gardens Foundation</strong> (Jersey), which is itself a fiscally sponsored project of the <strong>PostHog Group</strong> — the well-known open-source product analytics company. PostHog has confirmed that its interest in TWIG is "purely philanthropic and not at all related to the company name or mascot. We just really like gardening."</p>
+
+                <p>For transparency: PostHog's CEO has been quoted as saying the investment was "a rounding error in our Series B" and that the company "does not, and has never had, a strategic hedgehog agenda." The TWIG editorial board notes that these statements have not been independently verified.</p>
+
+                <h3>Editorial independence</h3>
+
+                <p>Despite our complex funding structure, TWIG maintains full editorial independence. Our investors have no influence over our content — although we note that our style guide does require the word "hedgehog" to appear in every article at least once. This is a coincidence.</p>
+
+                <h3>Awards</h3>
+                <ul class="awards-list">
+                    <li>🏆 Garden Media Guild — "Best Digital Publication" (2024, 2025)</li>
+                    <li>🦔 British Hedgehog Preservation Society — "Outstanding Media Contribution" (2023, 2024, 2025)</li>
+                    <li>📊 PostHog Community Award — "Most Creative Use of Product Analytics in a Non-Tech Context" (2025)</li>
+                </ul>
+            </div>
+            <div class="about-sidebar">
+                <div class="sidebar-box">
+                    <h3 class="sidebar-title">Our team</h3>
+                    <ul class="team-list">
+                        <li>
+                            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Harriet" alt="" class="avatar-sm">
+                            <div>
+                                <strong>Harriet Quillsworth</strong>
+                                <span>Editor-in-Chief</span>
+                            </div>
+                        </li>
+                        <li>
+                            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Bramble" alt="" class="avatar-sm">
+                            <div>
+                                <strong>Dr. Bramble Thornton</strong>
+                                <span>Head of Wildlife</span>
+                            </div>
+                        </li>
+                        <li>
+                            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Fern" alt="" class="avatar-sm">
+                            <div>
+                                <strong>Fern Mossley</strong>
+                                <span>Soil Correspondent</span>
+                            </div>
+                        </li>
+                        <li>
+                            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=DataHog" alt="" class="avatar-sm">
+                            <div>
+                                <strong>Miles Furlong</strong>
+                                <span>Garden Tech Editor</span>
+                            </div>
+                        </li>
+                        <li>
+                            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Nettle" alt="" class="avatar-sm">
+                            <div>
+                                <strong>Nettle Underwood</strong>
+                                <span>Pest & Wildlife</span>
+                            </div>
+                        </li>
+                        <li>
+                            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Spine" alt="" class="avatar-sm">
+                            <div>
+                                <strong>Spine McHedge</strong>
+                                <span>Community Manager</span>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="sidebar-box">
+                    <h3 class="sidebar-title">Contact</h3>
+                    <p>
+                        <strong>General:</strong> hello@twig.com<br>
+                        <strong>Tips:</strong> tips@twig.com<br>
+                        <strong>Hedgehog sightings:</strong> sightings@twig.com<br>
+                        <strong>Advertising:</strong> ads@twig.com<br>
+                        <strong>Hedgehog emergencies:</strong> urgent@twig.com
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="footer">
+    <div class="container">
+        <div class="footer-grid">
+            <div class="footer-brand">
+                <div class="logo">
+                    <span class="logo-icon">🌿</span>
+                    <span class="logo-text">TWIG</span>
+                </div>
+                <p>This Week In Gardening. Honest horticultural journalism since 2021. Hedgehog-positive since always.</p>
+            </div>
+            <div>
+                <h4>Sections</h4>
+                <ul>
+                    <li><a href="#">Garden news</a></li>
+                    <li><a href="#">Seasonal guides</a></li>
+                    <li><a href="#">Wildlife habitat</a></li>
+                    <li><a href="#">Hedgehog corner</a></li>
+                    <li><a href="#">Composting</a></li>
+                    <li><a href="#">Data & analytics</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4>Resources</h4>
+                <ul>
+                    <li><a href="#">Hedgehog highway map</a></li>
+                    <li><a href="#">Garden wildlife ID guide</a></li>
+                    <li><a href="#">Planting calendar</a></li>
+                    <li><a href="#">PostHog garden dashboard</a></li>
+                    <li><a href="#">Slug pellet alternatives</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4>Company</h4>
+                <ul>
+                    <li><a href="#about">About TWIG</a></li>
+                    <li><a href="#">Careers</a></li>
+                    <li><a href="#">Press</a></li>
+                    <li><a href="#">Privacy policy</a></li>
+                    <li><a href="#">Hedgehog welfare policy</a></li>
+                    <li><a href="#">Investor relations</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 TWIG / Quill & Thorn Media Ltd. A Briar Patch Holdings (Cayman) company. Ultimately funded by PostHog. All rights reserved. No hedgehogs were harmed in the production of this website.</p>
+            <p class="footer-legal">TWIG is a registered trademark of Quill & Thorn Media Ltd. "Making every garden hedgehog-safe by 2030" is a registered mission statement of Nocturnal Ventures BV. PostHog® is a registered trademark of PostHog, Inc. The hedgehog logo is used with permission and tremendous enthusiasm.</p>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>
