@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -54,7 +54,7 @@ export const manifest: ProductManifest = {
         {
             path: 'SQL editor',
             intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             type: 'sql',
             iconType: 'sql_editor',
             iconColor: ['var(--color-product-data-warehouse-light)'],
@@ -66,7 +66,7 @@ export const manifest: ProductManifest = {
             path: 'Data warehouse',
             displayLabel: 'Data ops',
             intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
-            category: 'Unreleased',
+            category: ProductItemCategory.UNRELEASED,
             href: urls.dataOps(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             iconType: 'data_warehouse',

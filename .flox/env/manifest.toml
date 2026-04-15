@@ -97,7 +97,7 @@ bash = '''
   if [ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
     uv sync
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
-  elif [ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]; then
+  elif [ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ] || [ ! -e "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]; then
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
   fi
   source $UV_PROJECT_ENVIRONMENT/bin/activate
@@ -116,7 +116,7 @@ zsh = '''
   if [[ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]]; then
     uv sync
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
-  elif [[ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]]; then
+  elif [[ ! -L "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]] || [[ ! -e "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]]; then
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
   fi
   source $UV_PROJECT_ENVIRONMENT/bin/activate
@@ -131,7 +131,7 @@ fish = '''
   if not test -f "$UV_PROJECT_ENVIRONMENT/bin/activate.fish"
     uv sync
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
-  else if not test -L "$UV_PROJECT_ENVIRONMENT/bin/hogli"
+  else if not test -L "$UV_PROJECT_ENVIRONMENT/bin/hogli"; or not test -e "$UV_PROJECT_ENVIRONMENT/bin/hogli"
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
   end
   source $UV_PROJECT_ENVIRONMENT/bin/activate.fish
@@ -143,7 +143,7 @@ tcsh = '''
   if ( ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate.csh" ) then
     uv sync
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
-  else if ( ! -l "$UV_PROJECT_ENVIRONMENT/bin/hogli" ) then
+  else if ( ! -l "$UV_PROJECT_ENVIRONMENT/bin/hogli" || ! -e "$UV_PROJECT_ENVIRONMENT/bin/hogli" ) then
     ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
   endif
   source $UV_PROJECT_ENVIRONMENT/bin/activate.csh

@@ -756,6 +756,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
 
@@ -792,6 +793,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
                 }
             elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -877,7 +879,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         Updates source_model.job_inputs with CDC config.
         Returns a Response on error, None on success.
         """
-        import psycopg
+        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 
         management_mode = payload.get("cdc_management_mode", "posthog")
         slot_name = payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}"
@@ -901,23 +903,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import create_slot_and_publication
 
             try:
-                with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                    conn = psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=15,
+                with cdc_pg_connection(source_model) as conn:
+                    consistent_point = create_slot_and_publication(
+                        conn, slot_name, pub_name, source_config.schema, tables=[]
                     )
-                    try:
-                        # Create with empty table list — tables added per-schema
-                        consistent_point = create_slot_and_publication(
-                            conn, slot_name, pub_name, source_config.schema, tables=[]
-                        )
-                        job_inputs["cdc_consistent_point"] = consistent_point
-                    finally:
-                        conn.close()
+                    job_inputs["cdc_consistent_point"] = consistent_point
             except Exception as e:
                 source_model.delete()
                 logger.exception("Failed to create CDC slot and publication", error=str(e))
@@ -933,30 +923,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import publication_exists, slot_exists
 
             try:
-                with source_impl.with_ssh_tunnel(source_config) as (host, port):
-                    conn = psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=15,
-                    )
-                    try:
-                        if not slot_exists(conn, slot_name):
-                            source_model.delete()
-                            return Response(
-                                status=status.HTTP_400_BAD_REQUEST,
-                                data={"message": f"Replication slot '{slot_name}' does not exist"},
-                            )
-                        if not publication_exists(conn, pub_name):
-                            source_model.delete()
-                            return Response(
-                                status=status.HTTP_400_BAD_REQUEST,
-                                data={"message": f"Publication '{pub_name}' does not exist"},
-                            )
-                    finally:
-                        conn.close()
+                with cdc_pg_connection(source_model) as conn:
+                    if not slot_exists(conn, slot_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Replication slot '{slot_name}' does not exist"},
+                        )
+                    if not publication_exists(conn, pub_name):
+                        source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": f"Publication '{pub_name}' does not exist"},
+                        )
             except Exception as e:
                 source_model.delete()
                 logger.exception("Failed to validate self-managed CDC slot", error=str(e))
@@ -1237,6 +1216,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "supports_webhooks": schema.supports_webhooks,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
+                "available_columns": [
+                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    for col_name, col_type, nullable in schema.columns
+                ],
+                "detected_primary_keys": schema.detected_primary_keys,
             }
             for schema in schemas
         ]

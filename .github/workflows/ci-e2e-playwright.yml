@@ -165,6 +165,8 @@ jobs:
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 45
+        outputs:
+            vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -480,6 +482,44 @@ jobs:
                   git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
                   .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
+            # Visual Review: create run + upload snapshots directly from the test job.
+            # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
+            - name: Install VR CLI
+              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+
+            - name: Create VR run
+              id: vr-create
+              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+                  VR_PR: ${{ github.event.pull_request.number }}
+              run: |
+                  RUN_ID=$(vr run create \
+                    --type playwright \
+                    --baseline playwright/snapshots.yml \
+                    --branch "$VR_BRANCH" \
+                    --commit "$VR_COMMIT" \
+                    --pr "$VR_PR" \
+                    --token "$VR_TOKEN")
+                  echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+            - name: Upload snapshots to Visual Review
+              if: always() && steps.vr-create.outputs.run_id != ''
+              continue-on-error: true
+              env:
+                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
+              run: |
+                  vr run upload \
+                    --run-id "$VR_RUN_ID" \
+                    --dir playwright/__snapshots__/ \
+                    --baseline playwright/snapshots.yml \
+                    --token "$VR_TOKEN"
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
@@ -768,7 +808,6 @@ jobs:
                     echo "Screenshot changes detected in patches"
                   fi
 
-            # Apply patches BEFORE VR so it hashes the final state
             # Uses --index so changes are staged for the downstream commit action
             - name: Apply screenshot patches
               if: steps.check-screenshots.outputs.has-changes == 'true'
@@ -778,30 +817,24 @@ jobs:
                     git apply --index "$patch"
                   done
 
-            # Visual Review: submit snapshots after patches are applied
-            - name: Install VR CLI deps
-              run: cd products/visual_review/cli && npm ci
+            # Visual Review: complete the run (test job already uploaded snapshots)
+            - name: Install VR CLI
+              if: needs.playwright.outputs.vr_run_id != ''
+              run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
-            - name: Submit to Visual Review
+            - name: Complete Visual Review run
+              if: needs.playwright.outputs.vr_run_id != ''
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
-                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
-                  VR_PR: ${{ github.event.pull_request.number }}
                   VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
-                  npx tsx products/visual_review/cli/src/index.ts submit \
-                    --dir playwright/__snapshots__/ \
-                    --type playwright \
+                  vr run complete \
+                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
                     --baseline playwright/snapshots.yml \
                     $VR_AUTO_APPROVE \
-                    --token "$VR_TOKEN" \
-                    --branch "$VR_BRANCH" \
-                    --commit "$VR_COMMIT" \
-                    --pr "$VR_PR"
+                    --token "$VR_TOKEN"
 
-            # Stage baseline if updated by VR submit — included in the screenshot commit
             - name: Check baseline changes
               id: check-baseline
               run: |
@@ -812,7 +845,7 @@ jobs:
                     git add playwright/snapshots.yml
                   fi
 
-            # UPDATE mode: commit PNGs + baseline together
+            # UPDATE mode: commit PNGs + baseline together in a single commit
             - name: Commit screenshot changes
               if: (steps.check-screenshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots

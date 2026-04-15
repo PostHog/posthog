@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -58,7 +58,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Web scripts',
             intents: [ProductKey.SITE_APPS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
@@ -74,7 +74,7 @@ export const manifest: ProductManifest = {
                 ProductKey.PIPELINE_TRANSFORMATIONS,
                 ProductKey.SITE_APPS,
             ],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
