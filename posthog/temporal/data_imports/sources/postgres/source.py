@@ -200,9 +200,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                 ) as conn:
-                    tables_with_pks = set(get_primary_key_columns(conn, config.schema, list(db_schemas.keys())).keys())
+                    pk_columns_by_table = get_primary_key_columns(conn, config.schema, list(db_schemas.keys()))
+                    tables_with_pks = set(pk_columns_by_table.keys())
             except Exception as e:
                 capture_exception(e)
+                pk_columns_by_table = {}
                 tables_with_pks = set()
 
         for table_name, columns in db_schemas.items():
@@ -228,6 +230,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     row_count=row_counts.get(table_name, None),
                     columns=columns,
                     foreign_keys=db_foreign_keys.get(table_name, []),
+                    detected_primary_keys=pk_columns_by_table.get(table_name)
+                    or (["id"] if any(col[0] == "id" for col in columns) else None),
                 )
             )
 

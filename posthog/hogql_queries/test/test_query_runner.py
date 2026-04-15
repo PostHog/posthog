@@ -11,6 +11,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     BounceRatePageViewMode,
@@ -77,7 +78,7 @@ class TestQueryRunner(BaseTest):
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
-            def calculate(self):
+            def _calculate(self):
                 return TheTestBasicQueryResponse(
                     results=[
                         ["row", 1, 2, 3],
@@ -99,6 +100,21 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.__abstractmethods__ = frozenset()
 
         return TestQueryRunner
+
+    def test_calculate_runs_validators_before_calculation(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        validation_rule = mock.MagicMock()
+        validation_rule.validate.side_effect = ValidationError("Validation failed")
+        TestQueryRunner.validators = lambda self: (validation_rule,)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True) as mock_calculate:
+            with self.assertRaises(ValidationError) as context:
+                runner.calculate()
+
+        self.assertIn("Validation failed", str(context.exception))
+        validation_rule.validate.assert_called_once_with(runner.validation_context)
+        mock_calculate.assert_not_called()
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -813,7 +829,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[
@@ -878,7 +894,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
-        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         query = LifecycleQuery(
             series=[

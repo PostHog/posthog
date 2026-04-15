@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react'
 import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ExternalDataSourceSyncSchema } from '~/types'
+import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
 
 const getIncrementalSyncSupported = (
     schema: ExternalDataSourceSyncSchema
@@ -58,8 +59,12 @@ interface SyncMethodFormProps {
         syncType: ExternalDataSourceSyncSchema['sync_type'],
         incrementalField: string | null,
         incrementalFieldType: string | null,
+        primaryKeyColumns: string[] | null,
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
     ) => void
+    availableColumns?: AvailableColumn[]
+    detectedPrimaryKeys?: string[] | null
+    primaryKeyLocked?: boolean
     saveButtonIsLoading?: boolean
     isNewSource?: boolean
 }
@@ -121,6 +126,9 @@ export const SyncMethodForm = ({
     schema,
     onClose,
     onSave,
+    availableColumns,
+    detectedPrimaryKeys,
+    primaryKeyLocked,
     saveButtonIsLoading,
     isNewSource,
 }: SyncMethodFormProps): JSX.Element => {
@@ -128,11 +136,15 @@ export const SyncMethodForm = ({
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
 
+    const columns = availableColumns ?? schema.available_columns ?? []
+    const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
+
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
+    const [primaryKeyColumns, setPrimaryKeyColumns] = useState<string[]>(schema.primary_key_columns ?? [])
     const [cdcTableMode, setCdcTableMode] = useState<'consolidated' | 'cdc_only' | 'both'>(
         schema.cdc_table_mode ?? 'consolidated'
     )
@@ -144,6 +156,7 @@ export const SyncMethodForm = ({
         )
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
+        setPrimaryKeyColumns(schema.primary_key_columns ?? [])
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const radioOptions: {
@@ -222,6 +235,51 @@ export const SyncMethodForm = ({
                                         null will not be synced.
                                     </LemonBanner>
                                 )}
+                            {radioValue === 'incremental' && columns.length > 0 && (
+                                <>
+                                    <p className="mt-4 mb-2">
+                                        Optionally, select one or more columns to use as the primary key for
+                                        deduplication. If not set, PostHog will attempt to auto-detect the primary key
+                                        from the source.
+                                    </p>
+                                    <LemonInputSelect
+                                        mode="multiple"
+                                        value={primaryKeyColumns}
+                                        onChange={(newValue) => !primaryKeyLocked && setPrimaryKeyColumns(newValue)}
+                                        disabled={primaryKeyLocked}
+                                        options={columns.map((col) => ({
+                                            key: col.field,
+                                            label: `${col.label} (${col.type})`,
+                                        }))}
+                                        placeholder={
+                                            resolvedDetectedPks
+                                                ? `Auto-detected: ${resolvedDetectedPks.join(', ')}`
+                                                : 'No primary key detected'
+                                        }
+                                    />
+                                    {primaryKeyLocked && (
+                                        <LemonBanner type="info" className="mt-2">
+                                            Primary key cannot be changed after data has been synced. Delete the synced
+                                            data first to change it.
+                                        </LemonBanner>
+                                    )}
+                                    {primaryKeyColumns.length === 0 && !resolvedDetectedPks && !primaryKeyLocked && (
+                                        <LemonBanner type="info" className="mt-2">
+                                            No primary key could be auto-detected from the source. Select one manually
+                                            to enable incremental sync, or use full table replication instead.
+                                        </LemonBanner>
+                                    )}
+                                    {primaryKeyColumns.length > 0 &&
+                                        primaryKeyColumns.some(
+                                            (pk) => columns.find((col) => col.field === pk)?.nullable
+                                        ) && (
+                                            <LemonBanner type="warning" className="mt-2">
+                                                One or more selected primary key columns are nullable. Rows with null
+                                                values may cause issues with deduplication.
+                                            </LemonBanner>
+                                        )}
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -378,9 +436,9 @@ export const SyncMethodForm = ({
                     disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)}
                     onClick={() => {
                         if (radioValue === 'webhook') {
-                            onSave('webhook', null, null)
+                            onSave('webhook', null, null, null)
                         } else if (radioValue === 'cdc') {
-                            onSave('cdc', null, null, cdcTableMode)
+                            onSave('cdc', null, null, null, cdcTableMode)
                         } else if (radioValue === 'incremental') {
                             const fieldSelected = schema.incremental_fields.find(
                                 (n) => n.field === incrementalFieldValue
@@ -390,7 +448,12 @@ export const SyncMethodForm = ({
                                 return
                             }
 
-                            onSave('incremental', incrementalFieldValue, fieldSelected.field_type)
+                            onSave(
+                                'incremental',
+                                incrementalFieldValue,
+                                fieldSelected.field_type,
+                                primaryKeyColumns.length > 0 ? primaryKeyColumns : null
+                            )
                         } else if (radioValue === 'append') {
                             const fieldSelected = schema.incremental_fields.find((n) => n.field === appendFieldValue)
                             if (!fieldSelected) {
@@ -398,9 +461,9 @@ export const SyncMethodForm = ({
                                 return
                             }
 
-                            onSave('append', appendFieldValue, fieldSelected.field_type)
+                            onSave('append', appendFieldValue, fieldSelected.field_type, null)
                         } else {
-                            onSave('full_refresh', null, null)
+                            onSave('full_refresh', null, null, null)
                         }
                     }}
                 >
