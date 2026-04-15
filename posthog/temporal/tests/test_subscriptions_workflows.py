@@ -384,16 +384,27 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
+@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_process_subscription_records_missing_slack_integration_failure(
     mock_get_slack: MagicMock,
+    mock_build_snapshot: MagicMock,
     temporal_client: Client,
     team,
     user,
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slk001", name="Slack fail")
+    mock_build_snapshot.return_value = {
+        "id": insight.id,
+        "short_id": str(insight.short_id),
+        "name": insight.name or "",
+        "dashboard_tile_id": None,
+        "query_hash": "mock_cache_key",
+        "cache_key": "mock_cache_key",
+        "query_results": {"result": []},
+    }
     subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
