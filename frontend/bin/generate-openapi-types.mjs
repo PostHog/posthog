@@ -566,7 +566,7 @@ const zodJobs = skipZod
                               query: false,
                               header: false,
                               body: true,
-                              response: true,
+                              response: false,
                           },
                       },
                       components: {

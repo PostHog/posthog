@@ -29,23 +29,6 @@ export const CreateSessionSummariesBody = /* @__PURE__ */ zod.object({
         .describe('Optional focus area for the summarization'),
 })
 
-export const createSessionSummariesResponseSessionIdsMax = 300
-
-export const createSessionSummariesResponseFocusAreaMax = 500
-
-export const CreateSessionSummariesResponse = /* @__PURE__ */ zod.object({
-    session_ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(createSessionSummariesResponseSessionIdsMax)
-        .describe('List of session IDs to summarize (max 300)'),
-    focus_area: zod
-        .string()
-        .max(createSessionSummariesResponseFocusAreaMax)
-        .optional()
-        .describe('Optional focus area for the summarization'),
-})
-
 /**
  * Generate AI individual summary for each session, without grouping.
  */
@@ -62,23 +45,6 @@ export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object
     focus_area: zod
         .string()
         .max(createSessionSummariesIndividuallyBodyFocusAreaMax)
-        .optional()
-        .describe('Optional focus area for the summarization'),
-})
-
-export const createSessionSummariesIndividuallyResponseSessionIdsMax = 300
-
-export const createSessionSummariesIndividuallyResponseFocusAreaMax = 500
-
-export const CreateSessionSummariesIndividuallyResponse = /* @__PURE__ */ zod.object({
-    session_ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(createSessionSummariesIndividuallyResponseSessionIdsMax)
-        .describe('List of session IDs to summarize (max 300)'),
-    focus_area: zod
-        .string()
-        .max(createSessionSummariesIndividuallyResponseFocusAreaMax)
         .optional()
         .describe('Optional focus area for the summarization'),
 })

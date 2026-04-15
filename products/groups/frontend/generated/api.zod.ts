@@ -9,30 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
- */
-export const groupsListResponseResultsItemGroupTypeIndexMin = -2147483648
-export const groupsListResponseResultsItemGroupTypeIndexMax = 2147483647
-
-export const groupsListResponseResultsItemGroupKeyMax = 400
-
-export const GroupsListResponse = /* @__PURE__ */ zod.object({
-    next: zod.url().nullish(),
-    previous: zod.url().nullish(),
-    results: zod.array(
-        zod.object({
-            group_type_index: zod
-                .number()
-                .min(groupsListResponseResultsItemGroupTypeIndexMin)
-                .max(groupsListResponseResultsItemGroupTypeIndexMax),
-            group_key: zod.string().max(groupsListResponseResultsItemGroupKeyMax),
-            group_properties: zod.unknown().optional(),
-            created_at: zod.iso.datetime({}),
-        })
-    ),
-})
-
 export const groupsCreateBodyGroupTypeIndexMin = -2147483648
 export const groupsCreateBodyGroupTypeIndexMax = 2147483647
 

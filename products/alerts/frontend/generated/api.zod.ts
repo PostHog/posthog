@@ -9,15 +9,7 @@
  */
 import * as zod from 'zod'
 
-export const AlertsListResponse = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
 export const AlertsCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-export const AlertsRetrieveResponse = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
@@ -25,15 +17,7 @@ export const AlertsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const AlertsUpdateResponse = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
 export const AlertsPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-export const AlertsPartialUpdateResponse = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
@@ -1209,41 +1193,5 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples."
-        ),
-})
-
-export const AlertsSimulateCreateResponse = /* @__PURE__ */ zod.object({
-    data: zod.array(zod.number()).describe('Data values for each point.'),
-    dates: zod.array(zod.string()).describe('Date labels for each point.'),
-    scores: zod.array(zod.number().nullable()).describe('Anomaly score for each point (null if insufficient data).'),
-    triggered_indices: zod.array(zod.number()).describe('Indices of points flagged as anomalies.'),
-    triggered_dates: zod.array(zod.string()).describe('Dates of points flagged as anomalies.'),
-    interval: zod.string().nullable().describe('Interval of the trends query (hour, day, week, month).'),
-    total_points: zod.number().describe('Total number of data points analyzed.'),
-    anomaly_count: zod.number().describe('Number of anomalies detected.'),
-    sub_detector_scores: zod
-        .array(zod.record(zod.string(), zod.unknown()))
-        .optional()
-        .describe("Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields."),
-    breakdown_results: zod
-        .array(
-            zod.object({
-                label: zod.string().describe('Breakdown value label.'),
-                data: zod.array(zod.number()).describe('Data values for each point.'),
-                dates: zod.array(zod.string()).describe('Date labels for each point.'),
-                scores: zod.array(zod.number().nullable()).describe('Anomaly score for each point.'),
-                triggered_indices: zod.array(zod.number()).describe('Indices of points flagged as anomalies.'),
-                triggered_dates: zod.array(zod.string()).describe('Dates of points flagged as anomalies.'),
-                total_points: zod.number().describe('Total number of data points analyzed.'),
-                anomaly_count: zod.number().describe('Number of anomalies detected.'),
-                sub_detector_scores: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Per-sub-detector scores for ensemble detectors.'),
-            })
-        )
-        .optional()
-        .describe(
-            'Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values).'
         ),
 })

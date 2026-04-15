@@ -49,9 +49,9 @@ This prevents name collisions between generated and manual types.
 ### Zod validation schemas
 
 Each generated directory also contains `api.zod.ts` with [Zod](https://zod.dev/) validation schemas derived from the same OpenAPI spec.
-Only **Body** and **Response** schemas are generated — path params, query params, and headers are excluded since they're programmatic, not user input.
+Only **Body** schemas are generated — response schemas, path params, query params, and headers are excluded since the primary use case is validating user input before API calls.
 
-Schemas are named `<Operation>Body` and `<Operation>Response`:
+Schemas are named `<Operation>Body`:
 
 ```ts
 import { VisualReviewReposCreateBody } from '../generated/api.zod'
