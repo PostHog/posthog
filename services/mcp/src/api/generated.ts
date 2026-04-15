@@ -19740,6 +19740,7 @@ export namespace Schemas {
 
     export interface MaxCoreMemory {
       readonly id: string;
+      /** @maxLength 10000 */
       text: string;
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
@@ -25231,6 +25232,7 @@ export namespace Schemas {
 
     export interface PatchedMaxCoreMemory {
       readonly id?: string;
+      /** @maxLength 10000 */
       text?: string;
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
