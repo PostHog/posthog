@@ -37,7 +37,17 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'uuid', 'name', 'distinct_ids', 'created_at', 'last_seen_at'])
+                pickResponseFields(item, [
+                    'id',
+                    'uuid',
+                    'name',
+                    'distinct_ids',
+                    'properties.email',
+                    'properties.$email',
+                    'properties.$geoip_country_code',
+                    'created_at',
+                    'last_seen_at',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/persons')

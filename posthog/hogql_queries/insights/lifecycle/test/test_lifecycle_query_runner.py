@@ -30,7 +30,7 @@ from posthog.schema import (
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
@@ -812,7 +812,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         with self.assertRaises(ValidationError) as context:
-            LifecycleQueryRunner(team=self.team, query=query)
+            LifecycleQueryRunner(team=self.team, query=query).calculate()
 
         self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
 
