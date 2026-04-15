@@ -72,7 +72,9 @@ ARRAY JOIN
         arrayMap(kv -> ('group_3', kv.1, kv.2), JSONExtractKeysAndValues(group3_properties, 'String')),
         arrayMap(kv -> ('group_4', kv.1, kv.2), JSONExtractKeysAndValues(group4_properties, 'String'))
     ) as tuple
-WHERE length(tuple.2) < 256
+WHERE length(tuple.2) > 0
+  AND length(tuple.2) <= 400
+  AND length(tuple.3) > 0
   AND length(tuple.3) < 256
 GROUP BY team_id, property_type, property_key, property_value
 """.format(
