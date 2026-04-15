@@ -1050,6 +1050,39 @@ class TestGetTable:
             assert pa.types.is_decimal(arrow_schema.field("val").type)
 
     @pytest.mark.django_db
+    def test_unconstrained_numeric_on_view_skips_probe(self):
+        """`MAX(scale(col))` on a regular view forces the view definition to execute, which
+        can be arbitrarily expensive for join/aggregate views. The probe is skipped for views
+        regardless of the caller's probe flag, and falls back to DEFAULT_NUMERIC_SCALE.
+        The downstream `_process_batch` fallback chain handles scale inference at row time."""
+        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
+
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_view_unconstrained_base (id INTEGER PRIMARY KEY, val NUMERIC)"
+            )
+            dj_cursor.execute(
+                "INSERT INTO test_get_table_view_unconstrained_base VALUES (1, 0.84497449830783164117::numeric)"
+            )
+            dj_cursor.execute(
+                "CREATE VIEW test_get_table_view_unconstrained AS SELECT * FROM test_get_table_view_unconstrained_base"
+            )
+            table = _get_table(  # type: ignore[arg-type]
+                dj_cursor,
+                "public",
+                "test_get_table_view_unconstrained",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
+            assert table.type == "view"
+            val_col = next(c for c in table.columns if c.name == "val")
+            # Probe was skipped for the view → default scale, even though the base table has
+            # scale-20 data that a probe would have found.
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
     def test_unconstrained_numeric_multiple_columns_probed_together(self):
         """Multiple unconstrained numeric columns are probed in a single aggregation query."""
         logger = structlog.get_logger()

@@ -1168,25 +1168,53 @@ def _get_table(
     probed_scales: dict[str, int | None] = {}
     # Only probe when a fresh delta column is about to be created. On incremental syncs the
     # delta column type is already set and probing wastes a full-table aggregation per sync.
-    if unconstrained_numeric_columns and probe_unconstrained_numeric_scale:
+    # Skip regular views: `MAX(scale(col))` on a view forces the view definition to execute,
+    # which can be arbitrarily expensive for join/aggregate views. Materialized views are
+    # already materialized on disk and behave like tables here.
+    if unconstrained_numeric_columns and probe_unconstrained_numeric_scale and not is_view:
         try:
-            select_parts = sql.SQL(", ").join(
-                sql.SQL("MAX(scale({col}))").format(col=sql.Identifier(col_name))
-                for col_name in unconstrained_numeric_columns
-            )
-            probe_query = sql.SQL("SELECT {parts} FROM {table}").format(
-                parts=select_parts,
-                table=sql.Identifier(schema, table_name),
-            )
-            logger.debug(f"Probing numeric scales: {probe_query.as_string()}")
-            cursor.execute(probe_query)
-            row = cursor.fetchone()
-            if row is not None:
-                for col_name, scale_val in zip(unconstrained_numeric_columns, row):
-                    probed_scales[col_name] = scale_val
+            # Isolate the probe in a SAVEPOINT so that any failure (permission denied, bad
+            # type, statement_timeout, network blip) rolls back cleanly without poisoning the
+            # enclosing metadata transaction. Without this, a probe error leaves the
+            # transaction in `INERROR` state and every subsequent query in `postgres_source`
+            # (SET LOCAL statement_timeout, _is_read_replica, _get_primary_keys, _get_rows_to_sync,
+            # ...) fails with `InFailedSqlTransaction: current transaction is aborted`.
+            cursor.execute(sql.SQL("SAVEPOINT probe_numeric_scale"))
+            try:
+                # Scope a short statement_timeout to the probe so a pathologically large table
+                # or slow aggregation can't hang schema discovery. The outer 10-minute
+                # statement_timeout isn't set until `postgres_source` continues after
+                # `_get_table` returns, so without this the probe inherits whatever role-level
+                # default postgres has — which might be "no limit" on some hosted instances.
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(30 * 1000)  # 30 seconds
+                    )
+                )
+                select_parts = sql.SQL(", ").join(
+                    sql.SQL("MAX(scale({col}))").format(col=sql.Identifier(col_name))
+                    for col_name in unconstrained_numeric_columns
+                )
+                probe_query = sql.SQL("SELECT {parts} FROM {table}").format(
+                    parts=select_parts,
+                    table=sql.Identifier(schema, table_name),
+                )
+                logger.debug(f"Probing numeric scales: {probe_query.as_string()}")
+                cursor.execute(probe_query)
+                row = cursor.fetchone()
+                if row is not None:
+                    for col_name, scale_val in zip(unconstrained_numeric_columns, row):
+                        probed_scales[col_name] = scale_val
+                cursor.execute(sql.SQL("RELEASE SAVEPOINT probe_numeric_scale"))
+            except Exception:
+                # Roll back the savepoint so the enclosing transaction stays usable, then
+                # re-raise into the outer `except` for logging.
+                cursor.execute(sql.SQL("ROLLBACK TO SAVEPOINT probe_numeric_scale"))
+                cursor.execute(sql.SQL("RELEASE SAVEPOINT probe_numeric_scale"))
+                raise
         except Exception as e:
-            # Probe is best-effort. If it fails (permissions, timeout, weird column type),
-            # fall back to DEFAULT_NUMERIC_SCALE rather than blocking the sync.
+            # Probe is best-effort. Fall back to DEFAULT_NUMERIC_SCALE and let the downstream
+            # `_process_batch` fallback chain infer the right type at row-fetching time.
             logger.warning(f"Failed to probe numeric scales for {schema}.{table_name}: {e}")
 
     columns = []
