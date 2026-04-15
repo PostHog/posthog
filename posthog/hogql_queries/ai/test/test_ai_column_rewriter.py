@@ -228,3 +228,23 @@ class TestAiColumnToPropertyRewriter:
     def test_numeric_and_boolean_sets_are_disjoint(self):
         overlap = _NUMERIC_COLUMNS & _BOOLEAN_COLUMNS
         assert not overlap, f"Columns in both numeric and boolean sets: {overlap}"
+
+    def test_custom_alias_fields_rewritten(self):
+        query = parse_select("SELECT e.trace_id, e.latency, e.is_error, e.timestamp FROM posthog.ai_events AS e")
+        result = rewrite_query_for_events_table(query)
+        assert isinstance(result, ast.SelectQuery)
+        # String column: e.trace_id → events.properties.$ai_trace_id
+        assert isinstance(result.select[0], ast.Field)
+        assert result.select[0].chain == ["events", "properties", "$ai_trace_id"]
+        # Numeric column: e.latency → toFloat(events.properties.$ai_latency)
+        assert isinstance(result.select[1], ast.Call)
+        assert result.select[1].name == "toFloat"
+        # Boolean column: e.is_error → if(events.properties.$ai_is_error = 'true', 1, 0)
+        assert isinstance(result.select[2], ast.Call)
+        assert result.select[2].name == "if"
+        # Native column: e.timestamp → events.timestamp
+        assert isinstance(result.select[3], ast.Field)
+        assert result.select[3].chain == ["events", "timestamp"]
+        # FROM clause rewritten, alias stripped
+        assert result.select_from.table.chain == ["events"]
+        assert result.select_from.alias is None

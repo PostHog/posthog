@@ -75,13 +75,17 @@ class AiColumnToPropertyRewriter(CloningVisitor):
     def __init__(self, force_rewrite: bool = False):
         super().__init__()
         self._in_ai_events_scope = force_rewrite
+        self._table_qualifier: str = "ai_events"
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         was_in_scope = self._in_ai_events_scope
+        old_qualifier = self._table_qualifier
         if _has_ai_events_from(node):
             self._in_ai_events_scope = True
+            self._table_qualifier = node.select_from.alias or "ai_events" if node.select_from else "ai_events"
         result = super().visit_select_query(node)
         self._in_ai_events_scope = was_in_scope
+        self._table_qualifier = old_qualifier
         return result
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
@@ -90,8 +94,8 @@ class AiColumnToPropertyRewriter(CloningVisitor):
 
         chain = node.chain
 
-        # Table-qualified: ["ai_events", "column_name", ...]
-        if len(chain) >= 2 and chain[0] == "ai_events":
+        # Table-qualified: [qualifier, "column_name", ...]
+        if len(chain) >= 2 and chain[0] == self._table_qualifier:
             col_name = chain[1]
             if isinstance(col_name, str) and col_name in AI_COLUMN_TO_PROPERTY:
                 prop_name = AI_COLUMN_TO_PROPERTY[col_name]
