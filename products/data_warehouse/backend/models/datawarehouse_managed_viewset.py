@@ -113,9 +113,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             # deadlocks when multiple data source schemas complete simultaneously and
             # each tries to update the same set of saved queries.
             with connection.cursor() as cursor:
+            with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
-                    [self.team_id, f"sync_views_{self.kind}"],
+                    "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
+                    [f"{self.team_id}_sync_views_{self.kind}"],
                 )
 
             for view in expected_views:
