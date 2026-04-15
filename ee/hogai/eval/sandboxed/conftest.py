@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import atexit
 import socket
 import asyncio
 import logging
@@ -57,8 +58,23 @@ def _cleanup_eval_containers():
         pass  # Best effort — don't crash the exit path
 
 
-# TODO: Re-enable once eval harness is stable
-# atexit.register(_cleanup_eval_containers)
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_sandbox_containers(pytestconfig):
+    """Stop and remove any eval sandbox containers at session end. Sandboxes are kept alive, but evals should not keep them.
+
+    Registers an ``atexit`` hook as a belt-and-braces safety net for SIGINT /
+    SIGTERM paths where pytest's session teardown is skipped. Pass
+    ``--keep-sandbox-containers`` to opt out (useful when debugging a
+    leftover container).
+    """
+    keep = pytestconfig.option.keep_sandbox_containers
+    if not keep:
+        atexit.register(_cleanup_eval_containers)
+    yield
+    if keep:
+        logger.info("--keep-sandbox-containers set, skipping container cleanup")
+        return
+    _cleanup_eval_containers()
 
 
 # ---------------------------------------------------------------------------
