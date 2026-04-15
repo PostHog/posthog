@@ -311,15 +311,25 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     "message": "No Slack integration configured",
                     "type": "missing_integration",
                 }
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=subscription.target_value,
+                        status="failed",
+                        error=missing_integration_error,
+                    )
+                )
+                # Same shape as ProcessSubscriptionWorkflow success-path serialization so
+                # update_delivery_record gets per-recipient rows from ActivityError.details.
                 raise ApplicationError(
                     "No Slack integration configured for this team",
                     {
                         "recipient_results": [
                             {
-                                "recipient": subscription.target_value,
-                                "status": "failed",
-                                "error": missing_integration_error,
+                                "recipient": r.recipient,
+                                "status": r.status,
+                                **({"error": r.error} if r.error else {}),
                             }
+                            for r in recipient_results
                         ]
                     },
                     non_retryable=True,
