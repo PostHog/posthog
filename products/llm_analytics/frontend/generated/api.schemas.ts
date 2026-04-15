@@ -122,6 +122,8 @@ export interface EvaluationApi {
     name: string
     description?: string
     enabled?: boolean
+    /** @nullable */
+    readonly disabled_reason: string | null
     evaluation_type: EvaluationTypeEnumApi
     evaluation_config?: unknown
     output_type: OutputTypeEnumApi

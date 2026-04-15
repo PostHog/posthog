@@ -14451,6 +14451,8 @@ export namespace Schemas {
       name: string;
       description?: string;
       enabled?: boolean;
+      /** @nullable */
+      readonly disabled_reason: string | null;
       evaluation_type: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type: OutputTypeEnum;
@@ -23917,6 +23919,8 @@ export namespace Schemas {
       name?: string;
       description?: string;
       enabled?: boolean;
+      /** @nullable */
+      readonly disabled_reason?: string | null;
       evaluation_type?: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type?: OutputTypeEnum;
