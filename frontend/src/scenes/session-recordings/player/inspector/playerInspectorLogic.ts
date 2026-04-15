@@ -34,7 +34,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import { LogMessage, RecordingsQuery } from '~/queries/schema/schema-general'
+import { LogMessage, LogsQuery, RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     CommentType,
@@ -60,7 +60,7 @@ const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 const MAX_LOG_ENTRIES = 5000
 
-function buildSessionLogsQuery(sessionId: string, start: Dayjs, end: Dayjs, cursor?: string): Record<string, any> {
+function buildSessionLogsQuery(sessionId: string, start: Dayjs, end: Dayjs, cursor?: string): Omit<LogsQuery, 'kind'> {
     return {
         dateRange: {
             date_from: start.toISOString(),
