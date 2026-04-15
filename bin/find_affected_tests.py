@@ -18,14 +18,12 @@ Outputs JSON to stdout:
   - suggested_shards: recommended shard count based on estimated duration
 
 Usage:
-    # From CLI
-    uv run bin/find_affected_tests.py --changed-files "posthog/api/user.py posthog/models/team.py"
-
-    # From stdin (one file per line)
-    git diff --name-only origin/master...HEAD | uv run bin/find_affected_tests.py --stdin
+    # Derive changes from `git diff BASE_REF...HEAD` (uses merge-base, so
+    # files pulled in via a merge of BASE_REF into the branch are excluded)
+    uv run bin/find_affected_tests.py --base-ref origin/master
 
     # Force full mode
-    FORCE_FULL_TESTS=1 uv run bin/find_affected_tests.py --changed-files "posthog/api/user.py"
+    FORCE_FULL_TESTS=1 uv run bin/find_affected_tests.py --base-ref origin/master
 
     # Just build and print map stats (no affected-test lookup)
     uv run bin/find_affected_tests.py --build-only
@@ -38,6 +36,7 @@ import sys
 import json
 import time
 import argparse
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 
@@ -389,9 +388,13 @@ def parse_dorny_backend_patterns() -> list[str]:
             continue
         if in_backend:
             if stripped.startswith("- "):
-                # Strip "- " prefix and surrounding quotes
-                pattern = stripped[2:].strip().strip("'\"")
-                patterns.append(pattern)
+                # Strip "- " prefix, trailing `# comment`, and surrounding quotes
+                pattern = stripped[2:]
+                if "#" in pattern:
+                    pattern = pattern.split("#", 1)[0]
+                pattern = pattern.strip().strip("'\"")
+                if pattern:
+                    patterns.append(pattern)
             elif stripped and not stripped.startswith("#"):
                 # Hit the next filter group (e.g. "legacy:")
                 break
@@ -446,6 +449,28 @@ def check_sync() -> None:
         sys.stderr.write(f"OK: all {len(patterns)} dorny backend patterns are covered\n")
 
 
+def changed_files_from_git(base_ref: str) -> list[str]:
+    """Compute changed files via `git diff --name-only BASE...HEAD`.
+
+    Using `...` resolves against the merge-base of `base_ref` and HEAD, so
+    files touched only by commits pulled in via a merge of `base_ref` into
+    the branch are excluded. This matters when callers pass a stale base
+    SHA (e.g. `github.event.pull_request.base.sha` lagging behind the master
+    commit that was merged into the branch) — with a stale base SHA, the
+    stale commit is an ancestor of HEAD, merge-base collapses to that stale
+    commit, and the diff balloons to include every master change that came
+    in via the merge. Asking git to compute the diff against the *current*
+    base ref avoids that.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def load_durations() -> dict[str, float]:
     if not DURATIONS_PATH.exists():
         return {}
@@ -479,13 +504,14 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument(
-        "--changed-files",
-        help="Space-separated list of changed file paths",
-    )
-    parser.add_argument(
-        "--stdin",
-        action="store_true",
-        help="Read changed files from stdin (one per line)",
+        "--base-ref",
+        help=(
+            "Compute changed files via `git diff --name-only BASE_REF...HEAD`. "
+            "Resolves against the merge-base so files that came in via a merge of "
+            "BASE_REF into the branch aren't counted — avoids false full-runs when "
+            "a stale `pull_request.base.sha` would inflate the diff with merged-in "
+            "master changes."
+        ),
     )
     parser.add_argument(
         "--build-only",
@@ -522,13 +548,14 @@ def main():
         output_full("FORCE_FULL_TESTS env var set")
         return
 
-    # Parse changed files
-    if args.stdin:
-        changed_files = [line.strip() for line in sys.stdin if line.strip()]
-    elif args.changed_files:
-        changed_files = args.changed_files.split()
-    else:
-        sys.stderr.write("Error: provide --changed-files, --stdin, or --build-only\n")
+    if not args.base_ref:
+        sys.stderr.write("Error: provide --base-ref or --build-only\n")
+        sys.exit(1)
+
+    try:
+        changed_files = changed_files_from_git(args.base_ref)
+    except subprocess.CalledProcessError as e:
+        sys.stderr.write(f"Error: `git diff` against {args.base_ref!r} failed: {e.stderr}\n")
         sys.exit(1)
 
     # Filter to Python files only
@@ -606,6 +633,7 @@ def main():
     durations = load_durations()
     affected_duration = estimate_duration(affected_sorted, durations)
     total_duration = estimate_total_duration(durations)
+
     # Apply safety factor (durations underpredict by ~2x per turbo-discover.js)
     suggested_shards = max(1, int((affected_duration * 2) / TARGET_SHARD_SECONDS) + 1)
 
