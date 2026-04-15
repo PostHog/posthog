@@ -124,7 +124,7 @@ export const getDedalusSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <Markdown>
                         Dedalus Labs exposes an OpenAI-compatible endpoint at `https://api.dedaluslabs.ai/v1`, so you
                         can route the standard OpenAI SDK at it. Models are specified as `provider/model-id`, for
-                        example `openai/gpt-5-mini` or `anthropic/claude-sonnet-4-20250514`.
+                        example `openai/gpt-5-mini` or `anthropic/claude-sonnet-4-5`.
                     </Markdown>
 
                     <CodeBlock
