@@ -246,5 +246,7 @@ class TestAiColumnToPropertyRewriter:
         assert isinstance(result.select[3], ast.Field)
         assert result.select[3].chain == ["events", "timestamp"]
         # FROM clause rewritten, alias stripped
+        assert result.select_from is not None
+        assert isinstance(result.select_from.table, ast.Field)
         assert result.select_from.table.chain == ["events"]
         assert result.select_from.alias is None
