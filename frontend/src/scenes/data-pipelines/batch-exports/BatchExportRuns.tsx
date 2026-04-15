@@ -514,7 +514,7 @@ function LatestErrorCell({ error }: { error?: string | null }): JSX.Element | nu
     }
     return (
         <Tooltip title={error} interactive>
-            <span className="text-danger truncate max-w-[20vw] inline-block align-bottom">{error}</span>
+            <span className="truncate max-w-[20vw] inline-block align-bottom">{error}</span>
         </Tooltip>
     )
 }
