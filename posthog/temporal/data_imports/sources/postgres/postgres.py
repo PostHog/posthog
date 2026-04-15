@@ -1023,7 +1023,9 @@ class PostgreSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                if not self.numeric_precision or not self.numeric_scale:
+                # Use `is None` rather than truthiness so that legitimate `NUMERIC(X, 0)` columns
+                # (integer-valued numerics, scale == 0) are not mistakenly treated as "missing scale".
+                if self.numeric_precision is None or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
 
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)

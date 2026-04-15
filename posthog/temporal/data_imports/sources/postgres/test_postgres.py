@@ -998,6 +998,22 @@ class TestGetTable:
             assert val_col.numeric_scale == MAX_NUMERIC_SCALE
 
     @pytest.mark.django_db
+    def test_constrained_numeric_zero_scale_survives_schema_conversion(self):
+        """Declared `NUMERIC(X, 0)` columns must be convertible to an arrow schema without tripping
+        the legacy truthy-check guard in `PostgreSQLColumn.to_arrow_field`."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_zero_scale (id INTEGER PRIMARY KEY, val NUMERIC(10, 0))")
+            table = _get_table(dj_cursor, "public", "test_get_table_zero_scale", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_precision == 10
+            assert val_col.numeric_scale == 0
+            # Must not raise — the full schema conversion is the actual regression surface.
+            arrow_schema = table.to_arrow_schema()
+            assert pa.types.is_decimal(arrow_schema.field("val").type)
+
+    @pytest.mark.django_db
     def test_unconstrained_numeric_multiple_columns_probed_together(self):
         """Multiple unconstrained numeric columns are probed in a single aggregation query."""
         logger = structlog.get_logger()
