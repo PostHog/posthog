@@ -327,13 +327,13 @@ def _normalize_type(s: str) -> str:
     # Fix 4: Decimal(18, 10) → Decimal64(10) etc.
     # Decimal(P, S) where P ≤ 18 → Decimal64(S); P ≤ 9 → Decimal32(S); P ≤ 38 → Decimal128(S)
     def _decimal_alias(m: re.Match) -> str:
-        p, s = int(m.group(1)), m.group(2)
+        p, scale = int(m.group(1)), m.group(2)
         if p <= 9:
-            return f"Decimal32({s})"
+            return f"Decimal32({scale})"
         elif p <= 18:
-            return f"Decimal64({s})"
+            return f"Decimal64({scale})"
         elif p <= 38:
-            return f"Decimal128({s})"
+            return f"Decimal128({scale})"
         return m.group(0)
 
     s = re.sub(r"\bDecimal\(\s*(\d+)\s*,\s*(\d+)\s*\)", _decimal_alias, s)
@@ -1079,12 +1079,16 @@ def diff_state(
             if col.default_expression:
                 kind = col.default_kind or "DEFAULT"
                 default_clause = f" {kind} {col.default_expression}"
+            codec_clause = f" CODEC({col.codec})" if col.codec else ""
             alters.append(
                 StateDiff(
                     action="alter_add_column",
                     table=table_name,
                     detail=f"Add column {col_name} {col.type} to {table_name}",
-                    sql=f"ALTER TABLE {db}.{table_name} ADD COLUMN IF NOT EXISTS {col_name} {col.type}{default_clause}",
+                    sql=(
+                        f"ALTER TABLE {db}.{table_name} ADD COLUMN IF NOT EXISTS "
+                        f"{col_name} {col.type}{default_clause}{codec_clause}"
+                    ),
                     node_roles=desired_table.on_nodes,
                     sharded=desired_table.sharded,
                     is_alter_on_replicated_table=is_replicated,
@@ -1139,14 +1143,18 @@ def diff_state(
             normalized_current = _normalize_default(current_default) if current_default else ""
 
             if normalized_desired != normalized_current:
+                desired_codec = (desired_col.codec or "").strip()
+                codec_clause = f" CODEC({desired_codec})" if desired_codec else ""
                 if desired_default:
                     kind = desired_col.default_kind or "DEFAULT"
-                    modify_clause = f"{col_name} {desired_col.type} {kind} {desired_col.default_expression}"
+                    modify_clause = (
+                        f"{col_name} {desired_col.type} {kind} {desired_col.default_expression}{codec_clause}"
+                    )
                     detail = (
                         f"Modify column {col_name} default on {table_name}: {current_default!r} -> {desired_default!r}"
                     )
                 else:
-                    modify_clause = f"{col_name} {desired_col.type} REMOVE DEFAULT"
+                    modify_clause = f"{col_name} {desired_col.type} REMOVE DEFAULT{codec_clause}"
                     detail = f"Remove default from column {col_name} on {table_name}: {current_default!r} -> (none)"
                 alters.append(
                     StateDiff(
@@ -1154,6 +1162,27 @@ def diff_state(
                         table=table_name,
                         detail=detail,
                         sql=f"ALTER TABLE {db}.{table_name} MODIFY COLUMN {modify_clause}",
+                        node_roles=desired_table.on_nodes,
+                        sharded=desired_table.sharded,
+                        is_alter_on_replicated_table=is_replicated,
+                    )
+                )
+
+            desired_codec = (desired_col.codec or "").strip()
+            current_codec = (current_col.codec or "").strip()
+            current_codec_match = re.match(r"^CODEC\((.*)\)$", current_codec, re.IGNORECASE)
+            if current_codec_match:
+                current_codec = current_codec_match.group(1).strip()
+            if normalized_desired == normalized_current and desired_codec != current_codec:
+                codec_clause = f" CODEC({desired_codec})" if desired_codec else ""
+                alters.append(
+                    StateDiff(
+                        action="alter_modify_column",
+                        table=table_name,
+                        detail=(
+                            f"Modify column {col_name} codec on {table_name}: {current_codec!r} -> {desired_codec!r}"
+                        ),
+                        sql=f"ALTER TABLE {db}.{table_name} MODIFY COLUMN {col_name} {desired_col.type}{codec_clause}",
                         node_roles=desired_table.on_nodes,
                         sharded=desired_table.sharded,
                         is_alter_on_replicated_table=is_replicated,
@@ -1227,7 +1256,10 @@ def diff_state(
             for kafka_name, kafka_def in kafka_tables_in_desired.items():
                 # Check if the Kafka table name appears in the MV's SELECT
                 # (qualified as db.name or unqualified)
-                if kafka_name in mv_table.select and kafka_name not in tables_being_created:
+                if (
+                    re.search(rf"\b{re.escape(kafka_name)}\b", mv_table.select)
+                    and kafka_name not in tables_being_created
+                ):
                     creates.append(
                         StateDiff(
                             action="create",
