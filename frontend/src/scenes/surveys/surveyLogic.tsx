@@ -85,6 +85,7 @@ import {
 import type { surveyLogicType } from './surveyLogicType'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
+import { ALL_SURVEY_VIEW_TABS } from './surveyViewTabs'
 import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
@@ -212,8 +213,6 @@ export interface SurveyDateRange {
     date_from: string | null
     date_to: string | null
 }
-
-export const ALL_SURVEY_VIEW_TABS = ['results', 'overview', 'notifications', 'history', 'summary', 'responses'] as const
 
 export type SurveyViewTab = (typeof ALL_SURVEY_VIEW_TABS)[number]
 

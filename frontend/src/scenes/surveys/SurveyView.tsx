@@ -68,10 +68,10 @@ import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshSta
 import { NEW_SURVEY } from './constants'
 import { SurveyHeadline } from './SurveyHeadline'
 import { SurveyViewTab } from './surveyLogic'
+import { LEGACY_SURVEY_TAB_KEYS } from './surveyViewTabs'
 import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
-const LEGACY_SURVEY_TAB_KEYS = ['results', 'overview', 'notifications', 'history'] as const
 
 type LegacySurveyTabKey = (typeof LEGACY_SURVEY_TAB_KEYS)[number]
 

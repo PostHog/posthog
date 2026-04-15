@@ -55,12 +55,12 @@ import {
 
 import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from '../constants'
+import { REDESIGN_SURVEY_TAB_KEYS } from '../surveyViewTabs'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
-const REDESIGN_SURVEY_TAB_KEYS = ['summary', 'responses', 'history'] as const
 
 type RedesignSurveyTabKey = (typeof REDESIGN_SURVEY_TAB_KEYS)[number]
 
