@@ -1071,8 +1071,24 @@ def _is_read_replica(cursor: psycopg.Cursor) -> bool:
 
 
 def _get_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor,
+    schema: str,
+    table_name: str,
+    logger: FilteringBoundLogger,
+    probe_unconstrained_numeric_scale: bool = False,
 ) -> Table[PostgreSQLColumn]:
+    """Read column metadata for `schema.table_name`.
+
+    If `probe_unconstrained_numeric_scale` is True, additionally run a `MAX(scale(col))`
+    aggregation on unconstrained `numeric` columns (those declared as `numeric` with no
+    precision/scale) to pick a source arrow decimal scale that matches the real data.
+
+    The probe is only useful when a fresh delta column is about to be created — either a
+    first-ever sync or a post-reset sync with a cleared incremental watermark — because delta
+    decimal column types are immutable after creation. On normal incremental syncs the delta
+    column already exists and the probed value is discarded, so the caller should gate
+    probing on "is a fresh schema being created" (see the equivalent gating on
+    `_get_estimated_row_count_for_partitioned_table` in `postgres_source`)."""
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -1150,7 +1166,9 @@ def _get_table(
         if data_type in numeric_data_types and numeric_scale_candidate is None
     ]
     probed_scales: dict[str, int | None] = {}
-    if unconstrained_numeric_columns:
+    # Only probe when a fresh delta column is about to be created. On incremental syncs the
+    # delta column type is already set and probing wastes a full-table aggregation per sync.
+    if unconstrained_numeric_columns and probe_unconstrained_numeric_scale:
         try:
             select_parts = sql.SQL(", ").join(
                 sql.SQL("MAX(scale({col}))").format(col=sql.Identifier(col_name))
@@ -1255,7 +1273,20 @@ def postgres_source(
         with connection:
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
-                table = _get_table(cursor, schema, table_name, logger)
+                # Only probe the actual data for numeric scale when a fresh delta column is
+                # about to be created — either a first-ever sync or a post-reset full scan
+                # (watermark cleared). On normal incremental syncs the delta column already
+                # exists, so probing would be a wasted full-table aggregation. Mirrors the
+                # `is_initial_sync or full_table_scan` gating used a few lines below for
+                # partitioned-table row estimation.
+                fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
+                table = _get_table(
+                    cursor,
+                    schema,
+                    table_name,
+                    logger,
+                    probe_unconstrained_numeric_scale=fresh_schema_being_created,
+                )
                 logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
                 inner_query_with_limit = _build_query(

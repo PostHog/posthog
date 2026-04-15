@@ -932,6 +932,24 @@ class TestGetTable:
             assert table.type == "materialized_view"
 
     @pytest.mark.django_db
+    def test_unconstrained_numeric_probe_gated_off_uses_default_scale(self):
+        """When the caller doesn't request probing (the default), an unconstrained `numeric`
+        column falls back to `DEFAULT_NUMERIC_SCALE` regardless of the actual data. This is the
+        path used by incremental syncs where the delta column type is already set and probing
+        would be a wasted full-table aggregation."""
+        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
+
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_get_table_probe_gated_off (id INTEGER PRIMARY KEY, val NUMERIC)")
+            dj_cursor.execute("INSERT INTO test_get_table_probe_gated_off VALUES (1, 0.84497449830783164117::numeric)")
+            # Explicitly omit `probe_unconstrained_numeric_scale` to exercise the default.
+            table = _get_table(dj_cursor, "public", "test_get_table_probe_gated_off", logger)  # type: ignore[arg-type]
+            val_col = next(c for c in table.columns if c.name == "val")
+            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+
+    @pytest.mark.django_db
     def test_unconstrained_numeric_probes_scale_from_data(self):
         """Unconstrained `numeric` columns get their scale from the actual data, not a static default."""
         from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
@@ -946,7 +964,13 @@ class TestGetTable:
             )
             dj_cursor.execute("INSERT INTO test_get_table_unconstrained_numeric VALUES (2, 0::numeric)")
 
-            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_numeric", logger)  # type: ignore[arg-type]
+            table = _get_table(  # type: ignore[arg-type]
+                dj_cursor,
+                "public",
+                "test_get_table_unconstrained_numeric",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_scale == 20, (
                 f"expected probed scale 20, got {val_col.numeric_scale} (would have been {DEFAULT_NUMERIC_SCALE} without probe)"
@@ -961,7 +985,13 @@ class TestGetTable:
 
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_empty (id INTEGER PRIMARY KEY, val NUMERIC)")
-            table = _get_table(dj_cursor, "public", "test_get_table_unconstrained_empty", logger)  # type: ignore[arg-type]
+            table = _get_table(  # type: ignore[arg-type]
+                dj_cursor,
+                "public",
+                "test_get_table_unconstrained_empty",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
 
@@ -993,7 +1023,13 @@ class TestGetTable:
             dj_cursor.execute(
                 "INSERT INTO test_get_table_clamp_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_clamp_scale", logger)  # type: ignore[arg-type]
+            table = _get_table(  # type: ignore[arg-type]
+                dj_cursor,
+                "public",
+                "test_get_table_clamp_scale",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_scale == MAX_NUMERIC_SCALE
 
@@ -1027,7 +1063,13 @@ class TestGetTable:
                 "INSERT INTO test_get_table_multi_numeric VALUES "
                 "(1, 0.12345::numeric, 0.1234567890::numeric, 1.23::numeric(5,2))"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_multi_numeric", logger)  # type: ignore[arg-type]
+            table = _get_table(  # type: ignore[arg-type]
+                dj_cursor,
+                "public",
+                "test_get_table_multi_numeric",
+                logger,
+                probe_unconstrained_numeric_scale=True,
+            )
             cols_by_name = {c.name: c for c in table.columns}
             assert cols_by_name["a"].numeric_scale == 5
             assert cols_by_name["b"].numeric_scale == 10
