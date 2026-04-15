@@ -105,7 +105,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text="Name of the experiment.",
     )
     description = serializers.CharField(
-        max_length=400,
+        max_length=3000,
         required=False,
         allow_null=True,
         allow_blank=True,
