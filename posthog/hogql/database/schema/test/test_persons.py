@@ -30,9 +30,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.persons import _is_virtual_field_requiring_join
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -148,6 +150,31 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse
         self.assertNotIn("where_optimization", response.clickhouse)
 
+    def test_join_disables_where_optimization(self):
+        """Regression for #43404: when persons is joined with another table,
+        the WHERE-clause pushdown must be disabled -- otherwise the inner
+        persons subquery gets rewritten and joined rows are lost."""
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self.modifiers)
+        printed = prepare_and_print_ast(
+            parse_select(
+                "SELECT persons.id FROM persons JOIN events "
+                "ON persons.id = events.person_id "
+                "WHERE persons.properties.$some_prop = 'something'"
+            ),
+            context,
+            dialect="clickhouse",
+        )[0]
+        self.assertNotIn("where_optimization", printed)
+
+        # Sanity check: the same query without a JOIN still applies the optimization
+        context_no_join = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self.modifiers)
+        printed_no_join = prepare_and_print_ast(
+            parse_select("SELECT id FROM persons WHERE properties.$some_prop = 'something'"),
+            context_no_join,
+            dialect="clickhouse",
+        )[0]
+        self.assertIn("where_optimization", printed_no_join)
+
     @snapshot_clickhouse_queries
     def test_order_by_limit_transferred(self):
         response = execute_hogql_query(
@@ -242,6 +269,32 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         # The cohort member is correctly returned
         assert len(response.results) == 1
         assert response.results[0][1] == "cohort_member@example.com"
+
+    def test_v2_limit_not_pushed_down_with_join(self):
+        """Regression for #43404: when persons is joined with another table,
+        LIMIT must not be pushed into the inner persons subquery. Otherwise
+        the inner LIMIT truncates the persons set before the join runs and
+        valid matches are dropped."""
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self._v2_modifiers())
+        printed = prepare_and_print_ast(
+            parse_select("SELECT persons.id FROM persons JOIN events ON persons.id = events.person_id LIMIT 2"),
+            context,
+            dialect="clickhouse",
+        )[0]
+        # With push-down, the inner persons subquery would gain a `LIMIT 3`
+        # (LIMIT + 1 buffer). The outer query's own LIMIT is rendered as a
+        # parameter (`%(hogql_val_N)s`), so a literal `LIMIT 3` in the output
+        # can only come from push-down into the inner subquery.
+        self.assertNotIn("LIMIT 3", printed)
+
+        # Sanity check: without the JOIN, the same query pushes `LIMIT 3` down
+        context_no_join = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self._v2_modifiers())
+        printed_no_join = prepare_and_print_ast(
+            parse_select("SELECT id FROM persons LIMIT 2"),
+            context_no_join,
+            dialect="clickhouse",
+        )[0]
+        self.assertIn("LIMIT 3", printed_no_join)
 
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
