@@ -279,13 +279,11 @@ class ExperimentQueryRunner(QueryRunner):
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
             # Precompute metric events for ordered funnel metrics
-            # Temporary: restrict to specific teams while validating correctness
-            _METRIC_EVENTS_PRECOMPUTATION_TEAM_IDS: set[int] = {2}
             if (
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
-                and self.team.id in _METRIC_EVENTS_PRECOMPUTATION_TEAM_IDS
+                and self.query.metric_events_precomputation
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)

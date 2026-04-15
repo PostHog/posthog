@@ -17061,6 +17061,9 @@
                 "metric": {
                     "$ref": "#/definitions/ExperimentMetric"
                 },
+                "metric_events_precomputation": {
+                    "type": "boolean"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
