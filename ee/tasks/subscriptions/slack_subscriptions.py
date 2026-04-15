@@ -105,6 +105,7 @@ def _prepare_slack_message(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> SlackMessageData:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -129,8 +130,15 @@ def _prepare_slack_message(
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        _block_for_asset(first_asset, resource_url=resource_info.url),
     ]
+
+    if change_summary:
+        summary_text = f"*What changed:*\n{change_summary}"
+        if len(summary_text) > 3000:
+            summary_text = summary_text[:2997] + "..."
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+
+    blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
 
     if other_assets:
         blocks.append(
@@ -195,9 +203,10 @@ def send_slack_message_with_integration(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> None:
     """Send Slack message using provided integration (sync version)."""
-    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription, change_summary)
     slack_integration = SlackIntegration(integration)
 
     # Send main message
@@ -247,8 +256,9 @@ async def send_slack_message_with_integration_async(
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
+    change_summary: str | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
+    message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription, change_summary)
     slack_integration = SlackIntegration(integration)
 
     async with aiohttp.ClientSession(trust_env=True) as slack_session:

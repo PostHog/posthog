@@ -217,9 +217,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     f"{len(non_user_errors)} export(s) failed: {', '.join(distinct_classes)}",
                 )
 
-            # Phase 2.5: Snapshot insight state to Redis (best-effort)
+            # Phase 2.5: Snapshot insight state to Redis and generate LLM summary (best-effort)
+            change_summary: str | None = None
             try:
-                await temporalio.workflow.execute_activity(
+                snapshot_result = await temporalio.workflow.execute_activity(
                     snapshot_subscription_insights,
                     SnapshotInsightsInputs(
                         subscription_id=inputs.subscription_id,
@@ -228,6 +229,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 )
+                change_summary = snapshot_result.summary_text
             except Exception:
                 temporalio.workflow.logger.warning(
                     "process_subscription.snapshot_failed",
@@ -250,6 +252,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     is_new_subscription_target=is_new,
                     previous_value=inputs.previous_value,
                     invite_message=inputs.invite_message,
+                    change_summary=change_summary,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(

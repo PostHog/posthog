@@ -60,6 +60,7 @@ class DeliverSubscriptionInputs:
     is_new_subscription_target: bool = False
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
+    change_summary: typing.Optional[str] = None
 
 
 @dataclasses.dataclass
