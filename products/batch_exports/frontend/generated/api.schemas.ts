@@ -336,6 +336,22 @@ export interface PatchedBatchExportApi {
     offset_hour?: number | null
 }
 
+export interface LogEntryApi {
+    log_source_id: string
+    instance_id: string
+    timestamp: string
+    level: string
+    message: string
+}
+
+export interface PaginatedLogEntryListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogEntryApi[]
+}
+
 /**
  * * `Cancelled` - Cancelled
  * `Completed` - Completed
@@ -454,6 +470,42 @@ export type BatchExportsListParams = {
     offset?: number
 }
 
+export type BatchExportsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string
+}
+
 export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
@@ -485,4 +537,80 @@ export type BatchExportsRunsListParams = {
      * Which field to use when ordering the results.
      */
     ordering?: string
+}
+
+export type BatchExportsRunsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type BatchExportsLogsList2Params = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string
 }

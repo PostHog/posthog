@@ -8,6 +8,8 @@ import {
     HogFunctionsInvocationsCreateBody,
     HogFunctionsInvocationsCreateParams,
     HogFunctionsListQueryParams,
+    HogFunctionsLogsListParams,
+    HogFunctionsLogsListQueryParams,
     HogFunctionsPartialUpdateBody,
     HogFunctionsPartialUpdateParams,
     HogFunctionsRearrangePartialUpdateBody,
@@ -264,6 +266,42 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
     },
 })
 
+const CdpFunctionsLogsRetrieveSchema = HogFunctionsLogsListParams.omit({ project_id: true }).extend(
+    HogFunctionsLogsListQueryParams.omit({
+        created_at: true,
+        created_by: true,
+        enabled: true,
+        offset: true,
+        type: true,
+        updated_at: true,
+    }).shape
+)
+
+const cdpFunctionsLogsRetrieve = (): ToolBase<
+    typeof CdpFunctionsLogsRetrieveSchema,
+    Schemas.PaginatedLogEntryList
+> => ({
+    name: 'cdp-functions-logs-retrieve',
+    schema: CdpFunctionsLogsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsLogsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedLogEntryList>({
+            method: 'GET',
+            path: `/api/projects/${projectId}/hog_functions/${params.id}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                id: params.id,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const CdpFunctionsRearrangePartialUpdateSchema = HogFunctionsRearrangePartialUpdateBody
 
 const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
@@ -294,5 +332,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cdp-functions-partial-update': cdpFunctionsPartialUpdate,
     'cdp-functions-delete': cdpFunctionsDelete,
     'cdp-functions-invocations-create': cdpFunctionsInvocationsCreate,
+    'cdp-functions-logs-retrieve': cdpFunctionsLogsRetrieve,
     'cdp-functions-rearrange-partial-update': cdpFunctionsRearrangePartialUpdate,
 }

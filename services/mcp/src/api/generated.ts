@@ -19492,6 +19492,14 @@ export namespace Schemas {
       cohorts: LocalEvaluationResponseCohorts;
     }
 
+    export interface LogEntry {
+      log_source_id: string;
+      instance_id: string;
+      timestamp: string;
+      level: string;
+      message: string;
+    }
+
     /**
      * * `above` - Above
     * `below` - Below
@@ -21340,6 +21348,14 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LiveDebuggerBreakpoint[];
+    }
+
+    export interface PaginatedLogEntryList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogEntry[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
@@ -32669,6 +32685,82 @@ export namespace Schemas {
     ordering?: string;
     };
 
+    export type EnvironmentsBatchExportsRunsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsBatchExportsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsDashboardsListParams = {
     format?: EnvironmentsDashboardsListFormat;
     /**
@@ -33282,6 +33374,42 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsHogFlowTemplatesLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type EnvironmentsHogFlowsListParams = {
     created_at?: string;
     created_by?: number;
@@ -33294,6 +33422,46 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    updated_at?: string;
+    };
+
+    export type EnvironmentsHogFlowsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
     updated_at?: string;
     };
 
@@ -33342,6 +33510,51 @@ export namespace Schemas {
     offset?: number;
     /**
      * A search term.
+     */
+    search?: string;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    type?: string[];
+    updated_at?: string;
+    };
+
+    export type EnvironmentsHogFunctionsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    created_at?: string;
+    created_by?: number;
+    enabled?: boolean;
+    id?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
      */
     search?: string;
     /**
@@ -35138,6 +35351,42 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type BatchExportsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -35709,6 +35958,82 @@ export namespace Schemas {
      * Which field to use when ordering the results.
      */
     ordering?: string;
+    };
+
+    export type BatchExportsRunsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type BatchExportsLogsList2Params = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type CohortsListParams = {
@@ -36764,6 +37089,42 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type HogFlowTemplatesLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type HogFlowsListParams = {
     created_at?: string;
     created_by?: number;
@@ -36776,6 +37137,46 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    updated_at?: string;
+    };
+
+    export type HogFlowsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    created_at?: string;
+    created_by?: number;
+    id?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
+     */
+    search?: string;
     updated_at?: string;
     };
 
@@ -36847,6 +37248,51 @@ export namespace Schemas {
     offset?: number;
     /**
      * A search term.
+     */
+    search?: string;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    type?: string[];
+    updated_at?: string;
+    };
+
+    export type HogFunctionsLogsListParams = {
+    /**
+     * Only return log entries after this timestamp (ISO 8601).
+     */
+    after?: string;
+    /**
+     * Only return log entries before this timestamp (ISO 8601).
+     */
+    before?: string;
+    created_at?: string;
+    created_by?: number;
+    enabled?: boolean;
+    id?: string;
+    /**
+     * Filter logs by a specific invocation instance ID.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to filter by (e.g. 'info,warn,error').
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Search string to filter log messages (case-insensitive substring match).
+     * @minLength 1
      */
     search?: string;
     /**

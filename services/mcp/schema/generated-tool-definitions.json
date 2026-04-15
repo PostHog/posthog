@@ -359,6 +359,21 @@
             "readOnlyHint": false
         }
     },
+    "cdp-functions-logs-retrieve": {
+        "description": "Retrieve execution logs for a specific function (destination, transformation, site app, etc.) by its ID. Returns timestamped log entries with level (DEBUG, LOG, INFO, WARN, ERROR) and message. Use to debug function execution issues, check for errors, or monitor function behavior. Filter by time range, log level, search term, or specific invocation instance ID.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function logs",
+        "title": "Get function logs",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-functions-rearrange-partial-update": {
         "description": "Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to their new execution_order integer values. Only applies to functions with type=transformation. Returns the updated list of transformations.",
         "category": "Functions",

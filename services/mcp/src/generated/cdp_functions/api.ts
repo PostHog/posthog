@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -952,6 +952,43 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault)
         .describe('When true (default), async functions like fetch() are simulated.'),
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
+})
+
+export const HogFunctionsLogsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog function.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const hogFunctionsLogsListQueryLimitDefault = 50
+export const hogFunctionsLogsListQueryLimitMax = 500
+
+export const HogFunctionsLogsListQueryParams = /* @__PURE__ */ zod.object({
+    after: zod.iso.datetime({}).optional().describe('Only return log entries after this timestamp (ISO 8601).'),
+    before: zod.iso.datetime({}).optional().describe('Only return log entries before this timestamp (ISO 8601).'),
+    created_at: zod.iso.datetime({}).optional(),
+    created_by: zod.number().optional(),
+    enabled: zod.boolean().optional(),
+    id: zod.string().optional(),
+    instance_id: zod.string().min(1).optional().describe('Filter logs by a specific invocation instance ID.'),
+    level: zod.string().min(1).optional().describe("Comma-separated log levels to filter by (e.g. 'info,warn,error')."),
+    limit: zod
+        .number()
+        .min(1)
+        .max(hogFunctionsLogsListQueryLimitMax)
+        .default(hogFunctionsLogsListQueryLimitDefault)
+        .describe('Maximum number of log entries to return (1-500, default 50).'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Search string to filter log messages (case-insensitive substring match).'),
+    type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
+    updated_at: zod.iso.datetime({}).optional(),
 })
 
 /**

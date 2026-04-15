@@ -15,10 +15,14 @@ import type {
     BatchExportsBackfillsListParams,
     BatchExportsList2Params,
     BatchExportsListParams,
+    BatchExportsLogsList2Params,
+    BatchExportsLogsListParams,
     BatchExportsRunsListParams,
+    BatchExportsRunsLogsListParams,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
+    PaginatedLogEntryListApi,
     PatchedBatchExportApi,
 } from './api.schemas'
 
@@ -145,16 +149,29 @@ export const batchExportsDestroy = async (organizationId: string, id: string, op
     })
 }
 
-export const getBatchExportsLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/logs/`
+export const getBatchExportsLogsListUrl = (organizationId: string, id: string, params?: BatchExportsLogsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/batch_exports/${id}/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/batch_exports/${id}/logs/`
 }
 
-export const batchExportsLogsRetrieve = async (
+export const batchExportsLogsList = async (
     organizationId: string,
     id: string,
+    params?: BatchExportsLogsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsLogsRetrieveUrl(organizationId, id), {
+): Promise<PaginatedLogEntryListApi> => {
+    return apiMutator<PaginatedLogEntryListApi>(getBatchExportsLogsListUrl(organizationId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -466,17 +483,35 @@ export const batchExportsRunsCancelCreate = async (
     })
 }
 
-export const getBatchExportsRunsLogsRetrieveUrl = (projectId: string, batchExportId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
-}
-
-export const batchExportsRunsLogsRetrieve = async (
+export const getBatchExportsRunsLogsListUrl = (
     projectId: string,
     batchExportId: string,
     id: string,
+    params?: BatchExportsRunsLogsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
+}
+
+export const batchExportsRunsLogsList = async (
+    projectId: string,
+    batchExportId: string,
+    id: string,
+    params?: BatchExportsRunsLogsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id), {
+): Promise<PaginatedLogEntryListApi> => {
+    return apiMutator<PaginatedLogEntryListApi>(getBatchExportsRunsLogsListUrl(projectId, batchExportId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -569,16 +604,29 @@ export const batchExportsDestroy2 = async (projectId: string, id: string, option
     })
 }
 
-export const getBatchExportsLogsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${id}/logs/`
+export const getBatchExportsLogsList2Url = (projectId: string, id: string, params?: BatchExportsLogsList2Params) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/batch_exports/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/batch_exports/${id}/logs/`
 }
 
-export const batchExportsLogsRetrieve2 = async (
+export const batchExportsLogsList2 = async (
     projectId: string,
     id: string,
+    params?: BatchExportsLogsList2Params,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsLogsRetrieve2Url(projectId, id), {
+): Promise<PaginatedLogEntryListApi> => {
+    return apiMutator<PaginatedLogEntryListApi>(getBatchExportsLogsList2Url(projectId, id, params), {
         ...options,
         method: 'GET',
     })

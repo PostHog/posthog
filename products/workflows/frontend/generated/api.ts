@@ -14,12 +14,15 @@ import type {
     HogFlowApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
+    HogFlowTemplatesLogsListParams,
     HogFlowsListParams,
+    HogFlowsLogsListParams,
     HogFlowsSchedulesCreateParams,
     HogFlowsSchedulesListParams,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowScheduleListApi,
     PaginatedHogFlowTemplateListApi,
+    PaginatedLogEntryListApi,
     PatchedHogFlowApi,
     PatchedHogFlowTemplateApi,
 } from './api.schemas'
@@ -154,16 +157,33 @@ export const hogFlowTemplatesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
-}
-
-export const hogFlowTemplatesLogsRetrieve = async (
+export const getHogFlowTemplatesLogsListUrl = (
     projectId: string,
     id: string,
+    params?: HogFlowTemplatesLogsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flow_templates/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+}
+
+export const hogFlowTemplatesLogsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowTemplatesLogsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
+): Promise<PaginatedLogEntryListApi> => {
+    return apiMutator<PaginatedLogEntryListApi>(getHogFlowTemplatesLogsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -322,12 +342,29 @@ export const hogFlowsInvocationsCreate = async (
     })
 }
 
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
+export const getHogFlowsLogsListUrl = (projectId: string, id: string, params?: HogFlowsLogsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/logs/`
 }
 
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
+export const hogFlowsLogsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsLogsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogEntryListApi> => {
+    return apiMutator<PaginatedLogEntryListApi>(getHogFlowsLogsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

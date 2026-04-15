@@ -2,6 +2,7 @@ import dataclasses
 from datetime import datetime
 from typing import Any, Optional, cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -36,12 +37,33 @@ class LogEntrySerializer(DataclassSerializer):
 
 
 class LogEntryRequestSerializer(serializers.Serializer):
-    limit = serializers.IntegerField(required=False, default=50, max_value=500, min_value=1)
-    after = serializers.DateTimeField(required=False)
-    before = serializers.DateTimeField(required=False)
-    level = serializers.CharField(required=False)
-    search = serializers.CharField(required=False)
-    instance_id = serializers.CharField(required=False)
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        max_value=500,
+        min_value=1,
+        help_text="Maximum number of log entries to return (1-500, default 50).",
+    )
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return log entries after this timestamp (ISO 8601).",
+    )
+    before = serializers.DateTimeField(
+        required=False,
+        help_text="Only return log entries before this timestamp (ISO 8601).",
+    )
+    level = serializers.CharField(
+        required=False,
+        help_text="Comma-separated log levels to filter by (e.g. 'info,warn,error').",
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text="Search string to filter log messages (case-insensitive substring match).",
+    )
+    instance_id = serializers.CharField(
+        required=False,
+        help_text="Filter logs by a specific invocation instance ID.",
+    )
 
 
 def fetch_log_entries(
@@ -102,6 +124,10 @@ class LogEntryMixin(viewsets.GenericViewSet):
         """
         raise NotImplementedError()
 
+    @extend_schema(
+        parameters=[LogEntryRequestSerializer],
+        responses={200: LogEntrySerializer(many=True)},
+    )
     @action(detail=True, methods=["GET"])
     def logs(self, request: Request, *args, **kwargs):
         obj = self.get_object()

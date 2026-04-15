@@ -14,8 +14,10 @@ import type {
     HogFunctionTemplateApi,
     HogFunctionTemplatesListParams,
     HogFunctionsListParams,
+    HogFunctionsLogsListParams,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionTemplateListApi,
+    PaginatedLogEntryListApi,
     PatchedHogFunctionApi,
     PatchedHogFunctionRearrangeApi,
     PublicHogFunctionTemplatesListParams,
@@ -225,12 +227,29 @@ export const hogFunctionsInvocationsCreate = async (
     })
 }
 
-export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
+export const getHogFunctionsLogsListUrl = (projectId: string, id: string, params?: HogFunctionsLogsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_functions/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_functions/${id}/logs/`
 }
 
-export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
+export const hogFunctionsLogsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFunctionsLogsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogEntryListApi> => {
+    return apiMutator<PaginatedLogEntryListApi>(getHogFunctionsLogsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

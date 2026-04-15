@@ -203,8 +203,27 @@ tools:
             plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
             simulate external calls like fetch() without making real HTTP requests.
     cdp-functions-logs-retrieve:
-        operation: hog_functions_logs_retrieve
-        enabled: false
+        operation: hog_functions_logs_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function logs
+        description: >
+            Retrieve execution logs for a specific function (destination, transformation, site app, etc.) by its ID.
+            Returns timestamped log entries with level (DEBUG, LOG, INFO, WARN, ERROR) and message. Use to debug
+            function execution issues, check for errors, or monitor function behavior. Filter by time range, log level,
+            search term, or specific invocation instance ID.
+        exclude_params:
+            - created_at
+            - created_by
+            - enabled
+            - type
+            - updated_at
+            - offset
     cdp-functions-metrics-retrieve:
         operation: hog_functions_metrics_retrieve
         enabled: false
