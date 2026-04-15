@@ -287,6 +287,12 @@ export class LogsIngestionConsumer {
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
+        // logs_settings changes from the app do not invalidate TeamManager's LazyLoader; force a fresh
+        // row read once per team per batch so PII / JSON-parse toggles apply immediately.
+        for (const teamId of new Set(messages.map((m) => m.teamId))) {
+            this.deps.teamManager.markTeamForRefresh(teamId)
+        }
+
         const results = await Promise.allSettled(
             messages.map(async (message) => {
                 try {
@@ -302,6 +308,7 @@ export class LogsIngestionConsumer {
                     if (message.message.value === null) {
                         return Promise.resolve()
                     }
+
                     const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
 
                     return this.kafkaProducer!.produce({

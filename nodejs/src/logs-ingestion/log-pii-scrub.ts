@@ -1,0 +1,139 @@
+import { parseJSON } from '../utils/json-parse'
+import type { LogRecord } from './log-record-avro'
+
+export const PII_REDACTED = '[REDACTED]'
+
+/** Substrings matched case-insensitively against attribute map keys. */
+const SENSITIVE_KEY_SUBSTRINGS = [
+    'password',
+    'secret',
+    'token',
+    'authorization',
+    'cookie',
+    'credential',
+    'apikey',
+    'api_key',
+    'access_token',
+    'refresh_token',
+    'bearer',
+    'email',
+]
+
+const BEARER_HEADER_RE = /Bearer\s+[\w\-._~+/]+=*/gi
+const STRIPE_SECRET_KEY_RE = /\bsk_(?:live|test)_[a-zA-Z0-9]{20,}\b/g
+const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
+/** 13–19 digits allowing spaces or hyphens between digit groups. */
+const CARD_LIKE_RE = /\b\d(?:[ \d-]*\d){12,18}\b/g
+
+export function isSensitiveAttributeKey(key: string): boolean {
+    const lower = key.toLowerCase()
+    return SENSITIVE_KEY_SUBSTRINGS.some((s) => lower.includes(s))
+}
+
+function luhnValid(digits: string): boolean {
+    let sum = 0
+    let alt = false
+    for (let i = digits.length - 1; i >= 0; i--) {
+        const d = parseInt(digits.charAt(i), 10)
+        if (Number.isNaN(d)) {
+            return false
+        }
+        let v = d
+        if (alt) {
+            v *= 2
+            if (v > 9) {
+                v -= 9
+            }
+        }
+        sum += v
+        alt = !alt
+    }
+    return sum % 10 === 0
+}
+
+/**
+ * Applies fixed pattern redaction to a free-text string (log body line, attribute value, etc.).
+ */
+export function scrubPlainString(input: string): string {
+    let s = input.replace(BEARER_HEADER_RE, `Bearer ${PII_REDACTED}`)
+    s = s.replace(STRIPE_SECRET_KEY_RE, PII_REDACTED)
+    s = s.replace(EMAIL_RE, PII_REDACTED)
+    s = s.replace(CARD_LIKE_RE, (match) => {
+        const digits = match.replace(/\D/g, '')
+        if (digits.length >= 13 && digits.length <= 19 && luhnValid(digits)) {
+            return PII_REDACTED
+        }
+        return match
+    })
+    return s
+}
+
+function scrubJsonValue(value: unknown): unknown {
+    if (typeof value === 'string') {
+        return scrubPlainString(value)
+    }
+    if (Array.isArray(value)) {
+        return value.map(scrubJsonValue)
+    }
+    if (value !== null && typeof value === 'object') {
+        const out: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(value)) {
+            out[k] = scrubJsonValue(v)
+        }
+        return out
+    }
+    return value
+}
+
+function scrubBodyField(record: LogRecord): void {
+    if (record.body == null) {
+        return
+    }
+    const body = record.body
+    try {
+        const parsed = parseJSON(body)
+        if (parsed !== null && typeof parsed === 'object') {
+            record.body = JSON.stringify(scrubJsonValue(parsed))
+            return
+        }
+        if (typeof parsed === 'string') {
+            record.body = JSON.stringify(scrubPlainString(parsed))
+            return
+        }
+        // JSON primitives other than string (number, boolean, null): keep canonical serialization
+    } catch {
+        record.body = scrubPlainString(body)
+    }
+}
+
+function scrubStringMap(map: Record<string, string> | null): Record<string, string> | null {
+    if (map == null) {
+        return null
+    }
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(map)) {
+        out[key] = isSensitiveAttributeKey(key) ? PII_REDACTED : scrubPlainString(value)
+    }
+    return out
+}
+
+/**
+ * Mutates the record in place (same pattern as enrichLogRecordWithJsonAttributes).
+ */
+export function scrubLogRecord(record: LogRecord): void {
+    scrubBodyField(record)
+    record.attributes = scrubStringMap(record.attributes)
+    record.resource_attributes = scrubStringMap(record.resource_attributes)
+    if (record.service_name) {
+        record.service_name = scrubPlainString(record.service_name)
+    }
+    if (record.instrumentation_scope) {
+        record.instrumentation_scope = scrubPlainString(record.instrumentation_scope)
+    }
+    if (record.severity_text) {
+        record.severity_text = scrubPlainString(record.severity_text)
+    }
+    if (record.event_name) {
+        record.event_name = scrubPlainString(record.event_name)
+    }
+}
