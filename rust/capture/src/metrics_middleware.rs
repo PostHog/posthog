@@ -87,7 +87,11 @@ where
             move |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 let start = std::time::Instant::now();
                 let method = req.method().to_string();
-                let path = req.uri().path().to_string();
+                let path = if let Some(matched) = req.extensions().get::<MatchedPath>() {
+                    matched.as_str().to_owned()
+                } else {
+                    normalize_unmatched_path(req.uri().path())
+                };
                 let client_ip = req
                     .headers()
                     .get("X-Forwarded-For")

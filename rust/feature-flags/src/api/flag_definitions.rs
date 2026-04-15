@@ -422,6 +422,7 @@ async fn get_from_cache(
                 HyperCacheError::S3(_) => "s3_error",
                 HyperCacheError::Redis(_) => "redis_error",
                 HyperCacheError::Json(_) => "json_parse_error",
+                HyperCacheError::Pickle(_) => "pickle_parse_error",
                 HyperCacheError::Timeout(_) => "timeout",
             };
             inc(

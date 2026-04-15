@@ -1155,6 +1155,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     def test_password_reset_is_case_insensitive(self):
         set_instance_setting("EMAIL_HOST", "localhost")
+        assert self.CONFIG_EMAIL is not None
 
         # User registered as "user1@posthog.com", request reset with different casing
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):

@@ -94,6 +94,7 @@ class TestChatAgentGatewayRouting(BaseTest):
                     self.assertEqual(call_kwargs["anthropic_api_url"], expected_gateway_url)
                     self.assertEqual(call_kwargs["anthropic_api_key"], "test-key")
                     self.assertEqual(call_kwargs["default_headers"], expected_headers)
+                    self.assertIs(call_kwargs["bypass_proxy"], True)
                     self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
@@ -120,6 +121,7 @@ class TestChatAgentGatewayRouting(BaseTest):
         self.assertNotIn("anthropic_api_url", call_kwargs)
         self.assertNotIn("anthropic_api_key", call_kwargs)
         self.assertNotIn("default_headers", call_kwargs)
+        self.assertIs(call_kwargs["bypass_proxy"], False)
         self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
 
     @patch("ee.hogai.llm.MaxChatAnthropic.__init__", return_value=None)
@@ -150,4 +152,5 @@ class TestChatAgentGatewayRouting(BaseTest):
             self.assertNotIn("anthropic_api_url", call_kwargs)
             self.assertNotIn("anthropic_api_key", call_kwargs)
             self.assertNotIn("default_headers", call_kwargs)
+            self.assertIs(call_kwargs["bypass_proxy"], False)
             self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")

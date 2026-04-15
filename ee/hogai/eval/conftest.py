@@ -12,6 +12,12 @@ from posthog.conftest import _django_db_setup  # noqa: F401
 def pytest_addoption(parser):
     # Example: pytest ee/hogai/eval/ci/eval_sql.py --eval churn - to only run cases containing "churn" in input
     parser.addoption("--eval", action="store")
+    parser.addoption(
+        "--keep-sandbox-containers",
+        action="store_true",
+        default=False,
+        help="Skip the sandboxed eval harness Docker container cleanup at session end (for debugging).",
+    )
 
 
 _nodeid_to_results_url_map: dict[str, str] = {}

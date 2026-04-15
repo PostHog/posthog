@@ -15,7 +15,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
@@ -36,6 +37,7 @@ import {
     InsightType,
     StepOrderValue,
     TrendResult,
+    FilterType,
 } from '~/types'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
@@ -49,6 +51,8 @@ import {
     getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 
@@ -132,7 +136,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'funnelsFilter',
                 'breakdownFilter',
                 'goalLines',
-                'series',
+                'series as vizSeries',
                 'interval',
                 'insightData',
                 'insightDataError',
@@ -197,6 +201,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
+        ],
+
+        series: [
+            (s) => [s.vizQuerySource, s.vizSeries],
+            (vizQuerySource, series) => (isFunnelsQuery(vizQuerySource) ? (series as FunnelsQuery['series']) : null),
         ],
 
         isStepsFunnel: [
@@ -694,6 +703,33 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return false
                 }
             },
+        ],
+
+        // Validations
+        isFunnelWithEnoughSteps: [(s) => [s.series], (series) => isFunnelWithEnoughSteps(series)],
+        isFunnelWithIncompleteDataWarehouseStep: [
+            (s) => [s.series],
+            (series) => isFunnelWithIncompleteDataWarehouseStep(series),
+        ],
+
+        // Exclusion filters
+        exclusionDefaultStepRange: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
+                funnelFromStep: 0,
+                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): FilterType => ({
+                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
+                    funnel_from_step: funnelFromStep,
+                    funnel_to_step: funnelToStep,
+                    order: index,
+                    ...seriesNodeToFilter(rest),
+                })),
+            }),
         ],
     })),
 

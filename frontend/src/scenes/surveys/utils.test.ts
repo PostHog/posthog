@@ -17,6 +17,7 @@ import {
 } from '~/types'
 
 import {
+    buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
@@ -164,12 +165,6 @@ describe('survey utils', () => {
                         type: 'events',
                         properties: [
                             {
-                                key: SurveyEventProperties.SURVEY_RESPONSE,
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
-                            {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
@@ -195,12 +190,6 @@ describe('survey utils', () => {
                         type: 'events',
                         properties: [
                             {
-                                key: SurveyEventProperties.SURVEY_RESPONSE,
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
-                            {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
@@ -209,6 +198,59 @@ describe('survey utils', () => {
                         ],
                     },
                 ],
+            })
+        })
+    })
+
+    describe('buildSurveyExampleInvocationGlobals', () => {
+        it('builds a survey sent example payload with question response properties', () => {
+            const globals = buildSurveyExampleInvocationGlobals({
+                survey: {
+                    id: 'survey-123',
+                    name: 'Onboarding survey',
+                    questions: [
+                        { id: 'q1', type: SurveyQuestionType.Open, question: 'Tell us more' },
+                        {
+                            id: 'q2',
+                            type: SurveyQuestionType.SingleChoice,
+                            question: 'How did you hear about us?',
+                            choices: ['Twitter', 'Word of mouth'],
+                        },
+                        {
+                            id: 'q3',
+                            type: SurveyQuestionType.MultipleChoice,
+                            question: 'What do you use most?',
+                            choices: ['Funnels', 'Session replay', 'Feature flags'],
+                        },
+                        {
+                            id: 'q4',
+                            type: SurveyQuestionType.Rating,
+                            question: 'How satisfied are you?',
+                            scale: 10,
+                            display: 'number',
+                            lowerBoundLabel: 'Low',
+                            upperBoundLabel: 'High',
+                        },
+                    ],
+                } as Survey,
+                projectId: 1,
+                projectName: 'Project',
+                projectUrl: 'https://app.posthog.com/project/1',
+                timestamp: '2026-04-13T12:00:00.000Z',
+                eventUuid: 'event-uuid',
+                distinctId: 'person-distinct-id',
+            })
+
+            expect(globals.event.event).toEqual(SurveyEventName.SENT)
+            expect(globals.event.properties).toEqual({
+                $survey_id: 'survey-123',
+                $survey_name: 'Onboarding survey',
+                $survey_completed: true,
+                $survey_submission_id: 'survey-submission-id',
+                $survey_response_q1: 'Tell us more',
+                $survey_response_q2: 'Twitter',
+                $survey_response_q3: ['Funnels', 'Session replay'],
+                $survey_response_q4: '9',
             })
         })
     })
@@ -821,6 +863,17 @@ describe('survey utils', () => {
             expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Survey start date
             expect(result).toContain(`timestamp <= '2024-08-30T23:59:59'`) // Survey end date
         })
+
+        it('prefers survey start_date over created_at for the lower bound', () => {
+            const survey = {
+                created_at: '2024-08-20T15:30:00Z',
+                start_date: '2024-08-27T09:00:00Z',
+                end_date: '2024-08-30T10:00:00Z',
+            }
+            const result = buildSurveyTimestampFilter(survey)
+
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`)
+        })
     })
 
     describe('getResolvedSurveyDateRange', () => {
@@ -854,6 +907,21 @@ describe('survey utils', () => {
 
             expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
             expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
+        })
+
+        it('uses direct property access for fixed survey properties', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: null,
+                enable_partial_responses: true,
+            } as Survey
+
+            const partialFilter = buildPartialResponsesFilter(survey)
+
+            expect(partialFilter).toContain('properties.`$survey_id`')
+            expect(partialFilter).toContain('properties.`$survey_submission_id`')
+            expect(partialFilter).not.toContain('JSONExtractString')
         })
     })
 })
@@ -1209,9 +1277,14 @@ describe('createAnswerFilterHogQLExpression', () => {
 })
 
 describe('timezone handling in survey date queries', () => {
-    const createMockSurvey = (createdAt: string, endDate?: string): Pick<Survey, 'created_at' | 'end_date'> => ({
+    const createMockSurvey = (
+        createdAt: string,
+        endDate?: string,
+        startDate?: string
+    ): Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>> => ({
         created_at: createdAt,
         end_date: endDate || null,
+        start_date: startDate,
     })
 
     afterEach(() => {

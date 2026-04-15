@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
         {
             path: 'User interviews',
             intents: [ProductKey.USER_INTERVIEWS],
-            category: 'Unreleased',
+            category: ProductItemCategory.UNRELEASED,
             href: urls.userInterviews(),
             type: 'user_interview',
             flag: FEATURE_FLAGS.USER_INTERVIEWS,
