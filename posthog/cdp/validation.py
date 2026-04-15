@@ -29,6 +29,7 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogLLMCompletion")
 
 
 class InputCollector(TraversingVisitor):
@@ -146,6 +147,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "native_email",
             "posthog_assignee",
             "posthog_ticket_tags",
+            "llm_provider_key",
         ]
     )
     key = serializers.CharField()
