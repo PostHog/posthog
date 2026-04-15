@@ -1,0 +1,402 @@
+import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { combineUrl, router } from 'kea-router'
+
+import api from '~/lib/api'
+import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { urls } from '~/scenes/urls'
+import { Breadcrumb, LLMSkill, LLMSkillVersionSummary } from '~/types'
+
+import type { llmSkillLogicType } from './llmSkillLogicType'
+import { llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
+
+export enum SkillMode {
+    View = 'view',
+    Edit = 'edit',
+}
+
+export interface SkillLogicProps {
+    skillName: string | 'new'
+    mode?: SkillMode
+    selectedVersion?: number | null
+    tabId?: string
+}
+
+export interface SkillFormValues {
+    name: string
+    description: string
+    body: string
+    license: string
+    compatibility: string
+}
+
+export interface ResolvedLLMSkill extends LLMSkill {
+    versions: LLMSkillVersionSummary[]
+    has_more: boolean
+}
+
+export function isSkill(skill: LLMSkill | ResolvedLLMSkill | SkillFormValues | null): skill is ResolvedLLMSkill {
+    return skill !== null && 'id' in skill
+}
+
+const DEFAULT_SKILL_FORM_VALUES: SkillFormValues = {
+    name: '',
+    description: '',
+    body: '',
+    license: '',
+    compatibility: '',
+}
+
+const SKILL_VERSIONS_LIMIT = 50
+export const SKILL_NAME_MAX_LENGTH = 64
+
+async function fetchResolvedSkill(
+    skillName: string,
+    params?: { version?: number; offset?: number; before_version?: number; limit?: number }
+): Promise<ResolvedLLMSkill> {
+    const response = await api.llmSkills.resolveByName(skillName, {
+        ...params,
+        limit: params?.limit ?? SKILL_VERSIONS_LIMIT,
+    })
+    return {
+        ...response.skill,
+        versions: response.versions,
+        has_more: response.has_more,
+    }
+}
+
+function getSkillFormDefaults(skill: LLMSkill): SkillFormValues {
+    return {
+        name: skill.name,
+        description: skill.description,
+        body: skill.body,
+        license: skill.license || '',
+        compatibility: skill.compatibility || '',
+    }
+}
+
+function findExistingSkill(skillName: string): LLMSkill | undefined {
+    return llmSkillsLogic.findMounted()?.values.skills.results.find((s) => s.name === skillName)
+}
+
+export const llmSkillLogic = kea<llmSkillLogicType>([
+    path(['scenes', 'llm-analytics', 'llmSkillLogic']),
+    props({ skillName: 'new' } as SkillLogicProps),
+    key(
+        ({ skillName, selectedVersion, tabId }) =>
+            `skill-${skillName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
+    ),
+    connect(() => ({})),
+
+    actions({
+        setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
+        deleteSkill: true,
+        loadMoreVersions: true,
+        setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
+        setMode: (mode: SkillMode) => ({ mode }),
+    }),
+
+    reducers(({ props }) => ({
+        skill: [
+            null as ResolvedLLMSkill | SkillFormValues | null,
+            {
+                loadSkillSuccess: (_, { skill }) => skill,
+                setSkill: (_, { skill }) => skill,
+            },
+        ],
+        versionsLoading: [
+            false,
+            {
+                loadMoreVersions: () => true,
+                setVersionsLoading: (_, { versionsLoading }) => versionsLoading,
+                loadSkillSuccess: () => false,
+            },
+        ],
+        mode: [
+            props.mode ?? SkillMode.View,
+            {
+                setMode: (_, { mode }) => mode,
+            },
+        ],
+    })),
+
+    loaders(({ props }) => ({
+        skill: {
+            __default: null as ResolvedLLMSkill | SkillFormValues | null,
+            loadSkill: async () =>
+                fetchResolvedSkill(props.skillName, {
+                    version: props.selectedVersion ?? undefined,
+                }),
+        },
+    })),
+
+    forms(({ actions, props, values }) => ({
+        skillForm: {
+            defaults: DEFAULT_SKILL_FORM_VALUES,
+            options: { showErrorsOnTouch: true },
+
+            errors: ({ name, description, body }) => ({
+                name: !name?.trim()
+                    ? 'Name is required'
+                    : name.toLowerCase() === 'new'
+                      ? "'new' is a reserved name"
+                      : name.length > SKILL_NAME_MAX_LENGTH
+                        ? `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer`
+                        : !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)
+                          ? 'Only lowercase letters, numbers, and hyphens allowed'
+                          : name.includes('--')
+                            ? 'Consecutive hyphens are not allowed'
+                            : undefined,
+                description: !description?.trim()
+                    ? 'Description is required'
+                    : description.length > 1024
+                      ? 'Description must be 1024 characters or fewer'
+                      : undefined,
+                body: !body?.trim() ? 'Skill body is required' : undefined,
+            }),
+
+            submit: async (formValues) => {
+                const isNew = props.skillName === 'new'
+
+                try {
+                    let savedSkill: LLMSkill
+
+                    if (isNew) {
+                        savedSkill = await api.llmSkills.create({
+                            name: formValues.name,
+                            description: formValues.description,
+                            body: formValues.body,
+                            license: formValues.license || undefined,
+                            compatibility: formValues.compatibility || undefined,
+                        })
+                        llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                        lemonToast.success('Skill created successfully')
+                        router.actions.replace(urls.llmAnalyticsSkill(savedSkill.name))
+                    } else {
+                        const currentSkill = values.skill
+
+                        if (!isSkill(currentSkill)) {
+                            throw new Error('Cannot publish skill version: skill data not loaded')
+                        }
+
+                        savedSkill = await api.llmSkills.update(props.skillName, {
+                            body: formValues.body,
+                            description: formValues.description,
+                            license: formValues.license || undefined,
+                            compatibility: formValues.compatibility || undefined,
+                            base_version: currentSkill.latest_version,
+                        })
+                        llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                        lemonToast.success('Skill version published successfully')
+
+                        actions.setSkill({
+                            ...savedSkill,
+                            versions: [
+                                {
+                                    id: savedSkill.id,
+                                    version: savedSkill.version,
+                                    created_by: savedSkill.created_by,
+                                    created_at: savedSkill.created_at,
+                                    is_latest: true,
+                                },
+                                ...currentSkill.versions
+                                    .filter((v) => v.id !== savedSkill.id)
+                                    .map((v) => ({ ...v, is_latest: false })),
+                            ],
+                            has_more: currentSkill.has_more,
+                        })
+                        actions.setSkillFormValues(getSkillFormDefaults(savedSkill))
+                        actions.setMode(SkillMode.View)
+                        router.actions.replace(urls.llmAnalyticsSkill(props.skillName))
+
+                        try {
+                            const latest = await fetchResolvedSkill(props.skillName)
+                            actions.setSkill(latest)
+                            actions.setSkillFormValues(getSkillFormDefaults(latest))
+                        } catch (err) {
+                            console.error('Failed to refresh skill after publish', err)
+                        }
+                    }
+
+                    actions.setMode(SkillMode.View)
+                    if (isNew) {
+                        actions.setSkill({
+                            ...savedSkill,
+                            versions: [],
+                            has_more: false,
+                        })
+                        actions.setSkillFormValues(getSkillFormDefaults(savedSkill))
+                    }
+                } catch (error: unknown) {
+                    const detail =
+                        error !== null && typeof error === 'object' && 'detail' in error
+                            ? (error as { detail: string }).detail
+                            : undefined
+                    lemonToast.error(detail || 'Failed to save skill')
+                    throw error
+                }
+            },
+        },
+    })),
+
+    selectors({
+        isNewSkill: [() => [(_, props) => props], (props) => props.skillName === 'new'],
+
+        isSkillMissing: [(s) => [s.skill, s.skillLoading], (skill, skillLoading) => !skillLoading && skill === null],
+
+        shouldDisplaySkeleton: [(s) => [s.skill, s.skillLoading], (skill, skillLoading) => !skill && skillLoading],
+
+        isHistoricalVersion: [(s) => [s.skill], (skill) => (isSkill(skill) ? !skill.is_latest : false)],
+
+        breadcrumbs: [
+            (s) => [s.skill, router.selectors.searchParams],
+            (skill: LLMSkill | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
+                {
+                    name: 'Skills',
+                    path: combineUrl(urls.llmAnalyticsSkills(), searchParams).url,
+                    key: 'LLMAnalyticsSkills',
+                },
+                {
+                    name:
+                        skill && 'name' in skill
+                            ? isSkill(skill)
+                                ? `${skill.name} v${skill.version}`
+                                : skill.name || 'New skill'
+                            : 'New skill',
+                    key: 'LLMAnalyticsSkill',
+                },
+            ],
+        ],
+
+        isViewMode: [
+            (s) => [s.mode, (_, props) => props],
+            (mode, props) => props.skillName !== 'new' && mode === SkillMode.View,
+        ],
+
+        isEditMode: [
+            (s) => [s.mode, (_, props) => props],
+            (mode, props) => props.skillName === 'new' || mode === SkillMode.Edit,
+        ],
+
+        versions: [(s) => [s.skill], (skill): LLMSkillVersionSummary[] => (isSkill(skill) ? skill.versions : [])],
+
+        canLoadMoreVersions: [(s) => [s.skill], (skill) => (isSkill(skill) ? skill.has_more : false)],
+    }),
+
+    listeners(({ actions, props, values }) => ({
+        deleteSkill: async () => {
+            if (props.skillName !== 'new' && values.skill && isSkill(values.skill)) {
+                try {
+                    await api.llmSkills.archiveByName(values.skill.name)
+                    lemonToast.info(`${values.skill.name || 'Skill'} has been archived.`)
+                    llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                    router.actions.replace(urls.llmAnalyticsSkills(), {
+                        ...router.values.searchParams,
+                        [LLM_SKILLS_FORCE_RELOAD_PARAM]: String(Date.now()),
+                    })
+                } catch {
+                    lemonToast.error('Failed to archive skill')
+                }
+            }
+        },
+
+        loadMoreVersions: async () => {
+            if (props.skillName === 'new' || !isSkill(values.skill)) {
+                actions.setVersionsLoading(false)
+                return
+            }
+
+            try {
+                const oldestLoadedVersion = values.skill.versions[values.skill.versions.length - 1]?.version
+                if (!oldestLoadedVersion) {
+                    actions.setVersionsLoading(false)
+                    return
+                }
+
+                const response = await fetchResolvedSkill(props.skillName, {
+                    version: values.skill.version,
+                    before_version: oldestLoadedVersion,
+                })
+
+                const existingVersionIds = new Set(values.skill.versions.map((v) => v.id))
+                const appendedVersions = response.versions.filter((v) => !existingVersionIds.has(v.id))
+
+                actions.setSkill({
+                    ...response,
+                    versions: [...values.skill.versions, ...appendedVersions],
+                    has_more: response.has_more,
+                })
+            } catch {
+                lemonToast.error('Failed to load more versions')
+            } finally {
+                actions.setVersionsLoading(false)
+            }
+        },
+
+        loadSkillSuccess: ({ skill }) => {
+            if (skill && isSkill(skill)) {
+                actions.resetSkillForm()
+                actions.setSkillFormValues(getSkillFormDefaults(skill))
+            }
+        },
+    })),
+
+    defaults(
+        ({
+            props,
+        }): {
+            skill: SkillFormValues | ResolvedLLMSkill | null
+            skillForm: SkillFormValues
+            versionsLoading: boolean
+        } => {
+            if (props.skillName === 'new') {
+                return {
+                    skill: DEFAULT_SKILL_FORM_VALUES,
+                    skillForm: DEFAULT_SKILL_FORM_VALUES,
+                    versionsLoading: false,
+                }
+            }
+
+            const existingSkill = findExistingSkill(props.skillName)
+
+            if (existingSkill) {
+                return {
+                    skill: { ...existingSkill, versions: [], has_more: false },
+                    skillForm: getSkillFormDefaults(existingSkill),
+                    versionsLoading: false,
+                }
+            }
+
+            return {
+                skill: null,
+                skillForm: DEFAULT_SKILL_FORM_VALUES,
+                versionsLoading: false,
+            }
+        }
+    ),
+
+    afterMount(({ actions, values }) => {
+        if (values.isNewSkill) {
+            actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
+            actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)
+        } else {
+            actions.loadSkill()
+        }
+    }),
+
+    tabAwareUrlToAction(({ actions, values }) => ({
+        '/llm-analytics/skills/:name': (_, __, ___, { method }) => {
+            if (method === 'PUSH' && values.isNewSkill) {
+                actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
+                actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)
+                return
+            }
+
+            if (method === 'PUSH' && !values.isNewSkill) {
+                actions.loadSkill()
+            }
+        },
+    })),
+])
