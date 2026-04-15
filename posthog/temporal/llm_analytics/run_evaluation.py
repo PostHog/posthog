@@ -236,11 +236,20 @@ async def increment_trial_eval_count_activity(team_id: int) -> int | None:
 
 
 @temporalio.activity.defn
-async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
-    """Disable an evaluation when trial limit is reached"""
+async def disable_evaluation_activity(evaluation_id: str, team_id: int, status_reason: str = "") -> None:
+    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
+
+    status_reason must be one of EvaluationStatusReason values; empty is accepted for backwards compat but
+    should never happen for new callers — the model's save() enforces a reason when status is ERROR.
+    """
 
     def _disable():
-        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(enabled=False)
+        # We bypass save() by using .update() to avoid triggering bytecode recompilation on every run,
+        # so we must explicitly write all three fields of the status trio together.
+        reason = status_reason or "trial_limit_reached"
+        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(
+            enabled=False, status="error", status_reason=reason
+        )
 
     await database_sync_to_async(_disable)()
 
@@ -326,6 +335,83 @@ async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> 
                 team_id=inputs.team_id,
                 org_id=str(team.organization_id),
                 threshold_pct=inputs.threshold_pct,
+                recipient_count=len(message.to),
+            )
+
+    await database_sync_to_async(_send)()
+
+
+@dataclass
+class SendEvaluationDisabledEmailInputs:
+    team_id: int
+    evaluation_id: str
+    evaluation_name: str
+    status_reason: str
+    human_readable_reason: str
+
+
+_STATUS_REASON_SUBJECTS = {
+    "model_not_allowed": "Your LLM analytics evaluation was disabled because its model isn't supported on the trial plan",
+    "provider_key_deleted": "Your LLM analytics evaluation was disabled because its provider API key was removed",
+}
+
+
+@temporalio.activity.defn
+async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
+    """Email org members when an evaluation enters the ERROR state for a reason other than trial exhaustion.
+
+    Trial-exhausted disabling continues to use send_trial_usage_email_activity because that one aggregates
+    across all affected evals and has a different recovery CTA.
+    """
+
+    def _send():
+        from posthog.email import EmailMessage, is_email_available
+
+        if not is_email_available(with_absolute_urls=True):
+            logger.info(
+                "Email not available, skipping evaluation disabled notification",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
+            return
+
+        try:
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
+        evaluation_url = f"/project/{team.pk}/llm-analytics/evaluations/{inputs.evaluation_id}"
+        # Campaign key includes the reason so users get a fresh notification if an eval errors for a
+        # different reason later (e.g. model was allowed, then the provider key got deleted).
+        campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}_{inputs.status_reason}"
+        subject = _STATUS_REASON_SUBJECTS.get(
+            inputs.status_reason, f'Your evaluation "{inputs.evaluation_name}" has been disabled'
+        )
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name="llm_analytics_evaluation_disabled",
+            template_context={
+                "evaluation_name": inputs.evaluation_name,
+                "disabled_reason": inputs.human_readable_reason,
+                "settings_url": settings_url,
+                "evaluation_url": evaluation_url,
+            },
+        )
+
+        for user in team.organization.members.all():
+            message.add_user_recipient(user)
+
+        if message.to:
+            message.send()
+            logger.info(
+                "Sent evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+                status_reason=inputs.status_reason,
                 recipient_count=len(message.to),
             )
 
@@ -922,24 +1008,56 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         if error_type in ("trial_limit_reached", "model_not_allowed"):
                             await temporalio.workflow.execute_activity(
                                 disable_evaluation_activity,
-                                args=[evaluation["id"], evaluation["team_id"]],
+                                args=[evaluation["id"], evaluation["team_id"], error_type],
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
-                            if temporalio.workflow.patched("trial-usage-email"):
-                                try:
-                                    await temporalio.workflow.execute_activity(
-                                        send_trial_usage_email_activity,
-                                        SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
-                                        activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
-                                        schedule_to_close_timeout=timedelta(seconds=30),
-                                        retry_policy=RetryPolicy(maximum_attempts=2),
-                                    )
-                                except Exception:
-                                    temporalio.workflow.logger.exception(
-                                        "Failed to send trial exhausted email",
-                                        team_id=evaluation["team_id"],
-                                    )
+                            if error_type == "trial_limit_reached":
+                                # Trial exhaustion affects all trial-using evals on the team — stick with
+                                # the aggregate email that lists every impacted eval.
+                                if temporalio.workflow.patched("trial-usage-email"):
+                                    try:
+                                        await temporalio.workflow.execute_activity(
+                                            send_trial_usage_email_activity,
+                                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                                            activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                                            schedule_to_close_timeout=timedelta(seconds=30),
+                                            retry_policy=RetryPolicy(maximum_attempts=2),
+                                        )
+                                    except Exception:
+                                        temporalio.workflow.logger.exception(
+                                            "Failed to send trial exhausted email",
+                                            team_id=evaluation["team_id"],
+                                        )
+                            else:
+                                # model_not_allowed is per-eval — send the targeted email with a
+                                # per-eval recovery path (pick a supported model for this eval).
+                                if temporalio.workflow.patched("eval-disabled-email"):
+                                    model = details.get("model", "the selected model")
+                                    try:
+                                        await temporalio.workflow.execute_activity(
+                                            send_evaluation_disabled_email_activity,
+                                            SendEvaluationDisabledEmailInputs(
+                                                team_id=evaluation["team_id"],
+                                                evaluation_id=evaluation["id"],
+                                                evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                                                status_reason="model_not_allowed",
+                                                human_readable_reason=(
+                                                    f"The model '{model}' isn't available on the trial plan."
+                                                ),
+                                            ),
+                                            activity_id=(
+                                                f"send-eval-disabled-email-{evaluation['id']}-model_not_allowed"
+                                            ),
+                                            schedule_to_close_timeout=timedelta(seconds=30),
+                                            retry_policy=RetryPolicy(maximum_attempts=2),
+                                        )
+                                    except Exception:
+                                        temporalio.workflow.logger.exception(
+                                            "Failed to send evaluation disabled email",
+                                            evaluation_id=evaluation["id"],
+                                            team_id=evaluation["team_id"],
+                                        )
                         return {
                             "verdict": None,
                             "skipped": True,

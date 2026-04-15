@@ -30,7 +30,7 @@ class CustomPromptSandboxContext:
 
     team_id: int
     user_id: int
-    repository: str
+    repository: str | None = None
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
 

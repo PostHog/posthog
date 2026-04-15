@@ -4584,6 +4584,9 @@ export const IntegrationKindApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    CustomerioApp: 'customerio-app',
+    CustomerioWebhook: 'customerio-webhook',
+    CustomerioTrack: 'customerio-track',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -6201,6 +6204,8 @@ export interface ExperimentQueryApi {
         | ExperimentFunnelMetricApi
         | ExperimentRatioMetricApi
         | ExperimentRetentionMetricApi
+    /** @nullable */
+    metric_events_precomputation?: boolean | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
@@ -7950,6 +7955,9 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    Medium: 'medium',
+    Content: 'content',
+    Term: 'term',
 } as const
 
 export interface IntegrationFilterApi {
