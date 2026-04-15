@@ -15,7 +15,7 @@ from posthog.redis import get_client as get_redis_client
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
 COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
-COHORT_BACKFILL_REDIS_TTL_SECONDS = 360  # 6 minutes (countdown + safety margin)
+COHORT_BACKFILL_REDIS_TTL_SECONDS = 300  # matches countdown; task reads fresh state at execution time
 
 
 # Prometheus metrics for cache hit/miss tracking
@@ -269,10 +269,15 @@ def _trigger_cohort_backfill(cohort: Cohort) -> None:
                 cohort_type=cohort.cohort_type,
                 debounce_seconds=COHORT_BACKFILL_DEBOUNCE_SECONDS,
             )
-            trigger_cohort_backfill_task.apply_async(
-                args=[cohort.team_id, cohort.pk],
-                countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
-            )
+            try:
+                trigger_cohort_backfill_task.apply_async(
+                    args=[cohort.team_id, cohort.pk],
+                    countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+                )
+            except Exception:
+                # Release the lock so the next save can retry scheduling
+                redis_client.delete(lock_key)
+                raise
         else:
             logger.info(
                 "cohort_backfill_already_pending",

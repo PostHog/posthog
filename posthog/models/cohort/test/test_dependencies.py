@@ -11,7 +11,6 @@ from posthog.models import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.dependencies import (
     COHORT_BACKFILL_DEBOUNCE_SECONDS,
-    COHORT_BACKFILL_REDIS_TTL_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
     _extract_person_property_filters,
@@ -533,34 +532,30 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         cohort = self._create_cohort(name="Test Cohort")
         self.assertFalse(_has_person_property_filters(cohort))
 
+    @parameterized.expand(
+        [
+            ("schedules_task_when_key_absent", True, True),
+            ("debounces_when_key_present", False, False),
+        ]
+    )
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
     @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
-    def test_trigger_cohort_backfill_calls_celery_task(self, mock_get_redis, mock_task):
+    def test_trigger_cohort_backfill_redis_set(
+        self, _name, redis_set_result, should_schedule, mock_get_redis, mock_task
+    ):
         mock_redis = mock.MagicMock()
-        mock_redis.set.return_value = True
+        mock_redis.set.return_value = redis_set_result
         mock_get_redis.return_value = mock_redis
         cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
 
         _trigger_cohort_backfill(cohort)
 
-        mock_redis.set.assert_called_once_with(
-            f"cohort_backfill_pending:{cohort.pk}", 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS
-        )
-        mock_task.apply_async.assert_called_once_with(
-            args=[cohort.team_id, cohort.pk], countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS
-        )
-
-    @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
-    def test_trigger_cohort_backfill_debounces_when_pending(self, mock_get_redis, mock_task):
-        mock_redis = mock.MagicMock()
-        mock_redis.set.return_value = False  # Key already exists
-        mock_get_redis.return_value = mock_redis
-        cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
-
-        _trigger_cohort_backfill(cohort)
-
-        mock_task.apply_async.assert_not_called()
+        if should_schedule:
+            mock_task.apply_async.assert_called_once_with(
+                args=[cohort.team_id, cohort.pk], countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS
+            )
+        else:
+            mock_task.apply_async.assert_not_called()
 
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
     @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
@@ -573,6 +568,9 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         # Should not raise
         _trigger_cohort_backfill(cohort)
+
+        # Redis key should be cleaned up so the next save can retry
+        mock_redis.delete.assert_called_once_with(f"cohort_backfill_pending:{cohort.pk}")
 
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
     @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
