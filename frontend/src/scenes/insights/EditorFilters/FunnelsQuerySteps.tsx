@@ -75,7 +75,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             )}
             <div className="FunnelsQuerySteps">
                 <ActionFilter
-                    bordered={false}
+                    bordered={!editorPanelsEnabled}
                     filters={actionFilters}
                     setFilters={setActionFilters}
                     typeKey={keyForInsightLogicProps('new')(insightProps)}
