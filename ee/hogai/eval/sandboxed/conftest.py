@@ -286,7 +286,7 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
         "LLM_GATEWAY_POSTHOG_HOST": str(_django_live_server),
     }
 
-    logger.info("Starting LLM gateway on port %d (DB: %s)", LLM_GATEWAY_PORT, test_db_url)
+    logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
     proc = subprocess.Popen(
         [
             str(uvicorn_bin),
