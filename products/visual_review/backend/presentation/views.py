@@ -184,25 +184,22 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=snapshots, many=True).data)
 
-    @extend_schema(
-        request=MarkToleratedInputSerializer,
+    @validated_request(
+        request_serializer=MarkToleratedInputSerializer,
         responses={200: SnapshotSerializer},
     )
     @action(detail=True, methods=["post"], url_path="mark-tolerated")
-    def mark_tolerated(self, request: Request, pk: str, **kwargs) -> Response:
+    def mark_tolerated(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Mark a changed snapshot as a known tolerated alternate."""
-        snapshot_id = request.data.get("snapshot_id")
-        if not snapshot_id:
-            return Response({"detail": "snapshot_id required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             snapshot = api.mark_snapshot_as_tolerated(
                 run_id=UUID(pk),
-                snapshot_id=UUID(snapshot_id),
+                snapshot_id=request.validated_data["snapshot_id"],
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
             )
         except api.RunNotFoundError:
-            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SnapshotSerializer(instance=snapshot).data)
@@ -222,6 +219,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            return self.get_paginated_response(ToleratedHashEntrySerializer(instance=page, many=True).data)
         return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
 
     @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})

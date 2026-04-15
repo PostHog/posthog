@@ -106,9 +106,11 @@ export function SnapshotDiffViewer({
                                 <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
                                     Accept change
                                 </LemonButton>
-                                <LemonButton type="secondary" size="small" onClick={onMarkTolerated}>
-                                    Mark as tolerated
-                                </LemonButton>
+                                {snapshot.result === 'changed' && (
+                                    <LemonButton type="secondary" size="small" onClick={onMarkTolerated}>
+                                        Mark as tolerated
+                                    </LemonButton>
+                                )}
                             </>
                         )}
 

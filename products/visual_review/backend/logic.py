@@ -576,14 +576,14 @@ def complete_run(run_id: UUID) -> Run:
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
     run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
     baseline_hashes_in_use = set(baseline.values())
-    tolerated_lookup: dict[tuple[str, str], ToleratedHash] = {}
+    tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
     if run_identifiers and baseline_hashes_in_use:
         for t in ToleratedHash.objects.filter(
             repo=repo,
             identifier__in=run_identifiers,
             baseline_hash__in=baseline_hashes_in_use,
         ):
-            tolerated_lookup[(t.identifier, t.content_hash)] = t
+            tolerated_lookup[(t.identifier, t.baseline_hash, t.content_hash)] = t
 
     # Classify existing snapshots against baseline
     for snapshot in run.snapshots.using(WRITER_DB).all():
@@ -598,8 +598,8 @@ def complete_run(run_id: UUID) -> Run:
             result = SnapshotResult.UNCHANGED
             classification_reason = "exact"
         else:
-            match = tolerated_lookup.get((snapshot.identifier, snapshot.current_hash))
-            if match is not None and match.baseline_hash == baseline_hash:
+            match = tolerated_lookup.get((snapshot.identifier, baseline_hash, snapshot.current_hash))
+            if match is not None:
                 result = SnapshotResult.UNCHANGED
                 classification_reason = "tolerated_hash"
                 tolerated_match = match
@@ -1370,7 +1370,10 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     snapshot as UNCHANGED, and recalculates run summary counts.
     """
     run = get_run(run_id, team_id=team_id)
-    snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
+    try:
+        snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
+    except RunSnapshot.DoesNotExist:
+        raise RunNotFoundError(f"Snapshot {snapshot_id} not found in run {run_id}")
 
     if snapshot.result != SnapshotResult.CHANGED:
         raise ValueError(f"Can only mark CHANGED snapshots as tolerated (current: {snapshot.result})")
@@ -1397,6 +1400,9 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     snapshot.save(update_fields=["result", "classification_reason", "tolerated_hash_match"])
 
     _update_run_counts(run, using=WRITER_DB)
+    # Also update tolerated_match_count which _update_run_counts doesn't cover
+    tolerated_count = RunSnapshot.objects.using(WRITER_DB).filter(run=run, tolerated_hash_match__isnull=False).count()
+    Run.objects.using(WRITER_DB).filter(id=run.id).update(tolerated_match_count=tolerated_count)
 
     return snapshot
 

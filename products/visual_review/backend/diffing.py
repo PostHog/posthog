@@ -14,7 +14,7 @@ import structlog
 
 from .diff import compute_diff
 from .facade.enums import SnapshotResult
-from .models import RunSnapshot
+from .models import RunSnapshot, ToleratedHash
 from .ssim import compute_ssim
 
 logger = structlog.get_logger(__name__)
@@ -134,8 +134,6 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     )
 
     # Auto-populate tolerance cache so future runs skip diffing for this hash
-    from .models import ToleratedHash
-
     ToleratedHash.objects.get_or_create(
         repo_id=snapshot.run.repo_id,
         identifier=snapshot.identifier,
