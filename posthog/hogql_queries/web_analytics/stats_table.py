@@ -24,6 +24,7 @@ from posthog.hogql.property import (
 )
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.web_analytics.events_prefilter import PrefilterHogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries import (
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
@@ -52,11 +53,23 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", None)
         self.use_v2_tables = team_version == "v2" if team_version is not None else use_v2_tables
         self.used_preaggregated_tables = False
-        self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
-            offset=self.query.offset if self.query.offset else None,
-        )
+
+        paginator_kwargs = {
+            "limit_context": LimitContext.QUERY,
+            "limit": self.query.limit if self.query.limit else None,
+            "offset": self.query.offset if self.query.offset else None,
+        }
+        if is_web_analytics_events_prefilter_team(self.team.pk):
+            date_from, date_to = self._events_prefilter_date_bounds()
+            self.paginator = PrefilterHogQLHasMorePaginator.from_limit_context(
+                team_id=self.team.pk,
+                date_from=date_from,
+                date_to=date_to,
+                **paginator_kwargs,
+            )
+        else:
+            self.paginator = HogQLHasMorePaginator.from_limit_context(**paginator_kwargs)
+
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
@@ -529,69 +542,13 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.convertToProjectTimezone = False
 
-        use_prefilter = not self.used_preaggregated_tables and is_web_analytics_events_prefilter_team(self.team.pk)
-
-        if use_prefilter:
-            from posthog.schema import HogQLQueryResponse
-
-            from posthog.hogql.printer.utils import print_prepared_ast
-            from posthog.hogql.query import HogQLQueryExecutor
-
-            from posthog.hogql_queries.web_analytics.events_prefilter import EventsPrefilterTransformer
-
-            paginated_query = self.paginator.paginate(query)
-            executor = HogQLQueryExecutor(
-                query=paginated_query,
-                query_type="stats_table_query",
-                team=self.team,
-                timings=self.timings,
-                modifiers=modifiers,
-            )
-            executor._parse_query()
-            executor._process_variables()
-            executor._process_placeholders()
-            executor._apply_limit()
-            executor._generate_hogql()
-            executor._generate_clickhouse_sql()
-
-            if executor.clickhouse_prepared_ast is not None:
-                date_from, date_to = self._events_prefilter_date_bounds()
-                transformer = EventsPrefilterTransformer(
-                    team_id=self.team.pk,
-                    date_from=date_from,
-                    date_to=date_to,
-                )
-                transformer.visit(executor.clickhouse_prepared_ast)
-
-                assert executor.clickhouse_context is not None
-                executor.clickhouse_sql = print_prepared_ast(
-                    node=executor.clickhouse_prepared_ast,
-                    context=executor.clickhouse_context,
-                    dialect="clickhouse",
-                    pretty=True,
-                )
-
-            executor._execute_clickhouse_query()
-            response = HogQLQueryResponse(
-                query=None,
-                hogql=executor.hogql,
-                clickhouse=executor.clickhouse_sql,
-                results=executor.results,
-                columns=executor.print_columns,
-                types=executor.types,
-                timings=executor.timings.to_list(),
-                modifiers=executor.query_modifiers,
-            )
-            self.paginator.response = response
-            self.paginator.results = self.paginator.trim_results()
-        else:
-            response = self.paginator.execute_hogql_query(
-                query_type="stats_table_query",
-                query=query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=modifiers,
-            )
+        response = self.paginator.execute_hogql_query(
+            query_type="stats_table_query",
+            query=query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=modifiers,
+        )
 
         results = self.paginator.results
 
