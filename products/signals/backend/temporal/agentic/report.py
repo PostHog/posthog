@@ -143,6 +143,22 @@ def _build_reviewers_content(
     repository: str,
     findings: list[SignalFinding],
 ) -> list[ReviewerContent]:
+    """Collect relevant commit SHAs from research findings and resolve them to GitHub reviewers.
+
+    Deduplicates commit hashes across all findings (keeping the first reason seen per SHA),
+    then calls resolve_suggested_reviewers to identify the authors/committers of those commits
+    and returns them as serializable ReviewerContent dicts.
+
+    The returned list is stored as a ``suggested_reviewers`` artefact keyed only by
+    github_login — no PostHog user IDs are persisted. This is intentional:
+
+    - PostHog user enrichment happens at read time (in the artefact serializer via
+      ``enrich_reviewer_dicts_with_org_members``) so it stays fresh when users
+      connect/disconnect their GitHub account.
+    - The list view resolves ``is_suggested_reviewer`` by looking up the current
+      user's GitHub login and checking for jsonb containment on ``github_login``
+      in this artefact's content — no cached user IDs needed.
+    """
     commit_hashes_with_reasons: dict[str, str] = {}
     for finding in findings:
         for sha, reason in finding.relevant_commit_hashes.items():
