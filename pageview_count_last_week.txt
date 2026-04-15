@@ -1,0 +1,3 @@
+# Pageview count for last 7 days
+generated_at_utc: 2026-04-15T04:45:00.228Z
+pageviews_last_7_days: 2
