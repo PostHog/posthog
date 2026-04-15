@@ -1,7 +1,6 @@
 import './BreakdownTagMenu.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
@@ -12,46 +11,14 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
-const MAX_BREAKDOWN_LIMIT = 1000
-
 export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const { isTrends } = useValues(insightVizDataLogic(insightProps))
 
-    const { breakdownLimit, breakdownHideOtherAggregation } = useValues(taxonomicBreakdownFilterLogic)
-    const { setBreakdownLimit, setBreakdownHideOtherAggregation } = useActions(taxonomicBreakdownFilterLogic)
-
-    // Keep a local copy of the input value so the user can temporarily clear the
-    // field while editing without committing an empty/NaN value to the filter.
-    const [inputValue, setInputValue] = useState<number | undefined>(breakdownLimit)
-
-    // Sync when the committed limit changes outside of the input (e.g. initial
-    // load or external updates). We intentionally overwrite any in-progress
-    // empty state here — once the upstream value changes, that's the new truth.
-    useEffect(() => {
-        setInputValue(breakdownLimit)
-    }, [breakdownLimit])
-
-    const handleChange = (value: number | undefined): void => {
-        if (value === undefined || Number.isNaN(value)) {
-            // Allow the field to be cleared visually, but don't commit an empty
-            // value — the filter keeps the previous limit until a valid number
-            // is entered.
-            setInputValue(undefined)
-            return
-        }
-        const capped = Math.min(value, MAX_BREAKDOWN_LIMIT)
-        setInputValue(capped)
-        setBreakdownLimit(capped)
-    }
-
-    const handleBlur = (): void => {
-        // If the user left the field empty, restore the last committed value
-        // so the input doesn't stay visually blank.
-        if (inputValue === undefined || Number.isNaN(inputValue)) {
-            setInputValue(breakdownLimit)
-        }
-    }
+    const { breakdownLimit, breakdownLimitInputValue, breakdownHideOtherAggregation } =
+        useValues(taxonomicBreakdownFilterLogic)
+    const { setBreakdownLimitInput, resetBreakdownLimitInput, setBreakdownHideOtherAggregation } =
+        useActions(taxonomicBreakdownFilterLogic)
 
     return (
         <>
@@ -86,10 +53,10 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                 <LemonInput
                     id="breakdown-limit"
                     min={1}
-                    max={MAX_BREAKDOWN_LIMIT}
-                    value={inputValue}
-                    onChange={handleChange}
-                    onBlur={handleBlur}
+                    max={1000}
+                    value={breakdownLimitInputValue}
+                    onChange={setBreakdownLimitInput}
+                    onBlur={resetBreakdownLimitInput}
                     fullWidth={false}
                     className="w-20 ml-2"
                     type="number"
