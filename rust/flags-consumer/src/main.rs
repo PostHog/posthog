@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{routing::get, Router};
+use clap::{Parser, Subcommand};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 use envconfig::Envconfig;
@@ -17,6 +18,7 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 
+use flags_consumer::benchmark::BenchmarkArgs;
 use flags_consumer::config::Config;
 use flags_consumer::kafka::consumer::consume_loop;
 use flags_consumer::kafka::messages::{DistinctIdMessage, PersonMessage};
@@ -28,13 +30,38 @@ common_alloc::used!();
 const POOL_NAME: &str = "flags_read_store";
 const SERVICE_NAME: &str = "flags-consumer";
 
+#[derive(Parser)]
+#[command(name = "flags-consumer")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the GIN index benchmark against the configured database
+    Benchmark(BenchmarkArgs),
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = Config::init_from_env().expect("Invalid configuration");
+    let cli = Cli::parse();
 
-    init_tracing();
-    log_startup_config(&config);
+    match cli.command {
+        Some(Command::Benchmark(args)) => {
+            tracing_subscriber::fmt::init();
+            flags_consumer::benchmark::run(args).await
+        }
+        None => {
+            let config = Config::init_from_env().expect("Invalid configuration");
+            init_tracing();
+            log_startup_config(&config);
+            run_consumer(config).await
+        }
+    }
+}
 
+async fn run_consumer(config: Config) -> anyhow::Result<()> {
     let mut manager = Manager::builder(SERVICE_NAME).build();
     let metrics_handle = manager.register(
         "metrics_server",
