@@ -77,6 +77,11 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_if_none_match,
 )
 from posthog.models.feature_flag.types import PropertyFilterType
+from posthog.models.feature_flag.version_history import (
+    VersionHistoryIncomplete,
+    VersionNotFound,
+    reconstruct_flag_at_version,
+)
 from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -2321,12 +2326,6 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
     )
     def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
-        from posthog.models.feature_flag.version_history import (
-            VersionHistoryIncomplete,
-            VersionNotFound,
-            reconstruct_flag_at_version,
-        )
-
         feature_flag: FeatureFlag = self.get_object()
 
         if feature_flag.is_remote_configuration:

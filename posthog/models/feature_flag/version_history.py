@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 
 
@@ -13,28 +13,13 @@ class VersionHistoryIncomplete(Exception):
     pass
 
 
-# Fields tracked in the activity log for feature flags.
-# Must stay in sync with the fields that changes_between() compares
-# (i.e. FeatureFlag model fields minus common_field_exclusions and
-# field_exclusions["FeatureFlag"] in activity_log.py).
-RECONSTRUCTABLE_FIELDS = frozenset(
-    [
-        "key",
-        "name",
-        "filters",
-        "active",
-        "deleted",
-        "version",
-        "rollback_conditions",
-        "performed_rollback",
-        "ensure_experience_continuity",
-        "is_remote_configuration",
-        "has_encrypted_payloads",
-        "evaluation_runtime",
-        "bucketing_identifier",
-        "has_enriched_analytics",
-    ]
-)
+def _get_reconstructable_fields() -> frozenset[str]:
+    """Derive tracked fields dynamically so new FeatureFlag fields are picked up automatically."""
+    excluded = set(common_field_exclusions) | set(field_exclusions.get("FeatureFlag", []))
+    return frozenset(f.name for f in FeatureFlag._meta.get_fields() if f.name not in excluded)
+
+
+RECONSTRUCTABLE_FIELDS = _get_reconstructable_fields()
 
 # Fields that need special accessor logic instead of plain getattr.
 _FIELD_ACCESSORS: dict[str, Any] = {
