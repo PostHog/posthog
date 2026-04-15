@@ -5,6 +5,7 @@ import { IconChevronLeft } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
@@ -18,10 +19,11 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { DashboardType, InsightShortId } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -421,6 +423,29 @@ export function EditSubscription({
                                 </div>
                             )}
                         </div>
+
+                        <PayGateMini feature={AvailableFeature.SUBSCRIPTION_CHANGE_SUMMARIES}>
+                            <LemonField name="summary_enabled">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        checked={value}
+                                        onChange={onChange}
+                                        bordered
+                                        label="AI change summary"
+                                        fullWidth
+                                    />
+                                )}
+                            </LemonField>
+                        </PayGateMini>
+
+                        {subscription.summary_enabled && (
+                            <LemonField name="summary_prompt_guide" label="Context for the AI summary" showOptional>
+                                <LemonTextArea
+                                    placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                    maxLength={500}
+                                />
+                            </LemonField>
+                        )}
 
                         {insightShortId && (
                             <div>

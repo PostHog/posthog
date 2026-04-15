@@ -14,6 +14,7 @@ from posthog.temporal.subscriptions.change_summary_state import (
     load_insight_state,
     store_insight_state,
 )
+from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
 
@@ -75,6 +76,13 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
+    if not subscription.summary_enabled:
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.summary_disabled",
+            subscription_id=inputs.subscription_id,
+        )
+        return SnapshotInsightsResult()
+
     team = subscription.team
 
     insights = await database_sync_to_async(_resolve_insights, thread_sensitive=False)(subscription)
@@ -129,6 +137,23 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
             }
         )
 
+    summary_text: str | None = None
+    if has_any_previous and previous_states:
+        try:
+            summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
+                previous_states,
+                current_states,
+                subscription_title=subscription.title,
+                prompt_guide=subscription.summary_prompt_guide or "",
+                team_id=inputs.team_id,
+            )
+        except Exception:
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.llm_summary_failed",
+                subscription_id=inputs.subscription_id,
+                exc_info=True,
+            )
+
     for current in current_states:
         key = generate_state_key(inputs.subscription_id, current["insight_id"])
         state_to_store = {
@@ -144,9 +169,11 @@ async def snapshot_subscription_insights(inputs: SnapshotInsightsInputs) -> Snap
         subscription_id=inputs.subscription_id,
         insight_count=len(insights),
         has_previous=has_any_previous,
+        has_summary=summary_text is not None,
     )
 
     return SnapshotInsightsResult(
         previous_states=previous_states if has_any_previous else None,
         current_states=current_states,
+        summary_text=summary_text,
     )

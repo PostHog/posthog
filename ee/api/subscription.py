@@ -90,6 +90,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "next_delivery_date",
             "integration_id",
             "invite_message",
+            "summary_enabled",
+            "summary_prompt_guide",
         ]
         read_only_fields = [
             "id",
@@ -145,6 +147,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             allowed, error = is_url_allowed(target_value)
             if not allowed:
                 raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
+
+        if attrs.get("summary_enabled"):
+            team = self.context["get_team"]()
+            if not team.organization.is_feature_available(AvailableFeature.SUBSCRIPTION_CHANGE_SUMMARIES):
+                raise ValidationError(
+                    {"summary_enabled": ["AI change summaries are not available on your current plan."]}
+                )
+
+        prompt_guide = attrs.get("summary_prompt_guide")
+        if prompt_guide and len(prompt_guide) > 500:
+            raise ValidationError({"summary_prompt_guide": ["Prompt guide must be 500 characters or fewer."]})
 
         return attrs
 
