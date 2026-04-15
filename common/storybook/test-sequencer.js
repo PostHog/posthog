@@ -42,10 +42,14 @@ function getDuration(timings, relativePath, browser) {
 // Tests without timing data go into a separate pool and are spread evenly
 // after the known tests are placed.
 function binPackShard(tests, shardCount, shardIndex, timings, browser) {
+    // Canonical path order upfront — makes the entire partition deterministic
+    // regardless of readdir order on the CI runner's filesystem.
+    const sorted = [...tests].sort((a, b) => getRelativePath(a).localeCompare(getRelativePath(b)))
+
     const known = []
     const unknown = []
 
-    for (const test of tests) {
+    for (const test of sorted) {
         const rel = getRelativePath(test)
         const duration = getDuration(timings, rel, browser)
         if (duration !== null) {
@@ -55,7 +59,7 @@ function binPackShard(tests, shardCount, shardIndex, timings, browser) {
         }
     }
 
-    // Sort known tests longest-first
+    // Sort known tests longest-first. Stable sort preserves path order for ties.
     known.sort((a, b) => b.duration - a.duration)
 
     const shardTotals = new Array(shardCount).fill(0)
