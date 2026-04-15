@@ -78,7 +78,6 @@ async function runStream(options: ToolbarStreamOptions, controller: AbortControl
             headers: {
                 Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
-                Accept: 'text/event-stream',
             },
             body,
             signal: controller.signal,

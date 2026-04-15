@@ -77,6 +77,23 @@ TOOLBAR_CONTEXT_SCREENSHOT_NOTE = (
     "fetch it via the media tools if you need to look at the visual layout."
 )
 
+TOOLBAR_SELECTED_ELEMENT_PROMPT = """
+<selected_element>
+The user explicitly selected an element on the page to focus this question on.
+Treat ambiguous references like "this", "this button", or "this element" as referring
+to the selected element below — not the surrounding page.
+
+Selector: {selector}
+Tag: <{tag_name}>
+Text: {text_preview}
+Attributes: {attributes}
+
+<outer_html>
+{outer_html}
+</outer_html>
+</selected_element>
+""".strip()
+
 HOG_EVALUATION_REFERENCE = """
 Hog language reference for writing evaluations:
 
