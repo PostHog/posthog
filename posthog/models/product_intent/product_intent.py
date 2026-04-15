@@ -18,7 +18,7 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.error_tracking.backend.facade.api import has_resolved_issues
+from products.error_tracking.backend.facade import has_resolved_issues
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey

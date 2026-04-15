@@ -13,7 +13,7 @@ import requests
 
 from posthog.models.integration import GitHubIntegration, Integration
 
-from products.error_tracking.backend.facade.api import count_issues_created_since
+from products.error_tracking.backend.facade import count_issues_created_since
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
 

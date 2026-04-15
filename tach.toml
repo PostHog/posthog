@@ -210,23 +210,6 @@ depends_on = [
     "posthog",
 ]
 layer = "modules"
-interfaces = [
-    # Business facade.
-    "products.error_tracking.backend.facade",
-    # Presentation HTTP surface.
-    "products.error_tracking.backend.presentation.views",
-    # Infra / framework interfaces (canonical public paths).
-    "products.error_tracking.backend.apps",
-    "products.error_tracking.backend.infra",
-    "products.error_tracking.dags",
-    # Legacy shim paths kept public for FROZEN ClickHouse migrations only.
-    # New code must import from `backend.infra.*`. Do not add new consumers here.
-    "products.error_tracking.backend.embedding",
-    "products.error_tracking.backend.indexed_embedding",
-    "products.error_tracking.backend.sql",
-    # Test-only sanctioned helper for external tests.
-    "products.error_tracking.backend.test.factories",
-]
 
 [[modules]]
 path = "products.event_definitions"
@@ -487,13 +470,32 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features|error_tracking)",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.
 # Each block below should shrink as imports migrate to the facade.
 # These products have had backend:contract-check removed from package.json
 # so CI treats them as non-isolated until the leaks are cleaned up.
+
+[[interfaces]]
+expose = [
+    "backend\\.apps.*",
+    "backend\\.infra.*",
+    "dags\\..*",
+    # Legacy shim paths kept public for FROZEN ClickHouse migrations only.
+    # New code must import from `backend.infra.*`. Do not add new consumers here.
+    "backend\\.embedding.*",
+    "backend\\.indexed_embedding.*",
+    "backend\\.sql.*",
+    # Temporary compatibility for existing external tests/admin/demo call sites.
+    "backend\\.models.*",
+    # Test-only sanctioned helper for external tests.
+    "backend\\.test\\.factories.*",
+]
+from = [
+    "products.error_tracking",
+]
 
 [[interfaces]]
 expose = [

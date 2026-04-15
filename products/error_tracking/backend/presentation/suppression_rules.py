@@ -52,7 +52,8 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
                 sampling_rate=request.data.get("sampling_rate") if "sampling_rate" in request.data else None,
             )
         except ValidationError as err:
-            return Response({"error": str(err.detail)}, status=status.HTTP_400_BAD_REQUEST)
+            error = err.detail[0] if isinstance(err.detail, list) and err.detail else err.detail
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
@@ -82,7 +83,8 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
                 sampling_rate=request.data.get("sampling_rate", 1.0),
             )
         except ValidationError as err:
-            return Response({"error": str(err.detail)}, status=status.HTTP_400_BAD_REQUEST)
+            error = err.detail[0] if isinstance(err.detail, list) and err.detail else err.detail
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = ErrorTrackingSuppressionRuleSerializer(suppression_rule)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
