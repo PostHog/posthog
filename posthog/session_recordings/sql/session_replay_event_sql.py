@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_library Nullable(String),
     retention_period_days Nullable(Int64),
     is_deleted UInt8,
+    ai_tags Array(String),
+    ai_highlighted UInt8,
 ) ENGINE = {engine}
 """
 
@@ -92,6 +94,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
     -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
     is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
+    -- AI-generated session tags from the summarization pipeline
+    ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    -- AI-generated flag indicating the session is especially interesting or worth watching
+    ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
 ) ENGINE = {engine}
 """
 
@@ -162,6 +168,8 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 `_timestamp` Nullable(DateTime)
 {",`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))" if "retention_period_days" not in exclude_columns else ""}
 {",`is_deleted` SimpleAggregateFunction(max, UInt8)" if "is_deleted" not in exclude_columns else ""}
+{",`ai_tags` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags" not in exclude_columns else ""}
+{",`ai_highlighted` SimpleAggregateFunction(max, UInt8)" if "ai_highlighted" not in exclude_columns else ""}
 )"""
 
     return f"""
@@ -203,6 +211,8 @@ argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp
 {",max(retention_period_days) as retention_period_days" if "retention_period_days" not in exclude_columns else ""}
 {",max(is_deleted) as is_deleted" if "is_deleted" not in exclude_columns else ""}
+{",groupUniqArrayArray(ai_tags) as ai_tags" if "ai_tags" not in exclude_columns else ""}
+{",max(ai_highlighted) as ai_highlighted" if "ai_highlighted" not in exclude_columns else ""}
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """

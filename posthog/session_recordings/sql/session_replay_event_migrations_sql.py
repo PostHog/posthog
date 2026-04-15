@@ -351,3 +351,27 @@ ADD_IS_DELETED_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_
 ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_COLUMN.format(
     table_name="session_replay_events",
 )
+
+# =========================
+# MIGRATION: Add AI-generated columns for session tagging
+# The summarization pipeline produces tags and an "interesting" flag per session.
+# These are written back to Kafka and merged via the MV, same pattern as is_deleted.
+# =========================
+
+ALTER_SESSION_REPLAY_ADD_AI_COLUMNS = """
+    ALTER TABLE IF EXISTS {table_name}
+        ADD COLUMN IF NOT EXISTS ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        ADD COLUMN IF NOT EXISTS ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+"""
+
+ADD_AI_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_AI_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ADD_AI_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_AI_COLUMNS.format(
+    table_name="writable_session_replay_events",
+)
+
+ADD_AI_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_AI_COLUMNS.format(
+    table_name="session_replay_events",
+)
