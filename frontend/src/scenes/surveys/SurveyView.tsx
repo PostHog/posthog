@@ -2,7 +2,7 @@ import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import {
     IconArchive,
@@ -67,9 +67,23 @@ import {
 import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from './constants'
 import { SurveyHeadline } from './SurveyHeadline'
+import { SurveyViewTab } from './surveyLogic'
 import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
+const LEGACY_SURVEY_TAB_KEYS = ['results', 'overview', 'notifications', 'history'] as const
+
+type LegacySurveyTabKey = (typeof LEGACY_SURVEY_TAB_KEYS)[number]
+
+function getDefaultLegacySurveyTabKey(surveyStarted: boolean): LegacySurveyTabKey {
+    return surveyStarted ? 'results' : 'overview'
+}
+
+function getLegacySurveyTabKey(searchParam: unknown, surveyStarted: boolean): LegacySurveyTabKey {
+    return typeof searchParam === 'string' && LEGACY_SURVEY_TAB_KEYS.includes(searchParam as LegacySurveyTabKey)
+        ? (searchParam as LegacySurveyTabKey)
+        : getDefaultLegacySurveyTabKey(surveyStarted)
+}
 
 const getTraceIdFromRecord = (record: unknown): string | null => {
     if (!Array.isArray(record)) {
@@ -101,9 +115,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
 }
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
+    const { survey, surveyLoading, activeTab } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
-    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey, setActiveTab } =
+        useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -112,7 +127,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
-    const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+    const tabKey = getLegacySurveyTabKey(activeTab, !!survey.start_date)
 
     const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
 
@@ -123,12 +138,10 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     })
 
     useEffect(() => {
-        if (survey.start_date) {
-            setTabKey('results')
-        } else {
-            setTabKey('overview')
+        if (activeTab && !LEGACY_SURVEY_TAB_KEYS.includes(activeTab as LegacySurveyTabKey)) {
+            setActiveTab(null)
         }
-    }, [survey.start_date])
+    }, [activeTab, setActiveTab])
 
     return (
         <div>
@@ -329,7 +342,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                     />
                     <LemonTabs
                         activeKey={tabKey}
-                        onChange={(key) => setTabKey(key)}
+                        onChange={(key) => setActiveTab(key as SurveyViewTab)}
                         sceneInset
                         tabs={[
                             survey.start_date
@@ -348,7 +361,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                       label: 'Results (Demo)',
                                   },
                             {
-                                content: <SurveyOverview onTabChange={setTabKey} />,
+                                content: <SurveyOverview onTabChange={(tab) => setActiveTab(tab as SurveyViewTab)} />,
                                 key: 'overview',
                                 label: 'Overview',
                             },
@@ -364,7 +377,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                             },
                             {
                                 label: 'History',
-                                key: 'History',
+                                key: 'history',
                                 content: <ActivityLog scope={ActivityScope.SURVEY} id={survey.id} />,
                             },
                         ]}

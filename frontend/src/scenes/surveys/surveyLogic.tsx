@@ -213,6 +213,14 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
+export const ALL_SURVEY_VIEW_TABS = ['results', 'overview', 'notifications', 'history', 'summary', 'responses'] as const
+
+export type SurveyViewTab = (typeof ALL_SURVEY_VIEW_TABS)[number]
+
+function isSurveyViewTab(tab: unknown): tab is SurveyViewTab {
+    return typeof tab === 'string' && ALL_SURVEY_VIEW_TABS.includes(tab as SurveyViewTab)
+}
+
 type AggregateRow = [string, string, number]
 type AggregateEntries = [string, number][]
 
@@ -551,6 +559,7 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
         clearFilters: true,
+        setActiveTab: (tab: SurveyViewTab | null) => ({ tab }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
@@ -1508,6 +1517,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        activeTab: [
+            null as SurveyViewTab | null,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                resetSurvey: () => null,
+            },
+        ],
         interval: [
             null as IntervalType | null,
             {
@@ -1919,12 +1935,13 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         urlSearchParams: [
-            (s) => [s.propertyFilters, s.answerFilters, s.dateRange, s.survey],
+            (s) => [s.propertyFilters, s.answerFilters, s.dateRange, s.survey, s.activeTab],
             (
                 propertyFilters: AnyPropertyFilter[],
                 answerFilters: EventPropertyFilter[],
                 dateRange: SurveyDateRange | null,
-                survey: Survey
+                survey: Survey,
+                activeTab: SurveyViewTab | null
             ) => {
                 const defaultDateFrom = getSurveyStartDateForQuery(survey)
                 const defaultDateTo = getSurveyEndDateForQuery(survey)
@@ -1942,6 +1959,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 return objectClean({
                     ...router.values.searchParams,
+                    tab: activeTab ?? undefined,
                     propertyFilters: propertyFilters?.length > 0 ? JSON.stringify(propertyFilters) : undefined,
                     answerFilters:
                         nonEmptyAnswerFilters?.length > 0 ? JSON.stringify(nonEmptyAnswerFilters) : undefined,
@@ -2452,6 +2470,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 )
             }
 
+            if (isSurveyViewTab(searchParams.tab)) {
+                actions.setActiveTab(searchParams.tab)
+            } else if (searchParams.activity) {
+                actions.setActiveTab('history')
+            } else {
+                actions.setActiveTab(null)
+            }
+
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
                 actions.editingSurvey(true)
@@ -2505,6 +2531,12 @@ export const surveyLogic = kea<surveyLogicType>([
             { replace: true },
         ],
         setDateRange: () => [
+            router.values.location.pathname,
+            values.urlSearchParams,
+            router.values.hashParams,
+            { replace: true },
+        ],
+        setActiveTab: () => [
             router.values.location.pathname,
             values.urlSearchParams,
             router.values.hashParams,

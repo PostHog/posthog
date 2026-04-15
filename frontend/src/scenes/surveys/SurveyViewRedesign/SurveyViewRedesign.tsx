@@ -60,11 +60,32 @@ import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
+const REDESIGN_SURVEY_TAB_KEYS = ['summary', 'responses', 'history'] as const
+
+type RedesignSurveyTabKey = (typeof REDESIGN_SURVEY_TAB_KEYS)[number]
+
+function getDefaultRedesignSurveyTabKey(shouldOpenHistory: boolean): RedesignSurveyTabKey {
+    return shouldOpenHistory ? 'history' : 'summary'
+}
+
+function isValidRedesignSurveyTabKey(key: string, isDraft: boolean): key is RedesignSurveyTabKey {
+    return REDESIGN_SURVEY_TAB_KEYS.includes(key as RedesignSurveyTabKey) && (!isDraft || key !== 'responses')
+}
+
+function getRedesignSurveyTabKey(
+    searchParam: unknown,
+    isDraft: boolean,
+    shouldOpenHistory: boolean
+): RedesignSurveyTabKey {
+    return typeof searchParam === 'string' && isValidRedesignSurveyTabKey(searchParam, isDraft)
+        ? searchParam
+        : getDefaultRedesignSurveyTabKey(shouldOpenHistory)
+}
 
 export function SurveyViewRedesign(): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
+    const { survey, surveyLoading, activeTab } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
-    const { editingSurvey, updateSurvey, archiveSurvey } = useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
@@ -77,11 +98,10 @@ export function SurveyViewRedesign(): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const surveyIdForTransfer = survey?.id && survey.id !== 'new' ? survey.id : null
-    const [tabKey, setTabKey] = useState(() => (searchParams.activity ? 'history' : 'summary'))
+    const isDraft = isSurveyDraft(survey)
     const [panelTabKey, setPanelTabKey] = useState('details')
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const autoOpenedDraftPanelForSurveyIdRef = useRef<string | null>(null)
-    const isDraft = isSurveyDraft(survey)
     const isRemovingSidePanel = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const panelTabSearchParam = 'survey_panel_tab'
 
@@ -110,6 +130,7 @@ export function SurveyViewRedesign(): JSX.Element {
         [isDraft]
     )
     const validPanelTabKeys = useMemo(() => panelTabs.map((tab) => tab.key), [panelTabs])
+    const tabKey = getRedesignSurveyTabKey(activeTab, isDraft, !!searchParams.activity)
 
     const setPanelTab = useCallback(
         (key: string, syncToUrl: boolean = true): void => {
@@ -129,6 +150,12 @@ export function SurveyViewRedesign(): JSX.Element {
             setScenePanelOpen(false)
         }
     }, [isRemovingSidePanel, setScenePanelOpen])
+
+    useEffect(() => {
+        if (activeTab && !isValidRedesignSurveyTabKey(activeTab, isDraft)) {
+            setActiveTab(null)
+        }
+    }, [activeTab, isDraft, setActiveTab])
 
     useEffect(() => {
         const tabFromUrl = searchParams[panelTabSearchParam]
@@ -333,7 +360,7 @@ export function SurveyViewRedesign(): JSX.Element {
             <div className="-m-4 flex-1 min-h-0">
                 <LemonTabs
                     activeKey={tabKey}
-                    onChange={(key) => setTabKey(key)}
+                    onChange={(key) => setActiveTab(key as RedesignSurveyTabKey)}
                     barClassName="pl-4 [&::before]:!bg-transparent border-b"
                     tabs={[
                         {
@@ -342,7 +369,7 @@ export function SurveyViewRedesign(): JSX.Element {
                             content: isDraft ? (
                                 <SurveyDraftContent onSeeSurveyDetails={openDraftDetails} />
                             ) : (
-                                <SurveySummaryContent onViewResponses={() => setTabKey('responses')} />
+                                <SurveySummaryContent onViewResponses={() => setActiveTab('responses')} />
                             ),
                         },
                         ...(!isDraft
