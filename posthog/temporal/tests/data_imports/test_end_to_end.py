@@ -1723,6 +1723,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1731,6 +1732,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
     else:
         mock_v3_post_load.assert_called_once()
@@ -1746,6 +1748,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1754,6 +1757,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
 
@@ -1818,6 +1822,7 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "commit_properties": mock.ANY,
     }
 
 
@@ -1896,6 +1901,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1904,6 +1910,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
     else:
         mock_v3_post_load.assert_called_once()
@@ -1919,6 +1926,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
         assert second_call_kwargs == {
@@ -1927,6 +1935,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
             "table_or_uri": mock.ANY,
             "data": mock.ANY,
             "partition_by": mock.ANY,
+            "commit_properties": mock.ANY,
         }
 
 
@@ -2459,6 +2468,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         "target_alias": "target",
         "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
         "streamed_exec": True,
+        "commit_properties": mock.ANY,
     }
 
 
