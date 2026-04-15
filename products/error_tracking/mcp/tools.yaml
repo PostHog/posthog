@@ -298,3 +298,21 @@ tools:
     error-tracking-recommendations-restore-create:
         operation: error_tracking_recommendations_restore_create
         enabled: false
+wrappers:
+    query-error-tracking-issues:
+        schema_ref: AssistantErrorTrackingQuery
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query error tracking issues
+        description_file: ./prompts/query-error-tracking-issues.md
+        ui_resource_uri: ui://posthog/query-results.html
+        response_format: json
+        url_prefix: /error_tracking
+        exclude_properties:
+            - response
+            - modifiers
