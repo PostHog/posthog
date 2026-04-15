@@ -120,6 +120,26 @@ jobs:
               shell: bash
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Install Rust
+              # posthog/conftest.py's _django_db_setup shells out to `sqlx`
+              # to run the persons-DB migrations. The eval fixtures transitively
+              # depend on it via set_up_evals, so we need sqlx-cli on PATH before
+              # pytest ever runs.
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Install LLM gateway venv
               # Mirrors `bin/start-llm-gateway`. The _llm_gateway fixture
               # execs `services/llm-gateway/.venv/bin/uvicorn` directly.
