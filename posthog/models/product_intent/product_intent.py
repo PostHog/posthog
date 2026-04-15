@@ -195,7 +195,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         if has_dataset:
             return True
 
-        return Evaluation.objects.filter(team=self.team, enabled=True).exists()
+        return Evaluation.objects.filter(team=self.team, enabled=True, deleted=False).exists()
 
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)

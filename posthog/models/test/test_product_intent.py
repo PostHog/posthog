@@ -781,6 +781,16 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_llm_analytics() is False
 
+    def test_has_not_activated_llm_analytics_with_enabled_but_soft_deleted_evaluation(self):
+        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
+        self.product_intent.save()
+        self._make_ai_generation_event_definition()
+        evaluation = self._make_llm_evaluation(enabled=True)
+        evaluation.deleted = True
+        evaluation.save()
+
+        assert self.product_intent.has_activated_llm_analytics() is False
+
     def test_has_activated_workflows_with_active_workflow(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS
         self.product_intent.save()
