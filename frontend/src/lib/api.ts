@@ -1324,6 +1324,10 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('recommendations')
     }
 
+    public errorTrackingRecommendation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingRecommendations(teamId).addPathComponent(id)
+    }
+
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('quick_filters')
     }
@@ -3950,27 +3954,15 @@ const api = {
         },
 
         async dismissRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendations()
-                .addPathComponent(id)
-                .withAction('dismiss')
-                .create()
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('dismiss').create()
         },
 
         async restoreRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendations()
-                .addPathComponent(id)
-                .withAction('restore')
-                .create()
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
         },
 
         async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest()
-                .errorTrackingRecommendations()
-                .addPathComponent(id)
-                .withAction('refresh')
-                .create()
+            return await new ApiRequest().errorTrackingRecommendation(id).withAction('refresh').create()
         },
 
         async createRule(
