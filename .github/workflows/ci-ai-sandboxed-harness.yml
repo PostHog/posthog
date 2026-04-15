@@ -1,17 +1,14 @@
 name: AI sandboxed harness smoke test
-# Two-tier trigger model:
-#   1. pull_request / push-to-master on a curated path list — fast feedback
-#      on the files that directly reach into the harness (fixtures, runner,
-#      docker sandbox provider, task backend, direct transport deps). We
-#      deliberately DO NOT gate on blanket posthog/** or products/*/backend/**
-#      because this job runs the full docker-compose stack for ~15 minutes
-#      and almost all changes under those trees have no bearing on whether
-#      the sandboxed eval harness boots.
-#   2. schedule: a daily cron catches drift from anything the path filter
-#      misses — dep bumps, upstream docker image changes, distant refactors
-#      that transitively break braintrust / temporalio / posthoganalytics
-#      etc. so the harness doesn't silently rot between PRs that happen to
-#      touch the curated list.
+# Triggered on a curated path list covering everything the harness fixtures
+# directly reach into — the fixtures themselves, the task backend + docker
+# sandbox provider, the LLM gateway and MCP transports, plus the Django
+# modules (temporal worker, sandbox/task settings, S3 log polling) that
+# autouse fixtures import at runtime. We deliberately DO NOT gate on
+# blanket posthog/** or products/*/backend/** because this job runs the
+# full docker-compose stack for ~15 minutes and almost all changes under
+# those trees have no bearing on whether the sandboxed eval harness boots.
+# ``workflow_dispatch`` is kept so the job can be re-run on demand when
+# debugging a drift regression that slipped past the path filter.
 on:
     pull_request:
         paths:
@@ -57,11 +54,6 @@ on:
             - 'docker-compose.profiles.yml'
             - 'docker/temporal/**'
             - '.github/workflows/ci-ai-sandboxed-harness.yml'
-    schedule:
-        # Daily at 06:17 UTC — offset from the top of the hour to avoid
-        # contention with other PostHog cron jobs. Picks up drift from
-        # anything the path filter above doesn't cover.
-        - cron: '17 6 * * *'
     workflow_dispatch: {}
 
 concurrency:
@@ -84,7 +76,7 @@ jobs:
             contents: read
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   fetch-depth: 1
                   filter: blob:none
@@ -138,12 +130,12 @@ jobs:
                   uv pip install -e .
 
             - name: Set up Node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: '.nvmrc'
 
             - name: Set up pnpm
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
               with:
                   run_install: false
 
