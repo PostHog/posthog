@@ -135,15 +135,18 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [observability]
 
-    nodejs_traces:
-        description: 'Node.js Traces - trace ingestion'
-    logs_ingestion:
-        description: 'OTEL logs capture service'
+    nodejs_metrics:
+        description: 'Node.js Metrics - metric ingestion'
         requires: [event_ingestion]
         docker_profiles: [observability]
 
-    nodejs_metrics:
-        description: 'Node.js Metrics - metric ingestion'
+    nodejs_traces:
+        description: 'Node.js Traces - trace ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    logs_ingestion:
+        description: 'OTEL logs capture service'
         requires: [event_ingestion]
         docker_profiles: [observability]
 
