@@ -20,7 +20,7 @@ operations = [
     run_sql_with_exceptions(
         DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
     ),
-    # Add ai_tags and ai_is_interesting columns to the target tables
+    # Add ai_tags and ai_highlighted columns to the target tables
     # Writable table - Distributed engine (not replicated MergeTree)
     run_sql_with_exceptions(
         ADD_AI_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(),
