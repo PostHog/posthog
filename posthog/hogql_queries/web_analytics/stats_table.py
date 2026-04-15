@@ -534,6 +534,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if use_prefilter:
             from posthog.schema import HogQLQueryResponse
 
+            from posthog.hogql.printer.utils import print_prepared_ast
             from posthog.hogql.query import HogQLQueryExecutor
 
             from posthog.hogql_queries.web_analytics.events_prefilter import EventsPrefilterTransformer
@@ -553,14 +554,22 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             executor._generate_hogql()
             executor._generate_clickhouse_sql()
 
-            if executor.clickhouse_sql:
+            if executor.clickhouse_prepared_ast is not None:
                 date_from, date_to = self._events_prefilter_date_bounds()
                 transformer = EventsPrefilterTransformer(
                     team_id=self.team.pk,
                     date_from=date_from,
                     date_to=date_to,
                 )
-                executor.clickhouse_sql = transformer.transform(executor.clickhouse_sql)
+                transformer.visit(executor.clickhouse_prepared_ast)
+
+                assert executor.clickhouse_context is not None
+                executor.clickhouse_sql = print_prepared_ast(
+                    node=executor.clickhouse_prepared_ast,
+                    context=executor.clickhouse_context,
+                    dialect="clickhouse",
+                    pretty=True,
+                )
 
             executor._execute_clickhouse_query()
             response = HogQLQueryResponse(

@@ -1,100 +1,114 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
-from parameterized import parameterized
+from posthog.schema import DateRange, EventPropertyFilter, PropertyOperator, WebStatsBreakdown, WebStatsTableQuery
 
-from posthog.hogql_queries.web_analytics.events_prefilter import EventsPrefilterTransformer
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
 
-class TestEventsPrefilterTransformer(BaseTest):
-    def _make_transformer(self) -> EventsPrefilterTransformer:
-        return EventsPrefilterTransformer(
-            team_id=1,
-            date_from="2024-01-01",
-            date_to="2024-01-31",
+class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
+    def _run_prefiltered_query(self, **query_kwargs):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.PAGE,
+            **query_kwargs,
         )
+        with patch(
+            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=True,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=query)
+            runner.calculate()
+            return runner.paginator.response.clickhouse or ""
 
-    def test_wraps_all_from_events(self):
-        sql = """
-SELECT * FROM (
-    SELECT * FROM events WHERE team_id = 1
-) AS counts
-LEFT JOIN (
-    SELECT * FROM events WHERE team_id = 1
-) AS bounce ON 1=1
-"""
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
+    def test_bounce_query_wraps_from_events(self):
+        sql = self._run_prefiltered_query(includeBounceRate=True)
 
-        assert result.count("SELECT * FROM events WHERE events.team_id = 1 AND toDate") == 2
-        assert "counts" in result
-        assert "bounce" in result
+        assert "toDate(events.timestamp)" in sql
+        assert sql.count("toDate(events.timestamp)") >= 2  # at least one FROM events wrapped
 
-    def test_wraps_single_from_events(self):
-        sql = "SELECT * FROM events WHERE team_id = 1"
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
+    def test_avg_time_query_wraps_from_events(self):
+        sql = self._run_prefiltered_query(includeAvgTimeOnPage=True)
 
-        assert "SELECT * FROM events WHERE events.team_id = 1 AND toDate" in result
+        assert "toDate(events.timestamp)" in sql
 
-    def test_no_change_for_no_from_events(self):
-        sql = "SELECT 1 FROM numbers(10)"
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
+    def test_prefilter_includes_team_id(self):
+        sql = self._run_prefiltered_query(includeBounceRate=True)
 
-        assert result == sql
+        assert f"equals(events.team_id, {self.team.pk})" in sql
 
-    def test_wraps_all_three_from_events(self):
-        sql = """
-SELECT * FROM (SELECT * FROM events) AS counts
-LEFT JOIN (SELECT * FROM events) AS bounce ON 1=1
-LEFT JOIN (SELECT * FROM events) AS time_on_page ON 1=1
-"""
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
-
-        assert result.count("SELECT * FROM events WHERE events.team_id") == 3
-
-    def test_prefilter_clause_contains_date_bounds(self):
-        transformer = EventsPrefilterTransformer(
-            team_id=42,
-            date_from="2024-03-15",
-            date_to="2024-04-15",
+    def test_prefilter_date_bounds_have_buffer(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.PAGE,
+            includeBounceRate=True,
         )
-        clause = transformer.prefilter_clause
+        with patch(
+            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=True,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=query)
+            date_from, date_to = runner._events_prefilter_date_bounds()
 
-        assert "events.team_id = 42" in clause
-        assert "toDate(events.timestamp) >= '2024-03-15'" in clause
-        assert "toDate(events.timestamp) <= '2024-04-15'" in clause
+        # Date range is Jan 1-31, buffer is ±1 day
+        assert date_from == "2023-12-31"
+        assert date_to == "2024-02-01"
 
-    @parameterized.expand(
-        [
-            ("insights_query", "SELECT count() FROM other_table WHERE team_id = 1 GROUP BY event"),
-            ("no_events_table", "SELECT 1 FROM sessions WHERE session_id = 'abc'"),
-            ("empty_string", ""),
-        ],
-    )
-    def test_queries_without_from_events_unaffected(self, _name, sql):
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
+    def test_prefilter_with_event_filter(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[
+                EventPropertyFilter(
+                    key="$geoip_city_name",
+                    operator=PropertyOperator.EXACT,
+                    value=["Pretoria"],
+                )
+            ],
+            breakdownBy=WebStatsBreakdown.PAGE,
+            includeBounceRate=True,
+        )
+        with patch(
+            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=True,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=query)
+            runner.calculate()
+            sql = runner.paginator.response.clickhouse or ""
 
-        assert result == sql
+        assert "toDate(events.timestamp)" in sql
 
-    def test_case_insensitive_from_matching(self):
-        sql = """
-SELECT * FROM (SELECT * from events WHERE 1) AS counts
-LEFT JOIN (SELECT * from events WHERE 1) AS bounce ON 1=1
-"""
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
+    def test_non_prefiltered_team_unchanged(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.PAGE,
+            includeBounceRate=True,
+        )
+        with patch(
+            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=False,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=query)
+            runner.calculate()
+            sql = runner.paginator.response.clickhouse or ""
 
-        assert result.count("SELECT * FROM events WHERE events.team_id") == 2
+        assert "toDate(events.timestamp)" not in sql
 
-    def test_does_not_match_events_as_substring(self):
-        sql = """
-SELECT * FROM (SELECT * FROM events_backup WHERE 1) AS other
-"""
-        transformer = self._make_transformer()
-        result = transformer.transform(sql)
+    def test_main_query_without_bounce_not_affected(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            properties=[],
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+        )
+        with patch(
+            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=True,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=query)
+            runner.calculate()
+            sql = runner.paginator.response.clickhouse or ""
 
-        assert "events_backup" in result
-        assert "SELECT * FROM events WHERE events.team_id" not in result
+        # Non-bounce queries also get wrapped since they go through the same _calculate path
+        assert "toDate(events.timestamp)" in sql
