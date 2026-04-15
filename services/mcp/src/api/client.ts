@@ -12,7 +12,6 @@ import type {
 } from '@/schema/api'
 import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
 import { ExperimentExposureQuerySchema } from '@/schema/experiments'
-import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -691,40 +690,6 @@ export class ApiClient {
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
-                try {
-                    const qs = new URLSearchParams()
-                    if (params?.limit !== undefined) {
-                        qs.set('limit', String(params.limit))
-                    }
-                    if (params?.offset !== undefined) {
-                        qs.set('offset', String(params.offset))
-                    }
-                    if (params?.search) {
-                        qs.set('search', params.search)
-                    }
-                    const qStr = qs.toString()
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<Schemas.Insight>> => {
-                const validatedInput = CreateInsightInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
-                    method: 'POST',
-                    body: JSON.stringify({ ...validatedInput, saved: true }),
-                })
-            },
-
             get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
@@ -754,6 +719,13 @@ export class ApiClient {
                 return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
                 )
+            },
+
+            create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ ...data, saved: true }),
+                })
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -796,10 +768,41 @@ export class ApiClient {
                 }
             },
 
-            query: async ({ query }: { query: Record<string, any> }): Promise<Result<any>> => {
+            list: async ({ params }: { params?: Record<string, any> } = {}): Promise<
+                Result<Array<Schemas.Insight>>
+            > => {
+                try {
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            query: async ({
+                query,
+            }: {
+                query: Record<string, any>
+            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns: unknown }>(url, {
+                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })
