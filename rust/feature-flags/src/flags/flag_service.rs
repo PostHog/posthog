@@ -1,6 +1,9 @@
 use crate::{
     api::errors::FlagError,
-    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+    flags::{
+        flag_definitions_cache::FlagDefinitionsCache,
+        flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions},
+    },
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
@@ -19,7 +22,8 @@ use std::sync::Arc;
 /// Result of fetching feature flags, including cache source information.
 #[derive(Debug, Clone)]
 pub struct FlagResult {
-    pub flag_list: FeatureFlagList,
+    /// Pre-compiled flag definitions (deserialized + regex-compiled), shared across requests.
+    pub prepared: Arc<PreparedFlagDefinitions>,
     /// The source of the flags data (Redis, S3, or Fallback/PostgreSQL).
     pub cache_source: common_hypercache::CacheSource,
 }
@@ -36,6 +40,8 @@ pub struct FlagService {
     /// HyperCache reader for fetching flags from Redis/S3
     /// Arc-wrapped to allow sharing across requests
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// In-memory cache for deserialized + regex-compiled flag definitions
+    flag_definitions_cache: Arc<FlagDefinitionsCache>,
     /// In-memory negative cache for invalid API tokens
     team_negative_cache: NegativeCache,
     /// When true, skip PG fallback for team token lookups
@@ -48,6 +54,7 @@ impl FlagService {
         pg_client: PostgresReader,
         team_hypercache_reader: Arc<HyperCacheReader>,
         flags_hypercache_reader: Arc<HyperCacheReader>,
+        flag_definitions_cache: Arc<FlagDefinitionsCache>,
         team_negative_cache: NegativeCache,
         skip_pg_team_fallback: bool,
     ) -> Self {
@@ -56,6 +63,7 @@ impl FlagService {
             pg_client,
             team_hypercache_reader,
             flags_hypercache_reader,
+            flag_definitions_cache,
             team_negative_cache,
             skip_pg_team_fallback,
         }
@@ -155,6 +163,10 @@ impl FlagService {
     /// - Falls back to S3 on Redis miss
     /// - Falls back to PostgreSQL if both cache tiers miss
     /// - Emits appropriate metrics for all scenarios
+    ///
+    /// Cache hits from Redis/S3 are additionally cached in-memory as fully
+    /// deserialized + regex-compiled `PreparedFlagDefinitions`, avoiding
+    /// per-request deserialization and regex compilation overhead.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: TeamId,
@@ -181,15 +193,16 @@ impl FlagService {
             )
             .await?;
 
-        let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
+        // Use in-memory cache for compiled flag definitions.
+        // On cache hit: returns Arc clone (no deserialization or regex compilation).
+        // On cache miss: validates wrapper + pre-compiles regexes, then caches.
+        let prepared = self
+            .flag_definitions_cache
+            .get_or_prepare(team_id, data, &source)
+            .await?;
 
         Ok(FlagResult {
-            flag_list: FeatureFlagList {
-                flags,
-                evaluation_metadata,
-                cohorts,
-                ..Default::default()
-            },
+            prepared,
             cache_source: source,
         })
     }
@@ -203,6 +216,7 @@ mod tests {
 
     use crate::{
         flags::{
+            flag_definitions_cache::FlagDefinitionsCache,
             flag_models::{
                 EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
                 HypercacheFlagsWrapper,
@@ -235,6 +249,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -268,6 +283,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -298,6 +314,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -432,6 +449,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -444,11 +462,11 @@ mod tests {
             flag_result.cache_source,
             common_hypercache::CacheSource::Fallback
         ));
-        assert_eq!(flag_result.flag_list.flags.len(), mock_flags.flags.len());
+        assert_eq!(flag_result.prepared.flags.len(), mock_flags.flags.len());
 
         // Verify the contents of the fetched flags
         let beta_feature = flag_result
-            .flag_list
+            .prepared
             .flags
             .iter()
             .find(|f| f.key == "beta_feature")
@@ -464,7 +482,7 @@ mod tests {
         );
 
         let new_ui = flag_result
-            .flag_list
+            .prepared
             .flags
             .iter()
             .find(|f| f.key == "new_ui")
@@ -473,7 +491,7 @@ mod tests {
         assert!(new_ui.filters.groups.is_empty());
 
         let premium_feature = flag_result
-            .flag_list
+            .prepared
             .flags
             .iter()
             .find(|f| f.key == "premium_feature")
@@ -580,6 +598,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -600,20 +619,20 @@ mod tests {
             "Expected cache hit for compressed data"
         );
         assert_eq!(
-            flag_result.flag_list.flags.len(),
+            flag_result.prepared.flags.len(),
             10,
             "Expected 10 flags from compressed payload"
         );
 
         // Verify flag contents were correctly decompressed and parsed
-        let first_flag = &flag_result.flag_list.flags[0];
+        let first_flag = &flag_result.prepared.flags[0];
         assert_eq!(
             first_flag.key,
             "test_flag_0_with_extra_chars_for_larger_payload"
         );
         assert!(first_flag.active);
 
-        let last_flag = &flag_result.flag_list.flags[9];
+        let last_flag = &flag_result.prepared.flags[9];
         assert_eq!(
             last_flag.key,
             "test_flag_9_with_extra_chars_for_larger_payload"
@@ -640,6 +659,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -683,6 +703,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -730,6 +751,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -780,6 +802,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -823,6 +846,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache,
             false,
         );
@@ -848,6 +872,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             false,
         );
@@ -877,6 +902,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             false,
         );
@@ -909,6 +935,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             false,
         );
@@ -950,6 +977,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             true, // skip PG fallback
         );
@@ -993,6 +1021,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             skip_pg,
         );

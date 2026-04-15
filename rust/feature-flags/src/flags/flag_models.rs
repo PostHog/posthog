@@ -291,6 +291,85 @@ pub struct FeatureFlagList {
     pub cohorts: Option<Vec<Cohort>>,
 }
 
+/// Immutable, pre-compiled flag definitions cached across requests.
+///
+/// Contains deserialized flags with compiled regexes, evaluation metadata,
+/// and optional cohort definitions. Wrapped in `Arc` for zero-copy sharing
+/// across concurrent requests for the same team.
+///
+/// Excludes `filtered_out_flag_ids` since those are per-request.
+#[derive(Clone, Debug)]
+pub struct PreparedFlagDefinitions {
+    pub flags: Vec<FeatureFlag>,
+    pub evaluation_metadata: EvaluationMetadata,
+    pub cohorts: Option<Vec<Cohort>>,
+}
+
+impl PreparedFlagDefinitions {
+    /// Estimates the heap memory footprint of this struct in bytes.
+    /// Used by moka's weight-based eviction to enforce cache capacity limits.
+    pub fn estimated_size_bytes(&self) -> usize {
+        let base = std::mem::size_of::<Self>();
+
+        let flags_size: usize = self
+            .flags
+            .iter()
+            .map(|f| {
+                let struct_size = std::mem::size_of::<FeatureFlag>();
+                let key_size = f.key.len();
+                let name_size = f.name.as_ref().map_or(0, |n| n.len());
+                let runtime_size = f.evaluation_runtime.as_ref().map_or(0, |r| r.len());
+                let tags_size = f
+                    .evaluation_tags
+                    .as_ref()
+                    .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
+                let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
+                // Estimate filter properties: each PropertyFilter with a compiled regex
+                // costs ~2KB for the DFA/NFA automata inside fancy_regex::Regex
+                let filters_size: usize = f
+                    .filters
+                    .groups
+                    .iter()
+                    .map(|g| {
+                        g.properties.as_ref().map_or(0, |props| {
+                            props
+                                .iter()
+                                .map(|p| {
+                                    let prop_base = std::mem::size_of::<PropertyFilter>();
+                                    let prop_key = p.key.len();
+                                    let regex_overhead =
+                                        if p.compiled_regex.is_some() { 2048 } else { 0 };
+                                    prop_base + prop_key + regex_overhead
+                                })
+                                .sum()
+                        })
+                    })
+                    .sum();
+
+                struct_size
+                    + key_size
+                    + name_size
+                    + runtime_size
+                    + tags_size
+                    + bucketing_size
+                    + filters_size
+            })
+            .sum();
+
+        let metadata_size = self.evaluation_metadata.dependency_stages.len() * 24
+            + self.evaluation_metadata.transitive_deps.len() * 48;
+
+        let cohorts_size = self.cohorts.as_ref().map_or(0, |cohorts| {
+            cohorts
+                .iter()
+                .map(|c| c.estimated_size_bytes())
+                .sum::<usize>()
+        });
+
+        base + flags_size + metadata_size + cohorts_size
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::needless_update)]
 mod mock_impls {

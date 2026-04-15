@@ -20,6 +20,16 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// In-memory flag definitions cache (deserialized + regex-compiled)
+pub const FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER: &str =
+    "flags_definitions_inmem_cache_hit_total";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER: &str =
+    "flags_definitions_inmem_cache_miss_total";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE: &str =
+    "flags_definitions_inmem_cache_size_bytes";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE: &str =
+    "flags_definitions_inmem_cache_entries";
+pub const FLAG_DEFINITIONS_HASH_DURATION_US: &str = "flags_definitions_hash_duration_us";
 // Cohort source for flag evaluation
 // Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
 pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";

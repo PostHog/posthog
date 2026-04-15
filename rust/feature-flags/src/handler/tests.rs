@@ -15,6 +15,7 @@ use crate::{
     flags::flag_group_type_mapping::GroupTypeCacheManager,
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
+        flag_definitions_cache::FlagDefinitionsCache,
         flag_models::{
             EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
             HypercacheFlagsWrapper,
@@ -1124,6 +1125,7 @@ async fn test_fetch_and_filter_flags() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
         NegativeCache::new(100, 300),
         false,
     );
@@ -1270,6 +1272,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
         NegativeCache::new(100, 300),
         false,
     );

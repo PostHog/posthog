@@ -143,30 +143,30 @@ pub async fn fetch_and_filter(
     // Record cache source in canonical log for observability
     with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
-    let flags = flag_result.flag_list.flags;
-    let evaluation_metadata = flag_result.flag_list.evaluation_metadata;
-    let cohorts = flag_result.flag_list.cohorts;
+    let prepared = &flag_result.prepared;
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
-    let mut filtered_out_flag_ids: HashSet<i32> = flags
+    let mut filtered_out_flag_ids: HashSet<i32> = prepared
+        .flags
         .iter()
         .filter(|f| !f.active || f.deleted)
         .map(|f| f.id)
         .collect();
 
     filtered_out_flag_ids.extend(collect_excluded_by_survey_filter(
-        &flags,
+        &prepared.flags,
         query_params
             .only_evaluate_survey_feature_flags
             .unwrap_or(false),
     ));
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
-    filtered_out_flag_ids.extend(collect_excluded_by_runtime(&flags, current_runtime));
-    filtered_out_flag_ids.extend(collect_excluded_by_tags(&flags, environment_tags));
+    filtered_out_flag_ids.extend(collect_excluded_by_runtime(&prepared.flags, current_runtime));
+    filtered_out_flag_ids.extend(collect_excluded_by_tags(&prepared.flags, environment_tags));
 
     if tracing::enabled!(tracing::Level::DEBUG) {
-        let active_count = flags
+        let active_count = prepared
+            .flags
             .iter()
             .filter(|f| !filtered_out_flag_ids.contains(&f.id))
             .count();
@@ -174,18 +174,19 @@ pub async fn fetch_and_filter(
             "Flag filtering: detected_runtime={:?}, environment_tags={:?}, total={}, active={}",
             current_runtime,
             environment_tags,
-            flags.len(),
+            prepared.flags.len(),
             active_count,
         );
     }
 
-    let mut flag_list = FeatureFlagList {
-        flags,
+    // Clone flags from the cached PreparedFlagDefinitions. This is cheap because
+    // CompiledRegex::clone() is Arc::clone() (reference count bump, no re-compilation).
+    let flag_list = FeatureFlagList {
+        flags: prepared.flags.clone(),
         filtered_out_flag_ids,
-        evaluation_metadata,
-        cohorts,
+        evaluation_metadata: prepared.evaluation_metadata.clone(),
+        cohorts: prepared.cohorts.clone(),
     };
-    flag_list.prepare_regexes();
     Ok(flag_list)
 }
 

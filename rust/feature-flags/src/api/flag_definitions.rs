@@ -377,6 +377,7 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
         state.database_pools.non_persons_reader.clone(),
         state.team_hypercache_reader.clone(),
         state.flags_hypercache_reader.clone(),
+        state.flag_definitions_cache.clone(),
         state.team_negative_cache.clone(),
         *state.config.skip_pg_team_fallback,
     );

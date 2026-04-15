@@ -465,6 +465,17 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    /// Maximum memory for the in-memory flag definitions cache (deserialized + regex-compiled).
+    /// Default: 134217728 bytes (128 MB)
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_CAPACITY_BYTES", default = "134217728")]
+    pub flag_definitions_cache_capacity_bytes: u64,
+
+    /// TTL for in-memory flag definitions cache entries.
+    /// Content-hashed keys ensure correctness — TTL mainly controls memory reclamation.
+    /// Default: 90 seconds
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_TTL_SECONDS", default = "90")]
+    pub flag_definitions_cache_ttl_seconds: u64,
+
     #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
     pub group_type_cache_ttl_seconds: u64,
 
@@ -835,6 +846,8 @@ impl Config {
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
+            flag_definitions_cache_capacity_bytes: 134_217_728, // 128 MB
+            flag_definitions_cache_ttl_seconds: 90,
             cache_ttl_seconds: 300,
             group_type_cache_ttl_seconds: 300,
             group_type_cache_max_entries: 50_000,

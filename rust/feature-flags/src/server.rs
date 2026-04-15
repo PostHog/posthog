@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
+use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
     RealtimeCohortMembershipProvider,
@@ -120,6 +121,11 @@ pub async fn serve<F>(
         Some(config.cache_ttl_seconds),
     ));
 
+    let flag_definitions_cache = Arc::new(FlagDefinitionsCache::new(
+        Some(config.flag_definitions_cache_capacity_bytes),
+        Some(config.flag_definitions_cache_ttl_seconds),
+    ));
+
     let group_type_cache = Arc::new(GroupTypeCacheManager::new(
         database_pools.persons_reader.clone(),
         Some(config.group_type_cache_max_entries),
@@ -171,6 +177,12 @@ pub async fn serve<F>(
         cohort_cache_clone
             .start_monitoring(cohort_cache_monitor_interval)
             .await;
+    });
+
+    // Start flag definitions cache monitoring
+    let flag_defs_cache_clone = flag_definitions_cache.clone();
+    tokio::spawn(async move {
+        flag_defs_cache_clone.start_monitoring(30).await;
     });
 
     // Start Tokio runtime monitoring
@@ -414,6 +426,7 @@ pub async fn serve<F>(
         session_replay_billing_limiter,
         cookieless_manager,
         flags_hypercache_reader,
+        flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
