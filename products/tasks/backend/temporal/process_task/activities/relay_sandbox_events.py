@@ -130,14 +130,14 @@ async def _background_heartbeat(
         except TimeoutError:
             activity.heartbeat()
             # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT_MINUTES
+            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT
 
             now = time.monotonic()
             if (
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT_MINUTES * 60
+                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):

@@ -1,7 +1,7 @@
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Optional
 
@@ -88,7 +88,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received: bool = False
         self._pending_followup: Optional[str] = None
         self._ci_repetitions: int = 0
-        self._last_event_timestamp: Optional[datetime] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -106,7 +105,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
 
-    async def _wait_for_signal(self):
+    async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
             lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None
         )
@@ -122,7 +121,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _wait_for_event(self) -> TaskEvent:
         possible_events: list[asyncio.Task[TaskEvent]] = [
-            asyncio.create_task(self._wait_for_signal()),
+            asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity()),
         ]
         if self._context and self._context.pr_loop_enabled and self._ci_repetitions < MAX_CI_REPETITIONS:
