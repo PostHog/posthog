@@ -5,7 +5,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
 RECOMMENDATION_TYPE = "cross_sell"
-REFRESH_INTERVAL = timedelta(hours=1)
+REFRESH_INTERVAL = timedelta(seconds=30)
 
 
 def _team_has_logs(team_id: int) -> bool:
