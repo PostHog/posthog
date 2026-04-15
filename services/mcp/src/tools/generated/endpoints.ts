@@ -167,7 +167,9 @@ const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.Endpoin
 })
 
 const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true })
-    .extend(EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, version: true }).shape)
+    .extend(
+        EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
+    )
     .extend({
         variables: EndpointsRunCreateBody.shape['variables'].describe(
             'Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name as key.'

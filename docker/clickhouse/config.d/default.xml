@@ -84,6 +84,9 @@
         <warpstream_ingestion>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_ingestion>
+        <warpstream_calculated_events>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_calculated_events>
     </named_collections>
 
     <macros>
