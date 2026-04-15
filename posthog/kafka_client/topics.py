@@ -33,11 +33,9 @@ KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFF
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
 
-# from capture to recordings consumer
+# Legacy session recording topic — only retained because clickhouse migration 0063 still
+# DROPs the old materialized view by name. Producers/consumers live in the Node.js services.
 KAFKA_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}session_recording_events{SUFFIX}"
-# from capture to recordings blob ingestion consumer
-KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = f"{KAFKA_PREFIX}session_recording_snapshot_item_events{SUFFIX}"
-KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW = f"{KAFKA_PREFIX}session_recording_snapshot_item_overflow{SUFFIX}"
 
 # from recordings consumer to clickhouse
 KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_replay_events{SUFFIX}"

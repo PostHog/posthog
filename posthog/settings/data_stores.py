@@ -408,8 +408,6 @@ def _parse_kafka_hosts(hosts_string: str) -> list[str]:
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
 # We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
 KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
-# Dedicated kafka hosts for session recordings
-SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
 # Kafka broker host(s) that is used by clickhouse for ingesting messages.
 # Useful if clickhouse is hosted outside the cluster.
 KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
@@ -440,16 +438,7 @@ KAFKA_PRODUCER_SETTINGS = {
     if value is not None
 }
 
-SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
-    "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
-    1024 * 1024,  # 1MB
-    type_cast=int,
-)
-
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
-SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL = os.getenv(
-    "SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL", KAFKA_SECURITY_PROTOCOL
-)
 KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)

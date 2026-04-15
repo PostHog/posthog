@@ -37,7 +37,6 @@ from posthog.kafka_client.topics import (
 
 class KafkaClusterProfile(StrEnum):
     DEFAULT = "default"
-    SESSION_RECORDING = "session_recording"
     WAREHOUSE_SOURCES = "warehouse_sources"
     CYCLOTRON = "cyclotron"
 
@@ -57,13 +56,6 @@ def _resolve_profile_config(profile: KafkaClusterProfile) -> ClusterProfileConfi
         return ClusterProfileConfig(
             hosts=settings.KAFKA_HOSTS,
             security_protocol=settings.KAFKA_SECURITY_PROTOCOL,
-        )
-    if profile == KafkaClusterProfile.SESSION_RECORDING:
-        return ClusterProfileConfig(
-            hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
-            security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
-            max_request_size=settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES,
-            compression_type="gzip",
         )
     if profile == KafkaClusterProfile.WAREHOUSE_SOURCES:
         return ClusterProfileConfig(
