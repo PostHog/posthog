@@ -1,4 +1,4 @@
-from typing import Optional, Protocol, Union, cast, runtime_checkable
+from typing import Optional, Protocol, cast, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
@@ -109,65 +109,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     arrayRotateRight(events_array, 1),
                     arrayRotateLeft(events_array, 1))"""
 
-    def _should_apply_pre_filter(self) -> bool:
-        funnelOrderType = self.context.funnelsFilter.funnelOrderType
-        if funnelOrderType == StepOrderValue.UNORDERED:
-            return False
-        if getattr(self.context.query.series[1], "optionalInFunnel", False):
-            return False
-        if self.context.breakdown:
-            return False
-        if getattr(self.context.funnelsFilter, "exclusions", None):
-            return False
-        # The synthetic branch produces dummy placeholders, not real events/timestamps
-        if self._include_matched_events() or self.context.includeTimestamp or self.context.includePrecedingTimestamp:
-            return False
-        return True
-
-    def _build_synthetic_branch(self) -> ast.SelectQuery:
-        """Build a cheap GROUP BY query for persons with step_0 but NOT step_1.
-
-        These persons can never progress past step 0, so their result is
-        deterministic. This avoids sending their events through the UDF.
-        """
-        prop_vals = self._prop_vals()
-        breakdown_select = self._default_breakdown_selector()
-        events_array_prop_default = "''"
-
-        person_id_select = ""
-        if self._is_session_aggregation():
-            person_id_select = "any(person_id) as person_id,"
-
-        inner_event_query = self._get_inner_event_query()
-
-        # Must match the UDF's non-nullable Array(Float64) return type, otherwise the UNION ALL fails
-        non_nullable_empty_float_array = "arrayMap(x -> assumeNotNull(x), arrayFilter(x -> 0, [toFloat(0)]))"
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                f"""
-                SELECT
-                    arrayFilter(x -> 0, [tuple(toFloat(0), toUUID('00000000-0000-0000-0000-000000000000'), {events_array_prop_default}, [0])]) as events_array,
-                    {prop_vals} as prop,
-                    tuple(0, {breakdown_select}, {non_nullable_empty_float_array}, arrayMap(x -> arrayFilter(y -> 0, [toUUID('00000000-0000-0000-0000-000000000000')]), arrayFilter(z -> 0, [1])), 1) as af_tuple,
-                    0 as step_reached,
-                    1 as steps,
-                    {breakdown_select} as breakdown,
-                    {non_nullable_empty_float_array} as timings,
-                    1 as steps_bitfield,
-                    {person_id_select}
-                    aggregation_target
-                FROM {{inner_event_query}}
-                GROUP BY aggregation_target
-                HAVING countIf(step_0 = 1) > 0 AND countIf(step_1 = 1) = 0
-            """,
-                {"inner_event_query": inner_event_query},
-            ),
-        )
-
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
-    def _inner_aggregation_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
+    def _inner_aggregation_query(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
             inner_event_query = self._get_inner_event_query(skip_step_filter=True, skip_entity_filter=True)
         else:
@@ -258,33 +202,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         """,
             {"inner_event_query": inner_event_query},
         )
-
-        if self._should_apply_pre_filter():
-            assert isinstance(inner_select, ast.SelectQuery)
-            qualifying_subquery = parse_select(
-                """
-                SELECT aggregation_target FROM {iq}
-                GROUP BY aggregation_target
-                HAVING countIf(step_0 = 1) > 0 AND countIf(step_1 = 1) > 0
-            """,
-                {"iq": self._get_inner_event_query()},
-            )
-
-            assert inner_select.select_from is not None
-            event_query = inner_select.select_from.table
-            assert isinstance(event_query, ast.SelectQuery)
-            in_filter = parse_expr(
-                "aggregation_target IN ({qualifying})",
-                {"qualifying": qualifying_subquery},
-            )
-            if event_query.where:
-                event_query.where = ast.And(exprs=[event_query.where, in_filter])
-            else:
-                event_query.where = in_filter
-
-            synthetic = self._build_synthetic_branch()
-            inner_select = ast.SelectSetQuery.create_from_queries([inner_select, synthetic], "UNION ALL")
-
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:

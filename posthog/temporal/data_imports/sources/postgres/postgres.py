@@ -16,6 +16,7 @@ from django.conf import settings
 
 import psycopg
 import pyarrow as pa
+import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
@@ -286,6 +287,32 @@ def get_schemas(
             schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     return schema_list
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+    require_ssl: bool = False,
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with pg_connection(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ) as connection:
+            pks = get_primary_key_columns(connection, schema, table_names)
+            for table_name, pk_cols in pks.items():
+                result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for Postgres schemas", exc_info=e)
+
+    return result
 
 
 def get_foreign_keys(
