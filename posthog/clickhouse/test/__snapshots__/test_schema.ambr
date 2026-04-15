@@ -620,7 +620,8 @@
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
-      ai_tags Array(String),
+      ai_tags_fixed Array(String),
+      ai_tags_freeform Array(String),
       ai_highlighted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
@@ -2279,7 +2280,8 @@
       snapshot_library Nullable(String),
       retention_period_days Nullable(Int64),
       is_deleted UInt8,
-      ai_tags Array(String),
+      ai_tags_fixed Array(String),
+      ai_tags_freeform Array(String),
       ai_highlighted UInt8,
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_session_replay_events_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
   
@@ -4160,8 +4162,10 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      -- AI-generated session tags from the summarization pipeline
-      ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
@@ -4191,7 +4195,8 @@
   `_timestamp` Nullable(DateTime)
   ,`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
   ,`is_deleted` SimpleAggregateFunction(max, UInt8)
-  ,`ai_tags` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
+  ,`ai_tags_fixed` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
+  ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   )
   AS SELECT
@@ -4230,7 +4235,8 @@
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
   ,max(is_deleted) as is_deleted
-  ,groupUniqArrayArray(ai_tags) as ai_tags
+  ,groupUniqArrayArray(ai_tags_fixed) as ai_tags_fixed
+  ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
@@ -5315,8 +5321,10 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      -- AI-generated session tags from the summarization pipeline
-      ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
@@ -6393,8 +6401,10 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      -- AI-generated session tags from the summarization pipeline
-      ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
@@ -8249,8 +8259,10 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      -- AI-generated session tags from the summarization pipeline
-      ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
@@ -8552,8 +8564,10 @@
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
       -- marks the recording as deleted for crypto shredding; once 1, merges keep it as 1
       is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-      -- AI-generated session tags from the summarization pipeline
-      ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (fixed taxonomy)
+      ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      -- AI-generated session tags from the summarization pipeline (free-form)
+      ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       -- AI-generated flag indicating the session is highlighted / worth watching
       ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
