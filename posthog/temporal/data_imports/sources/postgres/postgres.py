@@ -1227,6 +1227,13 @@ def _get_table(
                 numeric_scale = numeric_scale_candidate
             else:
                 probed = probed_scales.get(name)
+                # Intentionally fall back to DEFAULT_NUMERIC_SCALE when probed == 0. A scale of 0
+                # means every row we saw today happens to be integer-valued, but the source column
+                # is declared as unconstrained `numeric` — meaning the schema makes no scale
+                # promise. Freezing the delta column at scale=0 based on a transient all-integer
+                # snapshot would reintroduce this PR's original bug the moment a future sync sees
+                # a fractional value: the merge would fail because the delta column can't hold
+                # the new digits. DEFAULT_NUMERIC_SCALE leaves room for that future.
                 if probed is not None and probed > 0:
                     numeric_scale = min(probed, MAX_NUMERIC_SCALE)
                 else:

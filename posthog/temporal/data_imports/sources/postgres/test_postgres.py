@@ -10,6 +10,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
+from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE, MAX_NUMERIC_SCALE
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
@@ -937,8 +938,6 @@ class TestGetTable:
         column falls back to `DEFAULT_NUMERIC_SCALE` regardless of the actual data. This is the
         path used by incremental syncs where the delta column type is already set and probing
         would be a wasted full-table aggregation."""
-        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -950,50 +949,63 @@ class TestGetTable:
             assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
 
     @pytest.mark.django_db
-    def test_unconstrained_numeric_probes_scale_from_data(self):
-        """Unconstrained `numeric` columns get their scale from the actual data, not a static default."""
-        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
-
+    @pytest.mark.parametrize(
+        "inserts,expected_scale",
+        [
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 0.84497449830783164117::numeric)",
+                    "INSERT INTO test_probe_scale VALUES (2, 0::numeric)",
+                ],
+                20,
+                id="fractional_data_uses_probed_scale",
+            ),
+            pytest.param(
+                [],
+                DEFAULT_NUMERIC_SCALE,
+                id="empty_table_falls_back_to_default",
+            ),
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)",
+                ],
+                MAX_NUMERIC_SCALE,
+                id="scale_exceeding_max_is_clamped",
+            ),
+            # Pins the intentional conservative behavior: all-integer data means MAX(scale(val))
+            # returns 0, but we fall back to DEFAULT_NUMERIC_SCALE rather than freezing the delta
+            # column at scale=0 — because the source column is unconstrained and a future sync
+            # could legitimately carry fractional digits the delta column wouldn't be able to
+            # hold. See the matching comment in postgres.py:_get_table.
+            pytest.param(
+                [
+                    "INSERT INTO test_probe_scale VALUES (1, 42::numeric)",
+                    "INSERT INTO test_probe_scale VALUES (2, 1000::numeric)",
+                ],
+                DEFAULT_NUMERIC_SCALE,
+                id="integer_only_data_falls_back_to_default",
+            ),
+        ],
+    )
+    def test_unconstrained_numeric_probe_scale(self, inserts: list[str], expected_scale: int):
+        """Unconstrained `numeric` columns get their scale from actual data, with well-defined
+        fallbacks for empty tables, clamping past MAX_NUMERIC_SCALE, and integer-only data."""
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_numeric (id INTEGER PRIMARY KEY, val NUMERIC)")
-            # Value with actual scale 20 — matches the real-world shape that broke the customer.
-            dj_cursor.execute(
-                "INSERT INTO test_get_table_unconstrained_numeric VALUES (1, 0.84497449830783164117::numeric)"
-            )
-            dj_cursor.execute("INSERT INTO test_get_table_unconstrained_numeric VALUES (2, 0::numeric)")
+            dj_cursor.execute("CREATE TABLE test_probe_scale (id INTEGER PRIMARY KEY, val NUMERIC)")
+            for insert_sql in inserts:
+                dj_cursor.execute(insert_sql)
 
             table = _get_table(
                 dj_cursor,  # type: ignore[arg-type]
                 "public",
-                "test_get_table_unconstrained_numeric",
+                "test_probe_scale",
                 logger,
                 probe_unconstrained_numeric_scale=True,
             )
             val_col = next(c for c in table.columns if c.name == "val")
-            assert val_col.numeric_scale == 20, (
-                f"expected probed scale 20, got {val_col.numeric_scale} (would have been {DEFAULT_NUMERIC_SCALE} without probe)"
-            )
-
-    @pytest.mark.django_db
-    def test_unconstrained_numeric_empty_table_falls_back_to_default(self):
-        """Empty unconstrained `numeric` column has no data to probe, so falls back to DEFAULT_NUMERIC_SCALE."""
-        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
-
-        logger = structlog.get_logger()
-
-        with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_empty (id INTEGER PRIMARY KEY, val NUMERIC)")
-            table = _get_table(
-                dj_cursor,  # type: ignore[arg-type]
-                "public",
-                "test_get_table_unconstrained_empty",
-                logger,
-                probe_unconstrained_numeric_scale=True,
-            )
-            val_col = next(c for c in table.columns if c.name == "val")
-            assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+            assert val_col.numeric_scale == expected_scale
 
     @pytest.mark.django_db
     def test_constrained_numeric_skips_probe(self):
@@ -1009,29 +1021,6 @@ class TestGetTable:
             val_col = next(c for c in table.columns if c.name == "val")
             assert val_col.numeric_precision == 10
             assert val_col.numeric_scale == 2
-
-    @pytest.mark.django_db
-    def test_unconstrained_numeric_clamps_to_max_scale(self):
-        """If probed scale exceeds MAX_NUMERIC_SCALE, it's clamped to prevent pathological schemas."""
-        from posthog.temporal.data_imports.pipelines.pipeline.utils import MAX_NUMERIC_SCALE
-
-        logger = structlog.get_logger()
-
-        with django_connection.cursor() as dj_cursor:
-            dj_cursor.execute("CREATE TABLE test_get_table_clamp_scale (id INTEGER PRIMARY KEY, val NUMERIC)")
-            # Scale 40 exceeds MAX_NUMERIC_SCALE (32) — should clamp.
-            dj_cursor.execute(
-                "INSERT INTO test_get_table_clamp_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)"
-            )
-            table = _get_table(
-                dj_cursor,  # type: ignore[arg-type]
-                "public",
-                "test_get_table_clamp_scale",
-                logger,
-                probe_unconstrained_numeric_scale=True,
-            )
-            val_col = next(c for c in table.columns if c.name == "val")
-            assert val_col.numeric_scale == MAX_NUMERIC_SCALE
 
     @pytest.mark.django_db
     def test_constrained_numeric_zero_scale_survives_schema_conversion(self):
@@ -1055,8 +1044,6 @@ class TestGetTable:
         can be arbitrarily expensive for join/aggregate views. The probe is skipped for views
         regardless of the caller's probe flag, and falls back to DEFAULT_NUMERIC_SCALE.
         The downstream `_process_batch` fallback chain handles scale inference at row time."""
-        from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_NUMERIC_SCALE
-
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
