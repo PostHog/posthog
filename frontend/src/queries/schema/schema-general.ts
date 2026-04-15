@@ -5973,10 +5973,22 @@ export interface CustomerAnalyticsConfig {
  */
 export interface ProductItem {
     path: string
-    category: string | null
+    category: ProductItemCategory | null
     iconType: string | null
     type: string | null
     intents: ProductKey[]
+}
+
+export enum ProductItemCategory {
+    ANALYTICS = 'Analytics',
+    AI_ENGINEERING = 'AI engineering',
+    BEHAVIOR = 'Behavior',
+    FEATURES = 'Features',
+    TOOLS = 'Tools',
+    SCHEMA = 'Schema',
+    PIPELINE = 'Pipeline',
+    METADATA = 'Metadata',
+    UNRELEASED = 'Unreleased',
 }
 
 /**
