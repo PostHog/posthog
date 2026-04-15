@@ -525,7 +525,7 @@
         }
     },
     "subscriptions-list": {
-        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Supports filtering by insight ID (query param insight=<id>), dashboard ID (query param dashboard=<id>), target_type (email/slack/webhook), and resource_type (insight/dashboard). Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
+        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
         "category": "Core",
         "feature": "core",
         "summary": "List subscriptions",
@@ -578,7 +578,7 @@
         "required_scopes": ["subscription:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

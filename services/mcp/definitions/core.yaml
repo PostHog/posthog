@@ -453,11 +453,9 @@ tools:
         title: List subscriptions
         description: >
             List subscriptions for the project. Returns scheduled email, Slack, or webhook
-            deliveries of insight or dashboard snapshots. Supports filtering by insight ID
-            (query param insight=<id>), dashboard ID (query param dashboard=<id>),
-            target_type (email/slack/webhook), and resource_type (insight/dashboard).
-            Each subscription includes its schedule (frequency, interval, byweekday),
-            next_delivery_date, and a human-readable summary.
+            deliveries of insight or dashboard snapshots. Each subscription includes its
+            schedule (frequency, interval, byweekday), next_delivery_date, and a
+            human-readable summary.
     subscriptions-create:
         operation: subscriptions_create
         enabled: true
@@ -506,7 +504,7 @@ tools:
             - subscription:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Update subscription
         description: >

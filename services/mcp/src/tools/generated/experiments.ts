@@ -101,6 +101,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     conclusion_comment: true,
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
+
     only_count_matured_users: true,
 })
 
@@ -138,9 +139,6 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
             if (params.metrics_secondary !== undefined) {
                 body['metrics_secondary'] = params.metrics_secondary
             }
-            if (params.allow_unknown_events !== undefined) {
-                body['allow_unknown_events'] = params.allow_unknown_events
-            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${projectId}/experiments/`,
@@ -163,10 +161,10 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         type: true,
         stats_config: true,
         scheduling_config: true,
-        allow_unknown_events: true,
         _create_in_folder: true,
         primary_metrics_ordered_uuids: true,
         secondary_metrics_ordered_uuids: true,
+
         only_count_matured_users: true,
     }).shape
 )
