@@ -93,9 +93,14 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 query=view.query,
                 columns=view.columns,
             )
-            try:
-                external_tables_by_view[view.name] = temp_sq.get_s3_tables(database=database)
-            except Exception:
+            except Exception as e:
+                capture_exception(e, {"view_name": view.name, "team_id": self.team.pk})
+                logger.warning(
+                    "failed_to_compute_s3_tables",
+                    team_id=self.team_id,
+                    view_name=view.name,
+                    error=str(e),
+                )
                 external_tables_by_view[view.name] = []
 
         views_created = 0
