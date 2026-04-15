@@ -101,7 +101,6 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     conclusion_comment: true,
     primary_metrics_ordered_uuids: true,
     secondary_metrics_ordered_uuids: true,
-    exposure_preaggregation_enabled: true,
     only_count_matured_users: true,
 })
 
@@ -164,7 +163,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         _create_in_folder: true,
         primary_metrics_ordered_uuids: true,
         secondary_metrics_ordered_uuids: true,
-        exposure_preaggregation_enabled: true,
         only_count_matured_users: true,
     }).shape
 )
