@@ -37,7 +37,6 @@ import * as fs from 'fs'
 // providers, MSW mocks, the storybook harness itself, generated schema files).
 const FULL_RUN_PATTERNS = [
     '.storybook/',
-    'common/storybook/.storybook/',
     'common/storybook/tailwind.config.js',
     'common/storybook/webpack.config.js',
     'common/storybook/package.json',
