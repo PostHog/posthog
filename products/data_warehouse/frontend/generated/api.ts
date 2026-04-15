@@ -20,6 +20,7 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     PaginatedDataModelingJobListApi,
@@ -894,7 +895,7 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
  * Validate CDC prerequisites against a live Postgres connection.
 
 Used by the source wizard to surface ✅/❌ checks before source creation,
-and by the self-managed setup popup to verify user-created slot/publication.
+and by the self-managed setup popup to verify user-created publications.
  */
 export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/external_data_sources/check_cdc_prerequisites/`
@@ -902,15 +903,15 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
 
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
+): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
+    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
+        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 /**
