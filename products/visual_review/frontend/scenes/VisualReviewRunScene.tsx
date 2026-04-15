@@ -170,7 +170,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             {newCount > 0 && <span className="text-primary-dark">{newCount} new</span>}
                             {newCount > 0 && removedCount > 0 && ' · '}
                             {removedCount > 0 && <span className="text-danger">{removedCount} removed</span>}
-                            {run.summary.tolerated_matched > 0 && (
+                            {(run.summary.tolerated_matched ?? 0) > 0 && (
                                 <>
                                     {(changedCount > 0 || newCount > 0 || removedCount > 0) && ' · '}
                                     <span className="text-muted">{run.summary.tolerated_matched} tolerated</span>

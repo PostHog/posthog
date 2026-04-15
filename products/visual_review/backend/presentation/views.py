@@ -186,7 +186,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=MarkToleratedInputSerializer,
-        responses={200: SnapshotSerializer},
+        responses={200: OpenApiResponse(response=SnapshotSerializer)},
     )
     @action(detail=True, methods=["post"], url_path="tolerate")
     def mark_tolerated(self, request: TypedRequest, pk: str, **kwargs) -> Response:
