@@ -43,34 +43,35 @@ services:
         restart: on-failure
         logging: *default-logging
         depends_on:
-            - kafka
-            - zookeeper
+            kafka:
+                condition: service_healthy
+            keeper:
+                condition: service_healthy
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./posthog/docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - ./posthog/docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/posthog/user_scripts:/var/lib/clickhouse/user_scripts
             - clickhouse-data:/var/lib/clickhouse
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
         logging: *default-logging
         volumes:
-            - zookeeper-datalog:/datalog
-            - zookeeper-data:/data
-            - zookeeper-logs:/logs
+            - keeper-data:/var/lib/clickhouse-keeper
+            - keeper-logs:/var/log/clickhouse-keeper
+
     kafka:
         extends:
             file: docker-compose.base.yml
             service: kafka
         logging: *default-logging
-        depends_on:
-            - zookeeper
         environment:
             KAFKA_LOG_RETENTION_MS: 3600000
             KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
@@ -476,7 +477,7 @@ services:
                 echo "Kafka broker is accepting requests, creating topics..."
                 # Create topics needed by rust services
                 # Note: $$ escapes $ for docker-compose variable substitution
-                for topic in clickhouse_events_json; do
+                for topic in exceptions_ingestion clickhouse_events_json; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
                     else
@@ -507,6 +508,8 @@ services:
             - ./share:/share
         environment:
             KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_CONSUMER_GROUP: cymbal
+            KAFKA_CONSUMER_TOPIC: exceptions_ingestion
             OBJECT_STORAGE_BUCKET: posthog
             OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
@@ -531,9 +534,6 @@ services:
                 condition: service_healthy
 
 volumes:
-    zookeeper-data:
-    zookeeper-datalog:
-    zookeeper-logs:
     objectstorage:
     seaweedfs:
     postgres-data:
@@ -543,3 +543,5 @@ volumes:
     redis7-data:
     kafka-data:
     redpanda-data:
+    keeper-data:
+    keeper-logs:

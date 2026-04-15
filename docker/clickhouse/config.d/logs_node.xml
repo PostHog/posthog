@@ -1,0 +1,34 @@
+<clickhouse>
+    <tcp_port>9000</tcp_port>
+    <remote_servers>
+        <posthog_logs>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_logs>
+        <!--
+            Advertise posthog_single_shard alongside posthog_logs so that
+            ON CLUSTER DDL issued by app code resolves against this node
+            regardless of whether CLICKHOUSE_LOGS_CLUSTER is overridden.
+            Python settings.CLICKHOUSE_LOGS_CLUSTER defaults to
+            `posthog_single_shard`, so both names must point at this shard.
+        -->
+        <posthog_single_shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_single_shard>
+    </remote_servers>
+    <macros>
+        <shard>01</shard>
+        <replica>ch1</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>logs</hostClusterRole>
+    </macros>
+</clickhouse>

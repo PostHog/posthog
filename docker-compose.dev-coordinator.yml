@@ -6,6 +6,25 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+# Dev multi-node stack. Bring up with `bin/ch-stack-up` (project name
+# `posthog-multinode`). This file exposes:
+#   - clickhouse          on localhost:9000 / 8123  (main data, shard 01)
+#   - clickhouse-coordinator on localhost:9001     (shard 02)
+#   - clickhouse-logs     on localhost:9002         (logs role)
+#   - keeper              on localhost:9181
+#   - kafka               on localhost:9092
+#
+# App services (web, worker, plugins) run on the host via `./bin/start`,
+# not in this compose file. To route Workload.LOGS traffic to the
+# `clickhouse-logs` container, export on the host before `./bin/start`:
+#
+#   export CLICKHOUSE_LOGS_HOST=localhost
+#   export CLICKHOUSE_LOGS_PORT=9002
+#   export CLICKHOUSE_LOGS_CLUSTER_HOST=localhost
+#   export CLICKHOUSE_LOGS_CLUSTER_PORT=9002
+#
+# Without these, Workload.LOGS falls through to the main clickhouse node.
+#
 
 services:
     proxy:
@@ -59,13 +78,13 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
-            # revert this when we upgrade clickhouse
-            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/data_node.xml:/etc/clickhouse-server/config.d/data_node.xml
+            - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
+            - ./docker/clickhouse/config.d/named_collections.xml:/etc/clickhouse-server/config.d/named_collections.xml
+            - ./docker/clickhouse/config.d/satellite_clusters.xml:/etc/clickhouse-server/config.d/satellite_clusters.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -73,31 +92,50 @@ services:
             - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
-            - zookeeper
+            - keeper
 
     clickhouse-coordinator:
         hostname: clickhouse-coordinator
         <<: *clickhouse
         volumes:
-            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
-            # revert this when we upgrade clickhouse
-            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/config.d/coordinator.xml:/etc/clickhouse-server/config.d/coordinator.xml
+            - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
+            - ./docker/clickhouse/config.d/named_collections.xml:/etc/clickhouse-server/config.d/named_collections.xml
+            - ./docker/clickhouse/config.d/satellite_clusters.xml:/etc/clickhouse-server/config.d/satellite_clusters.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         ports:
             - '9001:9001'
 
-    zookeeper:
+    clickhouse-logs:
+        hostname: clickhouse-logs
+        <<: *clickhouse
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/logs_node.xml:/etc/clickhouse-server/config.d/logs_node.xml
+            - ./docker/clickhouse/config.d/keeper_main.xml:/etc/clickhouse-server/config.d/keeper_main.xml
+            - ./docker/clickhouse/config.d/named_collections.xml:/etc/clickhouse-server/config.d/named_collections.xml
+            - ./docker/clickhouse/config.d/satellite_clusters.xml:/etc/clickhouse-server/config.d/satellite_clusters.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        ports:
+            - '9002:9000'
+        depends_on:
+            - keeper
+
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
         ports:
-            - '2181:2181'
+            - '9181:9181'
 
     kafka:
         extends:
@@ -105,8 +143,6 @@ services:
             service: kafka
         ports:
             - '9092:9092'
-        depends_on:
-            - zookeeper
 
     kafka_ui:
         extends:

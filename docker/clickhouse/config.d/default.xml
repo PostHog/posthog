@@ -42,6 +42,23 @@
                 </replica>
             </shard>
         </posthog_primary_replica>
+        <!--
+            Single Keeper serves all cluster znode paths on the dev stack
+            (main, logs, sessions, ops, ai_events, aux). Prod runs a
+            separate Keeper ensemble per cluster; here we use a single
+            Keeper with separate znode paths (/clickhouse/<cluster>/...)
+            so ch_migrate apply against docker-compose.dev.yml can create
+            the logs-cluster tables without needing a dedicated
+            clickhouse-logs node.
+        -->
+        <posthog_logs>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_logs>
 
         <ai_events>
             <shard>
@@ -84,9 +101,6 @@
         <warpstream_ingestion>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_ingestion>
-        <warpstream_calculated_events>
-            <kafka_broker_list from_env="KAFKA_HOSTS"/>
-        </warpstream_calculated_events>
     </named_collections>
 
     <macros>
