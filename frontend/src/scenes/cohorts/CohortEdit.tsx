@@ -316,8 +316,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
                                     {cohort.is_static && (
                                         <div className="flex flex-col gap-y-2">
-                                            <strong>Populate from</strong>
-                                            <p className="text-muted text-sm my-0">
+                                            <h2 className="text-base mb-0">Populate from</h2>
+                                            <p className="text-sm text-secondary my-0 max-w-prose">
                                                 {staticCohortMode === 'criteria'
                                                     ? 'People matching the criteria below will be snapshotted into a fixed list when the cohort is created. Unlike a dynamic cohort, the list will not update as people change.'
                                                     : 'Manually add people via CSV upload or by selecting them individually.'}
