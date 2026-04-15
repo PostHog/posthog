@@ -21,8 +21,12 @@ from parameterized import parameterized
 
 from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, ExperimentFunnelMetric, ExperimentQuery
 
+from posthog.hogql.context import HogQLContext
+
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.util import print_cohort_hogql_query
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -467,3 +471,62 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         # user_before_exposure should NOT be counted because their signup was before exposure
         assert len(response.results) == 1
         assert response.results[0][1]["distinct_ids"][0] == "user_after_exposure"
+
+    @parameterized.expand(
+        [
+            (
+                "strips_recordings",
+                True,
+                ["actor", "matched_recordings"],
+                "",
+                ["matching_events", "matched_recordings"],
+            ),
+            (
+                "strips_search",
+                False,
+                ["actor"],
+                "some-email@example.com",
+                ["some-email@example.com"],
+            ),
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_experiment_funnel_actors_cohort_sanitization(
+        self,
+        _name: str,
+        include_recordings: bool,
+        select: list[str],
+        search: str,
+        forbidden_in_sql: list[str],
+    ):
+        feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=1,
+            funnelStepBreakdown="control",
+            includeRecordings=include_recordings,
+            featureFlagKey=feature_flag.key,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=select,
+            orderBy=[],
+            search=search,
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test cohort from experiment",
+            is_static=True,
+            query=actors_query.model_dump(mode="json"),
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        assert "actor_id" in sql
+        for forbidden in forbidden_in_sql:
+            assert forbidden not in sql, f"Expected '{forbidden}' to be stripped from cohort SQL"

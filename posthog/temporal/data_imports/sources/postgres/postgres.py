@@ -16,6 +16,7 @@ from django.conf import settings
 
 import psycopg
 import pyarrow as pa
+import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
@@ -43,9 +44,22 @@ SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def source_requires_ssl(source: ExternalDataSource) -> bool:
-    """Return whether this source must connect over SSL/TLS."""
-    return source.created_at >= SSL_REQUIRED_AFTER_DATE
+def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
+    """Return whether this source must connect over SSL/TLS.
+
+    SSL is required for sources created after the cutoff date, unless the
+    user has explicitly opted out via the ``require_tls`` toggle on an active
+    SSH tunnel.
+    """
+    if source.created_at < SSL_REQUIRED_AFTER_DATE:
+        return False
+
+    if source_config is not None:
+        ssh_tunnel = source_config.ssh_tunnel
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
+            return False
+
+    return True
 
 
 class SSLRequiredError(Exception):
@@ -286,6 +300,32 @@ def get_schemas(
             schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     return schema_list
+
+
+def get_primary_keys_for_schemas(
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+    require_ssl: bool = False,
+) -> dict[str, list[str] | None]:
+    """Detect primary keys for all tables in a single query."""
+    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
+
+    try:
+        with pg_connection(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ) as connection:
+            pks = get_primary_key_columns(connection, schema, table_names)
+            for table_name, pk_cols in pks.items():
+                result[table_name] = pk_cols
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect primary keys for Postgres schemas", exc_info=e)
+
+    return result
 
 
 def get_foreign_keys(
