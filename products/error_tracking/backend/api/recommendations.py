@@ -71,9 +71,10 @@ class ErrorTrackingRecommendationViewSet(
         if not rec:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         now = timezone.now()
-        recommendation.meta = rec.compute(self.team)
-        recommendation.computed_at = now
-        recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
+        if recommendation.computed_at is None or now >= recommendation.computed_at + rec.refresh_interval:
+            recommendation.meta = rec.compute(self.team)
+            recommendation.computed_at = now
+            recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
