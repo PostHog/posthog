@@ -153,13 +153,6 @@ enum RawJsonResult {
     Empty,
 }
 
-/// Deserialized cache value, or the `__missing__` sentinel.
-#[derive(Debug)]
-enum TypedCacheResult<T> {
-    Value(T),
-    Empty,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum CacheSource {
     Redis,
@@ -472,7 +465,7 @@ impl HyperCacheReader {
         )
         .await
         {
-            Ok(Ok(TypedCacheResult::Value(data))) => {
+            Ok(Ok(Some(data))) => {
                 debug!(
                     cache_key = %redis_cache_key,
                     namespace = %self.config.namespace,
@@ -489,7 +482,7 @@ impl HyperCacheReader {
                 );
                 return Ok((Some(data), CacheSource::Redis));
             }
-            Ok(Ok(TypedCacheResult::Empty)) => {
+            Ok(Ok(None)) => {
                 debug!(
                     cache_key = %redis_cache_key,
                     namespace = %self.config.namespace,
@@ -749,9 +742,9 @@ impl HyperCacheReader {
     async fn try_get_typed_from_redis<T: DeserializeOwned>(
         &self,
         cache_key: &str,
-    ) -> Result<TypedCacheResult<T>, HyperCacheError> {
+    ) -> Result<Option<T>, HyperCacheError> {
         match self.try_get_json_string_from_redis(cache_key).await? {
-            RawJsonResult::Empty => Ok(TypedCacheResult::Empty),
+            RawJsonResult::Empty => Ok(None),
             RawJsonResult::Json(json_string) => {
                 let value = serde_json::from_str::<T>(&json_string).map_err(|e| {
                     debug!(
@@ -769,7 +762,7 @@ impl HyperCacheReader {
                     );
                     HyperCacheError::Json(e)
                 })?;
-                Ok(TypedCacheResult::Value(value))
+                Ok(Some(value))
             }
         }
     }
