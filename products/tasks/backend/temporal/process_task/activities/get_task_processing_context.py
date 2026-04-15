@@ -157,8 +157,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     if posthoganalytics.feature_enabled(
         "tasks_pr_loop",
         distinct_id=distinct_id,
-        groups={"organization": str(organization_id)},
-        group_properties={"organization": {"id": str(organization_id)}},
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
     ):
         pr_loop_enabled = True
         emit_agent_log(run_id, "info", "PR loop enabled for this task run")

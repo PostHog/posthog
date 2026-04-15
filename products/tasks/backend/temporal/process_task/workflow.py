@@ -69,7 +69,7 @@ class TaskEvent(StrEnum):
 
 
 INACTIVITY_TIMEOUT = timedelta(minutes=30)
-CI_FOLLOW_UP = timedelta(minutes=15)
+CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
 CI_MESSAGE = "Fix CI and comments on the PR."
@@ -117,7 +117,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_ci_follow_up(self):
-        await workflow.sleep(CI_FOLLOW_UP.total_seconds())
+        await workflow.sleep(CI_FOLLOW_UP_DELAY.total_seconds())
         return TaskEvent.CI_FOLLOW_UP
 
     async def _wait_for_event(self) -> TaskEvent:
@@ -140,7 +140,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
-        self._last_event_timestamp = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -204,13 +203,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         timed_out = True
                         break
                     case TaskEvent.CI_FOLLOW_UP:
-                        if self._ci_repetitions < MAX_CI_REPETITIONS:
-                            self._ci_repetitions += 1
-                            await self._send_followup_to_sandbox(CI_MESSAGE)
-                        else:
-                            workflow.logger.info(
-                                f"Max CI follow-ups reached ({MAX_CI_REPETITIONS}), not sending further messages."
-                            )
+                        self._ci_repetitions += 1
+                        await self._send_followup_to_sandbox(CI_MESSAGE)
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             message = self._pending_followup
