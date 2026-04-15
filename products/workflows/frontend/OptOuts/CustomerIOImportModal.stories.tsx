@@ -143,8 +143,8 @@ Step3WebhookNotConfigured.parameters = { testOptions: { waitForSelector: '.Lemon
 
 export const Step3WebhookEnabled: StoryFn<StoryProps> = Template.bind({})
 Step3WebhookEnabled.args = { syncConfig: allStepsCompletedConfig }
-Step3WebhookEnabled.parameters = { testOptions: { waitForSelector: '.LemonBanner--success' } }
+Step3WebhookEnabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
 
 export const Step3WebhookDisabled: StoryFn<StoryProps> = Template.bind({})
 Step3WebhookDisabled.args = { syncConfig: webhookDisabledConfig }
-Step3WebhookDisabled.parameters = { testOptions: { waitForSelector: '.LemonBanner--info' } }
+Step3WebhookDisabled.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
