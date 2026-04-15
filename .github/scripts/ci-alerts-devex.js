@@ -155,6 +155,12 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
             const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'))
             if (raw.resolved) {
                 console.log('Found resolved incident, treating as no active state')
+                state = {
+                    failing: {},
+                    rate_limit_alerted: raw.rate_limit_alerted ?? false,
+                    rate_limit_slack_ts: raw.rate_limit_slack_ts ?? null,
+                    rate_limit_slack_channel: raw.rate_limit_slack_channel ?? null,
+                }
             } else {
                 state = { failing: {}, ...raw }
                 console.log('Loaded existing state')

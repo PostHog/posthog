@@ -271,6 +271,28 @@ describe('ci-alerts-devex', () => {
             expect(writtenState.rate_limit_alerted).toBe(false)
         })
 
+        it('preserves rate limit state across incident resolution', async () => {
+            const github = createGithubMock(
+                {
+                    'ci-backend.yml': { name: 'Backend CI', conclusion: 'success' },
+                    'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
+                },
+                { rateLimitRemaining: 30, rateLimitLimit: 5000 }
+            )
+
+            const { outputs } = await run(github, {
+                state: {
+                    resolved: true,
+                    rate_limit_alerted: true,
+                    rate_limit_slack_ts: '789.012',
+                    rate_limit_slack_channel: 'C456',
+                },
+            })
+
+            // Should not re-create — prior alert is still tracked
+            expect(outputs.rate_limit_action).toBe('none')
+        })
+
         it('continues workflow checks even when rate limit is critical', async () => {
             const github = createGithubMock(
                 {
