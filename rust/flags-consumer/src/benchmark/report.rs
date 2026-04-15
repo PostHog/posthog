@@ -1,5 +1,5 @@
 use super::metrics::compute_delta;
-use super::workloads::PhaseResult;
+use super::workloads::{PhaseResult, QueryPlanInfo};
 use super::BenchmarkArgs;
 
 fn fmt_duration_ms(d: std::time::Duration) -> String {
@@ -61,12 +61,20 @@ fn print_phase_row(result: &PhaseResult, show_pg_metrics: bool) {
     }
 }
 
-pub fn print_report(args: &BenchmarkArgs, results: &[PhaseResult]) {
+pub fn print_report(args: &BenchmarkArgs, results: &[PhaseResult], query_plan: &QueryPlanInfo) {
     println!();
     println!("=== GIN Index Benchmark Report ===");
     println!(
         "Scale: {} rows | Teams: {} | Concurrency: {} | Burst: {}x | Duration: {}s/phase",
         args.scale, args.teams, args.concurrency, args.burst_factor, args.duration_secs
+    );
+    println!(
+        "GIN index used for reads: {}",
+        if query_plan.gin_index_used {
+            "yes"
+        } else {
+            "NO (planner chose sequential scan)"
+        }
     );
     println!();
 

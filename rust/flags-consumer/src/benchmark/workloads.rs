@@ -283,15 +283,19 @@ pub async fn phase_merges(
     })
 }
 
+pub struct QueryPlanInfo {
+    pub gin_index_used: bool,
+    pub plan_text: String,
+}
+
 /// Merge writers alongside GIN-indexed read queries to measure whether
 /// GIN maintenance degrades read latency.
 pub async fn phase_concurrent_reads_writes(
     pool: &PgPool,
     data: &BenchmarkData,
     args: &BenchmarkArgs,
-) -> anyhow::Result<(PhaseResult, PhaseResult)> {
-    // Verify the planner uses the GIN index after heavy mutations in earlier phases.
-    log_read_query_plan(pool, data).await;
+) -> anyhow::Result<(PhaseResult, PhaseResult, QueryPlanInfo)> {
+    let plan_info = check_read_query_plan(pool, data).await;
 
     let before = metrics::capture_snapshot(pool).await?;
     let deadline = Instant::now() + Duration::from_secs(args.duration_secs);
@@ -377,14 +381,17 @@ pub async fn phase_concurrent_reads_writes(
         errors: read_errors.load(Ordering::Relaxed),
     };
 
-    Ok((write_result, read_result))
+    Ok((write_result, read_result, plan_info))
 }
 
-/// Log the EXPLAIN plan for the read query to confirm the GIN index is used.
+/// Run EXPLAIN on the read query and check whether the GIN index is used.
 /// After heavy mutations the planner might fall back to sequential scans.
-async fn log_read_query_plan(pool: &PgPool, data: &BenchmarkData) {
+async fn check_read_query_plan(pool: &PgPool, data: &BenchmarkData) -> QueryPlanInfo {
     if data.distinct_ids.is_empty() {
-        return;
+        return QueryPlanInfo {
+            gin_index_used: false,
+            plan_text: "no data".into(),
+        };
     }
 
     let (team_id, _, did) = &data.distinct_ids[0];
@@ -403,15 +410,24 @@ async fn log_read_query_plan(pool: &PgPool, data: &BenchmarkData) {
 
     match plan {
         Ok(rows) => {
-            let plan_text: String = rows
+            let plan_text = rows
                 .into_iter()
                 .map(|(line,)| line)
                 .collect::<Vec<_>>()
                 .join("\n");
-            tracing::info!("Phase 5 read query plan:\n{plan_text}");
+            let gin_index_used = plan_text.contains("idx_flags_person_gin");
+            tracing::info!(gin_index_used, "Phase 5 read query plan:\n{plan_text}");
+            QueryPlanInfo {
+                gin_index_used,
+                plan_text,
+            }
         }
         Err(e) => {
             tracing::warn!("could not run EXPLAIN for read query: {e}");
+            QueryPlanInfo {
+                gin_index_used: false,
+                plan_text: format!("EXPLAIN failed: {e}"),
+            }
         }
     }
 }
