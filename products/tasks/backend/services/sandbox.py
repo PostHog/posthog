@@ -149,7 +149,11 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute_task(
-        self, task_id: str, run_id: str, repository: str | None = None, create_pr: bool = True
+        self,
+        task_id: str,
+        run_id: str,
+        repository: str | None = None,
+        create_pr: bool = True,
     ) -> ExecutionResult: ...
 
     @abstractmethod
@@ -168,6 +172,7 @@ class SandboxBase(ABC):
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
