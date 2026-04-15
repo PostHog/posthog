@@ -1991,11 +1991,8 @@ class Resolver(CloningVisitor):
             return False
         join = node.select_from
         while join is not None:
-            table = join.table
-            while isinstance(table, ast.Alias):
-                table = table.expr
-            if isinstance(table, ast.Field) and isinstance(table.type, ast.BaseTableType):
-                table_type = table.type
+            if isinstance(join.table, ast.Field) and isinstance(join.table.type, ast.BaseTableType):
+                table_type: ast.Type = join.table.type
                 while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     table_type = table_type.table_type
                 if isinstance(table_type, (ast.LazyTableType, ast.TableType)) and isinstance(table_type.table, classes):
