@@ -148,7 +148,7 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Add service hostnames to /etc/hosts
-              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Run sandboxed harness smoke test
               # ee/hogai/eval/pytest.ini pins python_files=eval_*.py /
