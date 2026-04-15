@@ -38,7 +38,6 @@ import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
     // actionsModel is a singleton; params are set on first mount by actionsLogic's connect
     const { actionsLoading } = useValues(actionsModel)
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
