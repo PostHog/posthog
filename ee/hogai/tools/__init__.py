@@ -17,6 +17,7 @@ from .switch_mode import SwitchModeTool
 from .task import TaskTool
 from .todo_write import TodoWriteTool
 from .upsert_dashboard import UpsertDashboardTool
+from .visually_analyze_session_segment.mcp_tool import VisuallyAnalyzeSessionSegmentMCPTool  # noqa: F401
 
 __all__ = [
     "CallMCPServerTool",

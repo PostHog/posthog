@@ -10,6 +10,7 @@ from ee.hogai.chat_agent.executables import (
 )
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.tools.replay.summarize_sessions import SummarizeSessionsTool
+from ee.hogai.tools.replay.visually_analyze_session_segment import VisuallyAnalyzeSessionSegmentTool
 from ee.hogai.tools.todo_write import TodoWriteExample
 
 from ..factory import AgentModeDefinition
@@ -100,7 +101,11 @@ class SessionReplayAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [FilterSessionRecordingsTool, SummarizeSessionsTool]
+        tools: list[type[MaxTool]] = [
+            FilterSessionRecordingsTool,
+            SummarizeSessionsTool,
+            VisuallyAnalyzeSessionSegmentTool,
+        ]
         return tools
 
 

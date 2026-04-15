@@ -494,6 +494,7 @@ export type AssistantTool =
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'visually_analyze_segment_of_session_recording'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

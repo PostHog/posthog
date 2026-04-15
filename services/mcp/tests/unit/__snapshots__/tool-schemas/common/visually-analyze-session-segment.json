@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "angle": {
+            "description": "What to pay attention to when analyzing the video segment. For example: 'focus on user confusion around the checkout flow' or 'look for UI rendering issues'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "end_timestamp": {
+            "description": "End timestamp within the session in hh:mm:ss format (e.g. '00:03:00').",
+            "pattern": "^\\d{1,2}:\\d{2}:\\d{2}$",
+            "type": "string"
+        },
+        "session_id": {
+            "description": "The session recording ID to analyze.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "start_timestamp": {
+            "description": "Start timestamp within the session in hh:mm:ss format (e.g. '00:01:30').",
+            "pattern": "^\\d{1,2}:\\d{2}:\\d{2}$",
+            "type": "string"
+        }
+    },
+    "required": ["session_id", "start_timestamp", "end_timestamp", "angle"],
+    "type": "object"
+}

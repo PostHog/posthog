@@ -700,6 +700,7 @@ class AssistantTool(StrEnum):
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
+    VISUALLY_ANALYZE_SEGMENT_OF_SESSION_RECORDING = "visually_analyze_segment_of_session_recording"
 
 
 class AssistantToolCall(BaseModel):

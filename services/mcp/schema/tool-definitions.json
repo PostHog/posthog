@@ -460,5 +460,21 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "visually-analyze-session-segment": {
+        "description": "Render a segment of a session recording as video and visually analyze it with an AI model. Provide a session recording ID, start and end timestamps (hh:mm:ss format), and an analysis angle describing what to focus on. The tool renders the specified segment as a video, then sends it to a vision model for analysis. Maximum supported segment duration is 2 minutes. Use this to understand what happened visually in a specific part of a session, such as UI issues, user confusion, or interaction patterns.",
+        "category": "Session replay",
+        "feature": "session_replay",
+        "summary": "Visually analyze a segment of a session recording using AI.",
+        "title": "Visually analyze session segment",
+        "required_scopes": ["session_recording:read"],
+        "requires_ai_consent": true,
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     }
 }
