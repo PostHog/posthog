@@ -1233,21 +1233,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Dashboard', 'Dashboards'],
     },
     {
-        path: `Data pipelines`,
-        intents: [
-            ProductKey.PIPELINE_BATCH_EXPORTS,
-            ProductKey.PIPELINE_DESTINATIONS,
-            ProductKey.PIPELINE_TRANSFORMATIONS,
-            ProductKey.SITE_APPS,
-        ],
-        category: ProductItemCategory.TOOLS,
-        type: 'hog_function',
-        iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-pipeline-light)'],
-        flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
-        sceneKeys: ['Transformations'],
-    },
-    {
         path: 'Data warehouse',
         displayLabel: 'Data ops',
         intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],

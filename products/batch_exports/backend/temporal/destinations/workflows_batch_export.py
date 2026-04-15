@@ -179,9 +179,7 @@ class WorkflowsConsumer(Consumer):
         self.hog_function_error_threshold_min_records = hog_function_error_threshold_min_records
         self.records_handled_count = 0
         self.latest_hog_function_error: str | None = None
-
-    async def consume_chunk(self, data: bytes) -> None:
-        post = make_retryable_with_exponential_backoff(
+        self.retryable_post = make_retryable_with_exponential_backoff(
             self.post,
             retryable_exceptions=(
                 InternalServerError,
@@ -192,7 +190,9 @@ class WorkflowsConsumer(Consumer):
             # Retry forever on retryable errors
             max_attempts=None,
         )
-        self.request_task_group.create_task(post(data))
+
+    async def consume_chunk(self, data: bytes) -> None:
+        self.request_task_group.create_task(self.retryable_post(data))
 
     async def post(self, data: bytes) -> None:
         async with self._requests_semaphore:

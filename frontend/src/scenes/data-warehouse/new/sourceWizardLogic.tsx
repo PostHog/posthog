@@ -119,6 +119,14 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                 },
             ],
         },
+        {
+            name: 'require_tls',
+            label: 'Require TLS through tunnel?',
+            type: 'switch-group',
+            default: true,
+            caption: 'Disable if your database does not support TLS.',
+            fields: [],
+        },
     ],
 }
 
