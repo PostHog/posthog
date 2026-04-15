@@ -155,7 +155,7 @@ class Command(BaseCommand):
                 old_migrations.append(match[0])
             else:
                 dir_match = re.match(r"([0-9]+)_([a-zA-Z_0-9]+)$", filename)
-                if dir_match and os.path.isdir(os.path.join(MIGRATIONS_DIR, filename)):
+                if dir_match:
                     old_migrations.append(dir_match.groups())
 
         try:
