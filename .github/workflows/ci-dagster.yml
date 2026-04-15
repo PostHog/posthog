@@ -88,6 +88,7 @@ jobs:
                         - uv.lock
                         # Skip bath export changes as they don't use Dagster
                         - '!products/batch_exports/**/*'
+                        - '!posthog/settings/batch_exports.py'
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
