@@ -71,6 +71,7 @@ class ValidateOptionalFunnelSteps:
         if not any(getattr(node, "optionalInFunnel", False) for node in series):
             return
 
+        # validate that optional steps are only allowed in Ordered Steps funnels
         funnels_filter = context.query.funnelsFilter
         funnel_viz_type = funnels_filter.funnelVizType if funnels_filter is not None else None
         funnel_order_type = funnels_filter.funnelOrderType if funnels_filter is not None else None
@@ -84,9 +85,14 @@ class ValidateOptionalFunnelSteps:
                 'Optional funnel steps are only supported in funnels with step order Sequential or Strict and the graph type "Conversion Steps".'
             )
 
+        # validate that the first step is not optional
         if getattr(series[0], "optionalInFunnel", False):
             raise ValidationError("The first step of a funnel cannot be optional.")
 
+        # Validate that an optional step never follows a required step that is exactly the same right after it
+        # In that case, the optional step will show up as never converting.
+        # Not trying to be overly clever here - putting filters in different order or using SQL queries that are slightly different could
+        # get around this, but want to stop the naive case from spawning support issues.
         for previous_step, current_step in pairwise(series):
             if (
                 (is_equal(previous_step, current_step) or is_superset(current_step, previous_step))
