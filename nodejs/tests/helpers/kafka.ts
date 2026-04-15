@@ -108,6 +108,49 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
     client.disconnect()
 }
 
+/**
+ * Create Kafka topics if they don't already exist, without deleting existing topics.
+ * Unlike resetKafka, this preserves ClickHouse Kafka engine consumer connections,
+ * avoiding the slow reconnection cycle that causes flaky tests.
+ */
+export async function ensureKafkaTopics(
+    topics: string[],
+    extraServerConfig?: Partial<PluginsServerConfig>
+): Promise<void> {
+    const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
+
+    const kafkaConfig = {
+        'client.id': 'nodejs-test',
+        'metadata.broker.list': (config.KAFKA_HOSTS || '').split(',').join(','),
+    }
+
+    const client = AdminClient.create(kafkaConfig)
+    const timeout = 10000
+
+    for (const topic of topics) {
+        await new Promise<void>((resolve, reject) => {
+            client.createTopic(
+                { topic, num_partitions: 1, replication_factor: 1 },
+                timeout,
+                (error: LibrdKafkaError) => {
+                    if (error) {
+                        if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
+                            resolve()
+                        } else {
+                            console.error(`Failed to create topic ${topic}:`, error)
+                            reject(error)
+                        }
+                    } else {
+                        resolve()
+                    }
+                }
+            )
+        })
+    }
+
+    client.disconnect()
+}
+
 export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
     // Use a consumer to get metadata
     const consumer = new KafkaConsumer(
