@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -8,30 +7,25 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
+import { sessionSummaryProgressLogic } from './player-meta/sessionSummaryProgressLogic'
+import { LoadingTimer, SessionSummary, SummarizationProgressView } from './PlayerSummaryViews'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { LoadingTimer, SessionSummary, SummarizationProgressView } from './sidebar/PlayerSidebarSessionSummary'
 
 const EXPANDED_MAX_HEIGHT = 480
 
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, sessionRecordingId, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { sessionSummary, sessionSummaryLoading, summarizationProgress } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
+    const { openBySessionId } = useValues(sessionSummaryProgressLogic)
+    const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
 
     const isEnabled =
         featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]
     const hasSummary = !!sessionSummary
-
-    const [isOpen, setIsOpen] = useState(false)
-
-    // Auto-expand when a summary arrives or loading starts — but only on transition.
-    // Using the hook deps lets the user collapse afterward without re-opening on every render.
-    useEffect(() => {
-        if (hasSummary || sessionSummaryLoading) {
-            setIsOpen(true)
-        }
-    }, [hasSummary, sessionSummaryLoading])
+    const isOpen = !!openBySessionId[sessionRecordingId]
+    const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
 
     if (!isEnabled) {
         return null
@@ -68,7 +62,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         Summarize this session
                     </LemonButton>
                 )}
-                {hasContentToExpand && (
+                {(hasContentToExpand || isOpen) && (
                     <LemonButton
                         size="small"
                         icon={<IconChevronDown className={isOpen ? '' : 'rotate-180'} />}
