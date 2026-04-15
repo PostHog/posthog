@@ -386,10 +386,12 @@ class TestRunEvaluationWorkflow:
 
         assert evaluation.enabled is True
 
-        await disable_evaluation_activity(str(evaluation.id), team.id)
+        await disable_evaluation_activity(str(evaluation.id), team.id, "trial_limit_reached")
 
         await sync_to_async(evaluation.refresh_from_db)()
         assert evaluation.enabled is False
+        assert evaluation.status == "error"
+        assert evaluation.status_reason == "trial_limit_reached"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

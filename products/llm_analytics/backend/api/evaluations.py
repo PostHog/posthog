@@ -65,6 +65,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "status",
+            "status_reason",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -76,7 +78,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
+        # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
+        read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:

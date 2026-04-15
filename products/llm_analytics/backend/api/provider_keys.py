@@ -341,12 +341,13 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
             evals_enabled = 0
             if enable:
+                # Re-enabling via key assignment: clear any prior error state and transition back to ACTIVE.
                 evals_enabled = Evaluation.objects.filter(
                     id__in=evaluation_ids,
                     team_id=self.team_id,
                     deleted=False,
                     enabled=False,
-                ).update(enabled=True)
+                ).update(enabled=True, status="active", status_reason=None)
 
         report_user_action(
             request.user,
@@ -393,9 +394,10 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 )
             )
             with transaction.atomic():
+                # Deleting the key leaves dependent evals unrunnable — mark them as errored, not paused.
                 Evaluation.objects.filter(
                     model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
-                ).update(enabled=False)
+                ).update(enabled=False, status="error", status_reason="provider_key_deleted")
                 return super().destroy(request, *args, **kwargs)
 
 
