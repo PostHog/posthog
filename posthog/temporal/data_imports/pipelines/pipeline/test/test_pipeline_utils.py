@@ -179,9 +179,7 @@ def test_table_from_py_list_with_binary_column():
 
 
 def test_table_from_py_list_with_null_filled_binary_column():
-    schema = pa.schema(
-        cast(list[pa.Field[Any]], [pa.field("column", pa.string()), pa.field("some_bytes", pa.binary())])
-    )
+    schema = pa.schema(cast(Any, [pa.field("column", pa.string()), pa.field("some_bytes", pa.binary())]))
     table = table_from_py_list([{"column": "hello", "some_bytes": None}], schema)
 
     assert table.equals(pa.table({"column": ["hello"]}))
