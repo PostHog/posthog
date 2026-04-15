@@ -13601,7 +13601,7 @@
                             "type": "string",
                             "label": "Google Click ID (gclid)",
                             "secret": false,
-                            "default": "{person.properties.gclid ?? person.properties.$initial_gclid}",
+                            "default": "{person.properties.$gclid ?? person.properties.$initial_gclid}",
                             "required": true,
                             "description": "The Google click ID (gclid) associated with this conversion."
                         },

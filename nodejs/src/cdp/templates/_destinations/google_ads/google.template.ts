@@ -21,7 +21,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Google Click ID (gclid)',
             description: 'The Google click ID (gclid) associated with this conversion.',
-            default: '{person.properties.gclid ?? person.properties.$initial_gclid}',
+            default: '{person.properties.$gclid ?? person.properties.$initial_gclid}',
             secret: false,
             required: true,
         },
