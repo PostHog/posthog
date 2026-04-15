@@ -17,6 +17,32 @@ function calculateBatchSize(containerEl: HTMLElement | null): number {
     return Math.max(10, Math.ceil((containerEl.clientHeight / ITEM_HEIGHT_PX) * BUFFER_FACTOR))
 }
 
+function countVisibleItems(items: TimelineItem[], activeCategorySet: Set<ItemCategory>): number {
+    return items.filter((item) => activeCategorySet.has(item.category)).length
+}
+
+async function loadAvailableDirections(
+    collector: ItemCollector,
+    batch: number
+): Promise<{ loadedBefore: boolean; loadedAfter: boolean }> {
+    const loadedBefore = collector.hasMoreBefore
+    const loadedAfter = collector.hasMoreAfter
+
+    const loadPromises: Promise<void>[] = []
+    if (loadedBefore) {
+        loadPromises.push(collector.loadBefore(batch))
+    }
+    if (loadedAfter) {
+        loadPromises.push(collector.loadAfter(batch))
+    }
+
+    if (loadPromises.length > 0) {
+        await Promise.all(loadPromises)
+    }
+
+    return { loadedBefore, loadedAfter }
+}
+
 export interface UseTimelineItemLoadingProps {
     collector: ItemCollector
     selectedItemId?: string
@@ -64,7 +90,7 @@ export function useTimelineItemLoading({
             setLoading(true)
 
             const batch = calculateBatchSize(containerRef.current)
-            await Promise.all([collector.loadBefore(batch), collector.loadAfter(batch)])
+            await loadAvailableDirections(collector, batch)
             if (cancelled) {
                 return
             }
@@ -97,15 +123,10 @@ export function useTimelineItemLoading({
 
                 const scrollTop = el.scrollTop
                 const scrollHeight = el.scrollHeight
-                const loadPromises: Promise<void>[] = []
-                if (collector.hasMoreBefore) {
-                    loadPromises.push(collector.loadBefore(batch))
+                const { loadedBefore, loadedAfter } = await loadAvailableDirections(collector, batch)
+                if (!loadedBefore && !loadedAfter) {
+                    break
                 }
-                if (collector.hasMoreAfter) {
-                    loadPromises.push(collector.loadAfter(batch))
-                }
-
-                await Promise.all(loadPromises)
                 if (cancelled) {
                     return
                 }
@@ -116,17 +137,19 @@ export function useTimelineItemLoading({
                     return
                 }
 
-                if (collector.hasMoreBefore) {
+                if (loadedBefore) {
                     el.scrollTop = scrollTop + (el.scrollHeight - scrollHeight)
                 }
             }
         }
 
-        void loadInitialItems().finally(() => {
-            if (!cancelled) {
-                setLoading(false)
-            }
-        })
+        void loadInitialItems()
+            .catch(() => undefined)
+            .finally(() => {
+                if (!cancelled) {
+                    setLoading(false)
+                }
+            })
 
         return () => {
             cancelled = true
@@ -163,9 +186,7 @@ export function useTimelineItemLoading({
 
         const refillAfterFilter = async (): Promise<void> => {
             let refillIterations = 0
-            let previousFilteredItemCount = collector
-                .collectItems()
-                .filter((item) => activeCategorySet.has(item.category)).length
+            let previousFilteredItemCount = countVisibleItems(collector.collectItems(), activeCategorySet)
 
             while (
                 !cancelled &&
@@ -181,27 +202,16 @@ export function useTimelineItemLoading({
                 const scrollTop = el.scrollTop
                 const scrollHeight = el.scrollHeight
                 const batch = calculateBatchSize(el)
-                const loadedBefore = collector.hasMoreBefore
-
-                const loadPromises: Promise<void>[] = []
-                if (collector.hasMoreBefore) {
-                    loadPromises.push(collector.loadBefore(batch))
-                }
-                if (collector.hasMoreAfter) {
-                    loadPromises.push(collector.loadAfter(batch))
-                }
-
-                if (loadPromises.length === 0) {
+                const { loadedBefore, loadedAfter } = await loadAvailableDirections(collector, batch)
+                if (!loadedBefore && !loadedAfter) {
                     break
                 }
-
-                await Promise.all(loadPromises)
                 if (cancelled) {
                     return
                 }
 
                 const nextItems = collector.collectItems()
-                const nextFilteredItemCount = nextItems.filter((item) => activeCategorySet.has(item.category)).length
+                const nextFilteredItemCount = countVisibleItems(nextItems, activeCategorySet)
                 setItems(nextItems)
 
                 // Safety valve: avoid spinning when no new visible items are produced.
@@ -221,11 +231,13 @@ export function useTimelineItemLoading({
             }
         }
 
-        void refillAfterFilter().finally(() => {
-            if (!cancelled) {
-                filterRefillInProgressRef.current = false
-            }
-        })
+        void refillAfterFilter()
+            .catch(() => undefined)
+            .finally(() => {
+                if (!cancelled) {
+                    filterRefillInProgressRef.current = false
+                }
+            })
 
         return () => {
             cancelled = true

@@ -9,6 +9,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingEventType } from '~/types'
 
 import { RendererProps, TimelineItem } from '..'
+import { escapeHogQLString, parseRecordIfJSONString } from './parsing'
 
 const eventDetailsCache = new Map<string, RecordingEventType | null>()
 const eventDetailsInFlight = new Map<string, Promise<RecordingEventType | null>>()
@@ -20,30 +21,13 @@ interface EventDetailsQueryResponse {
     results?: unknown[]
 }
 
-function parseProperties(value: unknown): Record<string, any> {
-    if (!value) {
-        return {}
-    }
-    if (typeof value === 'string') {
-        try {
-            return JSON.parse(value)
-        } catch {
-            return {}
-        }
-    }
-    if (typeof value === 'object') {
-        return value as Record<string, any>
-    }
-    return {}
-}
-
 function buildEventFromRow(row: unknown): RecordingEventType | null {
     if (!Array.isArray(row) || row.length < 4) {
         return null
     }
 
     const [uuid, eventName, timestamp, properties] = row as EventDetailsRow
-    const parsedProperties = parseProperties(properties)
+    const parsedProperties = parseRecordIfJSONString(properties)
 
     const event: RecordingEventType & { uuid: string } = {
         id: String(uuid),
@@ -83,10 +67,6 @@ function setCachedEvent(itemId: string, event: RecordingEventType | null): void 
             eventDetailsCache.delete(oldestKey)
         }
     }
-}
-
-function escapeHogQLString(value: string): string {
-    return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")
 }
 
 async function fetchEventDetails(itemId: string): Promise<RecordingEventType | null> {

@@ -294,6 +294,24 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
         const [expanded, setExpanded] = useState(false)
         const canExpand = Boolean(renderer.renderExpanded)
         const rowMenuItems = renderer.getMenuItems?.({ item, sessionId }) ?? []
+        const toggleExpanded = (): void => {
+            if (!canExpand) {
+                return
+            }
+
+            setExpanded((value) => !value)
+        }
+
+        const handleExpandKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+            if (!canExpand) {
+                return
+            }
+
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                toggleExpanded()
+            }
+        }
 
         return (
             <div ref={ref} className={itemContainer({ selected })} data-item-id={item.id}>
@@ -304,7 +322,11 @@ const SessionTimelineItemContainer = forwardRef<HTMLDivElement, SessionTimelineI
                             'flex items-center gap-2 flex-1 min-w-0 h-full pl-2 transition-colors hover:bg-fill-button-tertiary-hover',
                             canExpand && 'cursor-pointer'
                         )}
-                        onClick={() => canExpand && setExpanded((value) => !value)}
+                        onClick={toggleExpanded}
+                        onKeyDown={handleExpandKeyDown}
+                        role={canExpand ? 'button' : undefined}
+                        tabIndex={canExpand ? 0 : undefined}
+                        aria-expanded={canExpand ? expanded : undefined}
                     >
                         <div className="shrink-0 w-[20px] text-center" title={getCategoryTooltip(item.category)}>
                             {renderer.categoryIcon}

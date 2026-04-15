@@ -11,6 +11,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { ItemCategory, ItemLoader, TimelineItem } from '..'
+import { escapeHogQLString, parseIfJSONString } from './parsing'
 
 const WINDOW_HOURS = 1
 
@@ -53,7 +54,7 @@ interface CombinedEventQueryResponse {
 
 function buildWhere(sessionId: string): string[] {
     return [
-        `equals($session_id, '${sessionId}')`,
+        `equals($session_id, '${escapeHogQLString(sessionId)}')`,
         "or(equals(event, '$exception'), equals(event, '$pageview'), notEquals(left(event, 1), '$'))",
     ]
 }
@@ -152,7 +153,7 @@ function buildItem(evt: ParsedCombinedEventRow): TimelineItem {
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(evt.lib)
 
     if (evt.eventName === '$exception') {
-        const exceptionList: ErrorTrackingException[] | undefined = parseIfString(evt.rawExceptionList)
+        const exceptionList: ErrorTrackingException[] | undefined = parseIfJSONString(evt.rawExceptionList)
         return {
             id: evt.uuid,
             category: ItemCategory.ERROR_TRACKING,
@@ -183,18 +184,4 @@ function buildItem(evt: ParsedCombinedEventRow): TimelineItem {
         timestamp: ts,
         payload: { runtime, name: evt.eventName },
     }
-}
-
-function parseIfString<T>(value: unknown): T | undefined {
-    if (value == null) {
-        return undefined
-    }
-    if (typeof value === 'string') {
-        try {
-            return JSON.parse(value) as T
-        } catch {
-            return undefined
-        }
-    }
-    return value as T
 }

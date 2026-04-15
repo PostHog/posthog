@@ -3,10 +3,25 @@ import { useCallback, useRef } from 'react'
 const DEFAULT_THRESHOLD_PX = 100
 
 export type ScrollObserverOptions = {
-    onScrollTop?: () => void
-    onScrollBottom?: () => void
+    onScrollTop?: () => void | Promise<void>
+    onScrollBottom?: () => void | Promise<void>
     /** Pixel distance from edge to trigger callbacks (default: 100) */
     thresholdPx?: number
+}
+
+function invokeObserverCallback(callback?: () => void | Promise<void>): void {
+    if (!callback) {
+        return
+    }
+
+    try {
+        const maybePromise = callback()
+        if (maybePromise instanceof Promise) {
+            void maybePromise.catch(() => undefined)
+        }
+    } catch {
+        // Prevent scroll callbacks from breaking the observer.
+    }
 }
 
 export function useScrollObserver({
@@ -25,9 +40,9 @@ export function useScrollObserver({
             const { scrollTop, scrollHeight, clientHeight } = target
 
             if (scrollTop <= thresholdPx) {
-                onScrollTop?.()
+                invokeObserverCallback(onScrollTop)
             } else if (scrollTop + clientHeight >= scrollHeight - thresholdPx) {
-                onScrollBottom?.()
+                invokeObserverCallback(onScrollBottom)
             }
         },
         [onScrollTop, onScrollBottom, thresholdPx]

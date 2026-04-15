@@ -18,18 +18,21 @@ export interface ConsoleLogItem extends TimelineItem {
     }
 }
 
+function formatLogLevel(level: string | undefined): string {
+    const normalizedLevel = level?.toLowerCase() || 'log'
+    return `${normalizedLevel.charAt(0).toUpperCase()}${normalizedLevel.slice(1)}`
+}
+
 export const consoleLogRenderer: ItemRenderer<ConsoleLogItem> = {
     sourceIcon: () => <RuntimeIcon runtime="web" />,
     categoryIcon: <IconLive />,
     render: ({ item }): JSX.Element => {
-        const level = item.payload.level?.toLowerCase() || 'log'
-        const levelLabel = `${level.charAt(0).toUpperCase()}${level.slice(1)}`
+        const levelLabel = formatLogLevel(item.payload.level)
 
         return <StandardizedPreview primaryText={item.payload.message} secondaryText={levelLabel} />
     },
     renderExpanded: ({ item }): JSX.Element => {
-        const level = item.payload.level?.toLowerCase() || 'log'
-        const levelLabel = `${level.charAt(0).toUpperCase()}${level.slice(1)}`
+        const levelLabel = formatLogLevel(item.payload.level)
 
         return (
             <div className="space-y-1">

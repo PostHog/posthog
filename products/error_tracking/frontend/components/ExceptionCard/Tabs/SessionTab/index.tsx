@@ -6,6 +6,7 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { SessionTimeline, SessionTimelineHandle } from 'lib/components/SessionTimeline/SessionTimeline'
 import { ItemCategory, ItemCollector } from 'lib/components/SessionTimeline/timeline'
 import { CombinedEventLoader } from 'lib/components/SessionTimeline/timeline/items/combined'
@@ -103,32 +104,7 @@ export function SessionTimelineTab(): JSX.Element {
         if (!sessionId || !timestamp) {
             return undefined
         }
-        const timestampDayJs = dayjs(timestamp).add(1, 'millisecond')
-        const collector = new ItemCollector(sessionId, timestampDayJs)
-
-        // Exception steps (in-memory, no API calls)
-        if (Array.isArray(properties?.$exception_steps)) {
-            collector.addCategory(
-                ItemCategory.EXCEPTION_STEPS,
-                exceptionStepRenderer,
-                new ExceptionStepLoader(uuid, properties)
-            )
-        }
-
-        // All event-based categories in a single query
-        const eventLoader = new CombinedEventLoader(sessionId, timestampDayJs)
-        collector.addCategory(ItemCategory.ERROR_TRACKING, exceptionRenderer, eventLoader)
-        collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, eventLoader)
-        collector.addCategory(ItemCategory.CUSTOM_EVENTS, customItemRenderer, eventLoader)
-
-        // Console logs (separate table)
-        collector.addCategory(
-            ItemCategory.CONSOLE_LOGS,
-            consoleLogRenderer,
-            new ConsoleLogLoader(sessionId, timestampDayJs)
-        )
-
-        return collector
+        return buildSessionCollector({ sessionId, timestamp, exceptionUuid: uuid, properties })
     }, [properties, sessionId, timestamp, uuid])
 
     return (
@@ -153,24 +129,7 @@ function NoSessionStepsView({ timestamp }: { timestamp?: string }): JSX.Element 
         if (!hasSteps || !timestamp) {
             return undefined
         }
-        const ts = dayjs(timestamp).add(1, 'millisecond')
-        const collector = new ItemCollector(uuid, ts)
-
-        // Current exception as a static item
-        collector.addCategory(
-            ItemCategory.ERROR_TRACKING,
-            exceptionRenderer,
-            new StaticExceptionLoader(uuid, dayjs.utc(timestamp), properties)
-        )
-
-        // Exception steps (in-memory)
-        collector.addCategory(
-            ItemCategory.EXCEPTION_STEPS,
-            exceptionStepRenderer,
-            new ExceptionStepLoader(uuid, properties)
-        )
-
-        return collector
+        return buildNoSessionCollector({ timestamp, exceptionUuid: uuid, properties })
     }, [hasSteps, timestamp, uuid, properties])
 
     if (!collector) {
@@ -204,4 +163,71 @@ export function NoSessionIdFound(): JSX.Element {
             />
         </div>
     )
+}
+
+function buildSessionCollector({
+    sessionId,
+    timestamp,
+    exceptionUuid,
+    properties,
+}: {
+    sessionId: string
+    timestamp: string
+    exceptionUuid: string
+    properties?: ErrorEventProperties
+}): ItemCollector {
+    const timestampDayJs = dayjs(timestamp).add(1, 'millisecond')
+    const collector = new ItemCollector(sessionId, timestampDayJs)
+
+    // Exception steps (in-memory, no API calls)
+    if (Array.isArray(properties?.$exception_steps)) {
+        collector.addCategory(
+            ItemCategory.EXCEPTION_STEPS,
+            exceptionStepRenderer,
+            new ExceptionStepLoader(exceptionUuid, properties)
+        )
+    }
+
+    // All event-based categories in a single query
+    const eventLoader = new CombinedEventLoader(sessionId, timestampDayJs)
+    collector.addCategory(ItemCategory.ERROR_TRACKING, exceptionRenderer, eventLoader)
+    collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, eventLoader)
+    collector.addCategory(ItemCategory.CUSTOM_EVENTS, customItemRenderer, eventLoader)
+
+    // Console logs (separate table)
+    collector.addCategory(
+        ItemCategory.CONSOLE_LOGS,
+        consoleLogRenderer,
+        new ConsoleLogLoader(sessionId, timestampDayJs)
+    )
+
+    return collector
+}
+
+function buildNoSessionCollector({
+    timestamp,
+    exceptionUuid,
+    properties,
+}: {
+    timestamp: string
+    exceptionUuid: string
+    properties?: ErrorEventProperties
+}): ItemCollector {
+    const collector = new ItemCollector(exceptionUuid, dayjs(timestamp).add(1, 'millisecond'))
+
+    // Current exception as a static item
+    collector.addCategory(
+        ItemCategory.ERROR_TRACKING,
+        exceptionRenderer,
+        new StaticExceptionLoader(exceptionUuid, dayjs.utc(timestamp), properties)
+    )
+
+    // Exception steps (in-memory)
+    collector.addCategory(
+        ItemCategory.EXCEPTION_STEPS,
+        exceptionStepRenderer,
+        new ExceptionStepLoader(exceptionUuid, properties)
+    )
+
+    return collector
 }

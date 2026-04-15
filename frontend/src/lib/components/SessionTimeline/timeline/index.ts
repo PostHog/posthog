@@ -1,4 +1,5 @@
 import { Dayjs } from 'lib/dayjs'
+import { compareTimeTreeItems } from 'lib/utils/time-tree'
 
 export enum ItemCategory {
     ERROR_TRACKING = 'exceptions',
@@ -17,22 +18,7 @@ export interface TimelineItem {
 }
 
 export function compareTimelineItems(a: TimelineItem, b: TimelineItem): number {
-    const timestampDiff = a.timestamp.diff(b.timestamp)
-    if (timestampDiff !== 0) {
-        return timestampDiff
-    }
-
-    const sortPriorityDiff = (a.sortPriority ?? 0) - (b.sortPriority ?? 0)
-    if (sortPriorityDiff !== 0) {
-        return sortPriorityDiff
-    }
-
-    const categoryDiff = a.category.localeCompare(b.category)
-    if (categoryDiff !== 0) {
-        return categoryDiff
-    }
-
-    return a.id.localeCompare(b.id)
+    return compareTimeTreeItems(a, b)
 }
 
 export interface RendererProps<T extends TimelineItem> {
