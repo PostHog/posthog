@@ -403,8 +403,9 @@ function CDCPrerequisitesCheck(): JSX.Element {
                             <p className="m-0">Your database is ready for CDC.</p>
                             {checkedManagementMode === 'self_managed' && (
                                 <p className="m-0 text-xs mt-1">
-                                    After you pick your tables in the next step, we'll show you the SQL to create the
-                                    replication slot and publication.
+                                    After you pick your tables in the next step, we'll show you the{' '}
+                                    <code>CREATE PUBLICATION</code> statement to run as the table owner. PostHog creates
+                                    the replication slot itself.
                                 </p>
                             )}
                         </>
