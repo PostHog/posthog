@@ -217,7 +217,9 @@ class TestEvaluationFormatting:
             }
         }
         result = format_evaluation_text_repr(event)
-        assert "EVALUATION: Relevance check | Result: FAIL | Reasoning: The response does not address the query." in result
+        assert (
+            "EVALUATION: Relevance check | Result: FAIL | Reasoning: The response does not address the query." in result
+        )
 
     def test_evaluation_na(self):
         event = {
@@ -259,3 +261,39 @@ class TestEvaluationFormatting:
         }
         result = format_evaluation_text_repr(event)
         assert "EVALUATION: Unknown evaluation | Result: FAIL" in result
+
+    def test_evaluation_hog_runtime(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Length check",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_runtime": "hog",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Length check | Result: PASS (hog)" in result
+
+    def test_evaluation_llm_judge_runtime_with_model(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Factual accuracy",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_runtime": "llm_judge",
+                "$ai_evaluation_model": "gpt-4",
+                "$ai_evaluation_reasoning": "Claim contradicts source.",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "Result: FAIL (llm_judge/gpt-4)" in result
+        assert "Reasoning: Claim contradicts source." in result
+
+    def test_evaluation_llm_judge_runtime_without_model(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Judge",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_runtime": "llm_judge",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "Result: PASS (llm_judge)" in result

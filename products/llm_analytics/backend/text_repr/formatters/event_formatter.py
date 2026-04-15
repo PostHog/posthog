@@ -188,6 +188,8 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     result = props.get("$ai_evaluation_result")
     applicable = props.get("$ai_evaluation_applicable")
     reasoning = props.get("$ai_evaluation_reasoning")
+    runtime = props.get("$ai_evaluation_runtime")
+    model = props.get("$ai_evaluation_model")
 
     # Result line
     if applicable is False or applicable == "false":
@@ -198,6 +200,13 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
         result_str = "FAIL"
     else:
         result_str = "UNKNOWN"
+
+    # Runtime hint: hog evals are deterministic; llm_judge verdicts are probabilistic
+    # from a specific model — the summarizer should weigh these differently.
+    if runtime == "llm_judge" and model:
+        result_str = f"{result_str} (llm_judge/{model})"
+    elif runtime:
+        result_str = f"{result_str} ({runtime})"
 
     lines.append(SEPARATOR)
     lines.append("")

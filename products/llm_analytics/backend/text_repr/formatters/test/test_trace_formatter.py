@@ -151,6 +151,34 @@ class TestGetEventSummary:
         summary = _get_event_summary(event)
         assert "evaluation" in summary
 
+    def test_evaluation_summary_includes_hog_runtime(self):
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {
+                "$ai_evaluation_name": "Length check",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_runtime": "hog",
+            },
+        }
+        summary = _get_event_summary(event)
+        assert "Length check" in summary
+        assert "hog" in summary
+        assert "PASS" in summary
+
+    def test_evaluation_summary_includes_llm_judge_runtime(self):
+        event = {
+            "event": "$ai_evaluation",
+            "properties": {
+                "$ai_evaluation_name": "Factual accuracy",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_runtime": "llm_judge",
+            },
+        }
+        summary = _get_event_summary(event)
+        assert "Factual accuracy" in summary
+        assert "llm_judge" in summary
+        assert "FAIL" in summary
+
     def test_unknown_event_type(self):
         """Should return event type for unknown events."""
         event = {"event": "custom_event", "properties": {}}

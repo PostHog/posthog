@@ -147,8 +147,11 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         eval_name = props.get("$ai_evaluation_name", "evaluation")
         result = props.get("$ai_evaluation_result")
         applicable = props.get("$ai_evaluation_applicable")
+        runtime = props.get("$ai_evaluation_runtime")
 
         parts = []
+        if runtime:
+            parts.append(runtime)
         if applicable is False or applicable == "false":
             parts.append("N/A")
         elif result is True or result == "true":
