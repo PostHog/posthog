@@ -1479,6 +1479,15 @@ const EventContent = React.memo(
         const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
         const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
 
+        // If the user is viewing the Tags tab but it's no longer available (flag off or
+        // they moved off a generation event), fall back to the default view so the panel
+        // doesn't render blank.
+        useEffect(() => {
+            if (viewMode === TraceViewMode.Tags && !showTagsTab) {
+                setViewMode(TraceViewMode.Conversation)
+            }
+        }, [viewMode, showTagsTab, setViewMode])
+
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
