@@ -21,6 +21,7 @@ import type {
     SnapshotApi,
     SnapshotHistoryEntryApi,
 } from '../generated/api.schemas'
+import { VisualReviewRunsApproveCreateBody } from '../generated/api.zod'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -166,8 +167,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
             }
 
+            const validated = VisualReviewRunsApproveCreateBody.safeParse(approvalPayload)
+            if (!validated.success) {
+                lemonToast.error('Invalid approval payload: ' + validated.error.issues[0]?.message)
+                return
+            }
+
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, validated.data)
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
@@ -190,8 +197,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ],
             }
 
+            const validated = VisualReviewRunsApproveCreateBody.safeParse(approvalPayload)
+            if (!validated.success) {
+                lemonToast.error('Invalid approval: ' + validated.error.issues[0]?.message)
+                return
+            }
+
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, validated.data)
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
                 actions.loadSnapshots()

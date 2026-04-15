@@ -11,6 +11,7 @@ import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
+import { VisualReviewReposPartialUpdateBody } from '../generated/api.zod'
 import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsSceneLogicType'
 
 export interface RepoFormValues {
@@ -196,7 +197,13 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                         baseline_file_paths: formValues.baseline_file_paths,
                         enable_pr_comments: formValues.enable_pr_comments,
                     }
-                    await visualReviewReposPartialUpdate(String(values.currentProjectId), editingRepoId, updates)
+                    const validated = VisualReviewReposPartialUpdateBody.safeParse(updates)
+                    if (!validated.success) {
+                        lemonToast.error('Invalid settings: ' + validated.error.issues[0]?.message)
+                        actions.loadReposFailure('Validation failed')
+                        return
+                    }
+                    await visualReviewReposPartialUpdate(String(values.currentProjectId), editingRepoId, validated.data)
                     lemonToast.success('Settings saved')
                 }
 
