@@ -51,7 +51,7 @@ PARTITIONED_TABLE_MAX_CHUNK_SIZE = 10_000
 # Statement timeout applied to the row-streaming connection so a slow FETCH
 # (large partitioned scan, cold cache, etc.) does not get killed by a short
 # default statement_timeout on the source role.
-SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 60  # 60 mins
+SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
