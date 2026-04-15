@@ -63,7 +63,7 @@ concurrency:
 jobs:
     smoke:
         timeout-minutes: 30
-        name: sandboxed harness smoke test
+        name: Sandboxed harness smoke test
         runs-on: ubuntu-latest
         # The smoke test uses session-scoped fixtures from
         # ee/hogai/eval/sandboxed/conftest.py that need the full PostHog
@@ -116,7 +116,7 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Install python dependencies
+            - name: Install Python dependencies
               shell: bash
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
@@ -170,7 +170,7 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-            - name: Run sandboxed harness smoke test
+            - name: Sandboxed harness smoke test
               # ee/hogai/eval/pytest.ini pins python_files=eval_*.py /
               # python_functions=eval_* for the whole eval subtree so real
               # Braintrust runs never accidentally pick up anything named
