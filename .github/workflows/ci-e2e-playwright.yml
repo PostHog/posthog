@@ -640,7 +640,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [playwright]
-        if: always() && needs.playwright.outputs.vr_run_id != ''
+        if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
         steps:
             - uses: actions/checkout@v6
               with:

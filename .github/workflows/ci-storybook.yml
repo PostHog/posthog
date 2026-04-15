@@ -445,7 +445,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [visual-regression, vr-setup]
-        if: always() && needs.vr-setup.outputs.run_id != ''
+        if: needs.vr-setup.outputs.run_id != '' && needs.visual-regression.result == 'success'
         steps:
             - uses: actions/checkout@v6
               with:
