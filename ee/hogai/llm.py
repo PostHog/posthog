@@ -45,11 +45,7 @@ Current time in the project's timezone, {{{project_timezone}}}: {{{project_datet
 # https://platform.openai.com/docs/guides/flex-processing
 OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
 
-# httpx URL patterns matching the env vars Smokescreen (and httpx in general) keys off of:
-# HTTP_PROXY → "http://", HTTPS_PROXY → "https://", ALL_PROXY → "all://". Mapping each to None
-# in a Client's ``mounts`` kwarg routes the matching pattern through the default transport
-# instead of a proxy. We use this to opt MaxChatAnthropic out of Smokescreen — see
-# ``MaxChatAnthropic._bypass_http_client_kwargs`` for the full rationale.
+# Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
 _BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}
 
 
