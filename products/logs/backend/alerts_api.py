@@ -17,7 +17,7 @@ from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -525,6 +525,53 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         return serializer.save(team=team)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertConfigurationSerializer},
+        description="Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.",
+    )
+    @action(detail=True, methods=["POST"], url_path="reset")
+    def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        if alert.state != LogsAlertConfiguration.State.BROKEN:
+            raise ValidationError({"state": "Only broken alerts can be reset."})
+        previous_failures = alert.consecutive_failures
+        with transaction.atomic():
+            updated = alert.mark_for_recheck(reset_state=True)
+            alert.save(update_fields=updated)
+            # The model's auto-signal skips these fields (signal_exclusions silences
+            # engine-driven churn) so we log the user-initiated reset explicitly.
+            log_activity(
+                organization_id=self.team.organization_id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=alert.id,
+                scope="LogsAlertConfiguration",
+                activity="reset",
+                detail=Detail(
+                    name=alert.name,
+                    changes=[
+                        Change(
+                            type="LogsAlertConfiguration",
+                            action="changed",
+                            field="state",
+                            before="broken",
+                            after="not_firing",
+                        ),
+                        Change(
+                            type="LogsAlertConfiguration",
+                            action="changed",
+                            field="consecutive_failures",
+                            before=previous_failures,
+                            after=0,
+                        ),
+                    ],
+                ),
+            )
+        report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)})
+        return Response(self.get_serializer(alert).data)
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,
