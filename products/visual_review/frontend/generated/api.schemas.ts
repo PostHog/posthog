@@ -52,6 +52,7 @@ export interface RunSummaryApi {
     new: number
     removed: number
     unchanged: number
+    tolerated_matched?: number
 }
 
 export type RunApiMetadata = { [key: string]: unknown }
@@ -159,6 +160,44 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
+export interface MarkToleratedInputApi {
+    snapshot_id: string
+}
+
+export type SnapshotApiMetadata = { [key: string]: unknown }
+
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotApi {
+    current_artifact?: ArtifactApi | null
+    baseline_artifact?: ArtifactApi | null
+    diff_artifact?: ArtifactApi | null
+    id: string
+    identifier: string
+    result: string
+    classification_reason: string
+    /** @nullable */
+    diff_percentage: number | null
+    /** @nullable */
+    diff_pixel_count: number | null
+    review_state: string
+    /** @nullable */
+    reviewed_at: string | null
+    approved_hash: string
+    /** @nullable */
+    tolerated_hash_id?: string | null
+    metadata?: SnapshotApiMetadata
+}
+
 export interface SnapshotHistoryEntryApi {
     run_id: string
     result: string
@@ -176,37 +215,6 @@ export interface PaginatedSnapshotHistoryEntryListApi {
     results: SnapshotHistoryEntryApi[]
 }
 
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
-}
-
-export type SnapshotApiMetadata = { [key: string]: unknown }
-
-export interface SnapshotApi {
-    current_artifact?: ArtifactApi | null
-    baseline_artifact?: ArtifactApi | null
-    diff_artifact?: ArtifactApi | null
-    id: string
-    identifier: string
-    result: string
-    /** @nullable */
-    diff_percentage: number | null
-    /** @nullable */
-    diff_pixel_count: number | null
-    review_state: string
-    /** @nullable */
-    reviewed_at: string | null
-    approved_hash: string
-    metadata?: SnapshotApiMetadata
-}
-
 export interface PaginatedSnapshotListApi {
     count: number
     /** @nullable */
@@ -214,6 +222,25 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export interface ToleratedHashEntryApi {
+    id: string
+    content_hash: string
+    baseline_hash: string
+    reason: string
+    created_at: string
+    /** @nullable */
+    source_run_id: string | null
+}
+
+export interface PaginatedToleratedHashEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ToleratedHashEntryApi[]
 }
 
 export interface ReviewStateCountsApi {
@@ -265,6 +292,21 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

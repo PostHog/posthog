@@ -16,18 +16,22 @@ import type {
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    MarkToleratedInputApi,
     PaginatedRepoListApi,
     PaginatedRunListApi,
     PaginatedSnapshotHistoryEntryListApi,
     PaginatedSnapshotListApi,
+    PaginatedToleratedHashEntryListApi,
     PatchedUpdateRepoRequestInputApi,
     RepoApi,
     ReviewStateCountsApi,
     RunApi,
+    SnapshotApi,
     VisualReviewReposListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
+    VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
 
 /**
@@ -251,6 +255,27 @@ export const visualReviewRunsCompleteCreate = async (
 }
 
 /**
+ * Mark a changed snapshot as a known tolerated alternate.
+ */
+export const getVisualReviewRunsMarkToleratedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/mark-tolerated/`
+}
+
+export const visualReviewRunsMarkToleratedCreate = async (
+    projectId: string,
+    id: string,
+    markToleratedInputApi: MarkToleratedInputApi,
+    options?: RequestInit
+): Promise<SnapshotApi> => {
+    return apiMutator<SnapshotApi>(getVisualReviewRunsMarkToleratedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(markToleratedInputApi),
+    })
+}
+
+/**
  * Recent change history for a snapshot identifier across runs.
  */
 export const getVisualReviewRunsSnapshotHistoryListUrl = (
@@ -321,6 +346,44 @@ export const visualReviewRunsSnapshotsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * List known tolerated hashes for a snapshot identifier.
+ */
+export const getVisualReviewRunsToleratedHashesListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsToleratedHashesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/`
+}
+
+export const visualReviewRunsToleratedHashesList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsToleratedHashesListParams,
+    options?: RequestInit
+): Promise<PaginatedToleratedHashEntryListApi> => {
+    return apiMutator<PaginatedToleratedHashEntryListApi>(
+        getVisualReviewRunsToleratedHashesListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
