@@ -35,14 +35,38 @@ describe('mergeOrder', () => {
         expect(mergeOrder(persisted, DEFAULT_STAT_ORDER)).toEqual(expected)
     })
 
-    it('appends missing default ids at the end', () => {
+    it('inserts missing default ids while preserving persisted relative order', () => {
         const persisted: LiveContentCardId[] = ['devices', 'browsers']
         const result = mergeOrder(persisted, DEFAULT_CONTENT_ORDER)
-        expect(result.slice(0, 2)).toEqual(['devices', 'browsers'])
+        expect(result.indexOf('devices')).toBeLessThan(result.indexOf('browsers'))
         for (const id of DEFAULT_CONTENT_ORDER) {
             expect(result).toContain(id)
         }
         expect(new Set(result).size).toBe(result.length)
+    })
+
+    it('inserts a newly-added default next to the preceding persisted neighbor', () => {
+        // Pre-`top_countries` persisted order — the new card should slot in between
+        // `browsers` and `countries` rather than being appended after `live_events`.
+        const persisted: LiveContentCardId[] = [
+            'active_users_chart',
+            'top_paths',
+            'top_referrers',
+            'devices',
+            'browsers',
+            'countries',
+            'live_events',
+        ]
+        expect(mergeOrder(persisted, DEFAULT_CONTENT_ORDER)).toEqual([
+            'active_users_chart',
+            'top_paths',
+            'top_referrers',
+            'devices',
+            'browsers',
+            'top_countries',
+            'countries',
+            'live_events',
+        ])
     })
 })
 
@@ -80,6 +104,7 @@ describe('liveWebAnalyticsLayoutLogic', () => {
         const newOrder: LiveContentCardId[] = [
             'live_events',
             'countries',
+            'top_countries',
             'browsers',
             'devices',
             'top_referrers',
@@ -97,7 +122,7 @@ describe('liveWebAnalyticsLayoutLogic', () => {
         const partial: LiveContentCardId[] = ['devices', 'browsers']
         logic.actions.setCardOrder(partial)
         const result = logic.values.cardOrder
-        expect(result.slice(0, 2)).toEqual(['devices', 'browsers'])
+        expect(result.indexOf('devices')).toBeLessThan(result.indexOf('browsers'))
         for (const id of DEFAULT_CONTENT_ORDER) {
             expect(result).toContain(id)
         }

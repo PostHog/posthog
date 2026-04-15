@@ -326,9 +326,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics/insights',
     },
-    [Scene.InsightOptions]: {
+    [Scene.InsightQuickStart]: {
         projectBased: true,
-        name: 'New insight',
+        name: 'Quick start',
         description: 'Choose the type of insight you want to create',
         defaultDocsPath: '/docs/product-analytics/insights',
     },
@@ -685,6 +685,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Organization Deactivated',
         layout: 'plain',
     },
+    [Scene.OrganizationPendingDeletion]: {
+        projectBased: false,
+        organizationBased: true,
+        name: 'Organization Pending Deletion',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -824,7 +830,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
-    [urls.insightOptions()]: [Scene.InsightOptions, 'insightOptions'],
+    [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
@@ -1004,5 +1010,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
+    [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
     ...productRoutes,
 }

@@ -70,6 +70,7 @@ import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
     variant: MultivariateFlagVariant
@@ -182,8 +183,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
-
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -825,19 +824,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <LemonInput
-                                                                    type="number"
-                                                                    min={0}
-                                                                    max={100}
-                                                                    value={variant.rollout_percentage || 0}
+                                                                <PercentageInput
+                                                                    value={variant.rollout_percentage}
                                                                     onChange={(value) =>
                                                                         updateVariant(
                                                                             index,
                                                                             'rollout_percentage',
-                                                                            parseInt(value?.toString() || '0')
+                                                                            value
                                                                         )
                                                                     }
-                                                                    suffix={<span>%</span>}
                                                                     data-attr={`feature-flag-variant-rollout-${index}`}
                                                                 />
 
@@ -994,14 +989,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
-                                        bucketingIdentifier={
-                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
-                                        }
-                                        onBucketingIdentifierChange={
-                                            showBucketingIdentifierUI
-                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
-                                                      setBucketingIdentifier(value)
-                                                : undefined
+                                        bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) =>
+                                            setBucketingIdentifier(value)
                                         }
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />

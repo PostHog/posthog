@@ -12,13 +12,14 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo } from 'react'
 
-import { IconDrag, IconPencil } from '@posthog/icons'
+import { IconDrag, IconGlobe, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
 import { BreakdownLiveCard } from './BreakdownLiveCard'
@@ -31,7 +32,7 @@ import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
-import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
 const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
@@ -45,6 +46,21 @@ const getBrowserKey = (d: BrowserBreakdownItem): string => d.browser
 const getBrowserLabel = (d: BrowserBreakdownItem): string => d.browser
 const getDeviceKey = (d: DeviceBreakdownItem): string => d.device
 const getDeviceLabel = (d: DeviceBreakdownItem): string => d.device
+const getCountryKey = (d: CountryBreakdownItem): string => d.country
+const getCountryLabel = (d: CountryBreakdownItem): string => COUNTRY_CODE_TO_LONG_NAME[d.country] ?? d.country
+const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
+    if (d.country === 'Other') {
+        return <IconGlobe className="w-4 h-4 flex-shrink-0 text-muted" />
+    }
+    return (
+        <span
+            className="w-4 h-4 inline-flex items-center justify-center text-base leading-none flex-shrink-0"
+            aria-hidden
+        >
+            {countryCodeToFlag(d.country)}
+        </span>
+    )
+}
 
 const SortableCard = ({
     id,
@@ -98,6 +114,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         deviceBreakdown,
         browserBreakdown,
         countryBreakdown,
+        topCountryBreakdown,
         topPaths,
         topReferrers,
         totalPageviews,
@@ -198,6 +215,19 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         emptyMessage="No browser data"
                         statLabel="unique browsers"
                         totalCount={totalBrowsers}
+                        isLoading={isLoading}
+                    />
+                )
+            case 'top_countries':
+                return (
+                    <BreakdownLiveCard<CountryBreakdownItem>
+                        title="Countries"
+                        data={topCountryBreakdown}
+                        getKey={getCountryKey}
+                        getLabel={getCountryLabel}
+                        renderIcon={renderCountryIcon}
+                        emptyMessage="No country data"
+                        statLabel="unique visitors"
                         isLoading={isLoading}
                     />
                 )

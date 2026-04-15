@@ -2,7 +2,7 @@ import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { Menubar as MenubarPrimitive } from '@base-ui/react/menubar'
 import * as React from 'react'
 
-import { CheckboxIndicator } from './checkbox'
+import { Checkbox } from './checkbox'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -119,9 +119,9 @@ function MenubarCheckboxItem({
             {...props}
         >
             <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center">
-                <CheckboxIndicator />
+                <Checkbox size="sm" tabIndex={-1} />
                 <MenuPrimitive.CheckboxItemIndicator className="absolute">
-                    <CheckboxIndicator checked />
+                    <Checkbox size="sm" checked tabIndex={-1} />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -152,9 +152,9 @@ function MenubarRadioItem({
             {...props}
         >
             <span className="pointer-events-none absolute start-2 flex size-4 items-center justify-center">
-                <RadioIndicator />
+                <RadioIndicator size="sm" />
                 <MenuPrimitive.RadioItemIndicator className="absolute">
-                    <RadioIndicator checked />
+                    <RadioIndicator size="sm" checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
             {children}
