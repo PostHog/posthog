@@ -12,7 +12,7 @@ import json
 
 from posthog.test.base import BaseTest
 
-from ee.hogai.eval.sandboxed.trace_capture import parse_log
+from ee.hogai.eval.sandboxed.acp_log import parse_log
 
 
 def _notification(**params) -> dict:

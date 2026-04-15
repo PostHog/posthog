@@ -20,14 +20,9 @@ from .runner import run_eval_case
 
 if TYPE_CHECKING:
     from .conftest import SandboxedDemoData
-from .trace_capture import (
-    ParsedLog,
-    emit_evaluation_events,
-    emit_trace_events,
-    emit_trace_root,
-    parse_log,
-    wrap_scorers,
-)
+from .acp_log import ParsedLog, parse_log
+from .scorers import wrap_scorers
+from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
 logger = logging.getLogger(__name__)
 
