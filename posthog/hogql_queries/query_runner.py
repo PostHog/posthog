@@ -299,7 +299,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "RetentionQuery":
-        from .insights.retention_query_runner import RetentionQueryRunner
+        from .insights.retention.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
