@@ -26,6 +26,10 @@ vi.mock('@modelcontextprotocol/ext-apps/server', () => ({
     RESOURCE_URI_META_KEY: 'resource-uri',
 }))
 
+vi.mock('@shared/guidelines.md', () => ({
+    default: '',
+}))
+
 import { MCP } from '@/mcp'
 
 function buildMcp(initialToken: string): MCP {
