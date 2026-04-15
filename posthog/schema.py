@@ -18130,7 +18130,14 @@ class AssistantInsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdown: str | list[str] | int | None = Field(default=None, description="Breakdown value to filter by.")
+    breakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown values, one per dimension in the source's"
+            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
+            " the number of breakdown dimensions."
+        ),
+    )
     compare: Compare | None = Field(
         default=None,
         description=("Whether to pull from the previous period when `compare` is enabled in the source."),
