@@ -35,11 +35,24 @@ from posthog.models.person.sql import (
 # - kafka_ai_events_json_ws + ai_events_json_ws_mv (AI_EVENTS)
 # - kafka_heatmaps_ws + heatmaps_ws_mv (INGESTION_MEDIUM)
 
+ADD_HISTORICAL_MIGRATION_COLUMN_TO_WRITABLE_EVENTS = """
+ALTER TABLE writable_events
+ADD COLUMN IF NOT EXISTS historical_migration Bool
+"""
+
 operations = (
     []
     if not settings.CLOUD_DEPLOYMENT
     else [
         # events_json (INGESTION_EVENTS — WS tables go to events ingestion nodes)
+        #
+        # Migration 0186 added historical_migration to sharded_events and events
+        # (DATA nodes) but missed writable_events. The WS MV SELECTs that column
+        # and writes TO writable_events, so the column must exist there first.
+        run_sql_with_exceptions(
+            ADD_HISTORICAL_MIGRATION_COLUMN_TO_WRITABLE_EVENTS,
+            node_roles=[NodeRole.INGESTION_EVENTS],
+        ),
         run_sql_with_exceptions(
             KAFKA_EVENTS_TABLE_JSON_WS_SQL(),
             node_roles=[NodeRole.INGESTION_EVENTS],
