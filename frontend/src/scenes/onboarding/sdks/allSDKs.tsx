@@ -42,6 +42,7 @@ import pythonImage from './logos/python.svg'
 import railsImage from './logos/rails.svg'
 import reactImage from './logos/react.svg'
 import reactNativeImage from './logos/react.svg'
+import { ReactRouterLogo } from './logos/ReactRouterLogo'
 import { RemixLogo } from './logos/RemixLogo'
 import { RetoolLogo } from './logos/RetoolLogo'
 import rubyImage from './logos/ruby.svg'
@@ -508,6 +509,14 @@ export const ALL_SDKS: SDK[] = [
         recommended: true,
         image: pythonImage,
         docsLink: 'https://posthog.com/docs/libraries/python',
+    },
+    {
+        name: 'React Router',
+        key: SDKKey.REACT_ROUTER,
+        tags: [SDKTag.WEB],
+        searchTerms: ['remix'],
+        image: <ReactRouterLogo />,
+        docsLink: 'https://posthog.com/docs/libraries/react-router',
     },
     {
         name: 'Remix',

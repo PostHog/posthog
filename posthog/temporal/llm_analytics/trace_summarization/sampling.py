@@ -16,7 +16,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -101,7 +101,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 """
             )
 
-            with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+            with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
                 result = execute_hogql_query(
                     query_type="GenerationsForSampling",
                     query=generations_query,
@@ -168,7 +168,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                 """
             )
 
-            with tags_context(product=Product.LLM_ANALYTICS, team_id=team_id):
+            with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
                 result = execute_hogql_query(
                     query_type="TracesForSampling",
                     query=traces_query,

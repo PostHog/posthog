@@ -5,8 +5,8 @@
             "description": "Whether the feature flag is active.",
             "type": "boolean"
         },
-        "evaluation_tags": {
-            "description": "Evaluation context tags. Must be a subset of `tags`.",
+        "evaluation_contexts": {
+            "description": "Evaluation contexts that control where this flag evaluates at runtime.",
             "items": {
                 "type": "string"
             },

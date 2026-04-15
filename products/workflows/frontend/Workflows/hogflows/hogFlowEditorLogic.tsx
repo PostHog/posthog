@@ -771,6 +771,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ['assignee', 'Assignee'],
                                 ['url', 'URL'],
                                 ['tags', 'Tags'],
+                                ['slack_channel_id', 'Slack channel ID'],
+                                ['slack_thread_ts', 'Slack thread timestamp'],
+                                ['slack_team_id', 'Slack team ID'],
+                                ['email_subject', 'Email subject'],
+                                ['email_from', 'Email from'],
+                                ['email_to', 'Email to'],
+                                ['cc_participants', 'CC participants'],
                             ]
 
                             const newVars = spreadFields

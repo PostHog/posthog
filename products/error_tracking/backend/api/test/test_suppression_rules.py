@@ -577,3 +577,22 @@ class TestSuppressionRuleAPI(APIBaseTest):
 
         rule = ErrorTrackingSuppressionRule.objects.get(id=rule_id)
         assert rule.sampling_rate == 0.25
+
+    def test_partial_update_sampling_rate(self) -> None:
+        create_response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS},
+            format="json",
+        )
+        rule_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            self._url(rule_id),
+            data={"sampling_rate": 0.25},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        rule = ErrorTrackingSuppressionRule.objects.get(id=rule_id)
+        assert rule.sampling_rate == 0.25

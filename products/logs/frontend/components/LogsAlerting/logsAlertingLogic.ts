@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,6 +10,8 @@ import { logsAlertsDestroy, logsAlertsList, logsAlertsPartialUpdate } from 'prod
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertingLogicType } from './logsAlertingLogicType'
+
+const ALERT_POLL_INTERVAL_MS = 30_000
 
 export const logsAlertingLogic = kea<logsAlertingLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsAlerting', 'logsAlertingLogic']),
@@ -55,6 +58,18 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        loadAlertsSuccess: () => {
+            const params = router.values.searchParams
+            if (params.alertId && typeof params.alertId === 'string') {
+                const alert = values.alerts.find((a) => a.id === params.alertId)
+                if (alert) {
+                    actions.setEditingAlert(alert)
+                }
+                // Clear alertId from URL regardless of whether we found the alert
+                const { alertId: _, ...rest } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
+            }
+        },
         deleteAlert: async ({ id }) => {
             const projectId = String(values.currentTeamId)
             try {
@@ -78,7 +93,15 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadAlerts()
+        cache.disposables.add(() => {
+            const intervalId = window.setInterval(() => {
+                if (!values.isCreating && values.editingAlert === null) {
+                    actions.loadAlerts()
+                }
+            }, ALERT_POLL_INTERVAL_MS)
+            return () => clearInterval(intervalId)
+        }, 'pollAlerts')
     }),
 ])

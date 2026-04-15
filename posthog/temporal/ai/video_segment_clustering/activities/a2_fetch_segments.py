@@ -91,7 +91,10 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
         )
 
     distinct_ids = list({s.distinct_id for s in segments if s.distinct_id})
-    storage_key = generate_storage_key(inputs.team_id, activity.info().workflow_run_id, name="segments")
+    workflow_run_id = activity.info().workflow_run_id
+    assert workflow_run_id  # Will always be defined if this activity was started by a workflow
+
+    storage_key = generate_storage_key(inputs.team_id, workflow_run_id, name="segments")
     await store_fetch_result(storage_key, segments, distinct_ids)
 
     return FetchSegmentsResult(storage_key=storage_key, document_count=len(segments))

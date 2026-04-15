@@ -99,12 +99,82 @@ export interface PaginatedDataModelingJobListApi {
     results: DataModelingJobApi[]
 }
 
+export interface CheckDatabaseNameResponseApi {
+    name: string
+    available: boolean
+}
+
+export interface DeprovisionWarehouseResponseApi {
+    status: string
+    team: string
+}
+
+export interface ProvisionWarehouseRequestApi {
+    /** Name for the new database */
+    database_name: string
+}
+
+export interface ProvisionWarehouseResponseApi {
+    status: string
+    team: string
+}
+
+export interface ResetPasswordResponseApi {
+    username: string
+    password: string
+}
+
+/**
+ * * `pending` - pending
+ * `provisioning` - provisioning
+ * `ready` - ready
+ * `failed` - failed
+ * `deleting` - deleting
+ * `deleted` - deleted
+ */
+export type WarehouseStatusResponseStateEnumApi =
+    (typeof WarehouseStatusResponseStateEnumApi)[keyof typeof WarehouseStatusResponseStateEnumApi]
+
+export const WarehouseStatusResponseStateEnumApi = {
+    Pending: 'pending',
+    Provisioning: 'provisioning',
+    Ready: 'ready',
+    Failed: 'failed',
+    Deleting: 'deleting',
+    Deleted: 'deleted',
+} as const
+
+export interface WarehouseStatusResponseApi {
+    team_name: string
+    state: WarehouseStatusResponseStateEnumApi
+    status_message: string
+    /** @nullable */
+    ready_at: string | null
+    /** @nullable */
+    failed_at: string | null
+}
+
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
 export const SyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
+    Webhook: 'webhook',
+    Cdc: 'cdc',
+} as const
+
+/**
+ * * `consolidated` - consolidated
+ * `cdc_only` - cdc_only
+ * `both` - both
+ */
+export type CdcTableModeEnumApi = (typeof CdcTableModeEnumApi)[keyof typeof CdcTableModeEnumApi]
+
+export const CdcTableModeEnumApi = {
+    Consolidated: 'consolidated',
+    CdcOnly: 'cdc_only',
+    Both: 'both',
 } as const
 
 /**
@@ -115,6 +185,8 @@ export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null | nul
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
+    /** @nullable */
+    readonly label: string | null
     /** @nullable */
     readonly table: ExternalDataSchemaApiTable
     should_sync?: boolean
@@ -139,6 +211,9 @@ export interface ExternalDataSchemaApi {
     readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
+    /** @nullable */
+    readonly primary_key_columns: readonly string[] | null
+    readonly cdc_table_mode: CdcTableModeEnumApi
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -291,10 +366,11 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Postmark` - Postmark
  * `Granola` - Granola
  * `BuildBetter` - BuildBetter
+ * `Convex` - Convex
  */
-export type SourceTypeE09EnumApi = (typeof SourceTypeE09EnumApi)[keyof typeof SourceTypeE09EnumApi]
+export type SourceType432EnumApi = (typeof SourceType432EnumApi)[keyof typeof SourceType432EnumApi]
 
-export const SourceTypeE09EnumApi = {
+export const SourceType432EnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -435,6 +511,7 @@ export const SourceTypeE09EnumApi = {
     Postmark: 'Postmark',
     Granola: 'Granola',
     BuildBetter: 'BuildBetter',
+    Convex: 'Convex',
 } as const
 
 /**
@@ -481,7 +558,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -509,6 +586,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly supports_webhooks: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -533,7 +611,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeE09EnumApi
+    readonly source_type?: SourceType432EnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -561,6 +639,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly supports_webhooks?: boolean
 }
 
 export interface ExternalDataSourceConnectionOptionApi {
@@ -750,6 +829,10 @@ export interface DataWarehouseSavedQueryMinimalApi {
     /** @nullable */
     readonly managed_viewset_kind: string | null
     /** @nullable */
+    readonly folder_id: string | null
+    /** @nullable */
+    readonly folder_name: string | null
+    /** @nullable */
     readonly latest_error: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
@@ -812,6 +895,16 @@ export interface DataWarehouseSavedQueryApi {
     readonly last_run_at: string | null
     /** @nullable */
     readonly managed_viewset_kind: string | null
+    /**
+     * Optional folder ID used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    folder_id?: string | null
+    /**
+     * Folder name used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    readonly folder_name: string | null
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -826,6 +919,11 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /**
+     * Optional DAG to place this view into
+     * @nullable
+     */
+    dag_id?: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -878,6 +976,16 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly last_run_at?: string | null
     /** @nullable */
     readonly managed_viewset_kind?: string | null
+    /**
+     * Optional folder ID used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    folder_id?: string | null
+    /**
+     * Folder name used to organize this view in the SQL editor sidebar.
+     * @nullable
+     */
+    readonly folder_name?: string | null
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -892,6 +1000,11 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /**
+     * Optional DAG to place this view into
+     * @nullable
+     */
+    dag_id?: string | null
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
@@ -907,6 +1020,30 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly expires_at?: string | null
+}
+
+export interface DataWarehouseSavedQueryFolderApi {
+    readonly id: string
+    /**
+     * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+     * @maxLength 128
+     */
+    name: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly view_count: number
+}
+
+export interface PatchedDataWarehouseSavedQueryFolderApi {
+    readonly id?: string
+    /**
+     * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+     * @maxLength 128
+     */
+    name?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly view_count?: number
 }
 
 /**
@@ -944,7 +1081,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeE09EnumApi
+    readonly source_type: SourceType432EnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
@@ -1047,6 +1184,14 @@ export type DataModelingJobsListParams = {
      * @nullable
      */
     saved_query_id?: string | null
+}
+
+export type DataWarehouseCheckDatabaseNameRetrieveParams = {
+    /**
+     * Database name to check
+     * @minLength 1
+     */
+    name: string
 }
 
 export type ExternalDataSchemasListParams = {

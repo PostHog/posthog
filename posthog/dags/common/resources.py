@@ -119,6 +119,43 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
         )
 
 
+class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
+    """
+    ClickHouse cluster resource that connects as the dedicated 'part_breaker' user.
+
+    Requires CLICKHOUSE_PART_BREAKER_USER and CLICKHOUSE_PART_BREAKER_PASSWORD env vars.
+    The part_breaker user needs SELECT on system tables, CREATE/DROP/INSERT/ALTER on
+    staging tables, and ALTER FREEZE / DROP PART on source tables.
+    """
+
+    client_settings: dict[str, str] = {
+        "max_execution_time": str(settings.PART_BREAKER_MAX_EXECUTION_TIME),  # default 24h
+        "max_memory_usage": str(settings.PART_BREAKER_MAX_MEMORY_USAGE),  # default 128 GiB
+        "receive_timeout": str(settings.PART_BREAKER_RECEIVE_TIMEOUT),  # default 48h
+    }
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        assert context.log is not None
+        user, password = get_clickhouse_creds(ClickHouseUser.PART_BREAKER)
+        from django.conf import settings as django_settings
+
+        if user == django_settings.CLICKHOUSE_USER:
+            context.log.warning(
+                f"CLICKHOUSE_PART_BREAKER_USER not configured, falling back to default user '{user}'. "
+                "Part breaker will not use a dedicated user with restricted permissions."
+            )
+        return get_cluster(
+            context.log,
+            client_settings=self.client_settings,
+            retry_policy=RetryPolicy(
+                max_attempts=8,
+                delay=ExponentialBackoff(20),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+            connection_overrides={"user": user, "password": password},
+        )
+
+
 class RedisResource(dagster.ConfigurableResource):
     """
     A Redis resource that can be used to store and retrieve data.

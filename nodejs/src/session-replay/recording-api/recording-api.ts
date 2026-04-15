@@ -1,6 +1,6 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
-import fs from 'fs'
+import https from 'https'
 import express from 'ultimate-express'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
@@ -27,7 +27,6 @@ import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema,
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
-    private corsOrigin: string | null = null
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
@@ -52,8 +51,6 @@ export class RecordingApi {
     }
 
     async start(recordingService?: RecordingService): Promise<void> {
-        this.corsOrigin = this.config.SITE_URL || null
-
         if (recordingService) {
             this.recordingService = recordingService
             logger.info('[RecordingApi] Started with injected RecordingService')
@@ -123,7 +120,6 @@ export class RecordingApi {
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
         const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
-        const chCaCert = this.config.CLICKHOUSE_CA ? await fs.promises.readFile(this.config.CLICKHOUSE_CA) : undefined
         this.clickhouseClient = createClickHouseClient({
             url: `${chScheme}://${this.config.CLICKHOUSE_HOST}:${chPort}`,
             username: this.config.CLICKHOUSE_USER,
@@ -131,7 +127,10 @@ export class RecordingApi {
             database: this.config.CLICKHOUSE_DATABASE,
             request_timeout: 30_000,
             max_open_connections: 10,
-            ...(chCaCert ? { tls: { ca_cert: chCaCert } } : {}),
+            // Internal ClickHouse uses self-signed certs with a hostname mismatch
+            ...(this.config.CLICKHOUSE_SECURE
+                ? { http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }) } // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+                : {}),
         })
 
         // Create the service layer
@@ -201,8 +200,6 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
-        router.options(blockPath, this.handleCorsPreflightForBlock)
-        router.options(blocksPath, this.handleCorsPreflightForBlock)
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
@@ -210,24 +207,7 @@ export class RecordingApi {
         return router
     }
 
-    private setCorsHeaders(req: express.Request, res: express.Response): void {
-        if (this.corsOrigin && req.headers.origin === this.corsOrigin) {
-            res.set('Access-Control-Allow-Origin', this.corsOrigin)
-            res.set('Vary', 'Origin')
-        }
-    }
-
-    private handleCorsPreflightForBlock = (req: express.Request, res: express.Response): void => {
-        this.setCorsHeaders(req, res)
-        res.set('Access-Control-Allow-Methods', 'GET')
-        res.set('Access-Control-Allow-Headers', 'X-Internal-Api-Secret')
-        res.set('Access-Control-Max-Age', '86400')
-        res.status(204).end()
-    }
-
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
-        this.setCorsHeaders(req, res)
-
         // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -301,8 +281,6 @@ export class RecordingApi {
     }
 
     private listBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
-        this.setCorsHeaders(req, res)
-
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })

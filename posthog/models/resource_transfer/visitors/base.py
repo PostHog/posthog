@@ -7,11 +7,12 @@ from django.db import models
 from django.db.models import query_utils
 from django.db.models.fields import related_descriptors
 
-from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferEdge
+from posthog.models.resource_transfer.types import ResourceKind, ResourcePayload, ResourceTransferEdge
 from posthog.models.utils import UUIDTClassicModel
 
 if TYPE_CHECKING:
     from posthog.models import Team
+    from posthog.models.resource_transfer.types import ResourceTransferVertex
 
 
 class ResourceTransferVisitor:
@@ -52,6 +53,19 @@ class ResourceTransferVisitor:
         Override to return extra edges at runtime. This is useful for schemas where foreign keys might be stored in untyped columns like JSON.
         """
         return []
+
+    @classmethod
+    def adjust_duplicate_payload(
+        cls,
+        payload: ResourcePayload,
+        vertex: ResourceTransferVertex,
+        new_team: Team,
+    ) -> ResourcePayload:
+        """
+        Hook for visitors to normalize or strip fields that should not be copied as-is.
+        Default is identity; override in subclasses that store JSON with cross-project references.
+        """
+        return payload
 
     @classmethod
     def get_display_name(cls, resource: Any) -> str:

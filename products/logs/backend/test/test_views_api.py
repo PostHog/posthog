@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,6 +16,9 @@ class TestLogsViewAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/environments/{self.team.pk}/logs/views/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
 
     def _valid_payload(self, **overrides) -> dict:
         defaults = {
@@ -31,13 +35,19 @@ class TestLogsViewAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    def test_create(self):
+    @patch("products.logs.backend.views_api.report_user_action")
+    def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "Error logs"
         assert data["filters"] == {"severityLevels": ["error", "fatal"]}
         assert data["pinned"] is False
         assert data["short_id"] is not None
         assert data["created_by"]["id"] == self.user.pk
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs view created"
+        assert mock_report.call_args[0][2]["name"] == "Error logs"
+        assert mock_report.call_args[0][2]["has_filters"] is True
 
     def test_list(self):
         self._create_via_api(name="View 1")
@@ -57,8 +67,10 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["short_id"] == created["short_id"]
         assert response.json()["name"] == "Error logs"
 
-    def test_partial_update(self):
+    @patch("products.logs.backend.views_api.report_user_action")
+    def test_partial_update(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.patch(
             f"{self.base_url}{created['short_id']}/",
@@ -67,6 +79,10 @@ class TestLogsViewAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed view"
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs view updated"
+        assert mock_report.call_args[0][2]["name"] == "Renamed view"
 
     def test_partial_update_preserves_filters(self):
         created = self._create_via_api(filters={"severityLevels": ["error"], "serviceNames": ["api"]})
@@ -80,12 +96,18 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["name"] == "Just rename"
         assert response.json()["filters"] == {"severityLevels": ["error"], "serviceNames": ["api"]}
 
-    def test_delete(self):
+    @patch("products.logs.backend.views_api.report_user_action")
+    def test_delete(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
 
         response = self.client.delete(f"{self.base_url}{created['short_id']}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsView.objects.filter(pk=created["id"]).exists()
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "logs view deleted"
+        assert mock_report.call_args[0][2]["name"] == "Error logs"
 
     # --- Filters are optional ---
 
@@ -194,6 +216,13 @@ class TestLogsViewAPI(APIBaseTest):
         client = APIClient()
         response = client.get(self.base_url)
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # --- Feature flag ---
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_returns_403_when_feature_flag_disabled(self, _mock_feature_enabled):
+        response = self.client.get(self.base_url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # --- Pinned ---
 

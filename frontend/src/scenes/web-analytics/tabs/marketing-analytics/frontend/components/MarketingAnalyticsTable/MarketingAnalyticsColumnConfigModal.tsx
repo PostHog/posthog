@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconEye, IconHide, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/lemon-ui'
@@ -24,23 +24,40 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
     const { hideColumnConfigModal } = useActions(marketingAnalyticsLogic)
     const { sortedColumns } = useValues(marketingAnalyticsTableLogic)
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
-    // useRef to avoid re-rendering the component when we pin columns but after we rerender the component we need to keep the sorted columns
-    const staticSortedColumns = useRef(sortedColumns)
     const marketingQuery = useMemo(() => rawQuery?.source as MarketingAnalyticsTableQuery | undefined, [rawQuery])
 
-    // Get current sort column and direction
+    // Local draft state — changes are buffered here until the user applies them
+    const [draftSelect, setDraftSelect] = useState<string[]>(marketingQuery?.select || sortedColumns)
+    const [draftOrderBy, setDraftOrderBy] = useState<[string, string][] | undefined>(marketingQuery?.orderBy)
+    const [draftPinnedColumns, setDraftPinnedColumns] = useState<string[]>(rawQuery?.pinnedColumns || [])
+
+    // Keep a ref to the latest query values so the open-effect can read them without being a dependency
+    const latestQueryRef = useRef({ marketingQuery, sortedColumns, rawQuery })
+    useEffect(() => {
+        latestQueryRef.current = { marketingQuery, sortedColumns, rawQuery }
+    })
+
+    // Sync draft state when the modal opens
+    useEffect(() => {
+        if (columnConfigModalVisible) {
+            const { marketingQuery: mq, sortedColumns: sc, rawQuery: rq } = latestQueryRef.current
+            setDraftSelect(mq?.select || sc)
+            setDraftOrderBy(mq?.orderBy)
+            setDraftPinnedColumns(rq?.pinnedColumns || [])
+        }
+    }, [columnConfigModalVisible])
+
+    // Derived state from draft
     const [currentSortColumn, currentSortDirection] = useMemo(
-        () => marketingQuery?.orderBy?.[0] || [],
-        [marketingQuery?.orderBy]
+        () => (draftOrderBy?.[0] || []) as [string | undefined, 'ASC' | 'DESC' | undefined],
+        [draftOrderBy]
     )
-    // hidden columns are the difference between default columns and the query columns
+
     const hiddenColumns = useMemo(
-        () =>
-            marketingQuery?.select
-                ? sortedColumns.filter((column: string) => !marketingQuery?.select?.includes(column))
-                : [],
-        [marketingQuery?.select, sortedColumns]
+        () => sortedColumns.filter((column: string) => !draftSelect.includes(column)),
+        [draftSelect, sortedColumns]
     )
+
     const sortOptions = useMemo(
         () => [
             { label: 'No sorting', value: null },
@@ -53,156 +70,122 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
         ],
         [hiddenColumns, sortedColumns]
     )
-    const pinnedColumns = useMemo(() => rawQuery?.pinnedColumns || [], [rawQuery])
 
-    const clearMarketingAnalyticsOrderBy = useCallback(() => {
-        if (rawQuery) {
-            setQuery({
-                ...rawQuery,
-                source: {
-                    ...rawQuery.source,
-                    orderBy: undefined,
-                },
-            } as DataTableNode)
-        }
-    }, [rawQuery, setQuery])
+    const applyChanges = useCallback(() => {
+        setQuery({
+            ...rawQuery,
+            source: {
+                ...marketingQuery,
+                select: draftSelect,
+                orderBy: draftOrderBy,
+            },
+            pinnedColumns: draftPinnedColumns,
+        } as DataTableNode)
+        hideColumnConfigModal()
+    }, [rawQuery, marketingQuery, draftSelect, draftOrderBy, draftPinnedColumns, setQuery, hideColumnConfigModal])
 
-    const setMarketingAnalyticsOrderBy = useCallback(
-        (columnName: string, direction: 'ASC' | 'DESC') => {
-            let newSelect = []
-            // If the column is hidden, we need to show it by adding it to select
-            if (hiddenColumns.includes(columnName)) {
-                for (const column of sortedColumns) {
-                    if (column === columnName || !hiddenColumns.includes(column)) {
-                        newSelect.push(column)
-                    }
+    const clearOrderBy = useCallback(() => {
+        setDraftOrderBy(undefined)
+    }, [])
+
+    const showColumn = useCallback(
+        (columnName: string) => {
+            const newSelect: string[] = []
+            for (const column of sortedColumns) {
+                if (column === columnName || !hiddenColumns.includes(column)) {
+                    newSelect.push(column)
                 }
-            } else {
-                newSelect = marketingQuery?.select || []
             }
-
-            if (rawQuery && marketingQuery) {
-                setQuery({
-                    ...rawQuery,
-                    source: {
-                        ...marketingQuery,
-                        select: newSelect,
-                        orderBy: createMarketingAnalyticsOrderBy(columnName, direction),
-                    },
-                })
-            }
+            setDraftSelect(newSelect)
         },
-        [hiddenColumns, marketingQuery, rawQuery, setQuery, sortedColumns]
+        [hiddenColumns, sortedColumns]
+    )
+
+    const updateOrderBy = useCallback(
+        (columnName: string, direction: 'ASC' | 'DESC') => {
+            if (hiddenColumns.includes(columnName)) {
+                showColumn(columnName)
+            }
+            setDraftOrderBy(createMarketingAnalyticsOrderBy(columnName, direction))
+        },
+        [hiddenColumns, showColumn]
     )
 
     const handleSortToggle = useCallback(
         (columnName: string, direction: 'ASC' | 'DESC') => {
             if (currentSortColumn === columnName && currentSortDirection === direction) {
-                // If already sorting by this column in this direction, clear sort
-                clearMarketingAnalyticsOrderBy()
+                clearOrderBy()
             } else {
-                // Set this column with the specified direction
-                setMarketingAnalyticsOrderBy(columnName, direction)
+                updateOrderBy(columnName, direction)
             }
         },
-        [currentSortColumn, currentSortDirection, clearMarketingAnalyticsOrderBy, setMarketingAnalyticsOrderBy]
+        [currentSortColumn, currentSortDirection, clearOrderBy, updateOrderBy]
     )
 
     const toggleColumnVisibility = useCallback(
         (columnName: string) => {
             const isCurrentlyHidden = hiddenColumns.includes(columnName)
-            const newSelect = []
-            let newOrderBy = marketingQuery?.orderBy || []
-            let newPinnedColumns = [...pinnedColumns]
 
             if (isCurrentlyHidden) {
-                // Showing a column - add it to select and preserve existing sort/pin
-                for (const column of sortedColumns) {
-                    if (column === columnName || !hiddenColumns.includes(column)) {
-                        newSelect.push(column)
-                    }
-                }
+                showColumn(columnName)
             } else {
-                // Hiding a column - remove it from select, sort, and pin
+                // Hiding a column
+                const newSelect: string[] = []
                 for (const column of sortedColumns) {
                     if (column !== columnName && !hiddenColumns.includes(column)) {
                         newSelect.push(column)
                     }
                 }
+                setDraftSelect(newSelect)
 
-                // Remove from sorting if this column was being sorted
-                if (marketingQuery?.orderBy?.[0]?.[0] === columnName) {
-                    newOrderBy = []
+                // Remove from sorting if needed
+                if (draftOrderBy?.[0]?.[0] === columnName) {
+                    setDraftOrderBy(undefined)
                 }
 
                 // Remove from pinned columns
-                const pinnedIndex = newPinnedColumns.indexOf(columnName)
-                if (pinnedIndex > -1) {
-                    newPinnedColumns.splice(pinnedIndex, 1)
-                }
+                setDraftPinnedColumns((prev) => prev.filter((c) => c !== columnName))
             }
-
-            setQuery({
-                ...rawQuery,
-                source: {
-                    ...marketingQuery,
-                    select: newSelect,
-                    orderBy: newOrderBy,
-                },
-                pinnedColumns: newPinnedColumns,
-            } as DataTableNode)
         },
-        [hiddenColumns, marketingQuery, rawQuery, setQuery, sortedColumns, pinnedColumns]
+        [hiddenColumns, sortedColumns, draftOrderBy, showColumn]
     )
 
     const toggleColumnPinning = useCallback(
         (columnName: string) => {
-            const newPinnedColumns = [...pinnedColumns]
-            const isCurrentlyPinned = newPinnedColumns.includes(columnName)
+            const isCurrentlyPinned = draftPinnedColumns.includes(columnName)
 
             if (isCurrentlyPinned) {
-                // Unpinning - just remove from pinned columns
-                newPinnedColumns.splice(newPinnedColumns.indexOf(columnName), 1)
+                setDraftPinnedColumns((prev) => prev.filter((c) => c !== columnName))
             } else {
-                // Pinning - add to pinned columns and show if hidden
-                newPinnedColumns.push(columnName)
-            }
+                setDraftPinnedColumns((prev) => [...prev, columnName])
 
-            let newSelect = marketingQuery?.select || []
-
-            // If we're pinning a hidden column, show it
-            if (!isCurrentlyPinned && hiddenColumns.includes(columnName)) {
-                newSelect = []
-                for (const column of sortedColumns) {
-                    if (column === columnName || !hiddenColumns.includes(column)) {
-                        newSelect.push(column)
-                    }
+                // If pinning a hidden column, show it
+                if (hiddenColumns.includes(columnName)) {
+                    showColumn(columnName)
                 }
             }
-
-            setQuery({
-                ...rawQuery,
-                source: {
-                    ...marketingQuery,
-                    select: newSelect,
-                },
-                pinnedColumns: newPinnedColumns,
-            } as DataTableNode)
         },
-        [pinnedColumns, rawQuery, setQuery, marketingQuery, hiddenColumns, sortedColumns]
+        [draftPinnedColumns, hiddenColumns, showColumn]
     )
 
     const resetColumnConfigToDefaults = useCallback(() => {
-        setQuery({
-            ...rawQuery,
-            source: {
-                ...marketingQuery,
-                select: sortedColumns,
-                orderBy: undefined,
-            },
-            pinnedColumns: [],
-        } as DataTableNode)
-    }, [marketingQuery, rawQuery, setQuery, sortedColumns])
+        setDraftSelect(sortedColumns)
+        setDraftOrderBy(undefined)
+        setDraftPinnedColumns([])
+    }, [sortedColumns])
+
+    // Check if there are pending changes
+    const hasChanges = useMemo(() => {
+        const currentSelect = marketingQuery?.select || sortedColumns
+        const currentOrderBy = marketingQuery?.orderBy
+        const currentPinned = rawQuery?.pinnedColumns || []
+
+        return (
+            JSON.stringify(draftSelect) !== JSON.stringify(currentSelect) ||
+            JSON.stringify(draftOrderBy) !== JSON.stringify(currentOrderBy) ||
+            JSON.stringify(draftPinnedColumns) !== JSON.stringify(currentPinned)
+        )
+    }, [draftSelect, draftOrderBy, draftPinnedColumns, marketingQuery, rawQuery, sortedColumns])
 
     return (
         <LemonModal
@@ -215,12 +198,14 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     <LemonButton
                         type="secondary"
                         onClick={resetColumnConfigToDefaults}
+                        // Intentionally checks draft vs defaults (not vs committed state like hasChanges),
+                        // so this stays enabled when the committed config is non-default
                         disabledReason={
-                            pinnedColumns.length === 0 &&
-                            !marketingQuery?.orderBy &&
+                            draftPinnedColumns.length === 0 &&
+                            !draftOrderBy &&
                             hiddenColumns.length === 0 &&
-                            marketingQuery?.select?.length === sortedColumns.length
-                                ? 'No changes to revert'
+                            draftSelect.length === sortedColumns.length
+                                ? 'Already at defaults'
                                 : undefined
                         }
                     >
@@ -228,7 +213,14 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     </LemonButton>
                     <div className="flex items-center gap-1">
                         <LemonButton type="secondary" onClick={hideColumnConfigModal}>
-                            Close
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={applyChanges}
+                            disabledReason={!hasChanges ? 'No changes to apply' : undefined}
+                        >
+                            Apply
                         </LemonButton>
                     </div>
                 </div>
@@ -239,7 +231,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                 <div className="p-4 bg-bg-light border rounded">
                     <h5 className="font-medium mb-3 text-sm uppercase tracking-wide text-muted">Active filters</h5>
                     <div className="space-y-2">
-                        {marketingQuery?.orderBy ? (
+                        {draftOrderBy ? (
                             <div className="flex items-center gap-1 text-sm">
                                 <IconArrowUp className="text-xs text-primary" />
                                 <span className="text-muted">
@@ -260,11 +252,12 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                         ) : (
                             <div className="text-sm text-muted italic">No hidden columns</div>
                         )}
-                        {pinnedColumns.length > 0 ? (
+                        {draftPinnedColumns.length > 0 ? (
                             <div className="flex items-center gap-1 text-sm">
                                 <IconPinFilled className="text-xs text-primary" />
                                 <span className="text-muted">
-                                    Pinned: <span className="font-medium text-primary">{pinnedColumns.join(', ')}</span>
+                                    Pinned:{' '}
+                                    <span className="font-medium text-primary">{draftPinnedColumns.join(', ')}</span>
                                 </span>
                             </div>
                         ) : (
@@ -284,12 +277,11 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                                     value={currentSortColumn}
                                     onChange={(value) => {
                                         if (value === null) {
-                                            clearMarketingAnalyticsOrderBy()
+                                            clearOrderBy()
                                         } else if (currentSortDirection) {
-                                            setMarketingAnalyticsOrderBy(value, currentSortDirection)
+                                            updateOrderBy(value, currentSortDirection)
                                         } else {
-                                            // If no direction is set, default to ASC
-                                            setMarketingAnalyticsOrderBy(value, 'ASC')
+                                            updateOrderBy(value, 'ASC')
                                         }
                                     }}
                                     options={sortOptions}
@@ -306,10 +298,9 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                                     value={currentSortDirection}
                                     onChange={(value) => {
                                         if (value === null) {
-                                            // Clear sorting if "No direction" is selected
-                                            clearMarketingAnalyticsOrderBy()
+                                            clearOrderBy()
                                         } else if (currentSortColumn) {
-                                            setMarketingAnalyticsOrderBy(currentSortColumn, value)
+                                            updateOrderBy(currentSortColumn, value)
                                         }
                                     }}
                                     options={directionOptions}
@@ -331,9 +322,9 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     </p>
 
                     <div className="space-y-2">
-                        {staticSortedColumns.current.map((columnName: string) => {
+                        {sortedColumns.map((columnName: string) => {
                             const isHidden = hiddenColumns.includes(columnName)
-                            const isPinned = pinnedColumns.includes(columnName)
+                            const isPinned = draftPinnedColumns.includes(columnName)
                             const isSortedByThisColumn = currentSortColumn === columnName
                             const isAscending = currentSortDirection === 'ASC'
 

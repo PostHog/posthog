@@ -14,8 +14,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
+from products.growth.backend.constants import SdkVersionEntry, github_sdk_versions_key, team_sdk_versions_key
+from products.growth.backend.team_sdk_versions import get_and_cache_team_sdk_versions
 from products.growth.dags.github_sdk_versions import SDK_TYPES
-from products.growth.dags.team_sdk_versions import get_and_cache_team_sdk_versions
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +25,7 @@ logger = structlog.get_logger(__name__)
 @permission_classes([IsAuthenticated])
 def sdk_doctor(request: Request) -> Response:
     """
-    Serve team SDK versions. Data is cached by Dagster job.
+    Serve team SDK versions. Data is cached by the Temporal sdk_outdated health check.
     Supports force_refresh=true for on-demand detection.
     """
     user = cast(User, request.user)
@@ -67,9 +68,9 @@ def sdk_doctor(request: Request) -> Response:
     return Response(combined_data, status=200)
 
 
-def get_team_data(team_id: int, force_refresh: bool) -> dict[str, Any] | None:
+def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersionEntry]] | None:
     redis_client = get_client()
-    cache_key = f"sdk_versions:team:{team_id}"
+    cache_key = team_sdk_versions_key(team_id)
 
     if not force_refresh:
         cached_data = redis_client.get(cache_key)
@@ -106,7 +107,7 @@ def get_github_sdk_data() -> dict[str, Any]:
 
     data: dict[str, Any] = {}
     for sdk_type in SDK_TYPES:
-        cache_key = f"github:sdk_versions:{sdk_type}"
+        cache_key = github_sdk_versions_key(sdk_type)
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:

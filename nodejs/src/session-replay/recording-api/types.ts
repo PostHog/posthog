@@ -27,7 +27,7 @@ export {
  */
 export type RecordingApiConfig = Pick<
     CommonConfig,
-    'SITE_URL' | 'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'
+    'KAFKA_CLIENT_RACK' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'
 > &
     Pick<
         SessionRecordingApiConfig,
@@ -40,7 +40,6 @@ export type RecordingApiConfig = Pick<
         | 'CLICKHOUSE_USER'
         | 'CLICKHOUSE_PASSWORD'
         | 'CLICKHOUSE_SECURE'
-        | 'CLICKHOUSE_CA'
     > &
     Pick<
         SessionRecordingConfig,

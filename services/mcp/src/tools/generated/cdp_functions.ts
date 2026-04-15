@@ -13,13 +13,14 @@ import {
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionsListSchema = HogFunctionsListQueryParams
 
 const cdpFunctionsList = (): ToolBase<
     typeof CdpFunctionsListSchema,
-    Schemas.PaginatedHogFunctionMinimalList & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
 > => ({
     name: 'cdp-functions-list',
     schema: CdpFunctionsListSchema,
@@ -40,14 +41,25 @@ const cdpFunctionsList = (): ToolBase<
                 updated_at: params.updated_at,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline`,
-        }
+        return await withPostHogUrl(context, result, '/pipeline')
     },
 })
 
-const CdpFunctionsCreateSchema = HogFunctionsCreateBody
+const CdpFunctionsCreateSchema = HogFunctionsCreateBody.extend({
+    type: HogFunctionsCreateBody.shape['type'].describe(
+        'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
+    ),
+    template_id: HogFunctionsCreateBody.shape['template_id'].describe(
+        'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
+    ),
+    hog: HogFunctionsCreateBody.shape['hog'].describe(
+        'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
+    ),
+    enabled: HogFunctionsCreateBody.shape['enabled'].describe('Whether the function is active and processing events.'),
+    execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
+        'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'
+    ),
+})
 
 const cdpFunctionsCreate = (): ToolBase<typeof CdpFunctionsCreateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-create',
@@ -118,9 +130,13 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
     },
 })
 
-const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true }).extend(
-    HogFunctionsPartialUpdateBody.shape
-)
+const CdpFunctionsPartialUpdateSchema = HogFunctionsPartialUpdateParams.omit({ project_id: true })
+    .extend(HogFunctionsPartialUpdateBody.shape)
+    .extend({
+        enabled: HogFunctionsPartialUpdateBody.shape['enabled'].describe(
+            'Set to true to activate or false to deactivate the function.'
+        ),
+    })
 
 const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-partial-update',
@@ -178,12 +194,12 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
 
 const CdpFunctionsDeleteSchema = HogFunctionsDestroyParams.omit({ project_id: true })
 
-const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, unknown> => ({
+const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas.HogFunction> => ({
     name: 'cdp-functions-delete',
     schema: CdpFunctionsDeleteSchema,
     handler: async (context: Context, params: z.infer<typeof CdpFunctionsDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
             path: `/api/projects/${projectId}/hog_functions/${params.id}/`,
             body: { deleted: true },

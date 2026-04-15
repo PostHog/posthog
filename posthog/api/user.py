@@ -77,7 +77,7 @@ from posthog.event_usage import (
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models import Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -91,6 +91,8 @@ from posthog.tasks.email import (
 )
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -276,6 +278,13 @@ class UserSerializer(serializers.ModelSerializer):
             **(instance.partial_notification_settings or {}),
         }
 
+        _dict_notification_keys = (
+            "project_weekly_digest_disabled",
+            "error_tracking_weekly_digest_project_enabled",
+            "web_analytics_weekly_digest_project_enabled",
+            "organization_member_join_email_disabled",
+        )
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
@@ -285,16 +294,16 @@ class UserSerializer(serializers.ModelSerializer):
 
             expected_type = Notifications.__annotations__[key]
 
-            if key in ("project_weekly_digest_disabled", "error_tracking_weekly_digest_project_enabled"):
+            if key in _dict_notification_keys:
                 if not isinstance(value, dict):
                     raise serializers.ValidationError(
-                        f"{key} must be a dictionary mapping project IDs to boolean values",
+                        f"{key} must be a dictionary mapping IDs to boolean values",
                         code="invalid_input",
                     )
                 for _, disabled in value.items():
                     if not isinstance(disabled, bool):
                         raise serializers.ValidationError(
-                            f"Project notification setting values must be boolean, got {type(disabled)} instead",
+                            f"Notification setting values must be boolean, got {type(disabled)} instead",
                             code="invalid_input",
                         )
                 current_settings[key] = {**current_settings.get(key, {}), **value}
@@ -479,6 +488,8 @@ class UserViewSet(
     scope_object = "user"
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
+    # Custom @action GETs that should map to user:read for OAuth / personal API keys
+    scope_object_read_actions = ["list", "retrieve", "github_login"]
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
@@ -552,6 +563,11 @@ class UserViewSet(
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)
         super().perform_destroy(user)
+
+    @action(methods=["GET"], detail=True, url_path="github_login")
+    def github_login(self, request, **kwargs):
+        user = self.get_object()
+        return Response({"github_login": user.get_github_login()})
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

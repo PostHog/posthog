@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import clsx from 'clsx'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -35,7 +35,7 @@ export function MetadataHeader({
     isStreaming?: boolean
 }): JSX.Element {
     return (
-        <div className={classNames('flex flex-wrap gap-2', className)}>
+        <div className={clsx('flex flex-wrap gap-2', className)}>
             {isError && <LemonTag type="danger">Error</LemonTag>}
             {typeof latency === 'number' && (
                 <MetadataTag label="Latency">{`${Math.round(latency * 10e2) / 10e2}s latency`}</MetadataTag>

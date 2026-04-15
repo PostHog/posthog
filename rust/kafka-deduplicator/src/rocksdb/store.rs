@@ -6,8 +6,8 @@ use std::{
 use anyhow::{Context, Result};
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
-    DBCompressionType, DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch,
-    WriteBufferManager, WriteOptions,
+    DBCompressionType, DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteBufferManager,
+    WriteOptions,
 };
 use std::time::Instant;
 use tracing::error;
@@ -35,7 +35,7 @@ const DEFAULT_L0_STOP_WRITES_TRIGGER: i32 = 36;
 /// Bloom filter bits per key — 10 bits ≈ 1% false-positive rate.
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 /// Timestamp key prefix length for SliceTransform (8-byte epoch seconds).
-const TIMESTAMP_PREFIX_LEN: usize = 8;
+pub const TIMESTAMP_PREFIX_LEN: usize = 8;
 /// 2 write buffers: one active for writes, one flushing to disk.
 const MAX_WRITE_BUFFER_NUMBER: i32 = 2;
 /// Merge every buffer immediately — avoids batching delay before flush.
@@ -153,7 +153,7 @@ pub fn init_shared_resources(config: &RocksDbConfig) {
     });
 }
 
-pub fn block_based_table_factory() -> BlockBasedOptions {
+fn block_based_table_options() -> BlockBasedOptions {
     let mut block_opts = BlockBasedOptions::default();
     // Bloom filter reduces full-key lookups during dedup checks
     block_opts.set_bloom_filter(BLOOM_FILTER_BITS_PER_KEY, false);
@@ -162,20 +162,34 @@ pub fn block_based_table_factory() -> BlockBasedOptions {
     block_opts.set_whole_key_filtering(true);
     block_opts.set_partition_filters(true);
     block_opts.set_pin_top_level_index_and_filter(true);
+    // Use shared block cache across all stores and column families
+    block_opts.set_block_cache(
+        SHARED_BLOCK_CACHE
+            .get()
+            .expect("shared block cache not initialized"),
+    );
     block_opts
 }
 
-fn rocksdb_options(config: &RocksDbConfig) -> Options {
+/// Build column family options with all tuning from `RocksDbConfig`.
+/// CF options don't inherit from DB options, so this must explicitly set
+/// every option that matters for the CF's performance and compression.
+pub fn column_family_options(config: &RocksDbConfig) -> Options {
     // Ensure shared resources are initialized (idempotent fallback for tests)
     init_shared_resources(config);
 
     let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.set_atomic_flush(true);
-    opts.create_missing_column_families(true);
+
+    opts.set_block_based_table_factory(&block_based_table_options());
+
+    // Write buffer tuning — larger buffers = fewer flushes = less I/O on PVC storage.
+    opts.set_write_buffer_size(config.write_buffer_size_bytes);
+    opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
+    opts.set_min_write_buffer_number_to_merge(MIN_WRITE_BUFFER_NUMBER_TO_MERGE);
+
+    opts.set_target_file_size_base(config.target_file_size_base_bytes);
 
     // Universal compaction: lower write amplification for write-heavy workloads
-    // at the cost of higher space amplification — good for batch writes on slow PVC storage
     opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
     let mut universal_opts = rocksdb::UniversalCompactOptions::default();
     universal_opts.set_size_ratio(UNIVERSAL_SIZE_RATIO);
@@ -185,40 +199,12 @@ fn rocksdb_options(config: &RocksDbConfig) -> Options {
     universal_opts.set_compression_size_percent(config.universal_compression_size_percent);
     opts.set_universal_compaction_options(&universal_opts);
 
-    let mut block_opts = block_based_table_factory();
-
-    // Timestamp column family uses prefix extractor for 8-byte epoch-second keys
-    let mut ts_cf = Options::default();
-    ts_cf.set_block_based_table_factory(&block_opts);
-    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(TIMESTAMP_PREFIX_LEN));
-
-    // CRITICAL: Use shared block cache across all stores
-    block_opts.set_block_cache(
-        SHARED_BLOCK_CACHE
-            .get()
-            .expect("shared block cache not initialized"),
-    );
-    opts.set_block_based_table_factory(&block_opts);
-
-    // CRITICAL: Use shared write buffer manager to limit total memory
-    opts.set_write_buffer_manager(
-        SHARED_WRITE_BUFFER_MANAGER
-            .get()
-            .expect("shared write buffer manager not initialized"),
-    );
-
-    // Write buffer tuning — larger buffers = fewer flushes = less I/O on PVC storage.
-    // The shared write buffer manager caps total memory across all partition stores.
-    opts.set_write_buffer_size(config.write_buffer_size_bytes);
-    opts.set_max_write_buffer_number(MAX_WRITE_BUFFER_NUMBER);
-    opts.set_min_write_buffer_number_to_merge(MIN_WRITE_BUFFER_NUMBER_TO_MERGE);
-
-    opts.set_target_file_size_base(config.target_file_size_base_bytes);
-
+    // L0 compaction triggers
     opts.set_level_zero_file_num_compaction_trigger(config.l0_compaction_trigger);
     opts.set_level_zero_slowdown_writes_trigger(config.l0_slowdown_writes_trigger);
     opts.set_level_zero_stop_writes_trigger(config.l0_stop_writes_trigger);
 
+    // Compression
     if let Some(ref per_level) = config.compression_per_level {
         opts.set_compression_per_level(per_level);
     } else {
@@ -230,6 +216,26 @@ fn rocksdb_options(config: &RocksDbConfig) -> Options {
             opts.set_bottommost_zstd_max_train_bytes(0, true);
         }
     }
+
+    opts
+}
+
+fn rocksdb_options(config: &RocksDbConfig) -> Options {
+    // Start with column_family_options() as the base — these settings apply to the
+    // default CF and are shared with custom CFs via column_family_options().
+    let mut opts = column_family_options(config);
+
+    // DB-level settings (not per-CF)
+    opts.create_if_missing(true);
+    opts.set_atomic_flush(true);
+    opts.create_missing_column_families(true);
+
+    // CRITICAL: Use shared write buffer manager to limit total memory across all stores
+    opts.set_write_buffer_manager(
+        SHARED_WRITE_BUFFER_MANAGER
+            .get()
+            .expect("shared write buffer manager not initialized"),
+    );
 
     // Limit background jobs to reduce I/O contention when many partitions share a disk
     opts.increase_parallelism(config.max_background_jobs);

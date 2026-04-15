@@ -1,8 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { CalendarHeatMap } from './CalendarHeatMap'
+import { CalendarHeatMap, CalendarHeatMapProps } from './CalendarHeatMap'
 
-const meta: Meta<typeof CalendarHeatMap> = {
+const meta: Meta<CalendarHeatMapProps> = {
     title: 'Scenes/Web Analytics/CalendarHeatMap',
     component: CalendarHeatMap,
     parameters: {
@@ -10,7 +10,7 @@ const meta: Meta<typeof CalendarHeatMap> = {
     },
 }
 export default meta
-type Story = StoryObj<typeof CalendarHeatMap>
+type Story = StoryObj<CalendarHeatMapProps>
 
 const mockTooltips = {
     getDataTooltip: (row: string, col: string, value: number) => `${row} - ${col}: ${value}`,

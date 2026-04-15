@@ -1,1 +1,1 @@
-0221_error_tracking_events_test_table
+0231_add_ai_columns_to_session_replay_events

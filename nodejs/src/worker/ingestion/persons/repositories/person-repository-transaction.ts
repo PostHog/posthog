@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonUpdateFields,
@@ -11,6 +10,7 @@ import {
     Team,
 } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { PersonMessage } from '../person-message'
 
 export interface PersonRepositoryTransaction {
     createPerson(
@@ -30,11 +30,11 @@ export interface PersonRepositoryTransaction {
         person: InternalPerson,
         update: PersonUpdateFields,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]>
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
-    deletePerson(person: InternalPerson): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 
-    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]>
+    addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     moveDistinctIds(source: InternalPerson, target: InternalPerson, limit?: number): Promise<MoveDistinctIdsResult>
 

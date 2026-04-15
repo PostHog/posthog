@@ -104,9 +104,15 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             eventUsageLogic.actions.reportChangeOuterPropertyGroupFiltersType(type, values.filters.values.length)
             actions.update()
         },
-        removeFilterGroup: () => actions.update(),
+        removeFilterGroup: () => {
+            eventUsageLogic.actions.reportPropertyGroupFilterRemoved()
+            actions.update()
+        },
         addFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
+        },
+        duplicateFilterGroup: () => {
+            eventUsageLogic.actions.reportPropertyGroupFilterDuplicated()
         },
         update: () => {
             // Don't persist empty PropertyGroupFilter structures — they cause ghost

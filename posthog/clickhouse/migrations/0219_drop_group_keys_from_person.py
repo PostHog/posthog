@@ -43,7 +43,7 @@ operations = [
             DROP_COLUMN_SQL.format(table=PERSONS_TABLE, column=col),
             sharded=False,
             is_alter_on_replicated_table=True,
-            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            node_roles=[NodeRole.DATA],
         )
         for col in GROUP_KEY_COLUMNS
     ],

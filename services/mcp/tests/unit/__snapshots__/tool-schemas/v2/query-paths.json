@@ -1,0 +1,633 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "aggregation_group_type_index": {
+            "anyOf": [
+                {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Groups aggregation"
+        },
+        "dateRange": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "date_from": {
+                            "description": "ISO8601 date string.",
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "ISO8601 date string."
+                        }
+                    },
+                    "required": ["date_from"],
+                    "type": "object"
+                },
+                {
+                    "properties": {
+                        "date_from": {
+                            "description": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from"],
+                    "type": "object"
+                }
+            ],
+            "description": "Date range for the query"
+        },
+        "filterTestAccounts": {
+            "default": false,
+            "description": "Exclude internal and test users by applying the respective filters",
+            "type": "boolean"
+        },
+        "kind": {
+            "const": "PathsQuery",
+            "default": "PathsQuery",
+            "type": "string"
+        },
+        "pathsFilter": {
+            "description": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.",
+            "properties": {
+                "edgeLimit": {
+                    "default": 50,
+                    "description": "Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.",
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                },
+                "endPoint": {
+                    "description": "Filter to only show paths that end at this specific step. Same format as `startPoint`.",
+                    "type": "string"
+                },
+                "excludeEvents": {
+                    "default": [],
+                    "description": "Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "includeEventTypes": {
+                    "description": "Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.",
+                    "items": {
+                        "enum": ["$pageview", "$screen", "custom_event", "hogql"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "localPathCleaningFilters": {
+                    "default": [],
+                    "description": "ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.",
+                    "items": {
+                        "properties": {
+                            "alias": {
+                                "description": "A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.",
+                                "type": "string"
+                            },
+                            "regex": {
+                                "description": "A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["alias", "regex"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "maxEdgeWeight": {
+                    "description": "Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.",
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                },
+                "minEdgeWeight": {
+                    "description": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.",
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                },
+                "pathGroupings": {
+                    "default": [],
+                    "description": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "pathsHogQLExpression": {
+                    "description": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+                    "type": "string"
+                },
+                "startPoint": {
+                    "description": "Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.",
+                    "type": "string"
+                },
+                "stepLimit": {
+                    "default": 5,
+                    "description": "Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.",
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
+        "properties": {
+            "default": [],
+            "description": "Property filters for all series",
+            "items": {
+                "anyOf": [
+                    {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                        "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "enum": ["event", "person", "session", "feature"],
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "operator", "type", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "enum": ["exact", "gt", "lt"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "enum": ["event", "person", "session", "feature"],
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["key", "operator", "type", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                        "enum": ["exact", "is_not"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "enum": ["event", "person", "session", "feature"],
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["key", "operator", "type", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "enum": ["event", "person", "session", "feature"],
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Value must be a date in ISO 8601 format.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "operator", "type", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                        "enum": ["is_set", "is_not_set"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "enum": ["event", "person", "session", "feature"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "operator", "type"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "group_type_index": {
+                                        "description": "Index of the group type from the group mapping.",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                        "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "group",
+                                        "default": "group",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["group_type_index", "key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "group_type_index": {
+                                        "description": "Index of the group type from the group mapping.",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "enum": ["exact", "gt", "lt"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "group",
+                                        "default": "group",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["group_type_index", "key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "group_type_index": {
+                                        "description": "Index of the group type from the group mapping.",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                        "enum": ["exact", "is_not"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "group",
+                                        "default": "group",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["group_type_index", "key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "group_type_index": {
+                                        "description": "Index of the group type from the group mapping.",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "group",
+                                        "default": "group",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Value must be a date in ISO 8601 format.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["group_type_index", "key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "group_type_index": {
+                                        "description": "Index of the group type from the group mapping.",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "key": {
+                                        "description": "Use one of the properties the user has provided in the plan.",
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                        "enum": ["is_set", "is_not_set"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "group",
+                                        "default": "group",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["group_type_index", "key", "operator"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "const": "id",
+                                "default": "id",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "const": "in",
+                                "default": "in",
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "cohort",
+                                "default": "cohort",
+                                "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "The cohort ID to filter by.",
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "type": "integer"
+                            }
+                        },
+                        "required": ["value"],
+                        "type": "object"
+                    },
+                    {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                        "enum": ["tag_name", "text", "href", "selector"],
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                        "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "element",
+                                        "default": "element",
+                                        "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                        "enum": ["tag_name", "text", "href", "selector"],
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "enum": ["exact", "gt", "lt"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "element",
+                                        "default": "element",
+                                        "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                        "enum": ["tag_name", "text", "href", "selector"],
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                        "enum": ["exact", "is_not"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "element",
+                                        "default": "element",
+                                        "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                        "enum": ["tag_name", "text", "href", "selector"],
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "enum": ["is_date_exact", "is_date_before", "is_date_after"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "element",
+                                        "default": "element",
+                                        "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                        "type": "string"
+                                    },
+                                    "value": {
+                                        "description": "Value must be a date in ISO 8601 format.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "operator", "value"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "key": {
+                                        "description": "The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`).",
+                                        "enum": ["tag_name", "text", "href", "selector"],
+                                        "type": "string"
+                                    },
+                                    "operator": {
+                                        "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected.",
+                                        "enum": ["is_set", "is_not_set"],
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "const": "element",
+                                        "default": "element",
+                                        "description": "Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: \"element\", key: \"text\", value: \"Sign Up\", operator: \"exact\" }`",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["key", "operator"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "description": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "hogql",
+                                "default": "hogql",
+                                "description": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "description": "The feature flag key.",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "const": "flag_evaluates_to",
+                                "default": "flag_evaluates_to",
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "flag",
+                                "default": "flag",
+                                "description": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "string"
+                                    }
+                                ],
+                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                            }
+                        },
+                        "required": ["key", "value"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "type": "array"
+        }
+    },
+    "required": ["pathsFilter"],
+    "type": "object"
+}

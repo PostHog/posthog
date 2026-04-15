@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.functions import Lower
 
@@ -83,6 +84,37 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(serializer.data, status=status_code)
+
+    @action(methods=["PATCH"], detail=False, url_path="bulk_update")
+    def bulk_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        items = request.data.get("items")
+        if not isinstance(items, list) or len(items) == 0:
+            return Response(
+                {"error": "items is required and must be a non-empty list"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = cast(User, request.user)
+        results = []
+        with transaction.atomic():
+            for item in items:
+                product_path = item.get("product_path")
+                enabled = item.get("enabled")
+                if not product_path or enabled is None:
+                    continue
+
+                existing_item, _created = UserProductList.objects.get_or_create(
+                    team=self.team,
+                    user=user,
+                    product_path=product_path,
+                    defaults={"enabled": enabled},
+                )
+
+                serializer = self.get_serializer(existing_item, data=item, partial=True)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+                results.append(serializer.data)
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="seed")
     def seed(self, request: Request, *args: Any, **kwargs: Any) -> Response:

@@ -8,6 +8,36 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `active` - Active
+ * `paused` - Paused
+ * `error` - Error
+ */
+export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
+
+export const EvaluationStatusEnumApi = {
+    Active: 'active',
+    Paused: 'paused',
+    Error: 'error',
+} as const
+
+/**
+ * * `trial_limit_reached` - Trial evaluation limit reached
+ * `model_not_allowed` - Model not available on the trial plan
+ * `provider_key_deleted` - Provider API key was deleted
+ */
+export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+
+export const StatusReasonEnumApi = {
+    TrialLimitReached: 'trial_limit_reached',
+    ModelNotAllowed: 'model_not_allowed',
+    ProviderKeyDeleted: 'provider_key_deleted',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
  */
@@ -34,9 +64,9 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  */
-export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
+export type Provider519EnumApi = (typeof Provider519EnumApi)[keyof typeof Provider519EnumApi]
 
-export const ProviderEnumApi = {
+export const Provider519EnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
@@ -48,7 +78,7 @@ export const ProviderEnumApi = {
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: ProviderEnumApi
+    provider: Provider519EnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -86,10 +116,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -122,6 +148,8 @@ export interface EvaluationApi {
     name: string
     description?: string
     enabled?: boolean
+    readonly status: EvaluationStatusEnumApi
+    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
     evaluation_type: EvaluationTypeEnumApi
     evaluation_config?: unknown
     output_type: OutputTypeEnumApi
@@ -396,7 +424,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: ProviderEnumApi
+    provider: Provider519EnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -422,7 +450,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: ProviderEnumApi
+    provider?: Provider519EnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -738,18 +766,18 @@ export const Mode02aEnumApi = {
 } as const
 
 export interface SummarizeRequestApi {
-    /** Type of entity to summarize
+    /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
 * `trace` - trace
 * `event` - event */
-    summarize_type: SummarizeTypeEnumApi
+    summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
 * `minimal` - minimal
 * `detailed` - detailed */
     mode?: Mode02aEnumApi
-    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
-    data: unknown
+    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
+    data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
     /**
@@ -757,6 +785,20 @@ export interface SummarizeRequestApi {
      * @nullable
      */
     model?: string | null
+    /** Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup. */
+    trace_id?: string
+    /** Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup. */
+    generation_id?: string
+    /**
+     * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of date range for ID-based lookup. Defaults to now.
+     * @nullable
+     */
+    date_to?: string | null
 }
 
 export interface SummaryBulletApi {
@@ -1015,6 +1057,34 @@ export interface PatchedTraceReviewUpdateApi {
     queue_id?: string | null
 }
 
+export interface LLMPromptListApi {
+    readonly id: string
+    /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
+    readonly name: string
+    /** Prompt payload as JSON or string data. */
+    readonly prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+    readonly prompt_preview: string
+    readonly prompt_size_bytes: number
+}
+
+export interface PaginatedLLMPromptListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPromptListApi[]
+}
+
 export interface LLMPromptApi {
     readonly id: string
     /**
@@ -1035,15 +1105,6 @@ export interface LLMPromptApi {
     readonly first_version_created_at: string
 }
 
-export interface PaginatedLLMPromptListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LLMPromptApi[]
-}
-
 export interface LLMPromptPublicApi {
     id: string
     name: string
@@ -1058,9 +1119,18 @@ export interface LLMPromptPublicApi {
     first_version_created_at: string
 }
 
+export interface LLMPromptEditOperationApi {
+    /** Text to find in the current prompt. Must match exactly once. */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
 export interface PatchedLLMPromptPublishApi {
-    /** Prompt payload to publish as a new version. */
+    /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
     prompt?: unknown
+    /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
+    edits?: LLMPromptEditOperationApi[]
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -1393,6 +1463,15 @@ export type LlmAnalyticsTraceReviewsListParams = {
 
 export type LlmPromptsListParams = {
     /**
+ * Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.
+
+* `full` - full
+* `preview` - preview
+* `none` - none
+ * @minLength 1
+ */
+    content?: LlmPromptsListContent
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1405,6 +1484,14 @@ export type LlmPromptsListParams = {
      */
     search?: string
 }
+
+export type LlmPromptsListContent = (typeof LlmPromptsListContent)[keyof typeof LlmPromptsListContent]
+
+export const LlmPromptsListContent = {
+    Full: 'full',
+    Preview: 'preview',
+    None: 'none',
+} as const
 
 export type LlmPromptsNameRetrieveParams = {
     /**

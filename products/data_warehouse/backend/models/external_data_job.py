@@ -34,6 +34,11 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     billable = models.BooleanField(default=True, null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+    schema_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Snapshot of the ExternalDataSchema at the time this job was created.",
+    )
 
     __repr__ = sane_repr("id")
 

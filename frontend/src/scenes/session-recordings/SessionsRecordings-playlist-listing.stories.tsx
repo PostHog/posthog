@@ -37,12 +37,12 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': recordingEventsJson,
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const RecordingsPlayLists: Story = {}

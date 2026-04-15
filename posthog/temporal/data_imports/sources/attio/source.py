@@ -64,7 +64,6 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
                     ),
                 ],
             ),
-            featureFlag="dwh_attio",
         )
 
     def get_schemas(

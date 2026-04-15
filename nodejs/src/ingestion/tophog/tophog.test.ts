@@ -1,14 +1,16 @@
 import { parseJSON } from '../../utils/json-parse'
+import { TOPHOG_OUTPUT, TophogOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHog, TopHogOptionalConfig, TopHogRequiredConfig } from './tophog'
 
 describe('TopHog', () => {
     let mockQueueMessages: jest.Mock
-    let mockProducer: { queueMessages: jest.Mock }
+    let mockOutputs: IngestionOutputs<TophogOutput>
 
     beforeEach(() => {
         jest.useFakeTimers({ now: new Date('2025-01-15T10:30:00.000Z') })
         mockQueueMessages = jest.fn().mockResolvedValue(undefined)
-        mockProducer = { queueMessages: mockQueueMessages }
+        mockOutputs = { queueMessages: mockQueueMessages } as unknown as IngestionOutputs<TophogOutput>
     })
 
     afterEach(() => {
@@ -19,8 +21,7 @@ describe('TopHog', () => {
         overrides: Partial<TopHogRequiredConfig & TopHogOptionalConfig> = {}
     ): TopHogRequiredConfig & Partial<TopHogOptionalConfig> {
         return {
-            kafkaProducer: mockProducer as any,
-            topic: 'test_tophog',
+            outputs: mockOutputs,
             pipeline: 'test_pipeline',
             lane: 'test_lane',
             ...overrides,
@@ -31,7 +32,9 @@ describe('TopHog', () => {
         if (mockQueueMessages.mock.calls.length === 0) {
             return []
         }
-        return mockQueueMessages.mock.calls.flatMap((call: any) => call[0].messages.map((m: any) => parseJSON(m.value)))
+        return mockQueueMessages.mock.calls.flatMap((call: any) =>
+            call[1].map((m: any) => parseJSON(m.value.toString()))
+        )
     }
 
     describe('tracker registry', () => {
@@ -211,13 +214,13 @@ describe('TopHog', () => {
             expect(messages[0].lane).toBe('heatmap')
         })
 
-        it('should produce to the configured topic', async () => {
-            const tophog = new TopHog(createOptions({ topic: 'clickhouse_tophog' }))
+        it('should produce to the tophog output', async () => {
+            const tophog = new TopHog(createOptions())
             tophog.registerSum('events').record({ team_id: '1' }, 1)
 
             await tophog.flush()
 
-            expect(mockQueueMessages).toHaveBeenCalledWith(expect.objectContaining({ topic: 'clickhouse_tophog' }))
+            expect(mockQueueMessages).toHaveBeenCalledWith(TOPHOG_OUTPUT, expect.any(Array))
         })
     })
 

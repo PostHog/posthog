@@ -3,11 +3,10 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { performQuery } from '~/queries/query'
@@ -28,8 +27,10 @@ import {
     ChartDataPoint,
     CountryBreakdownItem,
     DeviceBreakdownItem,
+    DIRECT_REFERRER,
     LiveGeoEvent,
     PathItem,
+    ReferrerItem,
     SlidingWindowBucket,
 } from './LiveWebAnalyticsMetricsTypes'
 
@@ -39,11 +40,12 @@ const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
+const COUNTRY_BREAKDOWN_LIMIT = 6
 
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeam']],
     })),
     actions(() => ({
         addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
@@ -56,6 +58,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         tickCurrentMinute: true,
         pauseStream: true,
         resumeStream: true,
+        clearRecentEvents: true,
     })),
     reducers({
         slidingWindow: [
@@ -78,6 +81,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
+                            const referringDomain = event.properties?.$referring_domain
 
                             // For cookieless events, device_id isn't set before preprocessing
                             // so we create a device key from IP + user agent
@@ -88,11 +92,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                 deviceKey = `cookieless_${hashCodeForString(ip + ua)}`
                             }
 
+                            const isPageview = event.event === '$pageview'
+                            const normalizedReferrer =
+                                isPageview &&
+                                referringDomain &&
+                                referringDomain !== DIRECT_REFERRER &&
+                                referringDomain !== ''
+                                    ? referringDomain
+                                    : isPageview
+                                      ? DIRECT_REFERRER
+                                      : undefined
+
                             window.addDataPoint(eventTs, event.distinct_id, {
-                                pageviews: event.event === '$pageview' ? 1 : 0,
+                                pageviews: isPageview ? 1 : 0,
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
-                                pathname: event.event === '$pageview' ? pathname : undefined,
+                                pathname: isPageview ? pathname : undefined,
+                                referringDomain: normalizedReferrer,
                             })
                         }
                     }
@@ -132,6 +148,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             true,
             {
                 setIsLoading: (_, { loading }) => loading,
+            },
+        ],
+        recentEvents: [
+            [] as LiveEvent[],
+            {
+                addEvents: (state, { events }) => deduplicateEvents(state, events, 50),
+                clearRecentEvents: () => [],
             },
         ],
     }),
@@ -176,9 +199,38 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (slidingWindow: LiveMetricsSlidingWindow): CountryBreakdownItem[] => slidingWindow.getCountryBreakdown(),
             { resultEqualityCheck: equal },
         ],
+        topCountryBreakdown: [
+            (s) => [s.countryBreakdown],
+            (countryBreakdown: CountryBreakdownItem[]): CountryBreakdownItem[] => {
+                if (countryBreakdown.length <= COUNTRY_BREAKDOWN_LIMIT) {
+                    return countryBreakdown
+                }
+                const top = countryBreakdown.slice(0, COUNTRY_BREAKDOWN_LIMIT)
+                const rest = countryBreakdown.slice(COUNTRY_BREAKDOWN_LIMIT)
+                const othersCount = rest.reduce((sum, item) => sum + item.count, 0)
+                if (othersCount === 0) {
+                    return top
+                }
+                const othersPercentage = rest.reduce((sum, item) => sum + item.percentage, 0)
+                return [
+                    ...top,
+                    {
+                        country: 'Other',
+                        count: othersCount,
+                        percentage: othersPercentage,
+                    },
+                ]
+            },
+            { resultEqualityCheck: equal },
+        ],
         topPaths: [
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
+            { resultEqualityCheck: equal },
+        ],
+        topReferrers: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): ReferrerItem[] => slidingWindow.getTopReferrers(10),
             { resultEqualityCheck: equal },
         ],
         totalPageviews: [
@@ -209,13 +261,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     autoClose: 2000,
                 })
             }
-            startFlushInterval(cache as FlushCache, actions as FlushActions, values as FlushValues)
+            startFlushInterval(cache as FlushCache, actions as FlushActions)
             actions.loadInitialData()
         },
         loadInitialData: async () => {
             actions.setIsLoading(true)
-
-            const geoEnabled = !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP]
 
             try {
                 const now = Date.now()
@@ -227,15 +277,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.newerThan = handoff
 
                 actions.updateConnection()
-                if (geoEnabled) {
-                    actions.updateGeoConnection()
-                } else {
-                    cache.geoConnection?.abort()
-                    cache.geoConnection = null
-                    cache.geoBatch = []
-                }
-                const [usersPageviewsResponse, deviceResponse, browserResponse, pathsResponse, geoResponse] =
-                    await loadQueryData(dateFrom, handoff, geoEnabled)
+                actions.updateGeoConnection()
+                const [
+                    usersPageviewsResponse,
+                    deviceResponse,
+                    browserResponse,
+                    pathsResponse,
+                    referrerResponse,
+                    geoResponse,
+                ] = await loadQueryData(dateFrom, handoff)
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -243,9 +293,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addBreakdownDataToBuckets(deviceResponse, bucketMap, (b) => b.devices)
                 addBreakdownDataToBuckets(browserResponse, bucketMap, (b) => b.browsers)
                 addPathDataToBuckets(pathsResponse, bucketMap)
-                if (geoResponse) {
-                    addGeoDataToBuckets(geoResponse, bucketMap)
-                }
+                addReferrerDataToBuckets(referrerResponse, bucketMap)
+                addGeoDataToBuckets(geoResponse, bucketMap)
 
                 actions.setInitialData([...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })))
             } catch (error) {
@@ -270,7 +319,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            url.searchParams.append('columns', '$pathname,$device_type,$device_id,$browser,$ip,$raw_user_agent')
+            url.searchParams.append(
+                'columns',
+                '$pathname,$current_url,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+            )
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -337,13 +389,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             })
         },
     })),
-    events(({ actions, values, cache }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             cache.batch = [] as LiveEvent[]
             cache.geoBatch = [] as LiveGeoEvent[]
 
             actions.loadInitialData()
-            startFlushInterval(cache as FlushCache, actions as FlushActions, values as FlushValues)
+            startFlushInterval(cache as FlushCache, actions as FlushActions)
 
             // Ensures that our graph continues to update and old data "falls off"
             // even if new events aren't coming in
@@ -380,10 +432,6 @@ interface FlushActions {
     addGeoEvents: (events: LiveGeoEvent[]) => void
 }
 
-interface FlushValues {
-    featureFlags: Record<string, string | boolean | undefined>
-}
-
 const stopFlushInterval = (cache: FlushCache): void => {
     if (cache.flushInterval) {
         clearInterval(cache.flushInterval)
@@ -393,7 +441,7 @@ const stopFlushInterval = (cache: FlushCache): void => {
 
 // Flush both event and geo batches on a fixed interval
 // to cap kea dispatches at a predictable rate regardless of event volume
-const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: FlushValues): void => {
+const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     if (cache.flushInterval) {
         return
     }
@@ -402,7 +450,7 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: Fl
             actions.addEvents(cache.batch, cache.newerThan)
             cache.batch = []
         }
-        if (cache.geoBatch.length > 0 && values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_MAP]) {
+        if (cache.geoBatch.length > 0) {
             actions.addGeoEvents(cache.geoBatch)
             cache.geoBatch = []
         }
@@ -411,10 +459,16 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions, values: Fl
 
 const loadQueryData = async (
     dateFrom: Date,
-    dateTo: Date,
-    includeGeo: boolean
+    dateTo: Date
 ): Promise<
-    [HogQLQueryResponse, HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse, HogQLQueryResponse | null]
+    [
+        HogQLQueryResponse,
+        HogQLQueryResponse,
+        HogQLQueryResponse,
+        TrendsQueryResponse,
+        HogQLQueryResponse,
+        HogQLQueryResponse,
+    ]
 > => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
@@ -498,6 +552,25 @@ const loadQueryData = async (
         },
     }
 
+    const referrerQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    toStartOfMinute(timestamp) AS minute_bucket,
+                    if(isNotNull(properties.$referring_domain) AND properties.$referring_domain != '', properties.$referring_domain, '$direct') AS referring_domain,
+                    count() AS view_count
+                FROM events
+                WHERE
+                    timestamp >= toDateTime({dateFrom})
+                    AND timestamp <= toDateTime({dateTo})
+                    AND event = '$pageview'
+                GROUP BY minute_bucket, referring_domain
+                ORDER BY minute_bucket ASC`,
+        values: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
+        },
+    }
+
     const geoQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
@@ -535,7 +608,8 @@ const loadQueryData = async (
         performQuery(deviceQuery),
         performQuery(browserQuery),
         performQuery(pathsQuery),
-        includeGeo ? performQuery(geoQuery) : Promise.resolve(null),
+        performQuery(referrerQuery),
+        performQuery(geoQuery),
     ])
 }
 
@@ -601,6 +675,21 @@ const addPathDataToBuckets = (
     }
 }
 
+const addReferrerDataToBuckets = (
+    referrerResponse: HogQLQueryResponse,
+    bucketMap: Map<number, SlidingWindowBucket>
+): void => {
+    const results = referrerResponse.results as [string, string, number][]
+
+    for (const [timestampStr, referringDomain, viewCount] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
+
+        const domain = referringDomain || DIRECT_REFERRER
+        bucket.referrers.set(domain, (bucket.referrers.get(domain) ?? 0) + viewCount)
+    }
+}
+
 const addGeoDataToBuckets = (geoResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
     const results = geoResponse.results as [string, Record<string, string[]>][]
 
@@ -634,6 +723,7 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         devices: new Map<string, Set<string>>(),
         browsers: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
+        referrers: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
         countries: new Map<string, Set<string>>(),
     }

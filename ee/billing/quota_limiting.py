@@ -15,6 +15,7 @@ import dateutil.parser
 import posthoganalytics
 
 from posthog.cache_utils import cache_for
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
@@ -619,6 +620,7 @@ def update_all_orgs_billing_quotas(
     period = get_current_day()
     period_start, period_end = period
 
+    tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
 

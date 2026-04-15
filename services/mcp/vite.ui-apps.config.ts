@@ -1,7 +1,8 @@
 import react from '@vitejs/plugin-react'
-import { readdirSync } from 'fs'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
+
+import { discoverApps } from './scripts/utils'
 
 // PostHog configuration - injected at build time
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
@@ -17,16 +18,6 @@ const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
 // Single app mode: UI_APP env var selects which app to build
 const appName = process.env.UI_APP
-
-/**
- * Auto-discover UI apps from src/ui-apps/apps/.
- * An app is any .tsx file in the directory (e.g. debug.tsx → "debug").
- */
-function discoverApps(): string[] {
-    return readdirSync(APPS_DIR)
-        .filter((f) => f.endsWith('.tsx'))
-        .map((f) => f.replace(/\.tsx$/, ''))
-}
 
 // Discover all apps
 const ALL_APPS = discoverApps()

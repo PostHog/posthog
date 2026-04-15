@@ -40,7 +40,7 @@ const SesMailSchema = z.object({
     destination: z.array(z.string()),
     headersTruncated: z.boolean().optional(),
     headers: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
-    tags: z.record(z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
+    tags: z.record(z.string(), z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
 })
 
 const SesCommonEventBase = z.object({
@@ -143,16 +143,16 @@ const SesEventBatchSchema = z.array(SesEventRecordSchema)
 
 export type SesEventRecord = z.infer<typeof SesEventRecordSchema>
 
-const EVENT_TYPE_TO_METRIC_NAME: Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']> = {
+// email_sent is recorded synchronously in email.service.ts when the email is sent,
+// so we don't record it again from SES Send webhooks to avoid double counting.
+const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
-    // Delivery: 'email_sent',
+    Delivery: 'email_delivered',
     Bounce: 'email_bounced',
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',
-    Send: 'email_sent',
     Reject: 'email_failed',
-    Delivery: 'email_sent',
 }
 
 export class SesWebhookHandler {
@@ -312,6 +312,7 @@ export class SesWebhookHandler {
         metrics?: {
             functionId?: string
             invocationId?: string
+            actionId?: string
             metricName: MinimalAppMetric['metric_name']
         }[]
         optOutRecipients?: {
@@ -364,6 +365,7 @@ export class SesWebhookHandler {
         const metrics: {
             functionId?: string
             invocationId?: string
+            actionId?: string
             metricName: MinimalAppMetric['metric_name']
         }[] = []
         const optOutRecipients: {
@@ -374,7 +376,7 @@ export class SesWebhookHandler {
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
             const tags = rec.mail.tags
-            const { functionId, invocationId, teamId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+            const { functionId, invocationId, teamId, actionId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -382,7 +384,9 @@ export class SesWebhookHandler {
             }
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
-            metrics.push({ functionId, invocationId, metricName })
+            if (metricName) {
+                metrics.push({ functionId, invocationId, actionId, metricName })
+            }
 
             // Opt out recipients on permanent bounces
             if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {

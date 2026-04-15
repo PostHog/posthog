@@ -19,7 +19,10 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogFunctionBackfillsLogic', key]),
     connect((props: HogFunctionBackfillsLogicProps) => ({
         values: [hogFunctionConfigurationLogic(props), ['configuration']],
-        actions: [hogFunctionConfigurationLogic(props), ['setConfigurationValues', 'loadHogFunction']],
+        actions: [
+            hogFunctionConfigurationLogic(props),
+            ['setConfigurationValues', 'loadHogFunction', 'loadHogFunctionSuccess'],
+        ],
     })),
     actions({
         enableHogFunctionBackfills: () => true,
@@ -32,6 +35,12 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 setLoading: (_, { loading }) => loading,
             },
         ],
+        hasTriedEnabling: [
+            false,
+            {
+                enableHogFunctionBackfills: () => true,
+            },
+        ],
     }),
     selectors({
         isReady: [
@@ -41,13 +50,13 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         enableHogFunctionBackfills: async () => {
             try {
                 actions.setLoading(true)
                 await api.hogFunctions.enableBackfills(props.id)
 
-                // Reload page to get the updated config and render <BatchExportBackfills />
+                // Reload to get the updated config and render <BatchExportBackfills />
                 actions.loadHogFunction()
 
                 lemonToast.success('Backfills enabled for this destination.')
@@ -57,9 +66,17 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 actions.setLoading(false)
             }
         },
+        loadHogFunctionSuccess: () => {
+            // Handle the case where config loads after this logic mounts.
+            if (!values.configuration.batch_export_id && !values.hasTriedEnabling) {
+                actions.enableHogFunctionBackfills()
+            }
+        },
     })),
     afterMount(({ actions, values }) => {
-        if (!values.configuration.batch_export_id) {
+        // If hogFunctionConfigurationLogic has already loaded (e.g. user clicked
+        // the Backfills tab after the page loaded), check immediately.
+        if (values.configuration?.name && !values.configuration.batch_export_id && !values.hasTriedEnabling) {
             actions.enableHogFunctionBackfills()
         }
     }),

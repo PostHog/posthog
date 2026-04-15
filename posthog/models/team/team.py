@@ -16,11 +16,10 @@ import pytz
 import pydantic
 import posthoganalytics
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -40,6 +39,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -534,7 +534,7 @@ class Team(UUIDTClassicModel):
     )
 
     primary_dashboard = models.ForeignKey(
-        "posthog.Dashboard",
+        "dashboards.Dashboard",
         on_delete=models.SET_NULL,
         null=True,
         related_name="primary_dashboard_teams",
@@ -785,29 +785,31 @@ class Team(UUIDTClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        return sync_execute(
-            f"""
-            SELECT count(1) FROM (
-                {person_query}
-            )
-        """,
-            {**person_query_params, **filter.hogql_context.values},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            return sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {person_query}
+                )
+            """,
+                {**person_query_params, **filter.hogql_context.values},
+            )[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
-        # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
-        return sync_execute(
-            f"""
-            SELECT
-                count(DISTINCT group_key)
-            FROM groups
-            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-        """,
-            {"team_id": self.pk, "group_type_index": group_type_index},
-        )[0][0]
+        with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
+            # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
+            return sync_execute(
+                f"""
+                SELECT
+                    count(DISTINCT group_key)
+                FROM groups
+                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+            """,
+                {"team_id": self.pk, "group_type_index": group_type_index},
+            )[0][0]
 
     @property
     def timezone_info(self) -> ZoneInfo:

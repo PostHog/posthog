@@ -17,6 +17,7 @@ use crate::metric_consts::{
     SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
 use crate::spike_config::SpikeDetectionConfig;
+use crate::types::OutputErrProps;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
@@ -44,6 +45,7 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 #[derive(Debug, Clone)]
 pub struct SpikingIssue {
     pub issue: Issue,
+    pub props: OutputErrProps,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
 }
@@ -169,6 +171,7 @@ async fn try_increment_team_buckets(
 pub async fn do_spike_detection(
     context: Arc<AppContext>,
     issues_by_id: HashMap<Uuid, Issue>,
+    issue_props_by_id: HashMap<Uuid, OutputErrProps>,
     issue_counts: HashMap<Uuid, u32>,
 ) -> Result<(), UnhandledError> {
     if issue_counts.is_empty() {
@@ -218,6 +221,7 @@ pub async fn do_spike_detection(
     let spiking = get_spiking_issues(
         &*context.issue_buckets_redis_client,
         &issues_by_id,
+        &issue_props_by_id,
         &team_configs,
     )
     .await;
@@ -298,7 +302,7 @@ async fn emit_spiking_events(
         return;
     }
 
-    // Persist spike events to Postgres
+    // Persist spike events to Postgres and emit a signal
     for spike in &acquired_locks {
         let id = Uuid::now_v7();
         let now = Utc::now();
@@ -318,6 +322,13 @@ async fn emit_spiking_events(
         {
             warn!("Failed to persist spike event: {e}");
         }
+
+        context.signal_client.emit_issue_spiking(
+            &spike.issue,
+            &spike.props,
+            spike.computed_baseline,
+            spike.current_bucket_value as f64,
+        );
     }
 
     let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
@@ -434,6 +445,7 @@ fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
+    issue_props_by_id: &HashMap<Uuid, OutputErrProps>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, UnhandledError> {
     if issues_by_id.is_empty() {
@@ -475,6 +487,10 @@ async fn get_spiking_issues(
         if is_spiking(current_value, baseline, config) {
             spiking.push(SpikingIssue {
                 issue: issue.clone(),
+                props: issue_props_by_id
+                    .get(&bucket.issue_id)
+                    .cloned()
+                    .unwrap_or_default(),
                 computed_baseline: baseline,
                 current_bucket_value: current_value,
             });
@@ -654,7 +670,8 @@ mod tests {
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
             let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
-            get_spiking_issues(&self.redis, &self.issues_by_id(), &configs)
+            let empty_props = HashMap::new();
+            get_spiking_issues(&self.redis, &self.issues_by_id(), &empty_props, &configs)
                 .await
                 .unwrap()
         }
@@ -1082,7 +1099,8 @@ mod tests {
             (team_1, SpikeDetectionConfig::default()),
             (team_2, SpikeDetectionConfig::default()),
         ]);
-        let result = get_spiking_issues(&redis, &issues_by_id, &configs)
+        let empty_props = HashMap::new();
+        let result = get_spiking_issues(&redis, &issues_by_id, &empty_props, &configs)
             .await
             .unwrap();
 

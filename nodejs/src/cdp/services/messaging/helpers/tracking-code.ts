@@ -20,28 +20,33 @@ function fromBase64UrlSafe(b64url: string) {
 
 export const parseEmailTrackingCode = (
     encodedTrackingCode: string
-): { functionId: string; invocationId: string; teamId: string } | null => {
+): { functionId: string; invocationId: string; teamId: string; actionId?: string } | null => {
     const decodedTrackingCode = fromBase64UrlSafe(encodedTrackingCode)
     try {
-        const [functionId, invocationId, teamId] = decodedTrackingCode.split(':')
+        const [functionId, invocationId, teamId, actionId] = decodedTrackingCode.split(':')
         if (!functionId || !invocationId) {
             return null
         }
-        return { functionId, invocationId, teamId }
+        return { functionId, invocationId, teamId, actionId: actionId || undefined }
     } catch {
         return null
     }
 }
 
 export const generateEmailTrackingCode = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'>
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
+        state?: { actionId?: string }
+    }
 ): string => {
     // Generate a base64 encoded string free of equal signs
-    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}`)
+    const actionId = invocation.state?.actionId ?? ''
+    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}`)
 }
 
 export const generateEmailTrackingPixelUrl = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'>
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
+        state?: { actionId?: string }
+    }
 ): string => {
     return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?ph_id=${generateEmailTrackingCode(invocation)}`
 }

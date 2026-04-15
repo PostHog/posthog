@@ -12,27 +12,34 @@ import type {
     CopyDashboardTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
+    DashboardGeneratedMetadataApi,
+    DashboardTemplateApi,
+    DashboardTemplatesListParams,
     DashboardsAnalyzeRefreshResultCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
     DashboardsDestroyParams,
+    DashboardsGenerateMetadataCreateParams,
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRunInsightsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
+    PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
     ReorderTilesRequestApi,
+    RunInsightsResponseApi,
     SharingConfigurationApi,
 } from './api.schemas'
 
@@ -99,6 +106,61 @@ export const dashboardsCollaboratorsDestroy = async (
     return apiMutator<void>(getDashboardsCollaboratorsDestroyUrl(projectId, dashboardId, userUuid), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardTemplatesListUrl = (projectId: string, params?: DashboardTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_templates/`
+}
+
+export const dashboardTemplatesList = async (
+    projectId: string,
+    params?: DashboardTemplatesListParams,
+    options?: RequestInit
+): Promise<PaginatedDashboardTemplateListApi> => {
+    return apiMutator<PaginatedDashboardTemplateListApi>(getDashboardTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/`
+}
+
+export const dashboardTemplatesCreate = async (
+    projectId: string,
+    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardTemplateApi),
+    })
+}
+
+export const getDashboardTemplatesJsonSchemaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/json_schema/`
+}
+
+export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -483,6 +545,41 @@ export const dashboardsCopyTileCreate = async (
     })
 }
 
+/**
+ * Generate an AI-suggested name and description from this dashboard's tiles.
+ */
+export const getDashboardsGenerateMetadataCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsGenerateMetadataCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/generate_metadata/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/generate_metadata/`
+}
+
+export const dashboardsGenerateMetadataCreate = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsGenerateMetadataCreateParams,
+    options?: RequestInit
+): Promise<DashboardGeneratedMetadataApi> => {
+    return apiMutator<DashboardGeneratedMetadataApi>(getDashboardsGenerateMetadataCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
     id: number,
@@ -550,6 +647,41 @@ export const dashboardsReorderTilesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(reorderTilesRequestApi),
+    })
+}
+
+/**
+ * Run all insights on a dashboard and return their results.
+ */
+export const getDashboardsRunInsightsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/run_insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/run_insights/`
+}
+
+export const dashboardsRunInsightsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams,
+    options?: RequestInit
+): Promise<RunInsightsResponseApi> => {
+    return apiMutator<RunInsightsResponseApi>(getDashboardsRunInsightsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -1,12 +1,12 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { FilterLogicalOperator } from '~/types'
 
-import { AndOrFilterSelect } from './AndOrFilterSelect'
+import { AndOrFilterSelect, AndOrFilterSelectProps } from './AndOrFilterSelect'
 
-type Story = StoryObj<typeof AndOrFilterSelect>
-const meta: Meta<typeof AndOrFilterSelect> = {
+type Story = StoryObj<AndOrFilterSelectProps>
+const meta: Meta<AndOrFilterSelectProps> = {
     title: 'Filters/PropertyGroupFilters (Data Exploration)/AndOrFilterSelect',
     component: AndOrFilterSelect,
     argTypes: {
@@ -20,12 +20,13 @@ const meta: Meta<typeof AndOrFilterSelect> = {
     args: {
         value: FilterLogicalOperator.And,
     },
+    render: (args) => {
+        const [value, setValue] = useState(args.value)
+        return <AndOrFilterSelect {...args} value={value} onChange={setValue} />
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof AndOrFilterSelect> = (args) => {
-    const [value, setValue] = useState(args.value)
-    return <AndOrFilterSelect {...args} value={value} onChange={setValue} />
+export const Default: Story = {
+    args: {},
 }
-
-export const Default: Story = Template.bind({})

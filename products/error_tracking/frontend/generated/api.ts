@@ -18,6 +18,8 @@ import type {
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueFullApi,
+    ErrorTrackingIssueMergeRequestApi,
+    ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesList2Params,
@@ -719,14 +721,14 @@ export const getErrorTrackingIssuesMergeCreateUrl = (projectId: string, id: stri
 export const errorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueMergeRequestApi: ErrorTrackingIssueMergeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueMergeResponseApi> => {
+    return apiMutator<ErrorTrackingIssueMergeResponseApi>(getErrorTrackingIssuesMergeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueMergeRequestApi),
     })
 }
 
@@ -773,6 +775,17 @@ export const errorTrackingIssuesBulkCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingIssueFullApi),
+    })
+}
+
+export const getErrorTrackingIssuesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/exists/`
+}
+
+export const errorTrackingIssuesExistsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingIssuesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1305,6 +1318,23 @@ export const errorTrackingSymbolSetsFinishUploadUpdate = async (
     })
 }
 
+export const getErrorTrackingSymbolSetsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_delete/`
+}
+
+export const errorTrackingSymbolSetsBulkDeleteCreate = async (
+    projectId: string,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
+}
+
 export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/symbol_sets/bulk_finish_upload/`
 }
@@ -1600,6 +1630,23 @@ export const errorTrackingSymbolSetsFinishUploadUpdate2 = async (
     return apiMutator<void>(getErrorTrackingSymbolSetsFinishUploadUpdate2Url(projectId, id), {
         ...options,
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSymbolSetApi),
+    })
+}
+
+export const getErrorTrackingSymbolSetsBulkDeleteCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/bulk_delete/`
+}
+
+export const errorTrackingSymbolSetsBulkDeleteCreate2 = async (
+    projectId: string,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSymbolSetsBulkDeleteCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingSymbolSetApi),
     })

@@ -1,13 +1,10 @@
 package tui
 
 import (
-	"strings"
-
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
-// Recomputes searchMatches from current process output
+// recomputeSearch fetches lines and delegates to recomputeSearchWith.
 func (m *Model) recomputeSearch() {
 	if m.searchQuery == "" {
 		m.searchMatches = nil
@@ -15,15 +12,20 @@ func (m *Model) recomputeSearch() {
 		m.viewport.StyleLineFunc = nil
 		return
 	}
-	lines := m.searchableLines()
+	m.recomputeSearchWith(m.searchableLines())
+}
+
+// recomputeSearchWith scans the provided lines for the current query.
+// Use this when lines are already available to avoid a redundant copy.
+func (m *Model) recomputeSearchWith(lines []string) {
 	if len(lines) == 0 {
 		m.searchMatches = nil
 		return
 	}
-	query := strings.ToLower(m.searchQuery)
+	tokens := parseMatchTokens(m.searchQuery)
 	m.searchMatches = nil
 	for i, line := range lines {
-		if strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
+		if lineMatchesTokens(line, tokens) {
 			m.searchMatches = append(m.searchMatches, i)
 		}
 	}
@@ -73,7 +75,7 @@ func (m *Model) updateSearchForLine(line string, lineIndex int, evicted bool) {
 			m.searchMatches[i]--
 		}
 	}
-	if strings.Contains(strings.ToLower(ansi.Strip(line)), strings.ToLower(m.searchQuery)) {
+	if lineMatchesQuery(line, m.searchQuery) {
 		m.searchMatches = append(m.searchMatches, lineIndex)
 	}
 	m.applySearchStyle()

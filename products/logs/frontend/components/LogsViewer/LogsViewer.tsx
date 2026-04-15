@@ -29,10 +29,16 @@ const SCROLL_AMOUNT_PX = 8
 export interface LogsViewerProps {
     id: string
     showFullScreenButton?: boolean
+    showSavedViewsButton?: boolean
     initialFilters?: Partial<LogsViewerFilters>
 }
 
-export function LogsViewer({ id, showFullScreenButton = true, initialFilters }: LogsViewerProps): JSX.Element {
+export function LogsViewer({
+    id,
+    showFullScreenButton = true,
+    showSavedViewsButton = false,
+    initialFilters,
+}: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
@@ -41,7 +47,10 @@ export function LogsViewer({ id, showFullScreenButton = true, initialFilters }: 
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
                             <BindLogic logic={logsExportLogic} props={{ id }}>
                                 <BindLogic logic={logsFilterHistoryLogic} props={{ id }}>
-                                    <LogsViewerContent showFullScreenButton={showFullScreenButton} />
+                                    <LogsViewerContent
+                                        showFullScreenButton={showFullScreenButton}
+                                        showSavedViewsButton={showSavedViewsButton}
+                                    />
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>
@@ -52,7 +61,13 @@ export function LogsViewer({ id, showFullScreenButton = true, initialFilters }: 
     )
 }
 
-function LogsViewerContent({ showFullScreenButton }: { showFullScreenButton: boolean }): JSX.Element {
+function LogsViewerContent({
+    showFullScreenButton,
+    showSavedViewsButton,
+}: {
+    showFullScreenButton: boolean
+    showSavedViewsButton: boolean
+}): JSX.Element {
     const {
         id,
         wrapBody,
@@ -263,7 +278,7 @@ function LogsViewerContent({ showFullScreenButton }: { showFullScreenButton: boo
                 onToggleCollapse={toggleSparklineCollapsed}
             />
             <SceneDivider />
-            <LogsFilterBar />
+            <LogsFilterBar showSavedViewsButton={showSavedViewsButton} />
             <LogsViewerToolbar
                 totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
                 orderBy={orderBy}

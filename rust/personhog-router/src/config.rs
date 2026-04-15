@@ -85,6 +85,17 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub backend_keepalive_timeout_secs: u64,
 
+    /// Maximum gRPC message size to encode (send), in bytes.
+    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    /// Defaults to 128 MiB.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_send_message_size: usize,
+
+    /// Maximum gRPC message size to decode (receive), in bytes.
+    /// Applied to the router's gRPC server and its backend clients (replica, leader).
+    #[envconfig(default = "134217728")]
+    pub grpc_max_recv_message_size: usize,
+
     // ── etcd coordination (leader mode only) ─────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,
@@ -105,6 +116,34 @@ pub struct Config {
     /// Leader gRPC port used when resolving pod names to addresses
     #[envconfig(default = "50053")]
     pub leader_port: u16,
+
+    // ── coordinator (leader election among router-leader pods) ───
+    /// Lease TTL for the coordinator leader election
+    #[envconfig(default = "15")]
+    pub coordinator_lease_ttl: i64,
+
+    /// Keepalive interval for the coordinator lease
+    #[envconfig(default = "5")]
+    pub coordinator_keepalive_secs: u64,
+
+    /// Retry interval when coordinator fails to acquire leadership
+    #[envconfig(default = "5")]
+    pub coordinator_election_retry_secs: u64,
+
+    /// Debounce interval (ms) for batching pod events before rebalancing
+    #[envconfig(default = "1000")]
+    pub coordinator_rebalance_debounce_ms: u64,
+
+    // ── K8s awareness (leader mode only) ────────────────────────
+    /// Enable K8s-aware departure classification for smarter rebalancing.
+    /// When disabled, falls back to lease-based behavior.
+    #[envconfig(default = "false")]
+    pub k8s_awareness_enabled: bool,
+
+    /// Kubernetes namespace to watch. If empty, auto-reads from the
+    /// service account mount at /var/run/secrets/kubernetes.io/serviceaccount/namespace.
+    #[envconfig(default = "")]
+    pub k8s_namespace: String,
 }
 
 impl Config {
@@ -162,6 +201,30 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+
+    pub fn coordinator_keepalive_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_keepalive_secs)
+    }
+
+    pub fn coordinator_election_retry_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_election_retry_secs)
+    }
+
+    pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
+        Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    /// Resolve the K8s namespace from config or the service account mount.
+    pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
+        if !self.k8s_namespace.is_empty() {
+            return Ok(self.k8s_namespace.clone());
+        }
+        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!("k8s_namespace not set and failed to read from service account: {e}")
+            })
     }
 }
 

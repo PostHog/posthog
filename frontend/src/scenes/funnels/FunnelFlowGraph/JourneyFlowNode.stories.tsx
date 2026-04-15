@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -47,38 +47,44 @@ const meta: Meta = {
 }
 export default meta
 
-export const FirstStep: StoryFn = () => <JourneyNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
+type Story = StoryObj<{}>
 
-export const GreenProgressBar: StoryFn = () => (
-    <JourneyNodeStory step={makeStep('Complete profile', 1, 80, 100)} stepIndex={1} />
-)
+export const FirstStep: Story = {
+    render: () => <JourneyNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />,
+}
 
-export const YellowProgressBar: StoryFn = () => (
-    <JourneyNodeStory step={makeStep('First action', 2, 50, 100)} stepIndex={2} />
-)
+export const GreenProgressBar: Story = {
+    render: () => <JourneyNodeStory step={makeStep('Complete profile', 1, 80, 100)} stepIndex={1} />,
+}
 
-export const RedProgressBar: StoryFn = () => (
-    <JourneyNodeStory step={makeStep('Activation', 3, 10, 100)} stepIndex={3} />
-)
+export const YellowProgressBar: Story = {
+    render: () => <JourneyNodeStory step={makeStep('First action', 2, 50, 100)} stepIndex={2} />,
+}
 
-export const EmptyProgressBar: StoryFn = () => (
-    <JourneyNodeStory step={makeStep('Activation', 3, 0, 100)} stepIndex={3} />
-)
+export const RedProgressBar: Story = {
+    render: () => <JourneyNodeStory step={makeStep('Activation', 3, 10, 100)} stepIndex={3} />,
+}
 
-export const OptionalStep: StoryFn = () => (
-    <JourneyNodeStory step={makeStep('Complete profile', 1, 50, 100)} stepIndex={1} isOptional />
-)
+export const EmptyProgressBar: Story = {
+    render: () => <JourneyNodeStory step={makeStep('Activation', 3, 0, 100)} stepIndex={3} />,
+}
 
-export const AllVariants: StoryFn = () => {
-    const spacing = NODE_WIDTH + 20
-    return (
-        <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
-            <JourneyNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
-            <JourneyNodeStory step={makeStep('Complete profile', 1, 80, 100)} stepIndex={1} />
-            <JourneyNodeStory step={makeStep('First action', 2, 50, 100)} stepIndex={2} />
-            <JourneyNodeStory step={makeStep('Activation', 3, 10, 100)} stepIndex={3} />
-            <JourneyNodeStory step={makeStep('Churn', 4, 0, 100)} stepIndex={4} />
-            <JourneyNodeStory step={makeStep('Optional step', 1, 50, 100)} stepIndex={1} isOptional />
-        </div>
-    )
+export const OptionalStep: Story = {
+    render: () => <JourneyNodeStory step={makeStep('Complete profile', 1, 50, 100)} stepIndex={1} isOptional />,
+}
+
+export const AllVariants: Story = {
+    render: () => {
+        const spacing = NODE_WIDTH + 20
+        return (
+            <div className="flex flex-wrap gap-4" style={{ maxWidth: spacing * 3 }}>
+                <JourneyNodeStory step={makeStep('Sign up', 0, 100, 100)} stepIndex={0} />
+                <JourneyNodeStory step={makeStep('Complete profile', 1, 80, 100)} stepIndex={1} />
+                <JourneyNodeStory step={makeStep('First action', 2, 50, 100)} stepIndex={2} />
+                <JourneyNodeStory step={makeStep('Activation', 3, 10, 100)} stepIndex={3} />
+                <JourneyNodeStory step={makeStep('Churn', 4, 0, 100)} stepIndex={4} />
+                <JourneyNodeStory step={makeStep('Optional step', 1, 50, 100)} stepIndex={1} isOptional />
+            </div>
+        )
+    },
 }

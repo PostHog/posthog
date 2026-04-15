@@ -1,8 +1,7 @@
-import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import {
@@ -79,7 +78,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
+import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -574,7 +573,7 @@ function Chip({
         <Tooltip title={tooltipTitle ?? title}>
             <LemonTag
                 size="small"
-                className={classNames('bg-surface-primary', className)}
+                className={clsx('bg-surface-primary', className)}
                 icon={icon}
                 type={type}
                 onClick={onClick}
@@ -1045,12 +1044,11 @@ function TraceSidebar({
     showBillingInfo?: boolean
 }): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
-    const ref = useRef<HTMLDivElement | null>(null)
+    useMountedLogic(llmAnalyticsTraceDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { mostRelevantEvent, searchOccurrences } = useValues(traceDataLogic)
+    const { searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
     const { searchQuery } = useValues(traceLogic)
-    const { setSearchQuery, setEventId } = useActions(traceLogic)
+    const { setSearchQuery } = useActions(traceLogic)
     const showTraceWorkflow = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const [searchValue, setSearchValue] = useState(searchQuery)
@@ -1068,23 +1066,11 @@ function TraceSidebar({
         debouncedSetSearchQuery(value)
     }
 
-    useEffect(() => {
-        if (eventId && ref.current) {
-            const selectedNode = ref.current.querySelector(`[aria-current=true]`)
-            if (selectedNode) {
-                selectedNode.scrollIntoView({ block: 'center' })
-            }
-        }
-    }, [eventId])
-
-    useEffect(() => {
-        if (mostRelevantEvent && searchQuery.trim()) {
-            setEventId(mostRelevantEvent.id)
-        }
-    }, [mostRelevantEvent, searchQuery, setEventId])
-
     return (
-        <aside className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80" ref={ref}>
+        <aside
+            className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80"
+            id="trace-events-sidebar"
+        >
             {showTraceWorkflow ? <TraceWorkflowPanel traceId={trace.id} /> : null}
             <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -1243,7 +1229,7 @@ const TreeNode = React.memo(function TraceNode({
                         ...(searchQuery?.trim() && { search: searchQuery }),
                     }).url
                 }
-                className={classNames(
+                className={clsx(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
                     isSelected && '!bg-accent-highlight-secondary',
                     isCollapsedDueToFilter && 'min-h-4 min-w-0'
@@ -1444,7 +1430,6 @@ const EventContent = React.memo(
         showBillingInfo?: boolean
     }): JSX.Element => {
         const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-        const { setupPlaygroundFromEvent } = useActions(llmPlaygroundPromptsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
@@ -1497,7 +1482,7 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            setupPlaygroundFromEvent({ model, provider, input: loadedInput, tools })
+            openInPlayground({ model, provider, input: loadedInput, tools })
         }
 
         return (

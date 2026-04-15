@@ -17,7 +17,9 @@ export function ExperimentMetricOutlierHandling({
             title="Outlier handling"
             titleHelper={<>Prevent outliers from skewing results by capping the lower and upper bounds of a metric.</>}
             description={
-                <>Set winsorization lower and upper bounds to cap metric values at the specified percentiles.</>
+                <p className="text-muted text-xs -mb-1">
+                    Set winsorization lower and upper bounds to cap metric values at the specified percentiles.
+                </p>
             }
         >
             <div className="flex flex-col gap-2">

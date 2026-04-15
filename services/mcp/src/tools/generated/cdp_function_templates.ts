@@ -6,13 +6,14 @@ import {
     HogFunctionTemplatesListQueryParams,
     HogFunctionTemplatesRetrieveParams,
 } from '@/generated/cdp_function_templates/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionTemplatesListSchema = HogFunctionTemplatesListQueryParams
 
 const cdpFunctionTemplatesList = (): ToolBase<
     typeof CdpFunctionTemplatesListSchema,
-    Schemas.PaginatedHogFunctionTemplateList & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.PaginatedHogFunctionTemplateList>
 > => ({
     name: 'cdp-function-templates-list',
     schema: CdpFunctionTemplatesListSchema,
@@ -29,10 +30,7 @@ const cdpFunctionTemplatesList = (): ToolBase<
                 types: params.types,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline/templates`,
-        }
+        return await withPostHogUrl(context, result, '/pipeline/templates')
     },
 })
 

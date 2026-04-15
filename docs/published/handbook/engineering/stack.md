@@ -53,10 +53,10 @@ We tend to use **Celery for lightweight ad-hoc tasks**, **Dagster for internal d
 
 Temporal is **dramatically cheaper** than Dagster for recurring workloads. Dagster charges $0.02–0.04 per credit (1 credit = 1 asset materialization), while Temporal charges $0.00005 per action (1 action ≈ 1 activity execution). That's a **~300x difference per operation**.
 
-In practice, when we migrated experiment metrics precomputation from Dagster to Temporal, the cost went from ~$6k/month to ~$20/month for the same workload. Keep this in mind before adding new Dagster jobs — if Temporal can do the job, it almost certainly should.
+In practice, when we migrated experiment timeseries recalculation from Dagster to Temporal, the cost went from ~$6k/month to ~$20/month for the same workload. Keep this in mind before adding new Dagster jobs — if Temporal can do the job, it almost certainly should.
 
 #### Where do we use each?
 
 **Celery**: Small, fast background tasks (e.g. sending email, minor async operations)
-**Temporal**: Batch exports, data warehouse source syncing, AI platform task generation, experiment metrics precomputation
+**Temporal**: Batch exports, data warehouse source syncing, AI platform task generation, experiment timeseries recalculation
 **Dagster**: Exchange rate tracking, one-off production management commands, web analytics data pre-processing

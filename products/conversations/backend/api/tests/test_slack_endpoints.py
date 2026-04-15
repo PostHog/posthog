@@ -6,10 +6,12 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SlackIntegrationError
+from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 
@@ -116,7 +118,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 202
         mock_process.delay.assert_called_once()
 
-    @patch("products.conversations.backend.api.slack_events._proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_proxies_to_secondary_when_team_not_found_on_primary(
@@ -124,7 +126,7 @@ class TestSupportSlackEventsAPI(BaseTest):
     ):
         mock_validate.return_value = None
 
-        with patch("products.conversations.backend.api.slack_events.SUPPORTHOG_PRIMARY_REGION_DOMAIN", "testserver"):
+        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=True):
             response = self._post(
                 {
                     "type": "event_callback",
@@ -138,7 +140,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         mock_process.delay.assert_not_called()
         mock_proxy.assert_called_once()
 
-    @patch("products.conversations.backend.api.slack_events._proxy_to_secondary_region")
+    @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_drops_event_when_team_not_found_on_secondary(
@@ -146,9 +148,7 @@ class TestSupportSlackEventsAPI(BaseTest):
     ):
         mock_validate.return_value = None
 
-        with patch(
-            "products.conversations.backend.api.slack_events.SUPPORTHOG_PRIMARY_REGION_DOMAIN", "other.posthog.com"
-        ):
+        with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=False):
             response = self._post(
                 {
                     "type": "event_callback",
@@ -230,3 +230,43 @@ class TestSlackChannelsAPI(APIBaseTest):
 
         assert response.status_code == 400
         assert response.json()["error"] == "Too many channel pages returned by Slack"
+
+
+class TestSlackChannelPermissions(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    @parameterized.expand(
+        [
+            ("authorize", "get", "/api/conversations/v1/slack/authorize", {}),
+            ("disconnect", "post", "/api/conversations/v1/slack/disconnect", {}),
+        ]
+    )
+    def test_member_cannot_access(self, _name, method, path, body):
+        response = getattr(self.client, method)(path, body, content_type="application/json")
+        assert response.status_code == 403
+
+    @patch(
+        "products.conversations.backend.api.slack_oauth.get_instance_settings",
+        return_value={"SUPPORT_SLACK_APP_CLIENT_ID": "test-client-id"},
+    )
+    def test_admin_can_authorize_slack(self, _mock_settings: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.get("/api/conversations/v1/slack/authorize")
+        assert response.status_code == 200
+
+    @patch(
+        "products.conversations.backend.api.slack_oauth.clear_supporthog_slack_token",
+    )
+    def test_admin_can_disconnect_slack(self, _mock_clear: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/slack/disconnect",
+            content_type="application/json",
+        )
+        assert response.status_code == 200

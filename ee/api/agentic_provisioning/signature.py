@@ -1,6 +1,7 @@
 import re
 import hmac
 import time
+import uuid
 import hashlib
 
 from django.conf import settings
@@ -140,7 +141,7 @@ def _log_and_capture_event(outcome: str, status_code: int, endpoint: str, **extr
 
     posthoganalytics.capture(
         "agentic_provisioning signature verification",
-        distinct_id="agentic_provisioning_system",
+        distinct_id=f"agentic_provisioning_{uuid.uuid4().hex[:16]}",
         properties={"outcome": outcome, "status_code": status_code, "endpoint": endpoint, **extra},
     )
 

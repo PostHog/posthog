@@ -62,6 +62,17 @@ pub struct Config {
     // ── Strategy ────────────────────────────────────────────────────
     #[envconfig(default = "sticky-balanced")]
     pub assignment_strategy: String,
+
+    // ── K8s awareness ────────────────────────────────────────────────
+    /// Enable K8s-aware departure classification for smarter rebalancing.
+    /// When disabled, falls back to lease-based behavior.
+    #[envconfig(default = "false")]
+    pub k8s_awareness_enabled: bool,
+
+    /// Kubernetes namespace to watch. If empty, auto-reads from the
+    /// service account mount at /var/run/secrets/kubernetes.io/serviceaccount/namespace.
+    #[envconfig(default = "")]
+    pub k8s_namespace: String,
 }
 
 impl Config {
@@ -103,6 +114,18 @@ impl Config {
 
     pub fn kafka_metadata_timeout(&self) -> Duration {
         Duration::from_secs(self.kafka_metadata_timeout_secs)
+    }
+
+    /// Resolve the K8s namespace from config or the service account mount.
+    pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
+        if !self.k8s_namespace.is_empty() {
+            return Ok(self.k8s_namespace.clone());
+        }
+        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!("k8s_namespace not set and failed to read from service account: {e}")
+            })
     }
 
     pub fn validate(&self) -> Result<(), String> {

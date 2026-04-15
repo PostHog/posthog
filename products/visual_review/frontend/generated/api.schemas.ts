@@ -15,6 +15,7 @@ export interface RepoApi {
     repo_external_id: number
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
+    enable_pr_comments: boolean
     created_at: string
 }
 
@@ -41,6 +42,8 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
+    /** @nullable */
+    enable_pr_comments?: boolean | null
 }
 
 export interface RunSummaryApi {
@@ -109,6 +112,9 @@ export interface CreateRunInputApi {
     /** @nullable */
     pr_number?: number | null
     baseline_hashes?: CreateRunInputApiBaselineHashes
+    unchanged_count?: number
+    removed_identifiers?: string[]
+    purpose?: string
     metadata?: CreateRunInputApiMetadata
 }
 
@@ -125,13 +131,26 @@ export interface CreateRunResultApi {
     uploads: UploadTargetApi[]
 }
 
+export type AddSnapshotsInputApiBaselineHashes = { [key: string]: string }
+
+export interface AddSnapshotsInputApi {
+    snapshots: SnapshotManifestItemApi[]
+    baseline_hashes?: AddSnapshotsInputApiBaselineHashes
+}
+
+export interface AddSnapshotsResultApi {
+    added: number
+    uploads: UploadTargetApi[]
+}
+
 export interface ApproveSnapshotInputApi {
     identifier: string
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
-    snapshots: ApproveSnapshotInputApi[]
+    snapshots?: ApproveSnapshotInputApi[]
+    approve_all?: boolean
     commit_to_github?: boolean
 }
 

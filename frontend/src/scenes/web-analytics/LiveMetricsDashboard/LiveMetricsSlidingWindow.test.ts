@@ -195,6 +195,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['Desktop', new Set(['device-4', 'device-5'])],
                 ]),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -210,6 +211,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['Tablet', new Set(['device-12', 'device-13'])],
                 ]),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -230,6 +232,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-2'])]]),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -240,6 +243,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-3'])]]),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -267,6 +271,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['Tablet', new Set(['device-8'])],
                 ]),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -294,6 +299,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/about', 5],
                     ['/pricing', 20],
                 ]),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -307,6 +313,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/home', 5],
                     ['/contact', 8],
                 ]),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -340,6 +347,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/contact', 8],
                     ['/about', 5],
                 ]),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
@@ -393,6 +401,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(['user-1', 'user-2']),
                 countries: new Map<string, Set<string>>(),
@@ -403,6 +412,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 returningUserCount: 0,
                 devices: new Map(),
                 paths: new Map(),
+                referrers: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(['user-2', 'user-3']),
                 countries: new Map<string, Set<string>>(),
@@ -717,6 +727,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 devices: new Map(),
                 browsers: new Map(),
                 paths: new Map(),
+                referrers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
             })
@@ -797,6 +808,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/home', 10],
                     ['/about', 5],
                 ]),
+                referrers: new Map(),
                 uniqueUsers: new Set(),
                 countries: new Map<string, Set<string>>(),
             })
@@ -856,6 +868,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 devices: new Map(),
                 browsers: new Map(),
                 paths: new Map(),
+                referrers: new Map(),
                 uniqueUsers: new Set(['user-1', 'user-2']),
                 countries: new Map<string, Set<string>>(),
             })
@@ -867,6 +880,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 devices: new Map(),
                 browsers: new Map(),
                 paths: new Map(),
+                referrers: new Map(),
                 uniqueUsers: new Set(['user-1', 'user-3']),
                 countries: new Map<string, Set<string>>(),
             })
@@ -878,6 +892,124 @@ describe('LiveMetricsSlidingWindow', () => {
             // user-1 is returning, user-3 is new in the second bucket
             expect(buckets[1][1].newUserCount).toBe(1)
             expect(buckets[1][1].returningUserCount).toBe(1)
+        })
+    })
+
+    describe('referrer tracking', () => {
+        it('tracks referrers via addDataPoint', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
+                pageviews: 1,
+                referringDomain: 'google.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
+                pageviews: 1,
+                referringDomain: 'google.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-3', {
+                pageviews: 1,
+                referringDomain: 'twitter.com',
+            })
+
+            const topReferrers = window.getTopReferrers(10)
+            expect(topReferrers).toEqual([
+                { referrer: 'google.com', views: 2 },
+                { referrer: 'twitter.com', views: 1 },
+            ])
+        })
+
+        it('aggregates referrers across buckets', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
+                pageviews: 1,
+                referringDomain: 'google.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-2', {
+                pageviews: 1,
+                referringDomain: 'google.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-3', {
+                pageviews: 1,
+                referringDomain: '$direct',
+            })
+
+            const topReferrers = window.getTopReferrers(10)
+            expect(topReferrers).toEqual([
+                { referrer: 'google.com', views: 2 },
+                { referrer: '$direct', views: 1 },
+            ])
+        })
+
+        it('respects limit parameter', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
+                pageviews: 1,
+                referringDomain: 'google.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
+                pageviews: 1,
+                referringDomain: 'twitter.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-3', {
+                pageviews: 1,
+                referringDomain: 'facebook.com',
+            })
+
+            const topReferrers = window.getTopReferrers(2)
+            expect(topReferrers).toHaveLength(2)
+        })
+
+        it('decrements referrer counts when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-1', {
+                pageviews: 1,
+                referringDomain: 'old-referrer.com',
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
+                pageviews: 1,
+                referringDomain: 'google.com',
+            })
+
+            expect(window.getTopReferrers(10)).toHaveLength(2)
+
+            tickMinute()
+            window.prune()
+
+            const topReferrers = window.getTopReferrers(10)
+            expect(topReferrers).toEqual([{ referrer: 'google.com', views: 1 }])
+        })
+
+        it('tracks referrers via extendBucketData', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                paths: new Map(),
+                referrers: new Map([
+                    ['google.com', 10],
+                    ['$direct', 5],
+                ]),
+                browsers: new Map(),
+                uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            expect(window.getTopReferrers(10)).toEqual([
+                { referrer: 'google.com', views: 10 },
+                { referrer: '$direct', views: 5 },
+            ])
+        })
+
+        it('returns empty array for empty window', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            expect(window.getTopReferrers(10)).toEqual([])
         })
     })
 })

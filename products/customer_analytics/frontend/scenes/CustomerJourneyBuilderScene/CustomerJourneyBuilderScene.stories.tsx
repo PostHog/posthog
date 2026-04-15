@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
 import { JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
@@ -26,10 +26,14 @@ const meta: Meta = {
 }
 export default meta
 
-export const NewJourney: StoryFn = () => {
-    return <App />
-}
-NewJourney.parameters = {
-    pageUrl: urls.customerJourneyBuilder(),
-    testOptions: { waitForSelector: '[data-attr="scene-title-textarea"]' },
+type Story = StoryObj<{}>
+
+export const NewJourney: Story = {
+    render: () => {
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerJourneyBuilder(),
+        testOptions: { waitForSelector: '[data-attr="scene-title-textarea"]' },
+    },
 }

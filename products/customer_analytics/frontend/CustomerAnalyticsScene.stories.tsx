@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -39,52 +39,60 @@ const meta: Meta = {
 }
 export default meta
 
-export const B2CMode: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        setBusinessTypeOnMountedLogic('b2c')
-    })
+type Story = StoryObj<{}>
 
-    return <App />
-}
-B2CMode.parameters = {
-    pageUrl: urls.customerAnalyticsDashboard(),
-}
+export const B2CMode: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            setBusinessTypeOnMountedLogic('b2c')
+        })
 
-export const B2BModeWithGroupsEnabled: StoryFn = () => {
-    useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
-    useStorybookMocks({
-        get: {
-            'api/environments/:team_id/groups_types/': [
-                { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
-            ],
-            'api/projects/:team_id/groups_types/': [
-                { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
-            ],
-        },
-    })
-
-    useDelayedOnMountEffect(() => {
-        setBusinessTypeOnMountedLogic('b2b')
-        for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-            logic.actions.setSelectedGroupType(0)
-        }
-    })
-
-    return <App />
-}
-B2BModeWithGroupsEnabled.parameters = {
-    pageUrl: urls.customerAnalyticsDashboard(),
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+    },
 }
 
-export const B2BModeWithoutGroups: StoryFn = () => {
-    useAvailableFeatures([])
+export const B2BModeWithGroupsEnabled: Story = {
+    render: () => {
+        useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+        useStorybookMocks({
+            get: {
+                'api/environments/:team_id/groups_types/': [
+                    { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                ],
+                'api/projects/:team_id/groups_types/': [
+                    { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                ],
+            },
+        })
 
-    useDelayedOnMountEffect(() => {
-        setBusinessTypeOnMountedLogic('b2b')
-    })
+        useDelayedOnMountEffect(() => {
+            setBusinessTypeOnMountedLogic('b2b')
+            for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
+                logic.actions.setSelectedGroupType(0)
+            }
+        })
 
-    return <App />
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+    },
 }
-B2BModeWithoutGroups.parameters = {
-    pageUrl: urls.customerAnalyticsDashboard(),
+
+export const B2BModeWithoutGroups: Story = {
+    render: () => {
+        useAvailableFeatures([])
+
+        useDelayedOnMountEffect(() => {
+            setBusinessTypeOnMountedLogic('b2b')
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.customerAnalyticsDashboard(),
+    },
 }

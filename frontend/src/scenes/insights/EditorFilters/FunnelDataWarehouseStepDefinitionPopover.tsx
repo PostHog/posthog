@@ -6,8 +6,9 @@ import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import { insightLogic } from '../insightLogic'
 import {
@@ -18,7 +19,7 @@ import {
 const EDITABLE_FIELD_EXPLANATIONS: Record<FunnelFieldKey, string> = {
     aggregation_target_field: 'Used to match people or groups across funnel steps.',
     timestamp_field: 'Used to order step timing and apply the funnel date range.',
-    id_field: 'Used as the unique row ID to detect missing or duplicate records.',
+    id_field: 'Used as the unique row ID to detect duplicate records.',
 }
 
 export function FunnelDataWarehouseStepDefinitionPopover({

@@ -24,7 +24,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -36,6 +35,8 @@ import {
     PropertyDefinitionType,
     PropertyFilterType,
 } from '~/types'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
@@ -128,7 +129,7 @@ export function TaxonomicPropertyFilter({
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
     const { cohortsById } = useValues(cohortsModel)
-    const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
+    const { columnsJoinedToPersons } = useValues(joinsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.

@@ -4,6 +4,7 @@ from typing import Any
 
 from django.conf import settings
 
+import requests as outbound_requests
 import structlog
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -13,7 +14,7 @@ from rest_framework.response import Response
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, BillingServiceOpenInvoicesError
 from ee.models import License
 from ee.vercel.integration import VercelIntegration
 
@@ -21,6 +22,41 @@ logger = structlog.get_logger(__name__)
 
 BILLING_EVENT_PREFIX = "marketplace.invoice."
 DEAUTHORIZATION_EVENT = "integration-configuration.removed"
+
+CROSS_REGION_PROXY_TIMEOUT = 10
+DEFAULT_US_DOMAIN = "us.posthog.com"
+DEFAULT_EU_DOMAIN = "eu.posthog.com"
+
+
+def _is_us_region() -> bool:
+    us_domain = getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN)
+    return settings.SITE_URL == f"https://{us_domain}"
+
+
+def _proxy_deauthorization_to_eu(raw_body: bytes, signature: str | None) -> int | None:
+    """Forward a deauthorization webhook to EU. Returns the EU status code, or None on failure."""
+    eu_domain = getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
+    target_url = f"https://{eu_domain}/webhooks/vercel"
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if signature:
+        headers["x-vercel-signature"] = signature
+
+    try:
+        response = outbound_requests.post(
+            url=target_url,
+            data=raw_body,
+            headers=headers,
+            timeout=CROSS_REGION_PROXY_TIMEOUT,
+        )
+        logger.info(
+            "vercel_webhook_proxied_to_eu",
+            status_code=response.status_code,
+        )
+        return response.status_code
+    except outbound_requests.RequestException as e:
+        logger.warning("vercel_webhook_proxy_to_eu_failed", error=str(e))
+        return None
 
 
 def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
@@ -38,8 +74,8 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
 
 
 def _extract_config_id(payload: dict[str, Any]) -> str | None:
-    # Ref: https://vercel.com/docs/observability/webhooks-overview/webhooks-api
-    return payload.get("installationId")
+    # Billing events use "installationId". Deauthorization events use "configuration.id".
+    return payload.get("installationId") or payload.get("configuration", {}).get("id")
 
 
 def _is_billing_event(event_type: str | None) -> bool:
@@ -112,10 +148,28 @@ def vercel_webhook(request: Request) -> Response:
             else:
                 try:
                     VercelIntegration.delete_installation(config_id)
+                except BillingServiceOpenInvoicesError as e:
+                    # Vercel ignores non-200 from webhooks and shows "Integration Deleted" regardless.
+                    # The marketplace DELETE API endpoint handles the actual blocking with 409.
+                    # Log the warning but return 200 to avoid misleading error tracking noise.
+                    logger.warning(
+                        "vercel_webhook_deauthorize_blocked_by_open_invoices",
+                        config_id=config_id,
+                        reason=e.message,
+                    )
                 except Exception as e:
                     logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)
                     capture_exception(e, {"config_id": config_id})
                     return Response({"error": "Processing failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        elif _is_us_region():
+            logger.info("vercel_webhook_deauthorize_proxying_to_eu", config_id=config_id)
+            eu_status = _proxy_deauthorization_to_eu(request.body, signature)
+            if eu_status is None or eu_status >= 300:
+                logger.warning(
+                    "vercel_webhook_deauthorize_eu_proxy_non_ok",
+                    config_id=config_id,
+                    eu_status=eu_status,
+                )
         else:
             logger.warning("vercel_webhook_deauthorize_unknown_config", config_id=config_id)
 

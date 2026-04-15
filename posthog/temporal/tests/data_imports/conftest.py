@@ -1002,6 +1002,75 @@ def stripe_customer_payment_method():
 
 
 @pytest.fixture
+def mock_stripe_client(
+    stripe_balance_transaction,
+    stripe_charge,
+    stripe_customer,
+    stripe_dispute,
+    stripe_invoiceitem,
+    stripe_invoice,
+    stripe_payout,
+    stripe_price,
+    stripe_product,
+    stripe_refund,
+    stripe_subscription,
+    stripe_credit_note,
+    stripe_customer_balance_transaction,
+    stripe_customer_payment_method,
+):
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
+        mock_balance_transaction_list = mock.MagicMock()
+        mock_charges_list = mock.MagicMock()
+        mock_customers_list = mock.MagicMock()
+        mock_disputes_list = mock.MagicMock()
+        mock_invoice_items_list = mock.MagicMock()
+        mock_invoice_list = mock.MagicMock()
+        mock_payouts_list = mock.MagicMock()
+        mock_price_list = mock.MagicMock()
+        mock_product_list = mock.MagicMock()
+        mock_refunds_list = mock.MagicMock()
+        mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
+        mock_customer_balance_transactions_list = mock.MagicMock()
+        mock_customer_payment_methods_list = mock.MagicMock()
+
+        mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
+        mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
+        mock_customers_list.auto_paging_iter.return_value = stripe_customer["data"]
+        mock_disputes_list.auto_paging_iter.return_value = stripe_dispute["data"]
+        mock_invoice_items_list.auto_paging_iter.return_value = stripe_invoiceitem["data"]
+        mock_invoice_list.auto_paging_iter.return_value = stripe_invoice["data"]
+        mock_payouts_list.auto_paging_iter.return_value = stripe_payout["data"]
+        mock_price_list.auto_paging_iter.return_value = stripe_price["data"]
+        mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
+        mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
+        mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
+        mock_customer_balance_transactions_list.auto_paging_iter.return_value = stripe_customer_balance_transaction[
+            "data"
+        ]
+        mock_customer_payment_methods_list.auto_paging_iter.return_value = stripe_customer_payment_method["data"]
+
+        instance = MockStripeClient.return_value
+        instance.balance_transactions.list.return_value = mock_balance_transaction_list
+        instance.charges.list.return_value = mock_charges_list
+        instance.customers.list.return_value = mock_customers_list
+        instance.disputes.list.return_value = mock_disputes_list
+        instance.invoice_items.list.return_value = mock_invoice_items_list
+        instance.invoices.list.return_value = mock_invoice_list
+        instance.payouts.list.return_value = mock_payouts_list
+        instance.prices.list.return_value = mock_price_list
+        instance.products.list.return_value = mock_product_list
+        instance.refunds.list.return_value = mock_refunds_list
+        instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
+        instance.customers.balance_transactions.list.return_value = mock_customer_balance_transactions_list
+        instance.customers.payment_methods.list.return_value = mock_customer_payment_methods_list
+
+        yield instance
+
+
+@pytest.fixture
 def zendesk_brands():
     return json.loads(
         """

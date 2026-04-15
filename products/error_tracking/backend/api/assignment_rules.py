@@ -74,6 +74,9 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    def partial_update(self, request, *args, **kwargs) -> Response:
+        return self.update(request, *args, **kwargs)
+
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
 

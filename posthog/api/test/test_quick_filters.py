@@ -4,8 +4,9 @@ from django.test import override_settings
 
 from rest_framework import status
 
-from posthog.models import Dashboard
 from posthog.models.quick_filter import QuickFilter
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 @override_settings(IN_UNIT_TESTING=True)

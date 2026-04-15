@@ -64,8 +64,16 @@ class Ticket(UUIDTModel):
     slack_team_id = models.CharField(max_length=64, null=True, blank=True)  # Slack workspace/team ID
 
     # Email channel fields (only set for channel_source="email")
+    email_config = models.ForeignKey(
+        "conversations.EmailChannel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tickets",
+    )
     email_subject = models.CharField(max_length=500, null=True, blank=True)
     email_from = models.EmailField(null=True, blank=True)
+    cc_participants = models.JSONField(default=list, blank=True)
 
     # Session context (captured when ticket is created)
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
@@ -73,6 +81,9 @@ class Ticket(UUIDTModel):
 
     # SLA deadline — set via workflows, null means no SLA
     sla_due_at = models.DateTimeField(null=True, blank=True)
+
+    # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
+    snoozed_until = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -96,6 +107,14 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
             # SLA sort/filter queries
             models.Index(fields=["team", "sla_due_at"], name="posthog_con_team_sla_idx"),
+            # Snooze: dashboard filter/sort by team
+            models.Index(fields=["team", "snoozed_until"], name="posthog_con_team_snooze_idx"),
+            # Snooze: wake task (cross-team, only non-null rows)
+            models.Index(
+                fields=["snoozed_until"],
+                name="posthog_con_snooze_wake_idx",
+                condition=models.Q(snoozed_until__isnull=False),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

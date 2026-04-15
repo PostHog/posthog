@@ -159,22 +159,26 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                 </>
             }
             eventDisplay={
-                <TaxonomicPopover
-                    groupType={TaxonomicFilterGroupType.Events}
-                    groupTypes={taxonomicGroupTypes}
-                    value={hasEvent ? (step.action_id as string) : undefined}
-                    onChange={(value, groupType, item) => {
-                        updateStepEvent(stepIndex, value as string, groupType, item)
-                    }}
-                    renderValue={
-                        hasEvent
-                            ? () => <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
-                            : undefined
-                    }
-                    type={hasEvent ? 'tertiary' : 'secondary'}
-                    size="small"
-                    placeholder="Select event or action"
-                />
+                <div className="flex flex-1 min-w-0 overflow-hidden">
+                    <TaxonomicPopover
+                        groupType={TaxonomicFilterGroupType.Events}
+                        groupTypes={taxonomicGroupTypes}
+                        value={hasEvent ? (step.action_id as string) : undefined}
+                        onChange={(value, groupType, item) => {
+                            updateStepEvent(stepIndex, value as string, groupType, item)
+                        }}
+                        renderValue={
+                            hasEvent
+                                ? () => <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                                : undefined
+                        }
+                        type="secondary"
+                        size="small"
+                        fullWidth
+                        truncate
+                        placeholder="Select event or action"
+                    />
+                </div>
             }
             headerAction={
                 canRemove ? (
@@ -184,6 +188,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                         onClick={() => removeStep(stepIndex)}
                         tooltip="Remove step"
                         noPadding
+                        className="ml-1"
                     />
                 ) : (
                     <></>

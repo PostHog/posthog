@@ -27,13 +27,12 @@ export function idFrom(event: ErrorEventType): string {
     return 'error'
 }
 
-export function ErrorDisplay({
-    eventProperties,
-    eventId,
-}: {
+export interface ErrorDisplayProps {
     eventProperties: ErrorEventProperties
     eventId: ErrorEventId
-}): JSX.Element {
+}
+
+export function ErrorDisplay({ eventProperties, eventId }: ErrorDisplayProps): JSX.Element {
     return (
         <BindLogic logic={errorPropertiesLogic} props={{ properties: eventProperties, id: eventId }}>
             <ErrorDisplayContent />

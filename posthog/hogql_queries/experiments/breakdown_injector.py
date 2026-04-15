@@ -174,6 +174,61 @@ class BreakdownInjector:
         for alias in aliases:
             query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
 
+    def inject_funnel_breakdown_columns_optimized(self, query: ast.SelectQuery) -> None:
+        """
+        Injects breakdown columns into the optimized 2-CTE funnel query AST.
+        The optimized query has base_events and entity_metrics CTEs (no exposures CTE).
+        Modifies query in-place.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+        breakdown_exprs = self.build_breakdown_exprs(table_alias="")
+
+        # Inject into base_events CTE SELECT
+        if query.ctes and "base_events" in query.ctes:
+            base_events_cte = query.ctes["base_events"]
+            if isinstance(base_events_cte, ast.CTE) and isinstance(base_events_cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    base_events_cte.expr.select.append(ast.Alias(alias=alias, expr=expr))
+
+        # Inject into entity_metrics CTE SELECT using argMinIf attribution from first exposure
+        if query.ctes and "entity_metrics" in query.ctes:
+            entity_metrics_cte = query.ctes["entity_metrics"]
+            if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    entity_metrics_cte.expr.select.append(
+                        ast.Alias(
+                            alias=alias,
+                            expr=ast.Call(
+                                name="argMinIf",
+                                args=[
+                                    ast.Field(chain=[alias]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["step_0"]),
+                                        right=ast.Constant(value=1),
+                                    ),
+                                ],
+                            ),
+                        )
+                    )
+
+        # Inject into final SELECT - breakdown columns must come right after variant
+        for i, alias in enumerate(aliases):
+            query.select.insert(
+                1 + i,  # Position after variant column (index 0)
+                ast.Alias(alias=alias, expr=ast.Field(chain=["entity_metrics", alias])),
+            )
+
+        # Inject into final GROUP BY
+        if query.group_by is None:
+            query.group_by = []
+        for alias in aliases:
+            query.group_by.append(ast.Field(chain=["entity_metrics", alias]))
+
     def inject_mean_breakdown_columns(self, query: ast.SelectQuery, final_cte_name: str = "entity_metrics") -> None:
         """
         Injects breakdown columns into mean query AST.

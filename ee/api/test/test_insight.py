@@ -11,8 +11,11 @@ from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
+from posthog.models import Insight, OrganizationMembership, User
 from posthog.test.db_context_capturing import capture_db_queries
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.api.test.base import APILicensedTest
 from ee.models import DashboardPrivilege
@@ -632,6 +635,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         assert activity == expected

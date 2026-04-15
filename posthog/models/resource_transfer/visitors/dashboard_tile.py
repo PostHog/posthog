@@ -17,6 +17,6 @@ class DashboardTileVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from posthog.models import DashboardTile
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
         return DashboardTile

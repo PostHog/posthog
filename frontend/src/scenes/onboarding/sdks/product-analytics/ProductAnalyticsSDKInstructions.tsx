@@ -13,9 +13,6 @@ import {
     GoogleTagManagerInstallation,
     HeliconeInstallation,
     IOSInstallation,
-    JSEventCapture,
-    JSHtmlSnippet,
-    JSInitSnippet,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
@@ -29,6 +26,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -47,29 +45,10 @@ import {
     WebInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 
-import { useJsSnippetConfig } from 'lib/components/JSSnippet'
-
-import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
-
-// In-app wrappers that inject Kea store values into the shared docs snippet components
-const InAppJSHtmlSnippet = (): JSX.Element => {
-    const config = useJsSnippetConfig()
-    return <JSHtmlSnippet {...config} />
-}
-
-const InAppJSInitSnippet = (): JSX.Element => {
-    return <JSInitSnippet defaultsDate={SDK_DEFAULTS_DATE} />
-}
-
-// Snippet configurations (defined once, not recreated on render)
-const JS_WEB_SNIPPETS = {
-    JSEventCapture,
-    JSHtmlSnippet: InAppJSHtmlSnippet,
-    JSInitSnippet: InAppJSInitSnippet,
-}
 
 const NODE_SNIPPETS = {
     NodeEventCapture,
@@ -150,6 +129,11 @@ const ProductAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Nuxt',
+})
+const ProductAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const ProductAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
@@ -259,6 +243,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ProductAnalyticsPythonInstructionsWrapper,
     [SDKKey.REACT]: ProductAnalyticsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ProductAnalyticsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructionsWrapper,

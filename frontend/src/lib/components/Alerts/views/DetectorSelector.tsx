@@ -121,8 +121,8 @@ const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ense
 
 function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
     return {
-        zscore: { type: 'zscore', threshold: DEFAULT_THRESHOLD, window },
-        mad: { type: 'mad', threshold: DEFAULT_THRESHOLD, window },
+        zscore: { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+        mad: { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
         iqr: { type: 'iqr', multiplier: 1.5, window },
         threshold: { type: 'threshold' },
         ecod: { type: 'ecod', threshold: DEFAULT_THRESHOLD, window },
@@ -160,8 +160,8 @@ function getDefaultEnsemble(window: number): EnsembleDetectorConfig {
         type: 'ensemble',
         operator: EnsembleOperator.AND,
         detectors: [
-            { type: 'zscore', threshold: DEFAULT_THRESHOLD, window },
-            { type: 'mad', threshold: DEFAULT_THRESHOLD, window },
+            { type: 'zscore', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
+            { type: 'mad', threshold: DEFAULT_THRESHOLD, window, preprocessing: { diffs_n: 1 } },
         ],
     }
 }
@@ -209,6 +209,7 @@ export function DetectorSelector({ value, onChange, calculationInterval }: Detec
             <div>
                 <Label text="Detector" tooltip="Statistical method used to identify anomalies in your data." />
                 <LemonSelect
+                    data-attr="alertForm-detector-type"
                     value={selectedType}
                     onChange={handleTypeChange}
                     options={DETECTOR_OPTIONS.map((o) => ({
@@ -289,6 +290,7 @@ function EnsembleConfig({
                     tooltip="AND = all detectors must flag a point. OR = any detector flagging is enough."
                 />
                 <LemonSegmentedButton
+                    data-attr="alertForm-detector-ensemble-operator"
                     value={operator}
                     onChange={handleOperatorChange}
                     options={[
@@ -307,6 +309,7 @@ function EnsembleConfig({
                 <div key={index} className="border rounded p-3 space-y-3">
                     <div className="flex items-center gap-2">
                         <LemonSelect
+                            data-attr="alertForm-detector-ensemble-sub-type"
                             value={detector.type}
                             onChange={(type) => handleDetectorTypeChange(index, type)}
                             options={SINGLE_DETECTOR_OPTIONS.map((o) => ({
@@ -319,6 +322,7 @@ function EnsembleConfig({
                         />
                         {detectors.length > 2 && (
                             <LemonButton
+                                data-attr="alertForm-detector-ensemble-remove"
                                 icon={<IconX />}
                                 size="small"
                                 status="danger"
@@ -335,7 +339,13 @@ function EnsembleConfig({
                 </div>
             ))}
 
-            <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={handleAddDetector}>
+            <LemonButton
+                data-attr="alertForm-detector-ensemble-add"
+                type="secondary"
+                icon={<IconPlus />}
+                size="small"
+                onClick={handleAddDetector}
+            >
                 Add detector
             </LemonButton>
         </div>

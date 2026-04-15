@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stripe-mock"
+version = "0.1.0"
+description = "Local Stripe mock API for PostHog data warehouse import testing"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.135.2",
+    "uvicorn[standard]==0.42.0",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.13.1",
+    "structlog==25.5.0",
+    "python-multipart==0.0.22",
+    "pyyaml==6.0.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.0.2",
+    "httpx==0.28.1",
+    "pytest-asyncio==1.3.0",
+]

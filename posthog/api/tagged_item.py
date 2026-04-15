@@ -47,10 +47,8 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         for tagged_item in tagged_items_to_delete:
             tagged_item.delete()
 
-        # Cleanup tags that aren't used by team (exclude tags that are default evaluation tags (have team_defaults relationship))
-        Tag.objects.filter(
-            Q(team_id=obj.team_id) & Q(tagged_items__isnull=True) & Q(team_defaults__isnull=True)
-        ).delete()
+        # Cleanup tags that aren't used by any tagged items in the team
+        Tag.objects.filter(Q(team_id=obj.team_id) & Q(tagged_items__isnull=True)).delete()
 
         obj.prefetched_tags = tagged_item_objects
 

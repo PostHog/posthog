@@ -8,11 +8,13 @@ import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { CymbalClient } from './cymbal/client'
-import { CymbalRequest, CymbalResponse } from './cymbal/types'
+import { CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
     event: PluginEvent
     team: Team
+    /** Byte size of the original Kafka message, used to estimate HTTP payload size. */
+    messageBytes?: number
 }
 
 /**
@@ -87,17 +89,23 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
             return { input, timestamp, warnings }
         })
 
-        // Build requests for all inputs - Cymbal expects AnyEvent format
-        const requests: CymbalRequest[] = validatedInputs.map(({ input, timestamp }) => ({
-            uuid: input.event.uuid,
-            event: input.event.event,
-            team_id: input.team.id,
-            timestamp,
-            properties: input.event.properties ?? {},
+        // Build requests paired with estimated sizes for proactive chunking.
+        // Kafka message sizes overestimate the CymbalRequest size (they include
+        // headers, distinct_id, and other fields stripped from the request),
+        // which is conservative — we split slightly earlier than needed, never too late.
+        const items = validatedInputs.map(({ input, timestamp }) => ({
+            request: {
+                uuid: input.event.uuid,
+                event: input.event.event,
+                team_id: input.team.id,
+                timestamp,
+                properties: input.event.properties ?? {},
+            },
+            estimatedSize: input.messageBytes ?? 0,
         }))
 
         try {
-            const responses = await cymbalClient.processExceptions(requests)
+            const responses = await cymbalClient.processExceptions(items)
 
             // Map responses back to results, maintaining 1:1 correspondence
             return responses.map((response, index) => {

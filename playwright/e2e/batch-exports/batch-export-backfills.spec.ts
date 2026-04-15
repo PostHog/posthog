@@ -135,5 +135,8 @@ test.describe('Batch export backfills', () => {
         await expect(
             page.locator('[data-attr="info-toast"]').getByRole('button', { name: 'Cancel backfill' })
         ).toBeVisible()
+
+        // Verify batch export context uses "Total rows" (not "Total events")
+        await expect(page.getByRole('cell', { name: 'Total rows' })).toBeVisible()
     })
 })

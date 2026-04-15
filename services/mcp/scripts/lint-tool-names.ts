@@ -24,8 +24,8 @@ import { discoverDefinitions } from './lib/definitions.mjs'
 import {
     CategoryConfigSchema,
     MAX_TOOL_NAME_LENGTH,
-    TOOL_NAME_PATTERN,
     QueryWrappersConfigSchema,
+    TOOL_NAME_PATTERN,
 } from './yaml-config-schema'
 
 const MCP_ROOT = path.resolve(__dirname, '..')
@@ -34,13 +34,10 @@ const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const SCHEMA_DIR = path.resolve(MCP_ROOT, 'schema')
 
-/** Pre-existing tools that exceed the length limit. Remove entries as they get renamed. */
-const PREEXISTING_LENGTH_EXCEPTIONS: Set<string> = new Set(['warehouse-saved-queries-revert-materialization-create'])
-
 type Violation = { source: string; tool: string; reason: string }
 
 function validateToolName(name: string, source: string, violations: Violation[]): void {
-    if (name.length > MAX_TOOL_NAME_LENGTH && !PREEXISTING_LENGTH_EXCEPTIONS.has(name)) {
+    if (name.length > MAX_TOOL_NAME_LENGTH) {
         violations.push({ source, tool: name, reason: `${name.length} chars (max ${MAX_TOOL_NAME_LENGTH})` })
     }
     if (!TOOL_NAME_PATTERN.test(name)) {

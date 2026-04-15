@@ -35,7 +35,10 @@ class DevenvConfig(BaseModel):
 
 
 # Docker compose command building
-DOCKER_COMPOSE_BASE = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+
+
+def _get_docker_compose_base() -> str:
+    return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -48,10 +51,11 @@ def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> 
     Returns:
         Complete docker compose command string
     """
+    base = _get_docker_compose_base()
     if profiles:
         profile_flags = " ".join(f"--profile {p}" for p in profiles)
-        return f"{DOCKER_COMPOSE_BASE} {profile_flags} {action}"
-    return f"{DOCKER_COMPOSE_BASE} {action}"
+        return f"{base} {profile_flags} {action}"
+    return f"{base} {action}"
 
 
 class ConfigGenerator(ABC):
@@ -161,8 +165,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "nodejs":
                 proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
 
-            # Special handling for backend - wire up personhog env vars when capability is active
+            # Special handling for backend/nodejs - wire up personhog env vars when capability is active
             if name == "backend":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+            if name == "nodejs":
                 proc_config = self._add_personhog_env(proc_config, resolved)
 
             # Special handling for temporal-worker - install uv groups when capabilities require them
@@ -225,7 +231,10 @@ echo ''
 printf '{gray}  ─────────────────────────────────────{reset}\\n'
 printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
 printf '  {bold}Processes:{reset} {process_count} active\\n'
-printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'"""
+echo ''
+printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
+printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
+"""
         return {"shell": shell}
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
@@ -258,6 +267,8 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         Returns:
             Process configuration dict with modified shell command
         """
+        profiles = sorted(profiles)
+
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
             message = f"echo '▶ docker-compose: profiles: {', '.join(profiles)} (configure via: hogli dev:setup)' && "

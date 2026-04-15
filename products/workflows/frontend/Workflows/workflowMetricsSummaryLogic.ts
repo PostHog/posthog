@@ -18,6 +18,7 @@ import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLo
 export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed'
 export type EmailMetric =
     | 'email_sent'
+    | 'email_delivered'
     | 'email_failed'
     | 'email_opened'
     | 'email_link_clicked'
@@ -80,6 +81,13 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: getColorVar('primary'),
         metricNames: ['email_sent'],
     },
+    email_delivered: {
+        name: 'Delivered',
+        description:
+            "Total number of emails that were successfully delivered to the recipient's inbox. This is confirmed by the recipient's mail server accepting the email.",
+        color: getColorVar('success'),
+        metricNames: ['email_delivered'],
+    },
     email_failed: {
         name: 'Failed',
         description:
@@ -125,6 +133,7 @@ const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSu
 
 const EMAIL_METRICS: EmailMetric[] = [
     'email_sent',
+    'email_delivered',
     'email_opened',
     'email_failed',
     'email_link_clicked',
@@ -319,8 +328,9 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     return {
                         id: action.id,
                         email: action.name,
-                        delivered: Math.max(0, sent - bounced - blocked),
-                        sent,
+                        // Fallback to calculating delivered as sent - bounced - blocked if email_delivered metric is not available, since we were not always collecting this metric
+                        delivered: totals.email_delivered ?? Math.max(0, sent - bounced - blocked),
+                        sent: totals.email_sent ?? 0,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
                     }

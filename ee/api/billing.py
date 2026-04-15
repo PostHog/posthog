@@ -544,7 +544,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
-            params_to_pass["organization_id"] = organization.id
             params_to_pass["teams_map"] = teams_map
             res = billing_manager.get_usage_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
@@ -582,7 +581,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
-            params_to_pass["organization_id"] = organization.id
             params_to_pass["teams_map"] = teams_map
             res = billing_manager.get_spend_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)

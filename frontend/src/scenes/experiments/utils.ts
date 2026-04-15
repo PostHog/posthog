@@ -33,7 +33,6 @@ import {
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
-    FeatureFlagFilters,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -93,33 +92,6 @@ export function percentageDistribution(variantCount: number): number[] {
 export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
     const evenPercentages = percentageDistribution(variants.length)
     return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
-}
-
-export function transformFiltersForWinningVariant(
-    currentFlagFilters: FeatureFlagFilters,
-    selectedVariant: string
-): FeatureFlagFilters {
-    return {
-        aggregation_group_type_index: currentFlagFilters?.aggregation_group_type_index || null,
-        payloads: currentFlagFilters?.payloads || {},
-        multivariate: {
-            variants: (currentFlagFilters?.multivariate?.variants || []).map(({ key, name }) => ({
-                key,
-                rollout_percentage: key === selectedVariant ? 100 : 0,
-                ...(name && { name }),
-            })),
-        },
-        groups: [
-            {
-                properties: [],
-                rollout_percentage: 100,
-                description: 'Added automatically when the experiment was ended to keep only one variant.',
-            },
-            // Preserve existing groups so that users can roll back this action
-            // by deleting the newly added release condition
-            ...(currentFlagFilters?.groups || []),
-        ],
-    }
 }
 
 function seriesToFilterLegacy(
@@ -964,4 +936,15 @@ export function getOrderedMetricsWithResults(
             displayIndex: index,
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
+}
+
+export function matchesSharedMetricSearch(
+    metric: { name: string; description?: string; tags?: string[] },
+    searchLower: string
+): boolean {
+    return (
+        metric.name.toLowerCase().includes(searchLower) ||
+        (metric.description?.toLowerCase().includes(searchLower) ?? false) ||
+        (metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false)
+    )
 }

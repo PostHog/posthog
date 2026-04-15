@@ -31,9 +31,9 @@ describe('Feature Routing Integration', () => {
             expectedTools: [
                 'feature-flag-get-definition',
                 'dashboard-create',
-                'insights-get-all',
+                'insights-list',
                 'organizations-get',
-                'list-errors',
+                'query-error-tracking-issues',
             ],
         },
         {
