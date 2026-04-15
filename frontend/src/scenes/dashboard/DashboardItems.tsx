@@ -28,6 +28,7 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
+const CONTAINER_PADDING: [number, number] = [0, 0]
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -317,155 +318,6 @@ export function DashboardItems(): JSX.Element {
         [isDragEnabled, isLayoutZoomToggled]
     )
 
-    const gridChildren = useMemo(
-        () =>
-            tiles?.map((tile) => {
-                const { insight, text, button_tile } = tile
-                const smLayout = layouts['sm']?.find((l) => l.i == tile.id.toString())
-
-                if (insight) {
-                    const isErrorTile = !!tile.error
-                    const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
-                    const apiError = isErrorTile
-                        ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
-                        : refreshStatus[insight.short_id]?.error
-                    const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
-                    const loading = isErrorTile ? false : isRefreshing(insight.short_id)
-
-                    return (
-                        <InsightCard
-                            key={tile.id}
-                            tile={tile}
-                            insight={insight}
-                            loadingQueued={loadingQueued}
-                            loading={loading}
-                            apiErrored={apiErrored}
-                            apiError={apiError}
-                            highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
-                            updateColor={(color) => updateTileColor(tile.id, color)}
-                            toggleShowDescription={() => toggleTileDescription(tile.id)}
-                            ribbonColor={tile.color}
-                            refresh={() => refreshDashboardItem({ tile })}
-                            refreshEnabled={!itemsLoading}
-                            rename={() => renameInsight(insight)}
-                            duplicate={() => duplicateTile(tile)}
-                            setOverride={() => setTileOverride(tile)}
-                            showDetailsControls={showDetailsControls}
-                            placement={placement}
-                            loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                            filtersOverride={effectiveEditBarFilters}
-                            variablesOverride={effectiveDashboardVariableOverrides}
-                            // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                            breakdownColorOverride={temporaryBreakdownColors}
-                            dataColorThemeId={dataColorThemeId}
-                            surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
-                            dashboardId={dashboard?.id}
-                            showResizeHandles={showResizeHandles}
-                            canEnterEditModeFromEdge={canEnterEditModeFromEdge}
-                            onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-                            onDragHandleMouseDown={onDragHandleMouseDown}
-                            showEditingControls={showEditingControls}
-                            moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
-                                moveToDashboard(tile, requireDashboardId(), id, name)
-                            }
-                            copyToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
-                                copyToDashboard(tile, requireDashboardId(), id, name)
-                            }
-                            removeFromDashboard={() => removeTile(tile)}
-                        />
-                    )
-                }
-
-                if (text) {
-                    return (
-                        <DashboardTextItem
-                            key={tile.id}
-                            tile={tile}
-                            placement={placement}
-                            dashboardId={dashboard?.id}
-                            onEdit={() => {
-                                if (dashboard?.id) {
-                                    push(urls.dashboardTextTile(dashboard.id, tile.id))
-                                }
-                            }}
-                            onMoveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
-                                moveToDashboard(tile, requireDashboardId(), id, name)
-                            }
-                            onCopyToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
-                                copyToDashboard(tile, requireDashboardId(), id, name)
-                            }
-                            onDuplicate={() => duplicateTile(tile)}
-                            onRemove={() => removeTile(tile)}
-                            showResizeHandles={showResizeHandles}
-                            showEditingControls={showEditingControls}
-                            canEnterEditModeFromEdge={canEnterEditModeFromEdge}
-                            onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-                            onDragHandleMouseDown={onDragHandleMouseDown}
-                        />
-                    )
-                }
-
-                if (button_tile) {
-                    return (
-                        <DashboardButtonTileItem
-                            key={tile.id}
-                            tile={tile}
-                            placement={placement}
-                            dashboardId={dashboard?.id}
-                            onEdit={() => {
-                                if (dashboard?.id) {
-                                    push(urls.dashboardButtonTile(dashboard.id, tile.id))
-                                }
-                            }}
-                            onMoveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
-                                moveToDashboard(tile, requireDashboardId(), id, name)
-                            }
-                            onDuplicate={() => duplicateTile(tile)}
-                            onRemove={() => removeTile(tile)}
-                            showResizeHandles={showResizeHandles}
-                            showEditingControls={showEditingControls}
-                            canEnterEditModeFromEdge={canEnterEditModeFromEdge}
-                            onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-                            onDragHandleMouseDown={onDragHandleMouseDown}
-                        />
-                    )
-                }
-            }),
-        [
-            tiles,
-            layouts,
-            dashboard,
-            refreshStatus,
-            isRefreshingQueued,
-            isRefreshing,
-            highlightedInsightId,
-            itemsLoading,
-            placement,
-            effectiveEditBarFilters,
-            effectiveDashboardVariableOverrides,
-            temporaryBreakdownColors,
-            dataColorThemeId,
-            bestSurveyOpportunityFunnel,
-            showResizeHandles,
-            showEditingControls,
-            showDetailsControls,
-            canEnterEditModeFromEdge,
-            onEnterEditModeFromEdge,
-            onDragHandleMouseDown,
-            updateTileColor,
-            toggleTileDescription,
-            refreshDashboardItem,
-            renameInsight,
-            duplicateTile,
-            setTileOverride,
-            moveToDashboard,
-            copyToDashboard,
-            removeTile,
-            requireDashboardId,
-            push,
-        ]
-    )
-
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
             {dashboardMode === DashboardMode.Edit && isMobileView && (
@@ -482,7 +334,7 @@ export function DashboardItems(): JSX.Element {
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}
                             margin={margin}
-                            containerPadding={[0, 0]}
+                            containerPadding={CONTAINER_PADDING}
                             rows="auto"
                             height={containerHeight} // kept in sync via ResizeObserver
                             color="var(--color-bg-surface-secondary)"
@@ -497,7 +349,7 @@ export function DashboardItems(): JSX.Element {
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
                         rowHeight={rowHeight}
                         margin={margin}
-                        containerPadding={[0, 0]}
+                        containerPadding={CONTAINER_PADDING}
                         onLayoutChange={handleLayoutChange}
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
@@ -508,7 +360,121 @@ export function DashboardItems(): JSX.Element {
                         onDrag={handleDrag}
                         onDragStop={handleDragStop}
                     >
-                        {gridChildren}
+                        {tiles?.map((tile) => {
+                            const { insight, text, button_tile } = tile
+                            const smLayout = layouts['sm']?.find((l) => l.i == tile.id.toString())
+
+                            if (insight) {
+                                const isErrorTile = !!tile.error
+                                const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                                const apiError = isErrorTile
+                                    ? ({
+                                          status: 400,
+                                          detail: `${tile.error!.type}: ${tile.error!.message}`,
+                                      } as any)
+                                    : refreshStatus[insight.short_id]?.error
+                                const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
+                                const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+
+                                return (
+                                    <InsightCard
+                                        key={tile.id}
+                                        tile={tile}
+                                        insight={insight}
+                                        loadingQueued={loadingQueued}
+                                        loading={loading}
+                                        apiErrored={apiErrored}
+                                        apiError={apiError}
+                                        highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                                        updateColor={(color) => updateTileColor(tile.id, color)}
+                                        toggleShowDescription={() => toggleTileDescription(tile.id)}
+                                        ribbonColor={tile.color}
+                                        refresh={() => refreshDashboardItem({ tile })}
+                                        refreshEnabled={!itemsLoading}
+                                        rename={() => renameInsight(insight)}
+                                        duplicate={() => duplicateTile(tile)}
+                                        setOverride={() => setTileOverride(tile)}
+                                        showDetailsControls={showDetailsControls}
+                                        placement={placement}
+                                        loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                        filtersOverride={effectiveEditBarFilters}
+                                        variablesOverride={effectiveDashboardVariableOverrides}
+                                        // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
+                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        dataColorThemeId={dataColorThemeId}
+                                        surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        dashboardId={dashboard?.id}
+                                        showResizeHandles={showResizeHandles}
+                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={onDragHandleMouseDown}
+                                        showEditingControls={showEditingControls}
+                                        moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
+                                            moveToDashboard(tile, requireDashboardId(), id, name)
+                                        }
+                                        copyToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
+                                            copyToDashboard(tile, requireDashboardId(), id, name)
+                                        }
+                                        removeFromDashboard={() => removeTile(tile)}
+                                    />
+                                )
+                            }
+
+                            if (text) {
+                                return (
+                                    <DashboardTextItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        placement={placement}
+                                        dashboardId={dashboard?.id}
+                                        onEdit={() => {
+                                            if (dashboard?.id) {
+                                                push(urls.dashboardTextTile(dashboard.id, tile.id))
+                                            }
+                                        }}
+                                        onMoveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
+                                            moveToDashboard(tile, requireDashboardId(), id, name)
+                                        }
+                                        onCopyToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
+                                            copyToDashboard(tile, requireDashboardId(), id, name)
+                                        }
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={() => removeTile(tile)}
+                                        showResizeHandles={showResizeHandles}
+                                        showEditingControls={showEditingControls}
+                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+
+                            if (button_tile) {
+                                return (
+                                    <DashboardButtonTileItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        placement={placement}
+                                        dashboardId={dashboard?.id}
+                                        onEdit={() => {
+                                            if (dashboard?.id) {
+                                                push(urls.dashboardButtonTile(dashboard.id, tile.id))
+                                            }
+                                        }}
+                                        onMoveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) =>
+                                            moveToDashboard(tile, requireDashboardId(), id, name)
+                                        }
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={() => removeTile(tile)}
+                                        showResizeHandles={showResizeHandles}
+                                        showEditingControls={showEditingControls}
+                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+                        })}
                     </ReactGridLayout>
                 </div>
             )}
