@@ -187,13 +187,11 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr=survey-responses-limit-input]').fill('228')
         await page.locator('[data-attr="scene-title-textarea"]').click()
 
-        const saveButton = page.locator('[data-attr=save-survey]').first()
+        const saveButton = page.locator('[data-attr=save-survey]')
         await expect(saveButton).toBeEnabled()
-        const saveResponsePromise = page.waitForResponse(
-            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
-        )
         await saveButton.click()
-        await saveResponsePromise
+        await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
+        await expect(page).toHaveURL(/\/surveys\/[\w-]+/)
 
         await expect(page.locator('button[data-attr="launch-survey"]').first()).toContainText('Launch')
 
@@ -228,7 +226,9 @@ test.describe('CRUD Survey', () => {
         await page.locator('.LemonButton').getByText('Add cancel event').click()
         await page.locator('span[aria-label="Autocapture"]').getByText('Autocapture').click()
 
-        await page.locator('[data-attr=save-survey]').first().click()
+        await page.locator('[data-attr=save-survey]').click()
+        await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
+        await expect(page).toHaveURL(/\/surveys\/[\w-]+/)
         await expect(page.locator('button[data-attr="launch-survey"]').first()).toContainText('Launch')
 
         await page.locator('.LemonTabs__tab').getByText('Overview').click()
