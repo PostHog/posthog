@@ -242,14 +242,14 @@ export const ALL_SDKS: SDK[] = [
         name: 'Cloudflare AI Gateway',
         key: SDKKey.CLOUDFLARE_AI_GATEWAY,
         tags: [SDKTag.GATEWAY],
-        image: <Logomark />,
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/cloudflare_logo_6572a9f441.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/cloudflare-ai-gateway',
     },
     {
         name: 'Dedalus Labs',
         key: SDKKey.DEDALUS,
         tags: [SDKTag.GATEWAY],
-        image: <Logomark />,
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/dedalus_labs_logo_e03bb97137.svg',
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/dedalus',
     },
     {
