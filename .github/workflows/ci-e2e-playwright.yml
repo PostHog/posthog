@@ -738,8 +738,8 @@ jobs:
                           });
                       }
 
-    capture-run-time:
-        name: Capture run time
+    calculate-running-time:
+        name: Calculate running time
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, playwright]

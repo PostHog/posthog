@@ -57,7 +57,7 @@ def list_recent_runs(workflow: str, since: datetime) -> list[dict]:
             "--workflow",
             workflow,
             "-L",
-            "1000",
+            "10",
             "--json",
             "databaseId,headSha,createdAt,conclusion,event",
         ]
@@ -82,7 +82,7 @@ def get_jobs(run_id: int, repo: str) -> list[dict]:
             "--paginate",
             f"repos/{repo}/actions/runs/{run_id}/jobs",
             "--jq",
-            ".jobs[] | {name, started_at, completed_at, conclusion, runner_name}",
+            ".jobs[] | {name, started_at, completed_at, conclusion}",
         ]
     )
     jobs = []
