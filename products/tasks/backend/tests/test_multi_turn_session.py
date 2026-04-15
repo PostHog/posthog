@@ -83,6 +83,42 @@ class TestPollForTurnEmptyEndTurn:
         assert last_message == "current-turn-text"
         assert total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
 
+    @pytest.mark.asyncio
+    async def test_poll_handles_s3_shrink_then_recovery_without_duplicates(self):
+        """End-to-end regression: if S3 briefly serves a truncated log between polls,
+        cursor clamps in _poll_for_turn + _stream_new_lines must prevent already-streamed
+        lines from being re-emitted or re-parsed when the log recovers."""
+        # Poll 1: user_message only (turn in progress).
+        # Poll 2: S3 truncated (1 line instead of 2).
+        # Poll 3: full turn visible — agent_message + end_turn appended.
+        poll_1_lines = [_user_message_line("prompt"), _agent_message_line("partial-thought")]
+        poll_2_lines = [_user_message_line("prompt")]  # S3 shrunk — intentionally missing line 2
+        poll_3_lines = [*poll_1_lines, _agent_message_line("final-answer"), _end_turn_line()]
+        logs = ["\n".join(poll_1_lines), "\n".join(poll_2_lines), "\n".join(poll_3_lines)]
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter)
+
+        captured: list[str] = []
+        fake_task_run = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            last_message, _, total_lines, printed_lines = await _poll_for_turn(
+                fake_task_run, skip_lines=0, output_fn=captured.append, verbose=True
+            )
+
+        assert last_message == "final-answer"
+        # Every raw line streamed exactly once, in log order — no re-emission after the shrink.
+        assert captured == poll_3_lines
+        # Cursors settled on the final (recovered) line count, not the truncated one.
+        assert total_lines == len(poll_3_lines)
+        assert printed_lines == len(poll_3_lines)
+
 
 class TestMultiTurnSessionRetry:
     """send_followup must retry once on EmptyAgentTurnError and propagate if the retry
