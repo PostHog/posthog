@@ -54,7 +54,16 @@ export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Elem
                 <div>
                     <dt className="text-sm text-secondary">Created by</dt>
                     <dd className="font-medium">
-                        <ProfilePicture user={sub.created_by} size="md" showName />
+                        <ProfilePicture
+                            user={{
+                                email: sub.created_by.email,
+                                first_name: sub.created_by.first_name,
+                                last_name: sub.created_by.last_name,
+                                hedgehog_config: sub.created_by.hedgehog_config ?? undefined,
+                            }}
+                            size="md"
+                            showName
+                        />
                     </dd>
                 </div>
                 <div>

@@ -8,7 +8,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { SceneExport, type SceneProps } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi } from '~/generated/core/api.schemas'
@@ -65,7 +65,7 @@ function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId
     )
 }
 
-export function SubscriptionScene({ tabId }: { id: string; tabId?: string }): JSX.Element {
+export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
     const {
         subscription,
         subscriptionLoading,
