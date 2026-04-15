@@ -463,6 +463,22 @@
             "readOnlyHint": true
         }
     },
+    "visually-analyze-session-segment": {
+        "description": "Render a segment of a session recording as video and visually analyze it with an AI model. Provide a session recording ID, start and end timestamps (hh:mm:ss format), and an analysis angle describing what to focus on. The tool renders the specified segment as a video, then sends it to a vision model for analysis. Maximum supported segment duration is 2 minutes. Use this to understand what happened visually in a specific part of a session, such as UI issues, user confusion, or interaction patterns.",
+        "category": "Session replay",
+        "feature": "session_replay",
+        "summary": "Visually analyze a segment of a session recording using AI.",
+        "title": "Visually analyze session segment",
+        "required_scopes": ["session_recording:read"],
+        "requires_ai_consent": true,
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "execute-sql": {
         "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
         "category": "SQL",
