@@ -139,7 +139,11 @@ class WorkflowsConsumer(Consumer):
     """Consumer that posts each record as a Hog Function invocation to the CDP API.
 
     One HTTP POST request per record is issued concurrently via `request_task_group`, up
-    to `max_concurrent_requests` in flight at a time.
+    to `max_concurrent_requests` in flight at a time. Each request is delegated to a
+    background task, of which up to `max_pending_requests` are created at a time. This
+    can be used to provide backpressure and protect memory usage. `max_pending_requests`
+    should be higher than `max_concurrent_requests` to allow space for retrying tasks to
+    wait without holding up the queue.
 
     A 2xx response with a `{"status": "error", ...}` body is treated as a Hog Function
     execution error (the CDP call succeeded but the function itself failed).
@@ -160,6 +164,7 @@ class WorkflowsConsumer(Consumer):
         request_task_group: asyncio.TaskGroup,
         model: str = "events",
         max_concurrent_requests: int = 1_000,
+        max_pending_requests: int = 2_000,
         hog_function_error_threshold_pct: float = 0.5,
         hog_function_error_threshold_min_records: int = 100,
     ):
@@ -174,11 +179,15 @@ class WorkflowsConsumer(Consumer):
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
         self.request_task_group = request_task_group
+
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self._pending_semaphore = asyncio.Semaphore(max_pending_requests)
+
         self.hog_function_error_threshold_pct = hog_function_error_threshold_pct
         self.hog_function_error_threshold_min_records = hog_function_error_threshold_min_records
         self.records_handled_count = 0
         self.latest_hog_function_error: str | None = None
+
         self.retryable_post = make_retryable_with_exponential_backoff(
             self.post,
             retryable_exceptions=(
@@ -192,7 +201,9 @@ class WorkflowsConsumer(Consumer):
         )
 
     async def consume_chunk(self, data: bytes) -> None:
-        self.request_task_group.create_task(self.retryable_post(data))
+        await self._pending_semaphore.acquire()
+        task = self.request_task_group.create_task(self.retryable_post(data))
+        task.add_done_callback(lambda _: self._pending_semaphore.release())
 
     async def post(self, data: bytes) -> None:
         async with self._requests_semaphore:
@@ -327,6 +338,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 if inputs.batch_export.batch_export_model
                 else "events",
                 max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
+                max_pending_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS,
             )
             try:
                 async with tg:

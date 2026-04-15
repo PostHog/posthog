@@ -710,7 +710,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_pk_table", logger)
             assert result is not None
             assert "id" in result
 
@@ -725,7 +725,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_no_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_no_pk_table", logger)
             assert result is None
 
     @pytest.mark.django_db
@@ -741,7 +741,7 @@ class TestGetPrimaryKeys:
                     PRIMARY KEY (org_id, user_id)
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_composite_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_composite_pk_table", logger)
             assert result is not None
             assert len(result) == 2
             assert "org_id" in result
@@ -847,8 +847,8 @@ class TestHasDuplicatePrimaryKeys:
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", None, logger) is False
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", [], logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", None, logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", [], logger) is False
 
     @pytest.mark.django_db
     def test_returns_false_when_no_duplicates(self):
@@ -862,7 +862,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_no_dup_table VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_no_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_no_dup_table", ["id"], logger)
             assert result is False
 
     @pytest.mark.django_db
@@ -877,7 +877,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_dup_table VALUES (1, 'a'), (1, 'b'), (2, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
 
@@ -885,7 +885,7 @@ class TestIsReadReplica:
     @pytest.mark.django_db
     def test_primary_is_not_read_replica(self):
         with django_connection.cursor() as dj_cursor:
-            result = _is_read_replica(dj_cursor)
+            result = _is_read_replica(cast(Any, dj_cursor))
             assert result is False
 
 
@@ -902,7 +902,7 @@ class TestGetTable:
                     score DOUBLE PRECISION
                 )
             """)
-            table = _get_table(dj_cursor, "public", "test_get_table_regular", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_regular", logger)
             assert table.type == "table"
             col_names = [c.name for c in table.columns]
             assert "id" in col_names
@@ -916,7 +916,7 @@ class TestGetTable:
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_view_base (id INTEGER, name TEXT)")
             dj_cursor.execute("CREATE VIEW test_get_table_view AS SELECT * FROM test_get_table_view_base")
-            table = _get_table(dj_cursor, "public", "test_get_table_view", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_view", logger)
             assert table.type == "view"
 
     @pytest.mark.django_db
@@ -928,5 +928,5 @@ class TestGetTable:
             dj_cursor.execute(
                 "CREATE MATERIALIZED VIEW test_get_table_matview AS SELECT * FROM test_get_table_matview_base"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_matview", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_matview", logger)
             assert table.type == "materialized_view"
