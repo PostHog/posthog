@@ -16,7 +16,8 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -27,9 +28,10 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription, unsubscribe_using_token
+from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
+from posthog.subscription_delivery_rollout import hackathon_subscription_feature
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
@@ -454,6 +456,117 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             )
 
         return Response(status=status.HTTP_202_ACCEPTED)
+
+
+class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubscriptionDelivery
+        fields = [
+            "id",
+            "subscription",
+            "temporal_workflow_id",
+            "idempotency_key",
+            "trigger_type",
+            "scheduled_at",
+            "target_type",
+            "target_value",
+            "exported_asset_ids",
+            "content_snapshot",
+            "recipient_results",
+            "status",
+            "error",
+            "created_at",
+            "last_updated_at",
+            "finished_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Primary key for this delivery row."},
+            "subscription": {"help_text": "Parent subscription id."},
+            "temporal_workflow_id": {"help_text": "Temporal workflow id for this delivery run."},
+            "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
+            "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
+            "scheduled_at": {"help_text": "Planned send time when applicable."},
+            "target_type": {"help_text": "Channel snapshot at send time (email, slack, webhook)."},
+            "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
+            "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
+            "content_snapshot": {
+                "help_text": (
+                    "Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight "
+                    "entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error)."
+                )
+            },
+            "recipient_results": {
+                "help_text": "Per-destination outcomes; items use status success, failed, or partial."
+            },
+            "status": {"help_text": "Overall run status: starting, completed, failed, or skipped."},
+            "error": {"help_text": "Top-level failure payload when status is failed, if any."},
+            "created_at": {"help_text": "When the delivery row was created."},
+            "last_updated_at": {"help_text": "Last ORM update to this row."},
+            "finished_at": {"help_text": "When the run finished, if applicable."},
+        }
+
+
+class SubscriptionDeliveryCursorPagination(CursorPagination):
+    page_size = 50
+    ordering = "-created_at"
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List subscription deliveries",
+        description=(
+            "Paginated delivery history for a subscription. "
+            "Requires premium subscriptions. Listing is gated by the `hackathons_subscriptions` feature flag; "
+            "single-delivery retrieve is not."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                enum=[m.value for m in SubscriptionDelivery.Status],
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return only deliveries in this run status (starting, completed, failed, or skipped).",
+            ),
+        ],
+        responses={200: OpenApiResponse(response=SubscriptionDeliverySerializer(many=True))},
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve subscription delivery",
+        description="Fetch one delivery row by id (not gated by `hackathons_subscriptions`).",
+        responses={200: SubscriptionDeliverySerializer},
+    ),
+)
+@extend_schema(tags=["core"])
+class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "subscription"
+    queryset = SubscriptionDelivery.objects.all()
+    serializer_class = SubscriptionDeliverySerializer
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature = AvailableFeature.SUBSCRIPTIONS
+    pagination_class = SubscriptionDeliveryCursorPagination
+    ordering = "-created_at"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if self.action == "list" and not hackathon_subscription_feature(self.team_id):
+            raise NotFound()
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        subscription_id = self.kwargs.get("parent_lookup_subscription_id")
+        if subscription_id:
+            queryset = queryset.filter(subscription_id=subscription_id)
+        if self.action == "list":
+            status_param = self.request.query_params.get("status")
+            if status_param:
+                valid = {c.value for c in SubscriptionDelivery.Status}
+                if status_param not in valid:
+                    raise ValidationError(
+                        {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
+                    )
+                queryset = queryset.filter(status=status_param)
+        return queryset
 
 
 def unsubscribe(request: HttpRequest):

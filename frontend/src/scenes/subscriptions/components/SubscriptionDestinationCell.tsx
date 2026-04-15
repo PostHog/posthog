@@ -86,3 +86,31 @@ export function SubscriptionDestinationCell({ sub }: { sub: SubscriptionApi }): 
         </span>
     )
 }
+
+/** Same destination UI as {@link SubscriptionDestinationCell}, for snapshot `target_type` / `target_value` (e.g. delivery history rows). */
+export function SubscriptionDeliveryDestinationCell({
+    targetType,
+    targetValue,
+}: {
+    targetType: string
+    targetValue: string
+}): JSX.Element {
+    const kind = targetType.toLowerCase()
+    if (kind === TargetTypeEnumApi.Email) {
+        return <DestinationListCell parts={parseEmailRecipients(targetValue)} copyDescription="email recipient" />
+    }
+    if (kind === TargetTypeEnumApi.Slack) {
+        return (
+            <DestinationListCell
+                parts={parseCommaSeparatedSlackTargetDisplayLabels(targetValue)}
+                copyDescription="Slack destination"
+            />
+        )
+    }
+    const text = truncateWebhookUrl(targetValue)
+    return (
+        <span className="text-secondary max-w-md truncate block" title={targetValue}>
+            {text}
+        </span>
+    )
+}
