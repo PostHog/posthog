@@ -11,6 +11,11 @@ import type { InsightShortId } from '~/types'
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
+/**
+ * Label for this subscription in lists, breadcrumbs, and the subscription scene header.
+ * Prefers user `title`, then the attached resource name. For the resource’s own label
+ * (table resource link, summary line), use {@link subscriptionResourceLabel} instead.
+ */
 export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
 }
@@ -36,25 +41,30 @@ export function subscriptionResourceViewUrl(sub: SubscriptionApi): string | null
     return null
 }
 
-export function subscriptionResourceLinkLabel(sub: SubscriptionApi): string {
-    const name = sub.resource_name?.trim()
-    if (name) {
-        return name
-    }
-    if (sub.insight) {
-        return 'Insight'
-    }
-    if (sub.dashboard) {
-        return 'Dashboard'
-    }
-    return 'View'
-}
+/** How to finish the label when `resource_name` is empty; see {@link subscriptionResourceLabel}. */
+export type SubscriptionResourceLabelMode = 'resourceLink' | 'summary'
 
-/** Name of the attached insight or dashboard (prefers `resource_name`, then subscription `title`). */
-export function subscriptionResourceDisplayName(sub: SubscriptionApi): string {
+/**
+ * Label for the insight or dashboard this subscription is attached to (not the subscription’s list name).
+ * Always prefers API `resource_name` when set.
+ *
+ * When it is missing:
+ * - `resourceLink` — short generic text for the resource column (Insight / Dashboard / View).
+ * - `summary` — subscription `title`, else `Untitled` if something is attached, else em dash.
+ */
+export function subscriptionResourceLabel(sub: SubscriptionApi, mode: SubscriptionResourceLabelMode): string {
     const resourceName = sub.resource_name?.trim()
     if (resourceName) {
         return resourceName
+    }
+    if (mode === 'resourceLink') {
+        if (sub.insight) {
+            return 'Insight'
+        }
+        if (sub.dashboard) {
+            return 'Dashboard'
+        }
+        return 'View'
     }
     const title = sub.title?.trim()
     if (title) {
@@ -114,7 +124,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 if (!href) {
                     return <span className="text-secondary">—</span>
                 }
-                const label = subscriptionResourceLinkLabel(sub)
+                const label = subscriptionResourceLabel(sub, 'resourceLink')
                 return (
                     <Tooltip title={label}>
                         <div className="min-w-0 w-full overflow-hidden">

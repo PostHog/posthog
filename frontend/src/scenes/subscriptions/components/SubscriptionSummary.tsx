@@ -7,12 +7,12 @@ import type { SubscriptionApi } from '~/generated/core/api.schemas'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
-import { subscriptionResourceDisplayName, subscriptionResourceViewUrl } from './SubscriptionsTable'
+import { subscriptionResourceLabel, subscriptionResourceViewUrl } from './SubscriptionsTable'
 
 export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const resourceHref = subscriptionResourceViewUrl(sub)
     const resourceFieldLabel = sub.insight ? 'Insight' : sub.dashboard ? 'Dashboard' : 'Resource'
-    const resourceDisplayName = subscriptionResourceDisplayName(sub)
+    const resourceDisplayName = subscriptionResourceLabel(sub, 'summary')
 
     return (
         <div className="flex w-full min-w-0 flex-col gap-4">
