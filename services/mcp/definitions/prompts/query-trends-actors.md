@@ -6,7 +6,7 @@ Selectors:
 
 - `day`: the bucket date (ISO) or integer offset from the range start. Omit to get actors across the entire range.
 - `series`: 0-based index of the series to drill into when the trends query has multiple series.
-- `breakdown`: the breakdown value to filter by, when the source uses a breakdown. Pass as an **array** when the source uses `breakdownFilter.breakdowns` (multi-breakdown), one value per dimension — e.g. `["Firefox iOS"]`. Pass as a string for legacy single-breakdown sources.
+- `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: ["Opera"]`. Multiple dimensions: `breakdown: ["Opera", "en-US"]`.
 - `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.
 
 Response:

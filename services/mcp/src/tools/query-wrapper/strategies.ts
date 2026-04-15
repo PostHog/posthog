@@ -20,16 +20,16 @@ export interface QueryStrategy {
     formatRequest(query: Record<string, unknown>): Record<string, unknown>
     formatResponse(
         response: QueryResponse,
+        query: Record<string, unknown>,
         baseUrl: string,
-        urlPrefix: string | undefined,
-        query: Record<string, unknown>
+        urlPrefix: string | undefined
     ): Record<string, unknown>
 }
 
 // Insight strategy
 const insightStrategy: QueryStrategy = {
     formatRequest: (query) => query,
-    formatResponse: (response, baseUrl, urlPrefix, query) => {
+    formatResponse: (response, query, baseUrl, urlPrefix) => {
         const result = response as InsightApiResponse
         return {
             results: result.formatted_results ?? result.results,
@@ -79,10 +79,11 @@ const baseActorsStrategy: QueryStrategy = {
         orderBy: ['event_count DESC, actor_id DESC'],
         limit: ACTORS_DEFAULT_LIMIT,
     }),
-    formatResponse: (response) => {
+    formatResponse: (response, query) => {
         const result = response as ActorsApiResponse
         const rows = Array.isArray(result.results) ? result.results : []
         return {
+            query,
             results: {
                 columns: ACTORS_RESPONSE_COLUMNS,
                 results: rows.map(projectActorRow),

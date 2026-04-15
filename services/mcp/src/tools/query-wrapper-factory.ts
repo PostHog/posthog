@@ -53,7 +53,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             })
 
             const baseUrl = context.api.getProjectBaseUrl(projectId)
-            return strategy.formatResponse(response, baseUrl, config.urlPrefix, query)
+            return strategy.formatResponse(response, formattedQuery, baseUrl, config.urlPrefix)
         },
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),

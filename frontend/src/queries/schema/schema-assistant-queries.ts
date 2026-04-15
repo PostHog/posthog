@@ -1166,8 +1166,11 @@ export interface AssistantInsightActorsQuery {
     /** Series index (0-based) when the source has multiple series. */
     series?: integer
 
-    /** Breakdown value to filter by. */
-    breakdown?: string | string[] | integer
+    /**
+     * Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order.
+     * Array length must equal the number of breakdown dimensions.
+     */
+    breakdown?: string[]
 
     /** Whether to pull from the previous period when `compare` is enabled in the source. */
     compare?: 'current' | 'previous'
