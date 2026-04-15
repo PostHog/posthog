@@ -240,7 +240,10 @@ export class EventSubscriptionsService {
                  SELECT unnest($1::int[]) AS team_id,
                         unnest($2::text[]) AS event_name,
                         unnest($3::text[]) AS person_id
-             ) AS lookups USING (team_id, event_name, person_id)
+             ) AS lookups
+               ON lookups.team_id = es.team_id
+              AND lookups.event_name = es.event_name
+              AND lookups.person_id = es.person_id
              WHERE es.expires_at > NOW()`,
             [teamIds, eventNames, personIds]
         )
