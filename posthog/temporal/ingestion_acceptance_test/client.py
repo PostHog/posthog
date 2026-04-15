@@ -15,6 +15,7 @@ from clickhouse_driver.errors import ErrorCodes
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from .config import Config
 
@@ -293,7 +294,18 @@ class PostHogClient:
                     )
                 try:
                     result = fetch_fn()
-                except (InternalCHQueryError, EOFError, ConnectionError, OSError) as e:
+                except (
+                    InternalCHQueryError,
+                    # wrap_clickhouse_query_error() converts TOO_MANY_SIMULTANEOUS_QUERIES,
+                    # TIMEOUT_EXCEEDED, and MEMORY_LIMIT_EXCEEDED into APIException subclasses
+                    # (not InternalCHQueryError), so we must catch them explicitly.
+                    ClickHouseAtCapacity,
+                    ClickHouseQueryTimeOut,
+                    ClickHouseQueryMemoryLimitExceeded,
+                    EOFError,
+                    ConnectionError,
+                    OSError,
+                ) as e:
                     is_retryable = not isinstance(e, InternalCHQueryError) or e.code in RETRYABLE_CH_ERROR_CODES
                     if is_retryable:
                         logger.warning(
@@ -393,8 +405,8 @@ class PostHogClient:
         """
         query = """
             SELECT p.id, p.properties, p.created_at
-            FROM person FINAL AS p
-            JOIN person_distinct_id2 FINAL AS pdi ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
+            FROM person AS p FINAL
+            JOIN person_distinct_id2 AS pdi FINAL ON p.id = pdi.person_id AND pdi.team_id = %(team_id)s
             WHERE p.team_id = %(team_id)s
               AND pdi.distinct_id = %(distinct_id)s
               AND pdi.is_deleted = 0

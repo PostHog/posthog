@@ -311,9 +311,12 @@ export async function getInsightWithRetry(
 export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]) {
+    const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
+    if (raw) {
         try {
-            const parsedVariables = JSON.parse(searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY])
+            // kea-router auto-parses JSON-like values from the URL, so the value
+            // may already be an object when the URL doesn't have a trailing space.
+            const parsedVariables = typeof raw === 'string' ? JSON.parse(raw) : raw
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -336,9 +339,12 @@ export const encodeURLVariables = (variables: Record<string, string>): Record<st
 export const parseURLFilters = (searchParams: Record<string, any>): DashboardFilter => {
     const filters: DashboardFilter = {}
 
-    if (searchParams[SEARCH_PARAM_FILTERS_KEY]) {
+    const raw = searchParams[SEARCH_PARAM_FILTERS_KEY]
+    if (raw) {
         try {
-            const parsedFilters = JSON.parse(searchParams[SEARCH_PARAM_FILTERS_KEY])
+            // kea-router auto-parses JSON-like values from the URL, so the value
+            // may already be an object when the URL doesn't have a trailing space.
+            const parsedFilters = typeof raw === 'string' ? JSON.parse(raw) : raw
             Object.assign(filters, parsedFilters)
         } catch (e) {
             console.error(`Failed to parse ${SEARCH_PARAM_FILTERS_KEY} from URL:`, e)

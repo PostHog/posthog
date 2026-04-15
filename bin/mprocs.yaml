@@ -167,6 +167,13 @@ procs:
         capability: flag_evaluation
         ready_pattern: 'listening on *'
 
+    hypercache-server:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service hypercache-server
+        capability: hypercache
+        ready_pattern: 'listening on *'
+
     livestream:
         shell: |-
             bin/wait-for-docker redis-cluster && \
@@ -222,6 +229,13 @@ procs:
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
+    personhog-leader:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-leader
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         capability: llm_gateway
@@ -241,6 +255,12 @@ procs:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
         ready_pattern: 'Initial build complete'
+
+    mcp-inspector:
+        shell: 'cd services/mcp && pnpm run inspector'
+        capability: mcp_server
+        autostart: false
+        ready_pattern: 'MCP Inspector'
 
     stripe-app:
         shell: 'bin/start-stripe-app'

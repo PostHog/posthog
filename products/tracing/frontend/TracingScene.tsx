@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -82,13 +83,14 @@ const columns: LemonTableColumns<Span> = [
 export default function TracingScene(): JSX.Element {
     const {
         rootSpans,
-        spans,
         spansLoading,
         isTraceModalOpen,
         selectedTraceId,
         sparklineData,
         sparklineLoading,
         totalSpansMatchingFilters,
+        modalSpans,
+        isLoadingFullTrace,
     } = useValues(tracingSceneLogic)
     const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
 
@@ -111,7 +113,7 @@ export default function TracingScene(): JSX.Element {
             <TracingFilterBar />
             {!sparklineLoading && totalSpansMatchingFilters > 0 && (
                 <div className="text-xs text-muted px-1">
-                    {totalSpansMatchingFilters.toLocaleString()} traces matching filters
+                    {totalSpansMatchingFilters.toLocaleString()} spans matching filters
                 </div>
             )}
             <LemonTable
@@ -132,7 +134,8 @@ export default function TracingScene(): JSX.Element {
                 width="90vw"
             >
                 <div className="relative min-h-32">
-                    <TraceFlameChart spans={spans.filter((s) => s.trace_id === selectedTraceId)} />
+                    {isLoadingFullTrace && <SpinnerOverlay />}
+                    <TraceFlameChart spans={modalSpans} />
                 </div>
             </LemonModal>
         </SceneContent>

@@ -83,6 +83,25 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
         self.assertFalse(Organization.objects.filter(id=org_id).exists())
         self.assertFalse(Team.objects.filter(id=team_id).exists())
 
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    @patch("posthog.email.is_email_available", return_value=False)
+    def test_fires_deletion_completed_event(self, mock_email: Any, mock_capture: Any) -> None:
+        org = Organization.objects.create(name="Org to delete")
+        org.members.add(self.user)
+        team = Team.objects.create(organization=org, name="Team in org")
+        org_id = str(org.id)
+
+        delete_organization_data_and_notify_task(
+            team_ids=[team.id],
+            organization_id=org_id,
+            user_id=self.user.id,
+            organization_name="Org to delete",
+            project_names=["Team in org"],
+        )
+
+        event_names = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertIn("organization deletion completed", event_names)
+
     @patch("posthog.email.is_email_available", return_value=False)
     def test_deletes_organization_with_data_warehouse_saved_query_and_node(self, mock_email: Any) -> None:
         """
