@@ -137,15 +137,19 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
     }
 }
 
-/** Config type for all session replay output keys. */
+/**
+ * Config type for session replay output producer/topic keys.
+ *
+ * DLQ and overflow topic keys are already declared in `SessionRecordingConfig`
+ * and flow into the composed server config — only the producer keys and the
+ * outputs that don't exist elsewhere are added here.
+ */
 export type SessionReplayOutputsConfig = {
     SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: string
     SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: ProducerName
 
-    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
     SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: ProducerName
 
-    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
     SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: ProducerName
 
     SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: string
@@ -156,9 +160,7 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
     return {
         SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
         SESSION_REPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: DEFAULT_PRODUCER,
-        INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
         SESSION_REPLAY_OUTPUT_DLQ_PRODUCER: DEFAULT_PRODUCER,
-        INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
         SESSION_REPLAY_OUTPUT_OVERFLOW_PRODUCER: DEFAULT_PRODUCER,
         SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
         SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
