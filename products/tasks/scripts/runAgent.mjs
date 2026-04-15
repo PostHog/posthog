@@ -24,7 +24,6 @@ export async function runAgent({
     prompt,
     maxTurns,
     createPR,
-    mcpServers,
 }) {
     const envOverrides = {
         POSTHOG_API_KEY: posthogApiKey,
@@ -37,19 +36,13 @@ export async function runAgent({
 
     Object.assign(process.env, envOverrides)
 
-    const agentOptions = {
+    const agent = new Agent({
         workingDirectory: repositoryPath,
         posthogApiUrl,
         posthogApiKey,
         posthogProjectId: parseInt(posthogProjectId, 10),
         debug: true,
-    }
-
-    if (mcpServers) {
-        agentOptions.mcpServers = mcpServers
-    }
-
-    const agent = new Agent(agentOptions)
+    })
 
     if (prompt) {
         const options = {
@@ -74,15 +67,7 @@ export async function runAgent({
 }
 
 async function main() {
-    const {
-        taskId,
-        runId,
-        repositoryPath,
-        prompt,
-        'max-turns': maxTurns,
-        createPR,
-        mcpServers: mcpServersJson,
-    } = parseArgs()
+    const { taskId, runId, repositoryPath, prompt, 'max-turns': maxTurns, createPR } = parseArgs()
 
     if (!prompt && !taskId) {
         console.error('Missing required argument: either --prompt or --taskId must be provided')
@@ -118,16 +103,6 @@ async function main() {
         process.exit(1)
     }
 
-    let mcpServers
-    if (mcpServersJson) {
-        try {
-            mcpServers = JSON.parse(mcpServersJson)
-        } catch {
-            console.error('Invalid JSON for --mcpServers')
-            process.exit(1)
-        }
-    }
-
     try {
         await runAgent({
             taskId,
@@ -139,7 +114,6 @@ async function main() {
             prompt,
             maxTurns,
             createPR: createPR === 'true',
-            mcpServers,
         })
         process.exit(0)
     } catch (error) {

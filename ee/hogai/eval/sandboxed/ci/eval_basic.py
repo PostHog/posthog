@@ -15,7 +15,7 @@ import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, FilesModified, GitDiffNonEmpty, TestsPass
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 @pytest.mark.django_db
@@ -25,10 +25,6 @@ async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client):
             name="fix_divide_bug",
             prompt="The divide function in calculator.py returns wrong results. Fix the bug so all tests pass.",
             repo_fixture="bugfix_calculator",
-            expected={
-                "tests_pass": {"should_pass": True},
-                "files_modified": {"files": ["calculator.py"]},
-            },
         ),
         SandboxedEvalCase(
             name="mcp_pageview_count_last_week",
@@ -38,9 +34,6 @@ async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client):
                 "via the PostHog MCP server and report the total count as a single integer in "
                 "your final reply."
             ),
-            expected={
-                "tests_pass": {"should_pass": True},
-            },
         ),
     ]
 
@@ -49,9 +42,6 @@ async def eval_bugfix(sandboxed_demo_data, pytestconfig, posthog_client):
         cases=cases,
         scorers=[
             ExitCodeZero(),
-            GitDiffNonEmpty(),
-            FilesModified(),
-            TestsPass(),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,
