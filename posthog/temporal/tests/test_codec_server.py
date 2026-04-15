@@ -17,7 +17,6 @@ class CodecServerTestCase(TestCase):
         self.codec = EncryptionCodec(settings)
         # Set up test auth token
         self.test_token = "test-codec-auth-token"
-        self.auth_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.test_token}"}
 
     def test_decode_endpoint_handles_options(self):
         response = self.client.options("/decode", headers={"origin": "https://temporal-ui.posthog.orb.local"})
@@ -34,7 +33,7 @@ class CodecServerTestCase(TestCase):
             "/decode",
             request_data,
             content_type="application/json",
-            **self.auth_headers,
+            HTTP_AUTHORIZATION=f"Bearer {self.test_token}",
             HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
         )
         self.assertEqual(response.status_code, 200)
@@ -56,7 +55,7 @@ class CodecServerTestCase(TestCase):
             "/decode",
             request_data,
             content_type="application/json",
-            **self.auth_headers,
+            HTTP_AUTHORIZATION=f"Bearer {self.test_token}",
             HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
         )
 

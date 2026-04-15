@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -84,7 +84,7 @@ class TestConversation(APIBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-    def _get_streaming_content(self, response: HttpResponse) -> bytes:
+    def _get_streaming_content(self, response: Any) -> bytes:
         return b"".join(response.streaming_content)
 
     def _create_mock_streaming_response(self, streaming_content: Any, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -99,7 +99,7 @@ class TestConversation(APIBaseTest):
             content = _generator_serialized_value
 
         mock_response = HttpResponse(content, content_type="text/event-stream")
-        mock_response.streaming_content = [content]
+        cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
     def test_create_conversation(self):

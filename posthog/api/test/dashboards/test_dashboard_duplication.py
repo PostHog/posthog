@@ -118,7 +118,11 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
 
     @staticmethod
     def _tile_child_ids_from(dashboard_json: dict) -> list[int]:
-        return [
-            (tile.get("insight", None) or {}).get("id", None) or (tile.get("text", None) or {}).get("id", None)
-            for tile in dashboard_json["tiles"]
-        ]
+        child_ids: list[int] = []
+        for tile in dashboard_json["tiles"]:
+            child_id = (tile.get("insight", None) or {}).get("id", None) or (tile.get("text", None) or {}).get(
+                "id", None
+            )
+            if child_id is not None:
+                child_ids.append(child_id)
+        return child_ids
