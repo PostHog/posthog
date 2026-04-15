@@ -23,9 +23,7 @@ class StreamlitApp(models.Model):
     cpu_cores = models.FloatField(default=0.5)
     memory_gb = models.FloatField(default=1)
 
-    # Tracks how many times the sandbox has been restarted without ever
-    # reaching a stable RUNNING state. Resets to zero on a healthy run, so
-    # transient failures don't permanently ratchet the cap.
+    # Reset to zero on a healthy run so transient failures don't ratchet the cap.
     restart_count = models.PositiveIntegerField(default=0)
 
     deleted = models.BooleanField(default=False)
@@ -37,8 +35,6 @@ class StreamlitApp(models.Model):
 
     class Meta:
         constraints = [
-            # Soft-deleted apps don't block reusing a short_id within the same
-            # team — partial unique on (team, short_id) WHERE deleted=False.
             models.UniqueConstraint(
                 fields=["team", "short_id"],
                 condition=models.Q(deleted=False),
@@ -92,12 +88,8 @@ class StreamlitAppSandbox(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     last_activity_at = models.DateTimeField(null=True, blank=True)
 
-    # Row creation timestamp. Historically tried to double as the "this
-    # start attempt began" reference for _sync_sandbox_status's timeout
-    # check, but that's wrong: the row is reused in place across lifecycles
-    # via update_or_create, so created_at drifts hours into the past for any
-    # app that has been sandboxed before. Use started_at for the timeout
-    # reference — it gets refreshed on every new start attempt.
+    # The row is reused in place across lifecycles, so this drifts. Use
+    # started_at (refreshed on each attempt) for "this attempt began" logic.
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:

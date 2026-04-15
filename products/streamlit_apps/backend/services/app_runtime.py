@@ -12,7 +12,7 @@ from django.utils import timezone
 import structlog
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
-from products.tasks.backend.services.sandbox import SandboxConfig, SandboxProtocol, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.services.sandbox import SandboxBase, SandboxConfig, SandboxTemplate, get_sandbox_class
 
 logger = structlog.get_logger(__name__)
 
@@ -22,9 +22,8 @@ STREAMLIT_APP_PATH = "/app"
 BRIDGE_TOKEN_PATH = "/run/bridge_token"
 MAX_RESTART_COUNT = 3
 STARTING_TIMEOUT_SECONDS = 600
-# How long the sandbox must stay RUNNING before restart_count is eligible
-# for reset. A shorter-than-this life cycle is treated as part of the same
-# crash loop that incremented the counter in the first place.
+# Sandbox must stay RUNNING for this long before restart_count resets; shorter
+# lifecycles are treated as part of the same crash loop that incremented it.
 RESTART_COUNT_STABILITY_SECONDS = 5 * 60
 
 
@@ -33,11 +32,7 @@ class AppRuntimeError(Exception):
 
 
 class AppRuntimeConcurrencyError(AppRuntimeError):
-    """Raised when a lifecycle action collides with one already in flight.
-
-    Callers (Celery task, viewset) should treat this as a benign "another
-    worker is handling it" signal rather than stamping the sandbox ERROR.
-    """
+    """Raised when a lifecycle action collides with one already in flight."""
 
     pass
 
@@ -45,9 +40,8 @@ class AppRuntimeConcurrencyError(AppRuntimeError):
 def _get_sandbox_callback_url() -> str:
     """URL that sandboxes use to call back to PostHog (OAuth introspect, bridge queries).
 
-    Reads STREAMLIT_SANDBOX_CALLBACK_URL from the env, falling back to SITE_URL.
     For local dev, set STREAMLIT_SANDBOX_CALLBACK_URL to a public tunnel URL
-    (e.g. ngrok) since Modal sandboxes can't reach localhost.
+    (e.g. ngrok); Modal sandboxes can't reach localhost.
     """
     from django.conf import settings
 
@@ -57,10 +51,8 @@ def _get_sandbox_callback_url() -> str:
 def _get_otel_logs_config(callback_url: str) -> tuple[str, str]:
     """Return (endpoint, token) for sandbox proxy OTEL log export.
 
-    Mirrors the region-based selection in posthog.ph_client.get_regional_ph_client.
-    On PostHog Cloud, sandbox proxy logs ship to the same PH-on-PH project that
-    owns PostHog's own telemetry. In dev / self-hosted they ship back to the
-    local instance via the same callback URL the sandbox already uses.
+    Mirrors posthog.ph_client.get_regional_ph_client. On cloud, logs ship to
+    PH-on-PH; in dev/self-hosted they ship back via the callback URL.
     """
     from posthog.cloud_utils import is_cloud
     from posthog.ph_client import PH_EU_API_KEY, PH_EU_HOST, PH_US_API_KEY, PH_US_HOST
@@ -70,11 +62,9 @@ def _get_otel_logs_config(callback_url: str) -> tuple[str, str]:
         region = get_instance_region()
         if region == "EU":
             return f"{PH_EU_HOST}/i/v1/logs", PH_EU_API_KEY
-        # Default to US for unknown regions (matches get_regional_ph_client behavior)
         return f"{PH_US_HOST}/i/v1/logs", PH_US_API_KEY
 
-    # Dev / self-hosted: ship to the local instance via the callback URL.
-    # `phc_local` is the magic dev token that maps to team_id=1 in capture-logs.
+    # phc_local is the dev token that maps to team_id=1 in capture-logs.
     return f"{callback_url.rstrip('/')}/i/v1/logs", "phc_local"
 
 
@@ -100,18 +90,11 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
         ttl_seconds=60 * 15,
         environment_variables={
             "POSTHOG_SITE_URL": callback_url,
-            # Per-sandbox team binding — the auth proxy refuses any introspected
-            # token whose scoped_teams doesn't include this id, so a token from
-            # another team can't unlock this sandbox even if its bytes leak.
+            # Per-sandbox team + app bindings; the auth proxy refuses tokens
+            # that don't match both, so leaks can't unlock this sandbox.
             "POSTHOG_TEAM_ID": str(app.team_id),
-            # Per-application binding — the auth proxy refuses tokens minted
-            # against any OAuth application other than the Streamlit Apps one,
-            # even if they have matching scoped_teams. This stops e.g. an
-            # MCP-app token with query:read scope from unlocking the sandbox.
             "POSTHOG_STREAMLIT_CLIENT_ID": get_streamlit_oauth_app().client_id,
-            # Standard OTEL env vars — the SDK reads these directly when the
-            # proxy constructs OTLPLogExporter and Resource.create(). We don't
-            # need to parse them in the proxy code.
+            # Standard OTEL env vars — read directly by the SDK in the proxy.
             "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": otel_endpoint,
             "OTEL_EXPORTER_OTLP_HEADERS": f"authorization=Bearer {otel_token}",
             "OTEL_RESOURCE_ATTRIBUTES": otel_resource_attrs,
@@ -122,13 +105,8 @@ def _build_sandbox_config(app: StreamlitApp, version: StreamlitAppVersion) -> Sa
     return config
 
 
-def _upload_app_files(sandbox: SandboxProtocol, zip_content: bytes) -> None:
-    """Upload zip contents to sandbox.
-
-    Enforces uncompressed size limit by counting actual bytes read (defense-in-depth
-    against forged zip header metadata). A `requirements.txt` in the upload is
-    silently ignored — base-image packages are the only supported runtime.
-    """
+def _upload_app_files(sandbox: SandboxBase, zip_content: bytes) -> None:
+    """Upload zip contents to sandbox, bounded by actual bytes read (not zip metadata)."""
     from products.streamlit_apps.backend.services.zip_validator import MAX_UNCOMPRESSED_SIZE, is_safe_zip_path
 
     total_bytes = 0
@@ -141,8 +119,7 @@ def _upload_app_files(sandbox: SandboxProtocol, zip_content: bytes) -> None:
                 raise AppRuntimeError(f"Unsafe file path in zip: {info.filename}")
             normalized = os.path.normpath(info.filename)
             if normalized == "requirements.txt":
-                # We dropped pip-install support — keep accepting old uploads but
-                # don't propagate the file into the sandbox to avoid confusion.
+                # Silently dropped: only base-image packages are supported.
                 requirements_seen = True
                 continue
             content = zf.read(info.filename)
@@ -155,13 +132,11 @@ def _upload_app_files(sandbox: SandboxProtocol, zip_content: bytes) -> None:
         logger.info("streamlit_requirements_ignored")
 
 
-def _write_bridge_token(sandbox: SandboxProtocol, token: str) -> None:
+def _write_bridge_token(sandbox: SandboxBase, token: str) -> None:
     """Drop the bridge bearer token at /run/bridge_token with mode 600.
 
-    The auth proxy reads this once at startup and unlinks the file. Writing
-    after the proxy starts would race the unlink, so this MUST happen before
-    `_start_auth_proxy`. We use chmod via execute() because Modal's write_file
-    doesn't expose mode bits directly.
+    MUST run before _start_auth_proxy — the proxy reads and unlinks the file
+    on boot, so a later write would race the unlink.
     """
     sandbox.write_file(BRIDGE_TOKEN_PATH, token.encode("utf-8"))
     result = sandbox.execute(f"chmod 600 {BRIDGE_TOKEN_PATH}", timeout_seconds=5)
@@ -169,11 +144,9 @@ def _write_bridge_token(sandbox: SandboxProtocol, token: str) -> None:
         raise AppRuntimeError(f"Failed to chmod bridge token file: {result.stderr}")
 
 
-def _start_auth_proxy(sandbox: SandboxProtocol) -> None:
-    # `setsid -f` double-forks into a new session, fully detaching from the
-    # control shell. The shell exit code is the exit of setsid itself, which
-    # is 0 once the child has been spawned — we still rely on the readiness
-    # poll below to detect a daemon that died on startup.
+def _start_auth_proxy(sandbox: SandboxBase) -> None:
+    # setsid -f double-forks into a new session; exit 0 only means "spawned",
+    # so the real liveness check is _wait_for_health below.
     result = sandbox.execute(
         "setsid -f sh -c 'python /usr/local/bin/streamlit_auth_proxy.py >/tmp/auth_proxy.log 2>&1'",
         timeout_seconds=10,
@@ -182,15 +155,11 @@ def _start_auth_proxy(sandbox: SandboxProtocol) -> None:
         raise AppRuntimeError(f"Failed to start auth proxy: {result.stderr}")
 
 
-def _start_streamlit_process(sandbox: SandboxProtocol) -> None:
+def _start_streamlit_process(sandbox: SandboxBase) -> None:
     """Boot Streamlit as the non-root `streamlit` user.
 
-    Files uploaded via `sandbox.write_file` land in /app owned by root (the
-    Modal shell runs as root), so we chown the dir over to the streamlit user
-    before launching — Streamlit needs both read access on the app code and
-    write access on /app for its internal cache. The bridge token at
-    /run/bridge_token stays root-owned mode 600, which is the whole point:
-    unreadable to this uid.
+    Files land in /app root-owned, so we chown before launch. /run/bridge_token
+    stays root-owned mode 600 — the whole point is that this uid can't read it.
     """
     chown_result = sandbox.execute(
         f"chown -R streamlit:streamlit {STREAMLIT_APP_PATH}",
@@ -199,11 +168,8 @@ def _start_streamlit_process(sandbox: SandboxProtocol) -> None:
     if chown_result.exit_code != 0:
         raise AppRuntimeError(f"Failed to chown {STREAMLIT_APP_PATH} to streamlit user: {chown_result.stderr}")
 
-    # `runuser -u streamlit --` is a non-interactive "become this user" wrapper
-    # from util-linux; preferred over `su` because it doesn't load the target
-    # user's login shell and doesn't need a tty. The setsid -f double-forks so
-    # the exec() returns immediately and the readiness poll below is the real
-    # health check.
+    # runuser (from util-linux) is a non-interactive "become user" wrapper —
+    # preferred over `su` because it doesn't load a login shell or need a tty.
     result = sandbox.execute(
         "setsid -f runuser -u streamlit -- sh -c '"
         f"streamlit run {STREAMLIT_APP_PATH}/app.py "
@@ -216,44 +182,19 @@ def _start_streamlit_process(sandbox: SandboxProtocol) -> None:
         raise AppRuntimeError(f"Failed to start Streamlit: {result.stderr}")
 
 
-def _wait_for_proxy_ready(sandbox: SandboxProtocol, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
-    health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AUTH_PROXY_PORT}/healthz"
+def _wait_for_health(sandbox: SandboxBase, url: str, name: str, max_attempts: int, delay_seconds: float = 1.0) -> bool:
+    health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' {url}"
     for attempt in range(max_attempts):
         result = sandbox.execute(health_cmd, timeout_seconds=5)
         if result.stdout.strip() == "200":
-            logger.info(f"Auth proxy health check passed on attempt {attempt + 1}")
-            return True
-        time.sleep(delay_seconds)
-    return False
-
-
-def _wait_for_streamlit_ready(sandbox: SandboxProtocol, max_attempts: int = 30, delay_seconds: float = 1.0) -> bool:
-    """Poll Streamlit's /_stcore/health until it returns 200.
-
-    The auth proxy being ready doesn't imply the upstream Streamlit process is
-    — Streamlit takes a few extra seconds after its Python interpreter starts
-    to open the HTTP port. Without this second gate, `start_app` promotes the
-    record to RUNNING while the iframe still 502s against the upstream.
-    """
-    health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{STREAMLIT_PORT}/_stcore/health"
-    for attempt in range(max_attempts):
-        result = sandbox.execute(health_cmd, timeout_seconds=5)
-        if result.stdout.strip() == "200":
-            logger.info(f"Streamlit health check passed on attempt {attempt + 1}")
+            logger.info(f"{name} health check passed on attempt {attempt + 1}")
             return True
         time.sleep(delay_seconds)
     return False
 
 
 def _schedule_restart_count_reset(app_id: str) -> None:
-    """Defer the restart_count reset by RESTART_COUNT_STABILITY_SECONDS.
-
-    The reset used to fire inline at the end of start_app, which meant a single
-    RUNNING promotion followed by an immediate crash reset the counter and let
-    a crash loop ignore the cap. Scheduling via Celery with a countdown gives
-    us a stability window: the task only resets when the sandbox is still
-    RUNNING and has been up long enough at fire time.
-    """
+    """Defer the restart_count reset so a brief RUNNING bounce can't wipe the counter."""
     from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
 
     reset_streamlit_app_restart_count_if_stable.apply_async(
@@ -262,21 +203,12 @@ def _schedule_restart_count_reset(app_id: str) -> None:
     )
 
 
-def _tail_proxy_log(sandbox: SandboxProtocol) -> str:
-    """Best-effort tail of /tmp/auth_proxy.log for surfacing in last_error."""
-    try:
-        result = sandbox.execute("tail -n 20 /tmp/auth_proxy.log 2>/dev/null || true", timeout_seconds=5)
-        return (result.stdout or "").strip()
-    except Exception:
-        return ""
-
-
 _SYNC_FAILURE_THRESHOLD = 3
-_SYNC_FAILURE_TTL_SECONDS = 600  # Reset counter after 10 minutes of no activity
+_SYNC_FAILURE_TTL_SECONDS = 600
 
 
 def _sync_failure_key(sandbox_record: StreamlitAppSandbox) -> str:
-    # Fall back to the PK when sandbox_id isn't set yet (STARTING, no Modal handle).
+    # Fall back to the PK while STARTING (no Modal handle assigned yet).
     return f"streamlit_sandbox_sync_failures:{sandbox_record.sandbox_id or sandbox_record.id}"
 
 
@@ -289,13 +221,10 @@ def _track_sync_failure(sandbox_record: StreamlitAppSandbox) -> int:
     except ValueError:
         cache.set(key, 1, _SYNC_FAILURE_TTL_SECONDS)
         return 1
-    # Refresh the TTL on every increment so a slow drip of failures eventually
-    # crosses the threshold (without this, a failure every 11 minutes would
-    # never trip the circuit because incr() doesn't reset the original TTL).
+    # Refresh TTL so slow-drip failures still trip the circuit.
     try:
         cache.touch(key, _SYNC_FAILURE_TTL_SECONDS)
     except (AttributeError, NotImplementedError):
-        # Some Django cache backends don't implement touch — fall back to set.
         cache.set(key, new_value, _SYNC_FAILURE_TTL_SECONDS)
     return new_value
 
@@ -307,31 +236,18 @@ def _clear_sync_failures(sandbox_record: StreamlitAppSandbox) -> None:
 
 
 def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
-    """Sync the DB sandbox status with the actual Modal sandbox state.
+    """Sync DB sandbox status with the Modal sandbox state.
 
-    Handles only two transitions:
-    - RUNNING sandbox that has died → update to STOPPED
-    - STARTING sandbox older than the startup timeout → update to ERROR
-
-    Deliberately does NOT promote STARTING → RUNNING: that path implies the
-    Modal sandbox is alive, but says nothing about whether the auth proxy or
-    Streamlit inside it are serving. The only legitimate RUNNING promotion
-    happens in `start_app` after both readiness probes pass.
-
-    Tracks consecutive failures via Django cache; after 3 strikes the record
-    is marked ERROR so the UI reflects the broken state instead of spinning.
+    Handles only RUNNING→STOPPED (died) and STARTING→ERROR (timed out).
+    Never promotes STARTING→RUNNING — that transition only happens in
+    start_app after both readiness probes pass. Consecutive failures
+    short-circuit to ERROR after _SYNC_FAILURE_THRESHOLD strikes.
     """
     if sandbox_record.status not in (StreamlitAppSandbox.Status.RUNNING, StreamlitAppSandbox.Status.STARTING):
         return sandbox_record
 
-    # Expire stale STARTING records (Celery task crashed before completion, or
-    # startup genuinely ran past the budget). Prefer started_at, which
-    # start_app refreshes on every new attempt, over created_at: the row is
-    # reused in place across lifecycles via update_or_create, so created_at
-    # drifts hours into the past for any app that has been sandboxed before
-    # and would flip every first status poll straight to ERROR. Fall back to
-    # created_at only for legacy rows that somehow reached STARTING without
-    # started_at being set.
+    # Prefer started_at (refreshed each attempt) over created_at, which drifts
+    # because the row is reused in place across lifecycles.
     if sandbox_record.status == StreamlitAppSandbox.Status.STARTING:
         reference = sandbox_record.started_at or sandbox_record.created_at
         age = (timezone.now() - reference).total_seconds()
@@ -387,9 +303,6 @@ class AppRuntimeService:
             ):
                 return existing
 
-            # Update the existing row in place rather than delete+recreate.
-            # The previous flow lost any field that wasn't explicitly re-set,
-            # which is how restart_count ended up needing a separate home.
             try:
                 sandbox_record, _ = StreamlitAppSandbox.objects.update_or_create(
                     app=app,
@@ -398,19 +311,10 @@ class AppRuntimeService:
                         "sandbox_id": "",
                         "status": StreamlitAppSandbox.Status.STARTING,
                         "last_error": "",
-                        # Stamp "this attempt began now" so _sync_sandbox_status
-                        # has a fresh reference for the STARTING timeout check.
-                        # The row is reused across lifecycles via update_or_create,
-                        # so created_at drifts hours into the past and can't serve
-                        # that role. started_at is safe to repurpose: the only
-                        # other reader (tasks.reset_streamlit_app_restart_count_if_stable)
-                        # touches it exclusively when status=RUNNING, and the
-                        # RUNNING transition below overwrites it again.
                         "started_at": timezone.now(),
                     },
                 )
             except IntegrityError:
-                # Another request won the race — return their record
                 return StreamlitAppSandbox.objects.get(app=app)
 
         sandbox = None
@@ -442,9 +346,7 @@ class AppRuntimeService:
                 version.snapshot_created_at = timezone.now()
                 version.save(update_fields=["snapshot_id", "snapshot_created_at"])
 
-            # File-based bridge token: write before the proxy boots so the
-            # proxy can read+unlink it on its own startup. The token never
-            # appears in /proc/<pid>/environ.
+            # Write before the proxy boots so it can read+unlink the file.
             from products.streamlit_apps.backend.services.oauth import create_sandbox_bridge_token
 
             bridge_token = create_sandbox_bridge_token(user=app.created_by, team_id=app.team_id)
@@ -453,14 +355,21 @@ class AppRuntimeService:
             _start_auth_proxy(sandbox)
             _start_streamlit_process(sandbox)
 
-            if not _wait_for_proxy_ready(sandbox):
-                tail = _tail_proxy_log(sandbox)
+            proxy_url = f"http://localhost:{AUTH_PROXY_PORT}/healthz"
+            if not _wait_for_health(sandbox, proxy_url, "Auth proxy", max_attempts=20):
+                try:
+                    tail_result = sandbox.execute(
+                        "tail -n 20 /tmp/auth_proxy.log 2>/dev/null || true", timeout_seconds=5
+                    )
+                    tail = (tail_result.stdout or "").strip()
+                except Exception:
+                    tail = ""
                 raise AppRuntimeError("Auth proxy failed to become ready" + (f": {tail}" if tail else ""))
 
-            # The proxy being ready only tells us the proxy is alive — we also
-            # need Streamlit itself to be serving before we flip the record to
-            # RUNNING, otherwise the iframe will 502 against the upstream.
-            if not _wait_for_streamlit_ready(sandbox):
+            # Streamlit's HTTP port opens a few seconds after the proxy is
+            # live; without this second gate the iframe 502s against upstream.
+            streamlit_url = f"http://localhost:{STREAMLIT_PORT}/_stcore/health"
+            if not _wait_for_health(sandbox, streamlit_url, "Streamlit", max_attempts=30):
                 raise AppRuntimeError("Streamlit failed to become ready")
 
             now = timezone.now()
@@ -475,9 +384,6 @@ class AppRuntimeService:
             else:
                 logger.warning("sandbox_record_deleted_during_start", app_id=str(app.id))
 
-            # The restart_count reset runs in a deferred Celery task so a boot
-            # that reaches RUNNING briefly and then crashes doesn't wipe the
-            # counter and allow an infinite crash loop.
             _schedule_restart_count_reset(str(app.id))
 
             return sandbox_record
@@ -487,7 +393,6 @@ class AppRuntimeService:
                 status=StreamlitAppSandbox.Status.ERROR,
                 last_error=str(e),
             )
-            # Destroy orphaned sandbox to avoid resource leaks
             if sandbox is not None:
                 try:
                     sandbox.destroy()
@@ -504,7 +409,7 @@ class AppRuntimeService:
             sandbox_record.status = StreamlitAppSandbox.Status.STOPPING
             sandbox_record.save(update_fields=["status"])
 
-        # Destroy outside transaction (network call to Modal)
+        # Destroy outside the transaction — it hits Modal over the network.
         destroy_error: str | None = None
         if sandbox_record.sandbox_id:
             try:
@@ -523,8 +428,7 @@ class AppRuntimeService:
             sandbox_record.status = StreamlitAppSandbox.Status.STOPPED
             sandbox_record.save(update_fields=["status"])
         else:
-            # The Modal sandbox may still be running; mark ERROR so the UI reflects
-            # the broken state. Modal's TTL or a later cleanup pass will reclaim it.
+            # Modal may still be running; TTL or cleanup will reclaim it.
             sandbox_record.status = StreamlitAppSandbox.Status.ERROR
             sandbox_record.last_error = f"Stop failed: {destroy_error}"[:1000]
             sandbox_record.save(update_fields=["status", "last_error"])
@@ -570,9 +474,7 @@ class AppRuntimeService:
             return None
 
     def restart_app(self, app: StreamlitApp, zip_content: bytes | None = None) -> StreamlitAppSandbox:
-        # Lock the StreamlitApp row (not the sandbox row) so the restart_count
-        # check+increment is atomic and concurrent callers serialize on the
-        # cap boundary instead of racing through their own read of the count.
+        # Lock the app row so concurrent restart_count check+increment serialize.
         with transaction.atomic():
             StreamlitApp.objects.select_for_update().get(id=app.id)
 
@@ -581,9 +483,6 @@ class AppRuntimeService:
                 StreamlitAppSandbox.Status.STOPPING,
                 StreamlitAppSandbox.Status.STARTING,
             ):
-                # Benign race: another worker is already tearing down or
-                # spinning up. Raise a concurrency-specific exception so the
-                # task wrapper doesn't stamp the sandbox ERROR on our behalf.
                 raise AppRuntimeConcurrencyError("Another restart is already in progress.")
 
             current_count = StreamlitApp.objects.filter(id=app.id).values_list("restart_count", flat=True).first() or 0
@@ -596,16 +495,12 @@ class AppRuntimeService:
 
             StreamlitApp.objects.filter(id=app.id).update(restart_count=F("restart_count") + 1)
 
-        # Stop+start happens outside the app row lock — they each take their
-        # own sandbox-row locks and hit Modal over the network, which we must
-        # not do while holding an app-level row lock (would serialize every
-        # reader/writer on the app for the full restart window).
+        # Stop+start run outside the app lock — they each take their own
+        # sandbox-row locks and hit Modal over the network.
         try:
             self.stop_app(app)
             return self.start_app(app, zip_content=zip_content)
         except Exception:
-            # Roll the counter back so a transient Modal flap doesn't
-            # permanently eat into the cap. The reset task that start_app
-            # schedules on its happy path won't have fired in this case.
+            # Roll the counter back so a transient Modal flap doesn't eat the cap.
             StreamlitApp.objects.filter(id=app.id).update(restart_count=F("restart_count") - 1)
             raise

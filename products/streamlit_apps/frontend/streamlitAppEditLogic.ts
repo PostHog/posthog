@@ -29,9 +29,7 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
         setMemoryGb: (memoryGb: number) => ({ memoryGb }),
         setZipFile: (file: File | null) => ({ file }),
         setActiveVersionNumber: (versionNumber: number) => ({ versionNumber }),
-        // Narrow state update after a successful version switch. Does NOT go
-        // through loadStreamlitAppSuccess — that would clobber unsaved edits
-        // to name/description/cpu/memory via the reducers below.
+        // Narrow update; dispatching loadStreamlitAppSuccess would clobber unsaved form edits.
         setActiveVersionInState: (activeVersion: StreamlitAppVersion) => ({ activeVersion }),
     }),
 
@@ -88,20 +86,15 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
                             app = await api.streamlitApps.get(app.short_id)
                         } catch {
                             lemonToast.error('App created but zip upload failed. You can retry from the edit page.')
-                            streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(app)
                             router.actions.push(urls.streamlitAppEdit(app.short_id))
                             return app
                         }
                     }
 
                     lemonToast.success(isNew ? 'App created' : 'App saved')
-
-                    streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(app)
-
                     if (isNew) {
                         router.actions.push(urls.streamlitApp(app.short_id))
                     }
-
                     return app
                 },
                 deleteApp: async () => {
@@ -116,10 +109,6 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
     })),
 
     reducers({
-        // Extend the loader-managed streamlitApp reducer with a narrow
-        // handler. kea-loaders defines its own handlers for loadStreamlitApp*,
-        // and this block merges in an additional one for the version-switch
-        // path — kea reducers() merges handlers when the key already exists.
         streamlitApp: {
             setActiveVersionInState: (state: StreamlitAppType | null, { activeVersion }) =>
                 state ? { ...state, active_version: activeVersion } : state,
@@ -178,6 +167,11 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
     }),
 
     listeners(({ props, values, actions }) => ({
+        saveAppSuccess: ({ savedApp }) => {
+            if (savedApp) {
+                streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp(savedApp)
+            }
+        },
         setActiveVersionNumber: async ({ versionNumber }) => {
             if (props.shortId === 'new') {
                 return
@@ -187,10 +181,7 @@ export const streamlitAppEditLogic = kea<streamlitAppEditLogicType>([
                 lemonToast.success(`Switched to v${versionNumber}. Restart the app to apply.`)
                 const nextActiveVersion = response?.active_version ?? values.streamlitApp?.active_version ?? null
                 if (values.streamlitApp && nextActiveVersion) {
-                    // Narrow reducer update — dispatching loadStreamlitAppSuccess
-                    // here used to re-seed name/description/cpu/memory from the
-                    // latest server payload, silently clobbering any unsaved
-                    // edits the user had typed into the form.
+                    // Narrow update; see setActiveVersionInState for rationale.
                     actions.setActiveVersionInState(nextActiveVersion)
                     streamlitAppsLogic.findMounted()?.actions.updateStreamlitApp({
                         ...values.streamlitApp,

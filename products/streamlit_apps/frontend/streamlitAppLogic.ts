@@ -16,9 +16,10 @@ export interface StreamlitAppLogicProps {
 const POLL_INTERVAL_MS = 2000
 const HEALTH_POLL_INTERVAL_MS = 15000
 const TOKEN_REFRESH_RATIO = 0.8 // refresh at 80% of expiry
-// Clamp the refresh delay so a tiny expires_in (or NaN from a malformed
-// response) can't schedule an immediate-loop refresh that DDoSes our own API.
+// Floor prevents a malformed expires_in from scheduling an immediate refresh loop.
 const MIN_TOKEN_REFRESH_MS = 5_000
+
+type TimerKey = 'pollTimer' | 'healthPollTimer' | 'tokenRefreshTimer'
 
 export const streamlitAppLogic = kea<streamlitAppLogicType>([
     path(['products', 'streamlit_apps', 'frontend', 'streamlitAppLogic']),
@@ -98,9 +99,7 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
             },
         ],
         connectInfo: {
-            // Restart kicks off a new sandbox, so the previous iframe URL +
-            // tokens are stale. Clearing forces the running-state branch to
-            // refetch a fresh connect URL once the new sandbox is up.
+            // Restart mints a new sandbox — clear so we refetch fresh tokens.
             restartApp: () => null,
             restartAppSuccess: () => null,
         },
@@ -136,111 +135,95 @@ export const streamlitAppLogic = kea<streamlitAppLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
-        loadStreamlitAppSuccess: ({ streamlitApp }) => {
-            if (!streamlitApp) {
-                return
+    listeners(({ actions, values, cache }) => {
+        // Idempotent clear — kea listeners can fire multiple times and timers
+        // would otherwise stack. clearInterval accepts timeout IDs too, so one
+        // helper covers both setInterval and setTimeout.
+        const clearCached = (key: TimerKey): void => {
+            if (cache[key]) {
+                clearInterval(cache[key])
+                cache[key] = null
             }
-            // Seed sandboxStatus from app data so appStatus is correct
-            // immediately — kea-loaders success actions take the value
-            // directly, not an object wrapper.
-            if (streamlitApp.sandbox) {
-                actions.loadSandboxStatusSuccess(streamlitApp.sandbox)
-            }
-            const status = streamlitApp.sandbox?.status ?? 'stopped'
-            if (status === 'starting') {
-                actions.startPolling()
-            } else if (status === 'running') {
-                actions.loadConnectInfo()
-            }
-        },
-        startAppSuccess: () => {
-            actions.startPolling()
-        },
-        startPolling: () => {
-            // Clear any existing timer first — kea listeners can fire multiple
-            // times (status changes, reloads) and setInterval would stack
-            // without this guard, leading to runaway API calls.
-            if (cache.pollTimer) {
-                clearInterval(cache.pollTimer)
-            }
-            cache.pollTimer = setInterval(() => {
-                actions.loadSandboxStatus()
-            }, POLL_INTERVAL_MS)
-        },
-        stopPolling: () => {
-            if (cache.pollTimer) {
-                clearInterval(cache.pollTimer)
-                cache.pollTimer = null
-            }
-        },
-        startHealthPolling: () => {
-            if (cache.healthPollTimer) {
-                clearInterval(cache.healthPollTimer)
-            }
-            cache.healthPollTimer = setInterval(() => {
-                actions.loadSandboxStatus()
-            }, HEALTH_POLL_INTERVAL_MS)
-        },
-        stopHealthPolling: () => {
-            if (cache.healthPollTimer) {
-                clearInterval(cache.healthPollTimer)
-                cache.healthPollTimer = null
-            }
-        },
-        loadSandboxStatusSuccess: ({ sandboxStatus }) => {
-            if (!sandboxStatus) {
-                return
-            }
-            if (sandboxStatus.status === 'running') {
-                actions.stopPolling()
-                if (!values.isHealthPolling) {
-                    actions.startHealthPolling()
+        }
+        return {
+            loadStreamlitAppSuccess: ({ streamlitApp }) => {
+                if (!streamlitApp) {
+                    return
                 }
-                // Fetch connect info when sandbox becomes running
-                if (!values.connectInfo) {
+                // Seed sandboxStatus from app data so appStatus is correct immediately.
+                if (streamlitApp.sandbox) {
+                    actions.loadSandboxStatusSuccess(streamlitApp.sandbox)
+                }
+                const status = streamlitApp.sandbox?.status ?? 'stopped'
+                if (status === 'starting') {
+                    actions.startPolling()
+                } else if (status === 'running') {
                     actions.loadConnectInfo()
                 }
-            } else if (sandboxStatus.status === 'error' || sandboxStatus.status === 'stopped') {
+            },
+            startAppSuccess: () => {
+                actions.startPolling()
+            },
+            startPolling: () => {
+                clearCached('pollTimer')
+                cache.pollTimer = setInterval(() => {
+                    actions.loadSandboxStatus()
+                }, POLL_INTERVAL_MS)
+            },
+            stopPolling: () => clearCached('pollTimer'),
+            startHealthPolling: () => {
+                clearCached('healthPollTimer')
+                cache.healthPollTimer = setInterval(() => {
+                    actions.loadSandboxStatus()
+                }, HEALTH_POLL_INTERVAL_MS)
+            },
+            stopHealthPolling: () => clearCached('healthPollTimer'),
+            loadSandboxStatusSuccess: ({ sandboxStatus }) => {
+                if (!sandboxStatus) {
+                    return
+                }
+                if (sandboxStatus.status === 'running') {
+                    actions.stopPolling()
+                    if (!values.isHealthPolling) {
+                        actions.startHealthPolling()
+                    }
+                    if (!values.connectInfo) {
+                        actions.loadConnectInfo()
+                    }
+                } else if (sandboxStatus.status === 'error' || sandboxStatus.status === 'stopped') {
+                    actions.stopPolling()
+                    actions.stopHealthPolling()
+                    actions.clearTokenRefresh()
+                }
+            },
+            loadConnectInfoSuccess: ({ connectInfo }) => {
+                if (connectInfo) {
+                    actions.scheduleTokenRefresh(connectInfo.expires_in)
+                }
+            },
+            scheduleTokenRefresh: ({ expiresIn }) => {
+                actions.clearTokenRefresh()
+                const refreshMs = Math.max(expiresIn * TOKEN_REFRESH_RATIO * 1000, MIN_TOKEN_REFRESH_MS)
+                cache.tokenRefreshTimer = setTimeout(() => {
+                    actions.loadConnectInfo()
+                }, refreshMs)
+            },
+            loadConnectInfoFailure: () => {
+                // Don't reschedule — a 5s retry loop would hammer a broken sandbox.
+                actions.clearTokenRefresh()
+            },
+            clearTokenRefresh: () => clearCached('tokenRefreshTimer'),
+            stopAppSuccess: () => {
                 actions.stopPolling()
                 actions.stopHealthPolling()
                 actions.clearTokenRefresh()
-            }
-        },
-        loadConnectInfoSuccess: ({ connectInfo }) => {
-            if (connectInfo) {
-                actions.scheduleTokenRefresh(connectInfo.expires_in)
-            }
-        },
-        scheduleTokenRefresh: ({ expiresIn }) => {
-            actions.clearTokenRefresh()
-            const refreshMs = Math.max(expiresIn * TOKEN_REFRESH_RATIO * 1000, MIN_TOKEN_REFRESH_MS)
-            cache.tokenRefreshTimer = setTimeout(() => {
-                actions.loadConnectInfo()
-            }, refreshMs)
-        },
-        loadConnectInfoFailure: () => {
-            // Don't reschedule on failure — that would create a 5-second retry
-            // loop that hammers the server while the sandbox is broken. The
-            // user can hit Retry from the connect-error UI branch.
-            actions.clearTokenRefresh()
-        },
-        clearTokenRefresh: () => {
-            if (cache.tokenRefreshTimer) {
-                clearTimeout(cache.tokenRefreshTimer)
-                cache.tokenRefreshTimer = null
-            }
-        },
-        stopAppSuccess: () => {
-            actions.stopPolling()
-            actions.stopHealthPolling()
-            actions.clearTokenRefresh()
-        },
-        restartAppSuccess: () => {
-            actions.startPolling()
-            actions.clearTokenRefresh()
-        },
-    })),
+            },
+            restartAppSuccess: () => {
+                actions.startPolling()
+                actions.clearTokenRefresh()
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadStreamlitApp()

@@ -43,9 +43,6 @@ const MEMORY_OPTIONS = [
 ]
 
 export function StreamlitAppEdit(props: Record<string, any>): JSX.Element {
-    // FEATURE_FLAGS.STREAMLIT_APPS gate — remove when released.
-    // Backend enforces the same flag via StreamlitAppsAccessPermission; this
-    // gate is UX-only (clean NotFound vs a broken scene on direct URL navigation).
     const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
     const shortId = (props.id as string) || 'new'
     const {

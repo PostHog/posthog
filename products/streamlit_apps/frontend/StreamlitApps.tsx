@@ -88,8 +88,7 @@ function AppCard({ app }: { app: StreamlitAppMinimalType }): JSX.Element {
                 </div>
             </div>
             {app.description && <p className="text-muted text-sm mb-2 line-clamp-2 m-0">{app.description}</p>}
-            <div className="flex items-center justify-between text-xs text-muted mt-3">
-                <span>{app.status === 'running' ? 'Running' : null}</span>
+            <div className="flex items-center justify-end text-xs text-muted mt-3">
                 <span>{app.created_by?.first_name ?? 'Unknown'}</span>
             </div>
         </div>
@@ -97,9 +96,6 @@ function AppCard({ app }: { app: StreamlitAppMinimalType }): JSX.Element {
 }
 
 export function StreamlitApps(): JSX.Element {
-    // FEATURE_FLAGS.STREAMLIT_APPS gate — remove when released.
-    // Backend enforces the same flag via StreamlitAppsAccessPermission; this
-    // gate is UX-only (clean NotFound vs a broken scene on direct URL navigation).
     const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
     const { streamlitApps, streamlitAppsLoading } = useValues(streamlitAppsLogic)
 

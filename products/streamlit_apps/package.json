@@ -1,12 +1,14 @@
 {
     "name": "@posthog/products-streamlit-apps",
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
-        "kea": "catalog:",
-        "kea-loaders": "catalog:",
-        "kea-router": "catalog:",
         "react": "*"
     }
 }

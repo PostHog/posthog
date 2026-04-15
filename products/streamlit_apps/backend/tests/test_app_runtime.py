@@ -45,7 +45,7 @@ def _make_mock_sandbox_class(sandbox=None):
     return cls
 
 
-@patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
+@patch("products.streamlit_apps.backend.services.app_runtime._wait_for_health", return_value=True)
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeStartApp(BaseTest):
     def _create_app_with_version(self, snapshot_id=None):
@@ -300,7 +300,7 @@ class TestAppRuntimeGetStatus(BaseTest):
         assert record.status == StreamlitAppSandbox.Status.STOPPED
 
 
-@patch("products.streamlit_apps.backend.services.app_runtime._wait_for_proxy_ready", return_value=True)
+@patch("products.streamlit_apps.backend.services.app_runtime._wait_for_health", return_value=True)
 @patch("products.streamlit_apps.backend.services.app_runtime.get_sandbox_class")
 class TestAppRuntimeRestartApp(BaseTest):
     def _make_restartable_app(self, restart_count: int = 0, sandbox_status=None):
@@ -418,8 +418,8 @@ class TestAppRuntimeRestartApp(BaseTest):
 
         service = AppRuntimeService()
         with patch(
-            "products.streamlit_apps.backend.services.app_runtime._wait_for_streamlit_ready",
-            return_value=False,
+            "products.streamlit_apps.backend.services.app_runtime._wait_for_health",
+            side_effect=lambda sandbox, url, name, max_attempts, delay_seconds=1.0: name == "Auth proxy",
         ):
             with self.assertRaises(AppRuntimeError, msg="Streamlit failed to become ready"):
                 service.start_app(app)

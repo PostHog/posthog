@@ -92,8 +92,6 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         defaults.update(kwargs)
         return StreamlitAppVersion.objects.create(**defaults)
 
-    # -- List --
-
     def test_list_apps_empty(self):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
@@ -147,8 +145,6 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         result = response.json()["results"][0]
         assert result["status"] == "stopped"
 
-    # -- Create --
-
     def test_create_app(self):
         response = self.client.post(self._url(), data={"name": "New App", "description": "A new app"})
         assert response.status_code == status.HTTP_201_CREATED
@@ -175,8 +171,6 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()[field] == expected
 
-    # -- Retrieve --
-
     def test_retrieve_app(self):
         app = self._create_app(name="Detail App", description="Details here")
         response = self.client.get(self._url(f"{app.short_id}/"))
@@ -192,8 +186,6 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         response = self.client.get(self._url(f"{app.short_id}/"))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    # -- Update --
-
     def test_update_app(self):
         app = self._create_app(name="Old Name")
         response = self.client.patch(self._url(f"{app.short_id}/"), data={"name": "New Name"})
@@ -208,8 +200,6 @@ class TestStreamlitAppAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         self.client.patch(self._url(f"{app.short_id}/"), data={"short_id": "hacked"})
         app.refresh_from_db()
         assert app.short_id == original_short_id
-
-    # -- Delete (soft) --
 
     def test_delete_app_soft_deletes(self):
         app = self._create_app()
@@ -247,8 +237,6 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
             created_by=self.user,
         )
 
-    # -- List versions --
-
     def test_list_versions_empty(self):
         app = self._create_app()
         response = self.client.get(self._url(app.short_id, "versions/"))
@@ -263,8 +251,6 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         response = self.client.get(self._url(app.short_id, "versions/"))
         versions = response.json()["results"]
         assert [v["version_number"] for v in versions] == [3, 2, 1]
-
-    # -- Upload version --
 
     @patch("posthog.storage.object_storage.write")
     def test_upload_version_with_requirements_silently_accepted(self, mock_storage_write):
@@ -337,8 +323,6 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    # -- Activate version --
-
     def test_activate_version_returns_requires_restart(self):
         app = self._create_app()
         v1 = self._create_version(app, 1)
@@ -387,8 +371,6 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         app.save()
         return app
 
-    # -- Status --
-
     def test_status_no_sandbox(self):
         app = self._create_app_with_version()
         response = self.client.get(self._url(app.short_id, "status/"))
@@ -408,8 +390,6 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         data = response.json()
         assert data["status"] == "running"
 
-    # -- Start --
-
     @patch("products.streamlit_apps.backend.tasks.run_streamlit_app_lifecycle.delay")
     def test_start_app_dispatches_task(self, mock_delay):
         app = self._create_app_with_version()
@@ -424,8 +404,6 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No active version" in response.json()["detail"]
 
-    # -- Stop --
-
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
     def test_stop_app(self, mock_runtime_cls):
         mock_runtime = MagicMock()
@@ -436,8 +414,6 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_runtime.stop_app.assert_called_once_with(app)
 
-    # -- Restart --
-
     @patch("products.streamlit_apps.backend.tasks.run_streamlit_app_lifecycle.delay")
     def test_restart_app_dispatches_task(self, mock_delay):
         app = self._create_app_with_version()
@@ -445,8 +421,6 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         response = self.client.post(self._url(app.short_id, "restart/"))
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_delay.assert_called_once_with(str(app.id), "restart")
-
-    # -- Connect Info --
 
     @patch("products.streamlit_apps.backend.api.streamlit_app.AppRuntimeService")
     def test_connect_info_returns_iframe_url_with_tokens(self, mock_runtime_cls):

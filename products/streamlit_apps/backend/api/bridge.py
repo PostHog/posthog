@@ -16,23 +16,11 @@ from products.streamlit_apps.backend.services.bridge import execute_bridge_query
 
 logger = logging.getLogger(__name__)
 
-# Defense-in-depth body cap. The in-sandbox shim only sends small JSON
-# {"query": "..."} bodies, so 16 KB is well above legitimate use.
 BRIDGE_REQUEST_MAX_BYTES = 16 * 1024
 
 
 class StreamlitBridgeThrottle(PersonalApiKeyRateThrottle):
-    """Rate limit Streamlit bridge requests by bearer token hash.
-
-    Each sandbox is issued its own OAuth token, so bucketing by token hash
-    gives per-sandbox rate limits. We don't bucket by team_id (would punish
-    teams running many concurrent apps) or by IP (Modal sandbox IPs are
-    shared across tenants).
-
-    We inherit from PersonalApiKeyRateThrottle to reuse its enable check and
-    allow-list behavior, but override `allow_request` to skip the
-    personal-API-key guard (the bridge uses bearer tokens, not PAKs).
-    """
+    """Per-sandbox rate limit, bucketing by bearer-token hash (one OAuth token per sandbox)."""
 
     scope = "streamlit_bridge"
     rate = "120/hour"
@@ -51,17 +39,10 @@ class StreamlitBridgeThrottle(PersonalApiKeyRateThrottle):
 
 
 def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None]:
-    """Validate a Bearer OAuth access token bound to the Streamlit OAuth app.
+    """Validate a bearer OAuth token bound to the Streamlit OAuth app.
 
-    Returns (team_id, error_message). team_id is None on failure.
-
-    The legacy TimestampSigner bridge token path was deleted; OAuth is the
-    only accepted credential. Tokens minted against any other OAuth
-    application (e.g. an MCP integration) are rejected even if they have
-    `query:read` scope. Bridge tokens must also be scoped to exactly one
-    team — we don't try to pick "the right" team from a multi-team token
-    because there's no well-defined answer, and silently picking the first
-    entry would let a token minted for team A run queries against team B.
+    Returns (team_id, error_message). Rejects tokens from other OAuth apps
+    and tokens scoped to != 1 team (no "pick the first entry" shortcut).
     """
     from posthog.models.oauth import find_oauth_access_token
 
@@ -79,9 +60,7 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None]:
     scopes = (access_token.scope or "").split()
     if "query:read" not in scopes:
         return None, "Insufficient scope."
-    # Require the bridge-specific scope suffix — iframe tokens (which carry
-    # streamlit:iframe) must not be reusable as bridge credentials even if
-    # they leak via Referer / browser history.
+    # Iframe tokens carry streamlit:iframe and must not be reusable here.
     if "streamlit:bridge" not in scopes:
         return None, "Token is not a bridge token."
     if access_token.application_id != get_streamlit_oauth_app().id:
@@ -111,7 +90,7 @@ class StreamlitBridgeView(APIView):
 
         try:
             body = json.loads(request.body)
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError:
             return Response({"error": "Invalid JSON body."}, status=400)
 
         query = body.get("query")

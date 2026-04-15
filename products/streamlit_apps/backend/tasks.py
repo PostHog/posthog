@@ -8,17 +8,11 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 logger = structlog.get_logger(__name__)
 
-# Cold-start includes image build + sandbox boot + first HTTP healthcheck.
-# time_limit is an upper bound; soft_time_limit fires first so we can mark
-# the sandbox as ERROR before celery kills the worker.
+# soft_time_limit fires first so we can mark the sandbox as ERROR before celery kills us.
 _TASK_TIME_LIMIT = 600
 _TASK_SOFT_TIME_LIMIT = 540
 
-# Hourly OAuth-token cleanup deletes in 10k-row chunks. Lower than the
-# postgres default to keep the per-batch lock window short.
 _OAUTH_CLEANUP_BATCH_SIZE = 10_000
-
-# Streamlit app zip retention after soft-delete.
 _DELETED_ZIP_RETENTION_DAYS = 7
 
 
@@ -44,12 +38,7 @@ def _mark_sandbox_error(app_id: str, message: str) -> None:
     max_retries=0,
 )
 def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]) -> None:
-    """Single Celery entry point for both start and restart.
-
-    The two flows used to live in separate tasks with ~95% overlap. Folding
-    them into one branch on `action` makes it easier to reason about retry
-    semantics and time-limit handling.
-    """
+    """Celery entry point for both start and restart."""
     from posthog.storage import object_storage
 
     from products.streamlit_apps.backend.models import StreamlitApp
@@ -76,9 +65,7 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
         else:
             runtime.restart_app(app, zip_content=zip_content)
     except AppRuntimeConcurrencyError:
-        # Benign: another worker is already doing this work. Log at info and
-        # return without stamping the sandbox ERROR — the in-flight operation
-        # will settle on its own.
+        # Benign — another worker is handling it. Don't stamp ERROR.
         logger.info("streamlit_app_lifecycle_concurrent_noop", app_id=app_id, action=action)
         return
     except SoftTimeLimitExceeded:
@@ -93,11 +80,10 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
 
 @shared_task(ignore_result=True, max_retries=0)
 def reset_streamlit_app_restart_count_if_stable(app_id: str) -> None:
-    """Reset StreamlitApp.restart_count to 0 if the sandbox has been stable.
+    """Reset restart_count to 0 only if the sandbox is still RUNNING and stable.
 
-    Enqueued with a countdown at the end of a successful start_app. Defers the
-    reset so a crash-loop that briefly reaches RUNNING before dying doesn't
-    wipe the counter and let the app bypass MAX_RESTART_COUNT forever.
+    Deferred via countdown so a brief RUNNING bounce in a crash loop can't
+    wipe the counter and bypass MAX_RESTART_COUNT.
     """
     from datetime import timedelta
 
@@ -123,13 +109,7 @@ def reset_streamlit_app_restart_count_if_stable(app_id: str) -> None:
 
 @shared_task(ignore_result=True)
 def cleanup_expired_streamlit_oauth_tokens() -> int:
-    """Delete expired OAuthAccessToken rows scoped to the Streamlit OAuth app.
-
-    Bridge tokens expire after 1 hour and every connect_info call mints a
-    fresh one. Without cleanup the table grows linearly with usage. We loop
-    in 10k-row batches so a backlog from a missed run doesn't tie up the
-    table for the duration of one giant DELETE.
-    """
+    """Delete expired OAuthAccessToken rows for the Streamlit app, in 10k batches."""
     from django.utils import timezone
 
     from posthog.models.oauth import OAuthAccessToken
@@ -159,13 +139,7 @@ def cleanup_expired_streamlit_oauth_tokens() -> int:
 
 @shared_task(ignore_result=True)
 def cleanup_deleted_streamlit_app_zips() -> int:
-    """Hard-delete S3 zip files for soft-deleted apps past the retention window.
-
-    Every StreamlitAppVersion uploads a zip to object storage. Soft-deleting
-    the app leaves those zips behind forever, which is both wasteful and a
-    privacy concern (deleted user data lingers). After the retention period,
-    delete the S3 objects and the version rows.
-    """
+    """Hard-delete zip objects and version rows for soft-deleted apps past the retention window."""
     from datetime import timedelta
 
     from django.utils import timezone
@@ -186,7 +160,7 @@ def cleanup_deleted_streamlit_app_zips() -> int:
             object_storage.delete(version.zip_file)
         except Exception:
             logger.warning("streamlit_zip_cleanup_storage_delete_failed", version_id=str(version.id), exc_info=True)
-            # Skip the row delete so we'll retry the storage delete next run.
+            # Leave the row so we retry next run.
             continue
         StreamlitAppVersion.objects.filter(id=version.id).delete()
         deleted += 1

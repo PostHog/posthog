@@ -56,13 +56,11 @@ def _reset_proxy_module_state(monkeypatch):
     """Every test starts from a clean cache / circuit-breaker state and a
     POSTHOG_SITE_URL set so _introspect_token doesn't short-circuit."""
     streamlit_auth_proxy._introspection_cache.clear()
-    streamlit_auth_proxy._introspection_circuit["failures"] = 0.0
-    streamlit_auth_proxy._introspection_circuit["open_until"] = 0.0
+    streamlit_auth_proxy._introspection_circuit.reset()
     monkeypatch.setattr(streamlit_auth_proxy, "POSTHOG_SITE_URL", "https://app.posthog.test")
     yield
     streamlit_auth_proxy._introspection_cache.clear()
-    streamlit_auth_proxy._introspection_circuit["failures"] = 0.0
-    streamlit_auth_proxy._introspection_circuit["open_until"] = 0.0
+    streamlit_auth_proxy._introspection_circuit.reset()
 
 
 # ---------- create_app() startup config validation ----------

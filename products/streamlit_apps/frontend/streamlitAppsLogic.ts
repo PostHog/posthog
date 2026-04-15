@@ -53,8 +53,7 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
 
     listeners(({ actions, cache }) => ({
         startListPolling: () => {
-            // Guard against double-start: kea listeners can fire multiple
-            // times and setInterval would stack without this check.
+            // Idempotent — timers stack otherwise on re-fire.
             if (cache.listPollTimer) {
                 clearInterval(cache.listPollTimer)
             }

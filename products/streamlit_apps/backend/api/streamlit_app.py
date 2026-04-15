@@ -29,22 +29,14 @@ from products.streamlit_apps.backend.services.zip_validator import validate_zip
 
 logger = structlog.get_logger(__name__)
 
-# Window during which all `get_status` callers see the same _sync_sandbox_status
-# result instead of each one re-hitting Modal. The token-refresh poller fires
-# every 2 seconds, so anything below that lets us amortize Modal calls down to
-# one-per-window per sandbox.
+# Amortize concurrent pollers for the same sandbox to one Modal call per window.
+# Token-refresh fires every ~2s, so this keeps sync calls to 1/window/sandbox.
 _STATUS_CACHE_TTL_SECONDS = 2
 
-# Minimum time between last_activity_at writes for a single sandbox.
-# connect_info is polled every ~2s by the token-refresh loop; writing on every
-# call turned into a sandbox_row UPDATE every 2 seconds per active viewer, for
-# no real gain (the field drives inactivity cleanup, which operates on minute
-# granularity anyway). The write is now debounced so it only fires once per
-# window per sandbox.
+# Debounce last_activity_at writes. connect_info polls every ~2s per viewer and
+# the cleanup consumer only needs minute-granularity, so a UPDATE on every hit
+# was pure write amplification.
 _LAST_ACTIVITY_DEBOUNCE_SECONDS = 30
-
-
-# -- Serializers --
 
 
 class StreamlitAppVersionSerializer(serializers.ModelSerializer):
@@ -81,13 +73,10 @@ class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_restart_count(self, obj: StreamlitAppSandbox) -> int:
-        # restart_count lives on the app row now, but we surface it under the
-        # sandbox object for frontend continuity.
         return obj.app.restart_count
 
     def get_version_number(self, obj: StreamlitAppSandbox) -> int | None:
-        # Lets the viewer compare against the app's active_version.version_number
-        # to decide whether a restart is needed after a version switch.
+        # Compared with active_version.version_number to prompt "restart needed".
         return obj.version.version_number if obj.version else None
 
 
@@ -203,21 +192,8 @@ class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
         return updated_app
 
 
-# -- Permissions --
-
-
 class StreamlitAppsAccessPermission(BasePermission):
-    """Gate the whole streamlit_apps API behind the `streamlit-apps` PostHog
-    feature flag so unreleased functionality is hidden from any user who is
-    not explicitly on the rollout.
-
-    Evaluated against the user's distinct_id with the org as a group so we
-    can roll out per-user or per-org as needed. Returns False (→ 403 via
-    DRF) rather than raising NotFound: 403 matches the behavior of
-    APIScopePermission / TeamMemberAccessPermission on the same viewset,
-    and the scene-level NotFound gate on the frontend is what hides
-    *existence* from the UI side.
-    """
+    """Gate the streamlit_apps API behind the `streamlit-apps` feature flag."""
 
     message = "Streamlit apps is not available."
 
@@ -238,9 +214,6 @@ class StreamlitAppsAccessPermission(BasePermission):
         )
 
 
-# -- ViewSet --
-
-
 class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "streamlit_app"
     permission_classes = [StreamlitAppsAccessPermission]
@@ -259,8 +232,14 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset
 
+    @staticmethod
+    def _get_sandbox_or_none(app: StreamlitApp) -> StreamlitAppSandbox | None:
+        try:
+            return app.sandbox
+        except StreamlitAppSandbox.DoesNotExist:
+            return None
+
     def perform_destroy(self, instance: StreamlitApp) -> None:
-        # Stop running sandbox before soft-deleting
         try:
             runtime = AppRuntimeService()
             runtime.stop_app(instance)
@@ -283,14 +262,10 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=instance.name),
         )
 
-    # -- Version management --
-
     @action(methods=["GET"], detail=True, url_path="versions")
     def versions(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
-        # Cap the response to the 50 most recent versions — older history is
-        # rarely needed and unbounded lists break the activity tab UI.
-        # select_related avoids N+1 on created_by → User.
+        # Cap at 50 to keep the activity tab bounded.
         versions = app.versions.select_related("created_by").order_by("-version_number")[:50]
         serializer = StreamlitAppVersionSerializer(versions, many=True)
         return Response({"results": serializer.data})
@@ -315,9 +290,9 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         from posthog.storage import object_storage
 
-        # Write to storage BEFORE opening the DB transaction so we never commit
-        # a record pointing to a nonexistent object. We key the storage path by
-        # version UUID (not version_number) so it can be computed outside the lock.
+        # Write to storage BEFORE the DB transaction so we never commit a
+        # record pointing to a missing object. Path is keyed by UUID so it
+        # can be computed before we hold the row lock.
         version_id = uuid.uuid4()
         zip_path = f"streamlit_apps/{app.team_id}/{app.id}/{version_id}.zip"
         object_storage.write(zip_path, file_content)
@@ -395,8 +370,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=f"{app.name} v{version_number}"),
         )
 
-        # The frontend banner uses requires_restart to prompt the user — we do
-        # NOT auto-restart because the user might still be editing other fields.
+        # Frontend banner uses requires_restart to prompt; we don't auto-restart.
         return Response(
             {
                 "active_version": StreamlitAppVersionSerializer(version).data,
@@ -404,14 +378,11 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
-    # -- Sandbox control --
-
     @action(methods=["GET"], detail=True, url_path="status")
     def get_status(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
-        try:
-            sandbox = app.sandbox
-        except StreamlitAppSandbox.DoesNotExist:
+        sandbox = self._get_sandbox_or_none(app)
+        if sandbox is None:
             return Response(
                 {
                     "status": "stopped",
@@ -424,8 +395,6 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         from products.streamlit_apps.backend.services.app_runtime import _sync_sandbox_status
 
-        # Coalesce concurrent pollers for the same sandbox into a single Modal
-        # call per _STATUS_CACHE_TTL_SECONDS window.
         cache_key = f"streamlit_sandbox_status:{sandbox.id}"
         cached = cache.get(cache_key)
         if cached is None:
@@ -443,13 +412,12 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "No active version. Upload a zip file first."}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Check if already running or starting
-        try:
-            sandbox = app.sandbox
-            if sandbox.status in (StreamlitAppSandbox.Status.RUNNING, StreamlitAppSandbox.Status.STARTING):
-                return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
-        except StreamlitAppSandbox.DoesNotExist:
-            pass
+        sandbox = self._get_sandbox_or_none(app)
+        if sandbox and sandbox.status in (
+            StreamlitAppSandbox.Status.RUNNING,
+            StreamlitAppSandbox.Status.STARTING,
+        ):
+            return Response(StreamlitAppSerializer(app, context=self.get_serializer_context()).data)
 
         from products.streamlit_apps.backend.tasks import run_streamlit_app_lifecycle
 
@@ -490,10 +458,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not connect_data:
             return Response({"detail": "Unable to connect to app."}, status=status.HTTP_502_BAD_GATEWAY)
 
-        # Debounce the activity-tracking UPDATE — the 2-second connect_info
-        # poll was turning every active viewer into a constant stream of
-        # per-sandbox row writes. Once per _LAST_ACTIVITY_DEBOUNCE_SECONDS is
-        # plenty for the minute-granularity cleanup that consumes this field.
+        # Debounced to _LAST_ACTIVITY_DEBOUNCE_SECONDS — see constant comment.
         now = timezone.now()
         if (
             sandbox_record.last_activity_at is None
@@ -507,28 +472,23 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             find_reusable_streamlit_access_token,
         )
 
-        # Reuse a non-near-expiry token if one exists for this user/team. Each
-        # connect_info call used to mint a fresh token, which (a) bloated the
-        # OAuth table and (b) gave attackers a free token-minting oracle if
-        # they could call this endpoint without rate-limiting.
+        # Reuse non-near-expiry tokens to avoid bloating the OAuth table.
         access_token = find_reusable_streamlit_access_token(user=request.user, team_id=self.team_id)
         if access_token is None:
             access_token = create_streamlit_access_token(user=request.user, team_id=self.team_id)
 
         modal_url = connect_data["url"].rstrip("/")
         modal_token = connect_data["token"]
-        # _modal_connect_token: consumed by Modal's routing layer (stripped before reaching proxy)
-        # _posthog_modal_token: passed through to auth proxy, which captures it and injects
-        #   into HTML so browser sub-requests carry _modal_connect_token automatically
+        # _modal_connect_token: consumed by Modal's router (stripped before proxy).
+        # _posthog_modal_token: forwarded to the proxy, which re-injects it into
+        # HTML so browser sub-requests carry the modal token automatically.
         iframe_url = (
             f"{modal_url}/?_posthog_token={access_token.token}"
             f"&_modal_connect_token={modal_token}"
             f"&_posthog_modal_token={modal_token}"
         )
 
-        # Report the REAL remaining lifetime, not the minting TTL. The frontend
-        # uses this to schedule refresh — a stale value causes the iframe to
-        # either refresh too late (401 blip) or too early (wasted calls).
+        # Report REAL remaining lifetime so the refresh scheduler stays accurate.
         expires_in = max(0, int((access_token.expires - timezone.now()).total_seconds()))
 
         return Response(
@@ -542,21 +502,17 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def restart(self, request: Request, **kwargs: Any) -> Response:
         app = self.get_object()
 
-        # Mirror the start action: if a lifecycle transition is already in
-        # flight, return 202 as an idempotent no-op instead of enqueuing a
-        # second task whose runtime will raise AppRuntimeConcurrencyError.
-        try:
-            sandbox = app.sandbox
-            if sandbox.status in (
-                StreamlitAppSandbox.Status.STARTING,
-                StreamlitAppSandbox.Status.STOPPING,
-            ):
-                return Response(
-                    StreamlitAppSerializer(app, context=self.get_serializer_context()).data,
-                    status=status.HTTP_202_ACCEPTED,
-                )
-        except StreamlitAppSandbox.DoesNotExist:
-            pass
+        # Idempotent 202 if a transition is already in flight — avoids a
+        # second task whose runtime would raise AppRuntimeConcurrencyError.
+        sandbox = self._get_sandbox_or_none(app)
+        if sandbox and sandbox.status in (
+            StreamlitAppSandbox.Status.STARTING,
+            StreamlitAppSandbox.Status.STOPPING,
+        ):
+            return Response(
+                StreamlitAppSerializer(app, context=self.get_serializer_context()).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
 
         from products.streamlit_apps.backend.tasks import run_streamlit_app_lifecycle
 

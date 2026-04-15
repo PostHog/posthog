@@ -28,12 +28,7 @@ class ValidationResult:
 
 
 def validate_zip(file: BytesIO) -> ValidationResult:
-    """Validate an uploaded zip file for Streamlit app structure.
-
-    requirements.txt support has been removed; sandboxes get only what's in
-    the base image. A `requirements.txt` in the upload is not an error — it's
-    silently ignored at upload time and dropped at sandbox-write time.
-    """
+    """Validate an uploaded zip file for Streamlit app structure."""
     result = ValidationResult(valid=True)
 
     file.seek(0, 2)
@@ -48,7 +43,6 @@ def validate_zip(file: BytesIO) -> ValidationResult:
         with zipfile.ZipFile(file) as zf:
             infolist = zf.infolist()
 
-            # Check uncompressed size and file count limits
             non_dir_entries = [info for info in infolist if not info.is_dir()]
             total_uncompressed = sum(info.file_size for info in non_dir_entries)
             if total_uncompressed > MAX_UNCOMPRESSED_SIZE:
@@ -63,7 +57,6 @@ def validate_zip(file: BytesIO) -> ValidationResult:
                 result.errors.append(f"Too many files: {len(non_dir_entries)} (max {MAX_FILE_COUNT})")
                 return result
 
-            # Check for path traversal
             for info in non_dir_entries:
                 if not is_safe_zip_path(info.filename):
                     result.valid = False

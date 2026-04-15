@@ -51,9 +51,6 @@ function curateErrorMessage(raw?: string | null): string {
 }
 
 export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
-    // FEATURE_FLAGS.STREAMLIT_APPS gate — remove when released.
-    // Backend enforces the same flag via StreamlitAppsAccessPermission; this
-    // gate is UX-only (clean NotFound vs a broken scene on direct URL navigation).
     const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
     const shortId = props.id as string
     const { streamlitApp, streamlitAppLoading, appStatus, iframeSrc, sandboxStatus, connectError } = useValues(
@@ -101,10 +98,7 @@ export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* Version mismatch between the activated version and the
-                version the sandbox is currently serving — activated via the
-                edit page without a restart. The banner nudges the user to
-                restart now rather than next cold start. */}
+            {/* Nudge on version mismatch between activated and running versions. */}
             {appStatus === 'running' &&
                 streamlitApp.active_version &&
                 sandboxStatus?.version_number != null &&
@@ -128,20 +122,9 @@ export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
                 {appStatus === 'running' && iframeSrc && (
                     <iframe
                         src={iframeSrc}
-                        // `allow-same-origin` keeps the iframe's natural origin
-                        // (the Modal tunnel host) so Streamlit can read its OWN
-                        // cookies / sessionStorage for runtime state — without
-                        // it the browser assigns a synthetic opaque origin and
-                        // every `document.cookie` access throws, which breaks
-                        // Streamlit's boot before the WebSocket even opens.
-                        //
-                        // This does NOT grant the iframe access to PostHog's
-                        // cookies: PostHog is at a different origin (localhost
-                        // or app.posthog.com) from the Modal tunnel, so the
-                        // cross-origin policy still blocks any reach across.
-                        // The real security boundary here is the in-sandbox
-                        // auth proxy's client_id + scoped_teams + scope check,
-                        // not the lack of document.cookie access.
+                        // allow-same-origin keeps Streamlit able to read its own
+                        // cookies/sessionStorage. PostHog is on a different origin,
+                        // so the real boundary is the proxy's scope check.
                         sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
                         referrerPolicy="no-referrer"
                         className="w-full h-full border-0 rounded-lg"
