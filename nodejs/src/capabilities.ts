@@ -39,11 +39,6 @@ export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
     errorTrackingIngestion: true,
 }
 
-/** Metrics - metric ingestion */
-export const CAPABILITIES_METRICS: PluginServerCapabilities = {
-    metricsIngestion: true,
-}
-
 /** Feature Flags - evaluation scheduler for flags and experiments */
 export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
     evaluationScheduler: true,
@@ -66,10 +61,6 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp: CAPABILITIES_CDP,
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
-    session_replay: CAPABILITIES_SESSION_REPLAY,
-    recording_api: CAPABILITIES_RECORDING_API,
-    logs: CAPABILITIES_LOGS,
-    metrics: CAPABILITIES_METRICS,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
@@ -105,11 +96,6 @@ export function getPluginServerCapabilities(
                 CAPABILITIES_CDP_WORKFLOWS,
                 CAPABILITIES_REALTIME_COHORTS,
                 CAPABILITIES_ERROR_TRACKING,
-                CAPABILITIES_SESSION_REPLAY,
-                { sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED },
-                CAPABILITIES_RECORDING_API,
-                CAPABILITIES_LOGS,
-                CAPABILITIES_METRICS,
                 CAPABILITIES_FEATURE_FLAGS
             )
 
@@ -161,15 +147,12 @@ export function getPluginServerCapabilities(
                 evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
+        case PluginServerMode.ingestion_metrics:
         case PluginServerMode.ingestion_traces:
             throw new Error(`Mode ${mode} is handled by a dedicated server, not PluginServer`)
         case PluginServerMode.ingestion_error_tracking:
             return {
                 errorTrackingIngestion: true,
-            }
-        case PluginServerMode.ingestion_metrics:
-            return {
-                metricsIngestion: true,
             }
         case PluginServerMode.cdp_batch_hogflow_requests:
             return {

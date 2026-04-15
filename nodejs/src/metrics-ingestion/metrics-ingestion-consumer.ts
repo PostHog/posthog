@@ -20,6 +20,8 @@ import { MetricsIngestionMessage } from './types'
 export interface MetricsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
+    kafkaProducer: KafkaProducerWrapper // Warpstream - for metrics data
+    mskProducer: KafkaProducerWrapper // MSK - for app_metrics
 }
 
 export type UsageStats = {
