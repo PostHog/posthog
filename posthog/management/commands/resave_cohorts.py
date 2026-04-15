@@ -103,7 +103,11 @@ class Command(BaseCommand):
                     msg += f", {stats['errors']} errors"
                 if stats["validation_errors"] > 0:
                     msg += f", {stats['validation_errors']} validation errors"
-                style = self.style.WARNING if stats["errors"] > 0 else self.style.SUCCESS
+                style = (
+                    self.style.WARNING
+                    if (stats["errors"] > 0 or stats["validation_errors"] > 0)
+                    else self.style.SUCCESS
+                )
                 self.stdout.write(style(msg))
 
         # Log final summary
@@ -122,8 +126,9 @@ class Command(BaseCommand):
             realtime_percentage=realtime_pct,
         )
         self.stdout.write("")
+        final_style = self.style.WARNING if (global_errors > 0 or global_validation_errors > 0) else self.style.SUCCESS
         self.stdout.write(
-            self.style.SUCCESS(
+            final_style(
                 f"Done{dry_run_label}. "
                 f"{teams_processed} teams, {global_total} cohorts, "
                 f"{global_changed} changed ({change_pct}%), "
