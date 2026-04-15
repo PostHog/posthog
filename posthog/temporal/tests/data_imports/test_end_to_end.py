@@ -3261,16 +3261,16 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
 
         # delta-rs 1.x inlines `CommitProperties.custom_metadata` entries directly
         # into the commit dict alongside `operation`/`timestamp`/etc., so we match
-        # on the top-level keys rather than on a nested `userMetadata` field.
+        # by presence of our metadata keys rather than by `operation`. Operation can
+        # be WRITE (full_refresh/append) or MERGE (incremental/cdc), depending on the
+        # sync type — the keys are the only stable signal.
         history = await sync_to_async(delta_table.history)(limit=50)
-        write_commits = [c for c in history if c.get("operation") == "WRITE"]
-        assert len(write_commits) > 0, "expected at least one WRITE commit"
+        tagged_commits = [c for c in history if "run_uuid" in c and "batch_index" in c]
+        assert len(tagged_commits) > 0, "expected at least one commit tagged with run_uuid + batch_index"
 
         observed_run_uuids: set[str] = set()
         observed_batch_indices: set[str] = set()
-        for commit in write_commits:
-            assert "run_uuid" in commit, f"commit missing run_uuid custom metadata: {commit}"
-            assert "batch_index" in commit, f"commit missing batch_index custom metadata: {commit}"
+        for commit in tagged_commits:
             observed_run_uuids.add(commit["run_uuid"])
             observed_batch_indices.add(commit["batch_index"])
 

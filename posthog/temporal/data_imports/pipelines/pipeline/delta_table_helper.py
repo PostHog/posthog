@@ -219,11 +219,16 @@ class DeltaTableHelper:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
+                unique_partitions = list(pc.unique(data[PARTITION_KEY]))  # type: ignore
 
                 await self._logger.adebug(f"Running {len(unique_partitions)} optimised merges")
 
-                for partition in unique_partitions:
+                # Only tag the FINAL partition merge with `commit_properties`. Intermediate
+                # merges must remain untagged so a crash mid-loop doesn't leave behind a
+                # tagged commit that would cause `has_batch_been_committed` to skip the
+                # remaining partitions on Kafka redelivery (which would lose data).
+                last_partition_index = len(unique_partitions) - 1
+                for i, partition in enumerate(unique_partitions):
                     partition_predicate_ops = predicate_ops.copy()
                     partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
                     predicate = " AND ".join(partition_predicate_ops)
@@ -232,7 +237,13 @@ class DeltaTableHelper:
 
                     await self._logger.adebug(f"Merging partition={partition} with predicate={predicate}")
 
-                    def _do_merge(filtered_table: pa.Table, predicate: str):
+                    merge_commit_properties = commit_properties if i == last_partition_index else None
+
+                    def _do_merge(
+                        filtered_table: pa.Table,
+                        predicate: str,
+                        merge_commit_properties: deltalake.CommitProperties | None,
+                    ):
                         return (
                             delta_table.merge(
                                 source=filtered_table,
@@ -240,20 +251,21 @@ class DeltaTableHelper:
                                 target_alias="target",
                                 predicate=predicate,
                                 streamed_exec=True,
+                                commit_properties=merge_commit_properties,
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
                             .execute()
                         )
 
-                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate)
+                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
                     if progress_callback:
                         progress_callback()
             else:
-
+                # Single merge call → safe to tag directly; this is the terminal commit.
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
                         delta_table.merge(
@@ -262,6 +274,7 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
+                            commit_properties=commit_properties,
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -389,6 +402,11 @@ class DeltaTableHelper:
                 predicate_parts.append("target.valid_to IS NULL")
                 predicate = " AND ".join(predicate_parts)
 
+                # NOTE: do NOT tag this intermediate merge with `commit_properties`. SCD2 is a
+                # two-step write (close-existing then append-new); if we tagged step 1 with the
+                # same (run_uuid, batch_index) and the process crashed before step 2, Kafka
+                # redelivery would see the tagged commit, treat the batch as already done, and
+                # silently skip the append → data loss. Tag only the terminal commit (step 2).
                 def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
                     return (
                         delta_table.merge(
@@ -397,7 +415,6 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=predicate,
                             streamed_exec=False,
-                            commit_properties=commit_properties,
                         )
                         .when_matched_update(updates={"valid_to": "source.valid_from"})
                         .execute()
