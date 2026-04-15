@@ -182,9 +182,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             case 'top_paths':
                 return <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
             case 'top_referrers':
-                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_REFERRERS]) {
-                    return null
-                }
                 return (
                     <LiveTopReferrersTable
                         referrers={topReferrers}
