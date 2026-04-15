@@ -1,7 +1,8 @@
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any, Optional
 
 from django.conf import settings
@@ -61,8 +62,17 @@ class ProcessTaskOutput:
     sandbox_id: Optional[str] = None
 
 
-INACTIVITY_TIMEOUT_MINUTES = 30
+class TaskEvent(StrEnum):
+    SIGNAL_RECEIVED = "signal_received"
+    TIMEOUT_REACHED = "timeout_reached"
+    CI_FOLLOW_UP = "ci_follow_up"
+
+
+INACTIVITY_TIMEOUT = timedelta(minutes=30)
+CI_FOLLOW_UP = timedelta(minutes=15)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
+MAX_CI_REPETITIONS = 3
+CI_MESSAGE = "Fix CI and comments on the PR."
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -77,6 +87,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_error: Optional[str] = None
         self._heartbeat_received: bool = False
         self._pending_followup: Optional[str] = None
+        self._ci_repetitions: int = 0
+        self._last_event_timestamp: Optional[datetime] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -94,6 +106,32 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
 
+    async def _wait_for_signal(self):
+        await workflow.wait_condition(
+            lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None
+        )
+        return TaskEvent.SIGNAL_RECEIVED
+
+    async def _wait_for_inactivity(self):
+        await asyncio.sleep(INACTIVITY_TIMEOUT.total_seconds())
+        return TaskEvent.TIMEOUT_REACHED
+
+    async def _wait_for_ci_follow_up(self):
+        await asyncio.sleep(CI_FOLLOW_UP.total_seconds())
+        return TaskEvent.CI_FOLLOW_UP
+
+    async def _wait_for_event(self):
+        possible_events: list[asyncio.Task[TaskEvent]] = [
+            asyncio.create_task(self._wait_for_signal()),
+            asyncio.create_task(self._wait_for_inactivity()),
+        ]
+        if self._context and self._context.pr_loop_enabled and self._ci_repetitions < MAX_CI_REPETITIONS:
+            possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
+        done, pending = await asyncio.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        return done.pop()
+
     @temporalio.workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
@@ -102,7 +140,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
-
+        self._last_event_timestamp = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -160,24 +198,29 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Heartbeat signals reset the inactivity timer, keeping the workflow alive
             # as long as the agent is actively producing logs.
             while not self._task_completed:
-                try:
-                    await workflow.wait_condition(
-                        lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None,
-                        timeout=timedelta(minutes=INACTIVITY_TIMEOUT_MINUTES),
-                    )
-                except TimeoutError:
-                    timed_out = True
-                    break
+                event = await self._wait_for_event()
+                match event:
+                    case TaskEvent.TIMEOUT_REACHED:
+                        timed_out = True
+                        break
+                    case TaskEvent.CI_FOLLOW_UP:
+                        if self._ci_repetitions < MAX_CI_REPETITIONS:
+                            self._ci_repetitions += 1
+                            await self._send_followup_to_sandbox(CI_MESSAGE)
+                        else:
+                            workflow.logger.info(
+                                f"Max CI follow-ups reached ({MAX_CI_REPETITIONS}), not sending further messages."
+                            )
+                    case TaskEvent.SIGNAL_RECEIVED:
+                        if self._pending_followup is not None:
+                            message = self._pending_followup
+                            self._pending_followup = None
+                            await self._send_followup_to_sandbox(message)
+                            continue
 
-                if self._pending_followup is not None:
-                    message = self._pending_followup
-                    self._pending_followup = None
-                    await self._send_followup_to_sandbox(message)
-                    continue
-
-                if self._heartbeat_received and not self._task_completed:
-                    self._heartbeat_received = False
-                    continue
+                        if self._heartbeat_received and not self._task_completed:
+                            self._heartbeat_received = False
+                            continue
 
             # Stop the relay now that the main loop is done
             await self._cancel_relay(relay_task)

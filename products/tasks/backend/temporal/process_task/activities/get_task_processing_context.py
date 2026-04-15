@@ -2,8 +2,10 @@ from dataclasses import dataclass
 
 from django.core.exceptions import ObjectDoesNotExist
 
+import posthoganalytics
 from temporalio import activity
 
+from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import SandboxEnvironment, TaskRun
@@ -34,6 +36,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     create_pr: bool = True
+    pr_loop_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
     sandbox_environment_name: str | None = None
@@ -99,7 +102,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "info", "Fetching task details")
 
     task = task_run.task
-
+    team: Team = task.team
+    organization_id = str(team.organization_id)
     if not task.created_by:
         raise TaskInvalidStateError(
             f"Task {task.id} has no created_by user",
@@ -150,7 +154,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
-
+    if posthoganalytics.feature_enabled(
+        "tasks_pr_loop",
+        distinct_id=distinct_id,
+        groups={"organization": str(organization_id)},
+        group_properties={"organization": {"id": str(organization_id)}},
+    ):
+        pr_loop_enabled = True
+        emit_agent_log(run_id, "info", "PR loop enabled for this task run")
+    else:
+        pr_loop_enabled = False
+        emit_agent_log(run_id, "info", "PR loop not enabled for this task run")
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
@@ -161,6 +175,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         create_pr=input.create_pr,
+        pr_loop_enabled=pr_loop_enabled,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
