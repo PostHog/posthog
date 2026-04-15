@@ -923,8 +923,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return value
 
         new_retention = value.get("retention_days")
-        if new_retention is not None and new_retention not in self.VALID_RETENTION_DAYS:
-            raise exceptions.ValidationError(f"retention_days must be one of {sorted(self.VALID_RETENTION_DAYS)}")
+        if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
+            raise exceptions.ValidationError(
+                f"retention_days must be one of {sorted(TeamSerializer.VALID_RETENTION_DAYS)}"
+            )
 
         # Only validate retention changes if we have an existing instance
         logs_settings = (
