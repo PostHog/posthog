@@ -4,6 +4,7 @@ from functools import cached_property
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+import httpx
 import anthropic
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -368,64 +369,58 @@ class TestMaxChatOpenAI(BaseTest):
 
         self.assertTrue(result)
 
-    def test_max_chat_anthropic_sync_client_uses_trust_env_false_when_bypass_proxy(self):
-        """With bypass_proxy=True, the sync httpx client is built with trust_env=False.
+    def test_max_chat_anthropic_sync_client_uses_plain_httpx_with_trust_env_false_when_bypass_proxy(self):
+        """With bypass_proxy=True, the sync httpx client is built from plain httpx.Client
+        (NOT anthropic.DefaultHttpxClient) so that trust_env=False is actually honored.
 
-        This is only safe for traffic routed to the internal llm-gateway — which would
-        otherwise be blocked by the Smokescreen egress proxy.
+        anthropic.DefaultHttpxClient internally calls get_environment_proxies() regardless of
+        trust_env, so using it here would silently route gateway traffic back through the
+        Smokescreen egress proxy and fail with 'Deny: Private Range'.
         """
-        captured_kwargs: dict = {}
-        real_cls = anthropic.DefaultHttpxClient
-
-        def spy(**kwargs):
-            captured_kwargs.update(kwargs)
-            return real_cls(**kwargs)
-
-        with patch("ee.hogai.llm.anthropic.DefaultHttpxClient", side_effect=spy) as mock_cls:
-            llm = MaxChatAnthropic(
-                user=self.user,
-                team=self.team,
-                model="claude",
-                anthropic_api_url="http://llm-gateway.llm-gateway.svc.cluster.local:8080/django",
-                anthropic_api_key="test-key",
-                bypass_proxy=True,
+        llm = MaxChatAnthropic(
+            user=self.user,
+            team=self.team,
+            model="claude",
+            anthropic_api_url="http://llm-gateway.llm-gateway.svc.cluster.local:8080/django",
+            anthropic_api_key="test-key",
+            bypass_proxy=True,
+        )
+        http_client = llm._build_bypass_http_client(sync=True)
+        try:
+            self.assertIsInstance(http_client, httpx.Client)
+            self.assertNotIsInstance(http_client, anthropic.DefaultHttpxClient)
+            self.assertFalse(http_client._trust_env)
+            self.assertEqual(
+                str(http_client.base_url),
+                "http://llm-gateway.llm-gateway.svc.cluster.local:8080/django/",
             )
-            _ = llm._client
-            mock_cls.assert_called_once()
+            self.assertTrue(http_client.follow_redirects)
+        finally:
+            http_client.close()
 
-        self.assertIs(captured_kwargs["trust_env"], False)
-        self.assertEqual(captured_kwargs["base_url"], "http://llm-gateway.llm-gateway.svc.cluster.local:8080/django")
-
-    def test_max_chat_anthropic_async_client_uses_trust_env_false_when_bypass_proxy(self):
-        captured_kwargs: dict = {}
-        real_cls = anthropic.DefaultAsyncHttpxClient
-
-        def spy(**kwargs):
-            captured_kwargs.update(kwargs)
-            return real_cls(**kwargs)
-
-        with patch("ee.hogai.llm.anthropic.DefaultAsyncHttpxClient", side_effect=spy) as mock_cls:
-            llm = MaxChatAnthropic(
-                user=self.user,
-                team=self.team,
-                model="claude",
-                anthropic_api_url="http://llm-gateway.llm-gateway.svc.cluster.local:8080/django",
-                anthropic_api_key="test-key",
-                bypass_proxy=True,
-            )
-            _ = llm._async_client
-            mock_cls.assert_called_once()
-
-        self.assertIs(captured_kwargs["trust_env"], False)
-        self.assertEqual(captured_kwargs["base_url"], "http://llm-gateway.llm-gateway.svc.cluster.local:8080/django")
+    def test_max_chat_anthropic_async_client_uses_plain_httpx_with_trust_env_false_when_bypass_proxy(self):
+        llm = MaxChatAnthropic(
+            user=self.user,
+            team=self.team,
+            model="claude",
+            anthropic_api_url="http://llm-gateway.llm-gateway.svc.cluster.local:8080/django",
+            anthropic_api_key="test-key",
+            bypass_proxy=True,
+        )
+        http_client = llm._build_bypass_http_client(sync=False)
+        self.assertIsInstance(http_client, httpx.AsyncClient)
+        self.assertNotIsInstance(http_client, anthropic.DefaultAsyncHttpxClient)
+        self.assertFalse(http_client._trust_env)
+        self.assertEqual(
+            str(http_client.base_url),
+            "http://llm-gateway.llm-gateway.svc.cluster.local:8080/django/",
+        )
+        self.assertTrue(http_client.follow_redirects)
 
     def test_max_chat_anthropic_sync_client_preserves_default_behavior(self):
-        """Without bypass_proxy, the override defers entirely to upstream.
-
-        The upstream client builder uses the module-level _get_default_httpx_client (lru_cached),
-        not anthropic.DefaultHttpxClient directly — so our patched spy must NOT be called.
-        """
-        with patch("ee.hogai.llm.anthropic.DefaultHttpxClient") as mock_cls:
+        """Without bypass_proxy, the override defers entirely to upstream — _build_bypass_http_client
+        must NOT be invoked."""
+        with patch.object(MaxChatAnthropic, "_build_bypass_http_client") as mock_build:
             llm = MaxChatAnthropic(
                 user=self.user,
                 team=self.team,
@@ -434,11 +429,11 @@ class TestMaxChatOpenAI(BaseTest):
             )
             client = llm._client
 
-        mock_cls.assert_not_called()
+        mock_build.assert_not_called()
         self.assertIsInstance(client, anthropic.Client)
 
     def test_max_chat_anthropic_async_client_preserves_default_behavior(self):
-        with patch("ee.hogai.llm.anthropic.DefaultAsyncHttpxClient") as mock_cls:
+        with patch.object(MaxChatAnthropic, "_build_bypass_http_client") as mock_build:
             llm = MaxChatAnthropic(
                 user=self.user,
                 team=self.team,
@@ -447,7 +442,7 @@ class TestMaxChatOpenAI(BaseTest):
             )
             client = llm._async_client
 
-        mock_cls.assert_not_called()
+        mock_build.assert_not_called()
         self.assertIsInstance(client, anthropic.AsyncClient)
 
     def test_max_chat_anthropic_clients_are_cached(self):
