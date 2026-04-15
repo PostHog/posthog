@@ -37,6 +37,7 @@ from products.tasks.backend.services.agentsh import (
 from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
 from products.tasks.backend.services.local_skills import (
     BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
+    LocalSkillsCache,
     populate_skills_directory,
 )
 from products.tasks.backend.services.modal_provision_diagnostics import (
@@ -190,6 +191,14 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_install_script_path, destination_install_script_path)
+
+        # Refresh dist/skills if out of date so the context picks up the
+        # latest rendered output. Tolerant: populate_skills_directory will
+        # still fall back to sources if the build can't run.
+        try:
+            LocalSkillsCache(base_dir).ensure_built()
+        except Exception as exc:
+            logger.warning("Local skills unavailable for Modal build context: %s", exc)
 
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 

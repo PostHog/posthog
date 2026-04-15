@@ -38,7 +38,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH
+from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -151,10 +151,20 @@ class DockerSandbox(SandboxBase):
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
-        # The skills dist directory is populated by CI but won't exist in local
-        # dev checkouts.  The Dockerfile COPYs it unconditionally, so ensure it
-        # exists (install-skills.sh already handles the empty-dir case).
-        os.makedirs(os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"), exist_ok=True)
+        # Ensure the skills dist directory is populated so the Dockerfile's
+        # unconditional COPY picks up real content instead of an empty dir.
+        # In CI the directory is pre-populated by the release workflow; in
+        # local dev checkouts this triggers a cached build via
+        # hogli build:skills. ``install-skills.sh`` still handles the
+        # empty-dir case if the build can't run at all.
+        try:
+            LocalSkillsCache().ensure_built()
+        except Exception as exc:
+            logger.warning("Local skills unavailable for %s image build: %s", image_name, exc)
+            os.makedirs(
+                os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"),
+                exist_ok=True,
+            )
 
         DockerSandbox._run(
             [

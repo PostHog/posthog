@@ -7,11 +7,14 @@ instead build skills into `products/posthog_ai/dist/skills/` and bind-mount
 that directory into the sandbox at runtime, bypassing the image layer
 entirely.
 
-`LocalSkillsCache` is the entry point — it hashes the skill source tree and
-reuses a prior build when nothing has changed, so repeat pytest invocations
-pay ~no cost. `populate_skills_directory` is the lower-level helper that
-copies whatever skills are currently on disk (pre-built or source) into a
-destination directory; it is also used by the Modal build-context path.
+`LocalSkillsCache` is the entry point — it hashes the `products/*/skills/`
+source trees and reuses a prior build when nothing has changed, so repeat
+pytest invocations pay ~no cost. It only ever reads rendered output from
+`products/posthog_ai/dist/skills/`; `.agents/skills/` is the user's own
+Claude Code workspace and must not be sourced into sandboxed runs.
+
+`populate_skills_directory` copies the rendered `dist/skills/` into a
+destination directory — used by the Modal build-context path.
 """
 
 from __future__ import annotations
@@ -29,10 +32,6 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 BUILT_SKILLS_RELATIVE_PATH = Path("products/posthog_ai/dist/skills")
-SOURCE_SKILLS_RELATIVE_PATHS: tuple[Path, ...] = (
-    Path(".agents/skills"),
-    Path("products/posthog_ai/skills"),
-)
 BUILD_HASH_FILENAME = ".build-hash"
 ENV_LOCAL_SKILLS_HOST_PATH = "SANDBOX_LOCAL_SKILLS_HOST_PATH"
 
@@ -61,12 +60,12 @@ def _copy_directory_contents(source: Path, destination: Path) -> None:
 
 
 def populate_skills_directory(destination: Path, base_dir: Path | None = None) -> None:
-    """Copy skills into ``destination`` from pre-built output or sources.
+    """Copy rendered skills from ``products/posthog_ai/dist/skills/`` into ``destination``.
 
-    Prefers ``products/posthog_ai/dist/skills/`` when populated (built by
-    ``hogli build:skills`` or CI). Falls back to the raw source trees under
-    ``.agents/skills/`` and ``products/posthog_ai/skills/`` so sandbox builds
-    on a fresh checkout still see something, even if unrendered.
+    Requires the dist directory to already be populated (by
+    ``hogli build:skills`` or CI). Does not fall back to raw source trees:
+    Jinja2 templates there would land unrendered, and ``.agents/skills/``
+    is reserved for the user's local Claude Code workspace.
     """
     root = base_dir or Path(settings.BASE_DIR)
     built_skills_dir = root / BUILT_SKILLS_RELATIVE_PATH
@@ -75,9 +74,7 @@ def populate_skills_directory(destination: Path, base_dir: Path | None = None) -
         _copy_directory_contents(built_skills_dir, destination)
         return
 
-    logger.info("Built skills directory empty or missing; falling back to source trees")
-    for relative_path in SOURCE_SKILLS_RELATIVE_PATHS:
-        _copy_directory_contents(root / relative_path, destination)
+    logger.warning("No rendered skills at %s; destination will be empty", built_skills_dir)
 
 
 class LocalSkillsCache:
@@ -94,20 +91,21 @@ class LocalSkillsCache:
         self.hash_file = self.dist_dir / BUILD_HASH_FILENAME
 
     def ensure_built(self) -> Path:
-        """Build skills if source changed; fall back to the best available tree.
+        """Build skills if source changed; return ``dist/skills``.
 
         Priority:
 
         1. Content hash matches last build → reuse ``dist/skills`` as-is.
         2. Subprocess build succeeds → use its fresh output.
         3. Build fails but ``dist/skills`` is already populated → reuse it
-           with a warning. Keeps the harness usable when the renderer breaks
-           for unrelated environment reasons (a broken transitive dep, or
-           missing DB access inside pytest).
-        4. Nothing usable in ``dist/skills`` → fall back to ``.agents/skills``
-           directly. Those are already-rendered markdown that can be bind-
-           mounted as-is; we just lose product skills that need Jinja2
-           rendering, which is acceptable for local iteration.
+           with a warning. Keeps things working when the renderer breaks
+           for unrelated reasons (a broken transitive dep, or missing DB
+           access inside pytest).
+        4. Otherwise raise.
+
+        Never falls back to ``.agents/skills/`` — that directory is the
+        user's local Claude Code workspace and has nothing to do with
+        sandboxed runs.
         """
         source_hash = self._compute_source_hash()
         if self._is_up_to_date(source_hash):
@@ -123,16 +121,18 @@ class LocalSkillsCache:
 
         if self._has_existing_output():
             logger.warning("Falling back to existing %s", self.dist_dir)
+            # Pin the current source hash to the existing output so the
+            # next run with unchanged sources skips the (failing) subprocess
+            # retry. When sources do change, the hash mismatches and we
+            # attempt the build again — same self-healing as the happy
+            # path.
+            try:
+                self.hash_file.write_text(source_hash)
+            except OSError as write_exc:
+                logger.warning("Could not pin hash after fallback: %s", write_exc)
             return self.dist_dir
 
-        agents_skills = self.base_dir / ".agents" / "skills"
-        if agents_skills.exists() and any(agents_skills.iterdir()):
-            logger.warning("Falling back to %s (skipping template render)", agents_skills)
-            return agents_skills
-
-        raise RuntimeError(
-            f"No local skills available: build failed and neither {self.dist_dir} nor {agents_skills} is populated."
-        )
+        raise RuntimeError(f"No rendered local skills at {self.dist_dir}. Run `hogli build:skills` to populate it.")
 
     def _has_existing_output(self) -> bool:
         return self.dist_dir.exists() and any(self.dist_dir.iterdir())
@@ -174,19 +174,6 @@ class LocalSkillsCache:
                 f"stderr: {result.stderr[-2000:]}"
             )
 
-        # Overlay checked-in .agents/skills/ on top of the rendered output so
-        # hand-authored skills that don't go through build_skills.py still end
-        # up in the same mount.
-        agents_skills = self.base_dir / ".agents" / "skills"
-        if agents_skills.exists():
-            for child in agents_skills.iterdir():
-                if child.name in {".gitignore", "__pycache__"} or not child.is_dir():
-                    continue
-                target = self.dist_dir / child.name
-                if target.exists():
-                    shutil.rmtree(target)
-                shutil.copytree(child, target, ignore=shutil.ignore_patterns("__pycache__"))
-
         self.dist_dir.mkdir(parents=True, exist_ok=True)
         self.hash_file.write_text(source_hash)
 
@@ -204,9 +191,7 @@ class LocalSkillsCache:
         return hasher.hexdigest()
 
     def _iter_source_files(self) -> list[Path]:
-        roots: list[Path] = [
-            self.base_dir / ".agents" / "skills",
-        ]
+        roots: list[Path] = []
         products_dir = self.base_dir / "products"
         if products_dir.exists():
             for product in sorted(products_dir.iterdir()):
