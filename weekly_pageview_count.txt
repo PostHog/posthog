@@ -1,0 +1,5 @@
+week_start_utc: 2026-04-06
+week_end_utc: 2026-04-12
+pageview_count: 5
+event: $pageview
+generated_at_utc: 2026-04-15T20:49:21Z
