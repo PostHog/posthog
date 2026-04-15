@@ -626,7 +626,11 @@ class TestPostgreSQLColumnToArrowField:
 
     def test_numeric_raises_with_zero_precision(self):
         col = PostgreSQLColumn("val", "numeric", nullable=True, numeric_precision=0, numeric_scale=2)
-        with pytest.raises(TypeError):
+        # pyarrow rejects precision=0 with ValueError ("precision should be between 1 and 38").
+        # The `is None` guard in `to_arrow_field` intentionally lets 0 through so that legitimate
+        # NUMERIC(X, 0) columns aren't blocked — 0 precision is a real pathology and surfacing it
+        # as an error is the desired behavior.
+        with pytest.raises((TypeError, ValueError)):
             col.to_arrow_field()
 
     def test_array_types_map_to_string(self):
@@ -964,8 +968,8 @@ class TestGetTable:
             )
             dj_cursor.execute("INSERT INTO test_get_table_unconstrained_numeric VALUES (2, 0::numeric)")
 
-            table = _get_table(  # type: ignore[arg-type]
-                dj_cursor,
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
                 "public",
                 "test_get_table_unconstrained_numeric",
                 logger,
@@ -985,8 +989,8 @@ class TestGetTable:
 
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_unconstrained_empty (id INTEGER PRIMARY KEY, val NUMERIC)")
-            table = _get_table(  # type: ignore[arg-type]
-                dj_cursor,
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
                 "public",
                 "test_get_table_unconstrained_empty",
                 logger,
@@ -1023,8 +1027,8 @@ class TestGetTable:
             dj_cursor.execute(
                 "INSERT INTO test_get_table_clamp_scale VALUES (1, 0.1234567890123456789012345678901234567890::numeric)"
             )
-            table = _get_table(  # type: ignore[arg-type]
-                dj_cursor,
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
                 "public",
                 "test_get_table_clamp_scale",
                 logger,
@@ -1069,8 +1073,8 @@ class TestGetTable:
             dj_cursor.execute(
                 "CREATE VIEW test_get_table_view_unconstrained AS SELECT * FROM test_get_table_view_unconstrained_base"
             )
-            table = _get_table(  # type: ignore[arg-type]
-                dj_cursor,
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
                 "public",
                 "test_get_table_view_unconstrained",
                 logger,
@@ -1096,8 +1100,8 @@ class TestGetTable:
                 "INSERT INTO test_get_table_multi_numeric VALUES "
                 "(1, 0.12345::numeric, 0.1234567890::numeric, 1.23::numeric(5,2))"
             )
-            table = _get_table(  # type: ignore[arg-type]
-                dj_cursor,
+            table = _get_table(
+                dj_cursor,  # type: ignore[arg-type]
                 "public",
                 "test_get_table_multi_numeric",
                 logger,
