@@ -20893,6 +20893,7 @@ class ExperimentQuery(BaseModel):
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+    metric_events_precomputation: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     precomputation_mode: PrecomputationMode | None = None
