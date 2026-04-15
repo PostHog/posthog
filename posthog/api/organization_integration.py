@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.permissions import OrganizationAdminWritePermissions
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +61,7 @@ class OrganizationIntegrationViewSet(
     scope_object = "organization_integration"
     queryset = OrganizationIntegration.objects.select_related("created_by").all()
     serializer_class = OrganizationIntegrationSerializer
+    permission_classes = [OrganizationAdminWritePermissions]
 
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
         team_integrations_deleted, _ = Integration.objects.filter(

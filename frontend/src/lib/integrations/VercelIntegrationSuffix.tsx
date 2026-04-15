@@ -6,7 +6,7 @@ import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
@@ -22,8 +22,8 @@ type EnvMapping = {
 function DisconnectButton({ integration }: { integration: IntegrationType }): JSX.Element {
     const { deleteOrganizationIntegration } = useActions(organizationIntegrationsLogic)
     const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
     return (
