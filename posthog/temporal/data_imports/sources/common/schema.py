@@ -17,3 +17,4 @@ class SourceSchema:
     description: str | None = None
     should_sync_default: bool = True
     label: str | None = None
+    detected_primary_keys: list[str] | None = None

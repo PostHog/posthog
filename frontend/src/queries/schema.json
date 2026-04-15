@@ -13931,6 +13931,10 @@
                     "description": "Whether to include debug information (such as the executed HogQL) in the response.",
                     "type": "boolean"
                 },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter",
+                    "deprecated": "Use `variables` instead. Will be removed in a future release.\n\nOverride dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).\nNot allowed for HogQL endpoints.\n\nFor date filtering, use variables: `{\"date_from\": \"2024-01-01\", \"date_to\": \"2024-01-31\"}`"
+                },
                 "limit": {
                     "$ref": "#/definitions/integer",
                     "description": "Maximum number of results to return. If not provided, returns all results."
@@ -21314,7 +21318,10 @@
                 "azure-blob",
                 "firebase",
                 "jira",
-                "pinterest-ads"
+                "pinterest-ads",
+                "customerio-app",
+                "customerio-webhook",
+                "customerio-track"
             ],
             "type": "string"
         },
@@ -22756,7 +22763,7 @@
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign"],
+            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {

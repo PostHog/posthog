@@ -75,7 +75,7 @@ export enum Scene {
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
-    InsightOptions = 'InsightOptions',
+    InsightQuickStart = 'InsightQuickStart',
     IntegrationsRedirect = 'IntegrationsRedirect',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',

@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Gauge } from 'prom-client'
+import { Gauge, Histogram } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
@@ -95,6 +95,20 @@ export const latestOffsetTimestampGauge = new Gauge({
     help: 'Timestamp of the latest offset that has been committed.',
     labelNames: ['topic', 'partition', 'groupId'],
     aggregator: 'max',
+})
+
+const backgroundTaskProducesDuration = new Histogram({
+    name: 'ingestion_background_task_produces_duration_seconds',
+    help: 'Time waiting for scheduled Kafka produces in the background task',
+    labelNames: ['groupId'],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
+const backgroundTaskHogTransformerDuration = new Histogram({
+    name: 'ingestion_background_task_hog_transformer_duration_seconds',
+    help: 'Time waiting for hog transformer invocation results in the background task',
+    labelNames: ['groupId'],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
 export class IngestionConsumer {
@@ -369,7 +383,13 @@ export class IngestionConsumer {
 
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
-                await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
+                const labels = { groupId: this.groupId }
+                await Promise.all([
+                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
+                    timedHistogram(backgroundTaskHogTransformerDuration, labels, () =>
+                        this.hogTransformer.processInvocationResults()
+                    ),
+                ])
             }),
         }
     }
@@ -397,5 +417,18 @@ export class IngestionConsumer {
             !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
         )
+    }
+}
+
+async function timedHistogram<T>(
+    histogram: Histogram,
+    labels: Record<string, string>,
+    fn: () => Promise<T>
+): Promise<T> {
+    const end = histogram.startTimer(labels)
+    try {
+        return await fn()
+    } finally {
+        end()
     }
 }

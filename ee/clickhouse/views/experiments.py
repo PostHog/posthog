@@ -166,6 +166,17 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         allow_null=True,
         help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
     )
+    update_feature_flag_params = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "When true, sync feature flag configuration from parameters "
+            "to the linked feature flag. Draft experiments always sync "
+            "regardless of update_feature_flag_params, so only required "
+            "for non-drafts."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -204,6 +215,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
+            "update_feature_flag_params",
             "status",
             "user_access_level",
         ]
@@ -326,6 +338,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         conclusion = validated_data.pop("conclusion", None)
         conclusion_comment = validated_data.pop("conclusion_comment", None)
         allow_unknown_events = validated_data.pop("allow_unknown_events", False)
+        validated_data.pop("update_feature_flag_params", None)
 
         if validated_data:
             raise ValidationError(f"Can't create keys: {', '.join(sorted(validated_data))} on Experiment")

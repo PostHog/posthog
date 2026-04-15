@@ -11,6 +11,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
 
 import { logsViewerLogic } from '../logsViewerLogic'
@@ -108,6 +109,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 aria-label="Copy link to log"
                                 data-attr="logs-viewer-copy-link"
                             />
+                            <LogContextSelector log={selectedLog} />
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconX />}

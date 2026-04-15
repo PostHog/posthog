@@ -5020,6 +5020,9 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5136,6 +5139,7 @@ export interface HeatmapExportContext {
     heatmap_color_palette?: string | null
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
+    width?: number
 }
 
 export type ExportContext = (
@@ -5717,12 +5721,21 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
 }
 
+export interface AvailableColumn {
+    label: string
+    field: string
+    type: string
+    nullable: boolean
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
     supports_webhooks: boolean
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
     cdc_available?: boolean
 }
 
@@ -5753,6 +5766,9 @@ export interface ExternalDataSourceSyncSchema {
     supports_webhooks: boolean
     description?: string | null
     should_sync_default: boolean
+    primary_key_columns: string[] | null
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5767,6 +5783,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
+    primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
 }
 

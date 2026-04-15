@@ -149,6 +149,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |OptOutSyncConfig
                               |Node
                               |NotificationEvent
                               |Notebook
@@ -338,6 +339,7 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |OptOutSyncConfig
                         |Node
                         |NotificationEvent
                         |Notebook
