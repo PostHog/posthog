@@ -8,10 +8,10 @@
 #   - use trimmed matrices where the original has dynamic fan-out
 #   - NOT referenced by any `needs:` list or branch-protection status check
 #
-# Pairs with same-SHA Depot runs in ci-backend.yml / ci-e2e-playwright.yml.
+# Pairs with same-SHA Depot runs in ci-backend.yml.
 # Use compare-ci-runners.py to produce the apples-to-apples comparison report.
 
-name: Blacksmith Shadow (backend+playwright)
+name: Blacksmith Shadow
 
 on:
     pull_request:

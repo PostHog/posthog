@@ -170,8 +170,6 @@ jobs:
         runs-on: ${{ matrix.runner }}
         continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 45
-        outputs:
-            vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -511,6 +509,10 @@ jobs:
                     --pr "$VR_PR" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+                  # Also persist to a file for cross-job transport. Matrix job-level
+                  # outputs are last-writer-wins, so the shadow entry would clobber
+                  # this to "" if it finished last.
+                  printf '%s' "$RUN_ID" > "$RUNNER_TEMP/vr_run_id.txt"
 
             - name: Upload snapshots to Visual Review
               if: always() && steps.vr-create.outputs.run_id != ''
@@ -524,6 +526,14 @@ jobs:
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
+
+            - name: Upload VR run ID
+              if: always() && !matrix.is_shadow && steps.vr-create.outputs.run_id != ''
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: vr-run-id
+                  path: ${{ runner.temp }}/vr_run_id.txt
+                  retention-days: 1
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
@@ -738,8 +748,8 @@ jobs:
                           });
                       }
 
-    calculate-running-time:
-        name: Calculate running time
+    capture-run-time:
+        name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, playwright]
@@ -822,20 +832,32 @@ jobs:
                     git apply --index "$patch"
                   done
 
-            # Visual Review: complete the run (test job already uploaded snapshots)
+            # Visual Review: complete the run (test job already uploaded snapshots).
+            # The run ID travels via artifact rather than a matrix job output because
+            # matrix-level outputs are last-writer-wins and the shadow entry would
+            # clobber them to "".
+            - name: Download VR run ID
+              id: download-vr-id
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: vr-run-id
+                  path: ${{ runner.temp }}
+
             - name: Install VR CLI
-              if: needs.playwright.outputs.vr_run_id != ''
+              if: steps.download-vr-id.outcome == 'success'
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
-              if: needs.playwright.outputs.vr_run_id != ''
+              if: steps.download-vr-id.outcome == 'success'
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
+                  VR_RUN_ID=$(cat "$RUNNER_TEMP/vr_run_id.txt")
                   vr run complete \
-                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
+                    --run-id "$VR_RUN_ID" \
                     --baseline playwright/snapshots.yml \
                     $VR_AUTO_APPROVE \
                     --token "$VR_TOKEN"

@@ -310,7 +310,7 @@ jobs:
     # prevents matrix-expansion, so this is a separate shadow job. continue-on-error,
     # no artifacts, not in rust_tests collate list.
     test-blacksmith:
-        name: Test Rust blacksmith (${{ matrix.packages }})
+        name: Test Rust (${{ matrix.packages }}) (blacksmith shadow)
         needs: changes
         if: needs.changes.outputs.rust == 'true' && vars.BLACKSMITH_SHADOW_ENABLED == 'true'
         runs-on: blacksmith-4vcpu-ubuntu-2404

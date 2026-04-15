@@ -45,7 +45,13 @@ WORKFLOWS = [
     "ci-blacksmith-shadow.yml",
 ]
 
-RUNNER_LABEL_RE = re.compile(r"\s*\((depot-[a-z0-9.-]+|blacksmith-[a-z0-9.-]+)\)\s*$")
+# Matches a runner label at the end of a job name, either alone in trailing parens
+# ("Name (depot-foo)") or as the last comma-separated item ("Name (1/3, depot-foo)").
+# The optional prefix group lets us keep shard/group context so matrix jobs that mix
+# shard and runner in the same parens still pair across providers.
+RUNNER_LABEL_RE = re.compile(
+    r"\s*\((?:(?P<prefix>[^()]*?),\s*)?(?P<runner>depot-[a-z0-9.-]+|blacksmith-[a-z0-9.-]+)\s*\)\s*$"
+)
 
 
 def run_gh(args: list[str]) -> str:
@@ -62,7 +68,7 @@ def list_recent_runs(workflow: str, since: datetime) -> list[dict]:
             "--workflow",
             workflow,
             "-L",
-            "10",
+            "1000",
             "--json",
             "databaseId,headSha,createdAt,conclusion,event",
         ]
@@ -85,16 +91,22 @@ def get_jobs(run_id: int, repo: str) -> list[dict]:
         [
             "api",
             "--paginate",
+            "--slurp",
             f"repos/{repo}/actions/runs/{run_id}/jobs",
-            "--jq",
-            ".jobs[] | {name, started_at, completed_at, conclusion}",
         ]
     )
+    pages = json.loads(out)
     jobs = []
-    for line in out.strip().splitlines():
-        if not line:
-            continue
-        jobs.append(json.loads(line))
+    for page in pages:
+        for j in page.get("jobs", []):
+            jobs.append(
+                {
+                    "name": j.get("name"),
+                    "started_at": j.get("started_at"),
+                    "completed_at": j.get("completed_at"),
+                    "conclusion": j.get("conclusion"),
+                }
+            )
     return jobs
 
 
@@ -104,11 +116,16 @@ def classify_runner(job_name: str) -> tuple[str, str]:
     or 'unknown'. base_name strips the trailing runner label if present, or the
     'blacksmith shadow' / '-blacksmith' marker.
     """
-    # Matrix-expanded form: "Name (depot-foo)" or "Name (blacksmith-foo)"
+    # Matrix-expanded form: "Name (depot-foo)", "Name (blacksmith-foo)", or the
+    # mixed form "Name (1/3, depot-foo)" where runner shares parens with shard/group.
     m = RUNNER_LABEL_RE.search(job_name)
     if m:
-        provider = "depot" if m.group(1).startswith("depot") else "blacksmith"
-        base = job_name[: m.start()].rstrip()
+        provider = "depot" if m.group("runner").startswith("depot") else "blacksmith"
+        prefix = m.group("prefix")
+        head = job_name[: m.start()].rstrip()
+        # Preserve non-runner parens content (e.g. shard) so depot and blacksmith
+        # variants collapse to the same base name.
+        base = f"{head} ({prefix.strip()})" if prefix is not None else head
         return base, provider
 
     # Dedicated shadow form: "... (blacksmith shadow ...)" or "...-blacksmith"
