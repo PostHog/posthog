@@ -429,7 +429,8 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
     if auth::extract_personal_api_key(headers)?.is_some() {
         return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
             "The 'token' query parameter is required when authenticating with a personal API key. \
-             It can be omitted only when using a phs_-prefixed secret API token."
+             It can be omitted only when using a team-scoped phs_-prefixed secret API token or \
+             project secret API key."
                 .to_string(),
         )));
     }
