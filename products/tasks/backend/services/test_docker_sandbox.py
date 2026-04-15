@@ -397,6 +397,36 @@ class TestDockerSandboxUnit:
         command = mock_execute.call_args_list[0][0][0]
         assert expected_flag in command
 
+    def test_start_agent_server_includes_runtime_environment_variables(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    runtime_adapter="codex",
+                    provider="openai",
+                    model="gpt-5.3-codex",
+                    reasoning_effort="medium",
+                )
+
+        command = mock_execute.call_args_list[0][0][0]
+        assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
+        assert "POSTHOG_CODE_PROVIDER=openai" in command
+        assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
+        assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestDockerSandboxIntegration:

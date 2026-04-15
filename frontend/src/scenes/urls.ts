@@ -9,7 +9,6 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } f
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
-import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -45,7 +44,6 @@ export const urls = {
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
     models: (): string => '/models',
-    sources: (): string => '/data-management/sources',
     transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
@@ -245,30 +243,6 @@ export const urls = {
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
-    dataWarehouseSource: (id: string, tab?: DataWarehouseSourceSceneTab): string =>
-        `/data-management/sources/${id}/${tab ?? 'schemas'}`,
-    dataWarehouseSourceNew: (
-        kind?: string,
-        returnUrl?: string,
-        returnLabel?: string,
-        accessMethod?: 'warehouse' | 'direct'
-    ): string => {
-        const params = new URLSearchParams()
-        if (kind) {
-            params.set('kind', kind)
-        }
-        if (returnUrl) {
-            params.set('returnUrl', returnUrl)
-        }
-        if (returnLabel) {
-            params.set('returnLabel', returnLabel)
-        }
-        if (accessMethod) {
-            params.set('access_method', accessMethod)
-        }
-        const queryString = params.toString()
-        return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
-    },
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
     batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
