@@ -147,6 +147,9 @@ import {
     LLMPrompt,
     LLMPromptPublic,
     LLMPromptResolveResponse,
+    LLMSkill,
+    LLMSkillFile,
+    LLMSkillResolveResponse,
     LineageGraph,
     LinearTeamType,
     LinkType,
@@ -1950,6 +1953,30 @@ export class ApiRequest {
 
     public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
+    }
+
+    public llmSkills(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_skills')
+    }
+
+    public llmSkillByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmSkills(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
+    public llmSkillArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmSkillByName(name, teamId).addPathComponent('archive')
+    }
+
+    public llmSkillDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmSkillByName(name, teamId).addPathComponent('duplicate')
+    }
+
+    public llmSkillResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmSkills(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
+    }
+
+    public llmSkillFile(name: string, filePath: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmSkillByName(name, teamId).addPathComponent('files').addPathComponent(filePath)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -6290,6 +6317,69 @@ const api = {
 
         async duplicateByName(promptName: string, newName: string): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptDuplicateByName(promptName).create({ data: { new_name: newName } })
+        },
+    },
+
+    llmSkills: {
+        list(params?: {
+            search?: string
+            order_by?: string
+            offset?: number
+            limit?: number
+        }): Promise<CountedPaginatedResponse<LLMSkill>> {
+            return new ApiRequest().llmSkills().withQueryString(params).get()
+        },
+
+        getByName(skillName: string, params?: { version?: number }): Promise<LLMSkill> {
+            return new ApiRequest().llmSkillByName(skillName).withQueryString(params).get()
+        },
+
+        resolveByName(
+            skillName: string,
+            params?: { version?: number; version_id?: string; offset?: number; before_version?: number; limit?: number }
+        ): Promise<LLMSkillResolveResponse> {
+            return new ApiRequest().llmSkillResolveByName(skillName).withQueryString(params).get()
+        },
+
+        async update(
+            skillName: string,
+            data: {
+                body?: string
+                description?: string
+                license?: string
+                compatibility?: string
+                allowed_tools?: string[]
+                metadata?: Record<string, unknown>
+                files?: Array<{ path: string; content: string; content_type?: string }>
+                base_version: number
+            }
+        ): Promise<LLMSkill> {
+            return await new ApiRequest().llmSkillByName(skillName).update({ data })
+        },
+
+        async archiveByName(skillName: string): Promise<void> {
+            await new ApiRequest().llmSkillArchiveByName(skillName).create({ data: {} })
+        },
+
+        async create(data: {
+            name: string
+            description: string
+            body: string
+            license?: string
+            compatibility?: string
+            allowed_tools?: string[]
+            metadata?: Record<string, unknown>
+            files?: Array<{ path: string; content: string; content_type?: string }>
+        }): Promise<LLMSkill> {
+            return await new ApiRequest().llmSkills().create({ data })
+        },
+
+        async duplicateByName(skillName: string, newName: string): Promise<LLMSkill> {
+            return await new ApiRequest().llmSkillDuplicateByName(skillName).create({ data: { new_name: newName } })
+        },
+
+        async getFile(skillName: string, filePath: string, params?: { version?: number }): Promise<LLMSkillFile> {
+            return new ApiRequest().llmSkillFile(skillName, filePath).withQueryString(params).get()
         },
     },
 

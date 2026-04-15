@@ -7127,6 +7127,53 @@ export interface LLMPromptResolveResponse {
     has_more: boolean
 }
 
+// LLM Skills (Agent Skills)
+export interface LLMSkill {
+    id: string
+    name: string
+    description: string
+    body: string
+    license: string
+    compatibility: string
+    allowed_tools: string[]
+    metadata: Record<string, unknown>
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+    files?: LLMSkillFileManifestEntry[]
+}
+
+export interface LLMSkillFile {
+    path: string
+    content: string
+    content_type: string
+}
+
+export interface LLMSkillFileManifestEntry {
+    path: string
+    content_type: string
+}
+
+export interface LLMSkillVersionSummary {
+    id: string
+    version: number
+    created_by: UserBasicType
+    created_at: string
+    is_latest: boolean
+}
+
+export interface LLMSkillResolveResponse {
+    skill: LLMSkill
+    versions: LLMSkillVersionSummary[]
+    has_more: boolean
+}
+
 // Managed viewset
 export interface DataWarehouseManagedViewsetSavedQuery {
     id: string
