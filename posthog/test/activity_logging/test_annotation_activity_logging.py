@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
 from posthog.models.insight import Insight
@@ -41,10 +43,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertIsNotNone(detail.get("context"))
 
-        context = detail["context"]
+        context = cast(dict[str, Any], detail["context"])
         self.assertEqual(context["scope"], Annotation.Scope.PROJECT.value)
         self.assertIsNone(context.get("dashboard_id"))
         self.assertIsNone(context.get("dashboard_item_id"))
@@ -62,10 +64,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertIsNotNone(detail.get("context"))
 
-        context = detail["context"]
+        context = cast(dict[str, Any], detail["context"])
         self.assertEqual(context["scope"], Annotation.Scope.ORGANIZATION.value)
         self.assertIsNone(context.get("dashboard_id"))
         self.assertIsNone(context.get("dashboard_item_id"))
@@ -86,10 +88,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertIsNotNone(detail.get("context"))
 
-        context = detail["context"]
+        context = cast(dict[str, Any], detail["context"])
         self.assertEqual(context["scope"], Annotation.Scope.DASHBOARD.value)
         self.assertEqual(context["dashboard_id"], dashboard.id)
         self.assertEqual(context["dashboard_name"], dashboard.name)
@@ -113,10 +115,10 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertIsNotNone(detail.get("context"))
 
-        context = detail["context"]
+        context = cast(dict[str, Any], detail["context"])
         self.assertEqual(context["scope"], Annotation.Scope.INSIGHT.value)
         self.assertEqual(context["dashboard_item_id"], insight.id)
         self.assertEqual(context["dashboard_item_short_id"], insight.short_id)
@@ -143,7 +145,7 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertFalse(log.is_system or False)
 
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertEqual(detail["name"], annotation["content"])
         self.assertIsNotNone(detail.get("context"))
         self.assertIsNotNone(detail.get("changes"))

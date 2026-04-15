@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
@@ -41,10 +43,10 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log)
         assert log is not None
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertIsNotNone(detail.get("context"))
 
-        context = detail["context"]
+        context = cast(dict[str, Any], detail["context"])
         self.assertEqual(context["insight_id"], insight["id"])
         self.assertEqual(context["insight_short_id"], insight["short_id"])
         self.assertEqual(context["insight_name"], insight["name"])
@@ -77,7 +79,8 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
 
         self.assertIsNotNone(log2)
         assert log2 is not None
-        context2 = log2.detail["context"]
+        assert log2.detail is not None
+        context2 = cast(dict[str, Any], cast(dict[str, Any], log2.detail)["context"])
         self.assertEqual(context2["insight_id"], insight["id"])
 
     def test_alert_configuration_field_change_tracking(self):
@@ -161,7 +164,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(update_log)
         assert update_log is not None
         self.assertIsNotNone(update_log.detail)
-        detail = update_log.detail
+        detail = cast(dict[str, Any], update_log.detail)
         self.assertIsNotNone(detail.get("context"))
 
     def test_alert_configuration_activity_log_properties(self):
@@ -183,7 +186,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertFalse(log.is_system or False)
 
         self.assertIsNotNone(log.detail)
-        detail = log.detail
+        detail = cast(dict[str, Any], log.detail)
         self.assertEqual(detail["name"], alert["name"])
         self.assertIsNotNone(detail.get("context"))
         self.assertIsNotNone(detail.get("changes"))
@@ -209,10 +212,10 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(threshold_update_log)
         assert threshold_update_log is not None
         self.assertIsNotNone(threshold_update_log.detail)
-        detail = threshold_update_log.detail
+        detail = cast(dict[str, Any], threshold_update_log.detail)
         self.assertEqual(detail.get("type"), "threshold_change")
 
-        changes = detail.get("changes", [])
+        changes = cast(list[dict[str, Any]], detail.get("changes", []))
         config_change = next((change for change in changes if change.get("field") == "configuration"), None)
         self.assertIsNotNone(config_change)
         assert config_change is not None

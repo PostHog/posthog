@@ -1,5 +1,6 @@
 import uuid
 import datetime
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -83,10 +84,10 @@ class TestConversation(APIBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-    def _get_streaming_content(self, response):
+    def _get_streaming_content(self, response: HttpResponse) -> bytes:
         return b"".join(response.streaming_content)
 
-    def _create_mock_streaming_response(self, streaming_content, *args, **kwargs):
+    def _create_mock_streaming_response(self, streaming_content: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         """Helper to create a mock StreamingHttpResponse that actually processes the streaming content."""
 
         # Actually consume the generator to ensure the mocked methods are called
@@ -117,7 +118,8 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 self.assertEqual(Conversation.objects.count(), 1)
-                conversation: Conversation = Conversation.objects.first()
+                conversation = Conversation.objects.first()
+                assert conversation is not None
                 self.assertEqual(conversation.user, self.user)
                 self.assertEqual(conversation.team, self.team)
                 # Check that the method was called with workflow_inputs
