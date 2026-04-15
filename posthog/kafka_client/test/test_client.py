@@ -2,7 +2,33 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-from posthog.kafka_client.client import _KafkaProducer, build_kafka_consumer
+from posthog.kafka_client.client import _KafkaProducer
+
+
+class KafkaConsumerForTests:
+    def __init__(self, topic="test", max=0, **kwargs):
+        self.max = max
+        self.n = 0
+        self.topic = topic
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.n <= self.max:
+            self.n += 1
+            return f"message {self.n} from {self.topic} topic"
+        else:
+            raise StopIteration
+
+    def seek_to_beginning(self):
+        return
+
+    def seek_to_end(self):
+        return
+
+    def subscribe(self, _):
+        return
 
 
 @override_settings(TEST=False)
@@ -13,7 +39,7 @@ class KafkaClientTestCase(TestCase):
 
     def test_kafka_interface(self):
         producer = _KafkaProducer(test=True)
-        consumer = build_kafka_consumer(topic=self.topic, test=True)
+        consumer = KafkaConsumerForTests(topic=self.topic, test=True)
 
         producer.produce(topic=self.topic, data="any")
         producer.close()
@@ -27,7 +53,7 @@ class KafkaClientTestCase(TestCase):
 
     def test_kafka_produce_and_consume(self):
         producer = _KafkaProducer(test=False)
-        consumer = build_kafka_consumer(topic=self.topic, auto_offset_reset="earliest", test=False)
+        consumer = KafkaConsumerForTests(topic=self.topic, auto_offset_reset="earliest")
         producer.produce(topic=self.topic, data=self.payload)
         payload = next(consumer)
         self.assertEqual(payload.value, self.payload)

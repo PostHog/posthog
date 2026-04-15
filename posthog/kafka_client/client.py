@@ -8,12 +8,6 @@ points for producing are in `posthog.kafka_client.routing`:
 * `new_async_producer(topic=...)` for long-lived async producers
 * `producer_for_config(...)` for runtime-configured producers (e.g. DLQ that
   mirrors the consumed cluster)
-
-`_KafkaProducer` and `_AsyncKafkaProducer` exist here so the router can build
-them; importing them from anywhere else is enforced against by semgrep.
-`ClickhouseProducer`, `KafkaProducerForTests`, `KafkaConsumerForTests`,
-`build_kafka_consumer`, `can_connect`, and `ProduceResult` are the supported
-public exports of this module.
 """
 
 import os
@@ -34,7 +28,6 @@ from confluent_kafka import (
     Producer as ConfluentProducer,
 )
 from confluent_kafka.aio import AIOProducer
-from kafka import KafkaConsumer as KC
 from statshog.defaults.django import statsd
 from structlog import get_logger
 
@@ -97,32 +90,6 @@ class KafkaProducerForTests:
 
     def flush(self, timeout: Optional[float] = None) -> int:
         return 0
-
-
-class KafkaConsumerForTests:
-    def __init__(self, topic="test", max=0, **kwargs):
-        self.max = max
-        self.n = 0
-        self.topic = topic
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.n <= self.max:
-            self.n += 1
-            return f"message {self.n} from {self.topic} topic"
-        else:
-            raise StopIteration
-
-    def seek_to_beginning(self):
-        return
-
-    def seek_to_end(self):
-        return
-
-    def subscribe(self, _):
-        return
 
 
 class _KafkaSecurityProtocol(StrEnum):
@@ -426,70 +393,6 @@ class _AsyncKafkaProducer:
         if not self._closed:
             await self.producer.close()
             self._closed = True
-
-
-def can_connect():
-    """
-    This is intended to validate if we are able to connect to kafka, without
-    actually sending any messages. I'm not amazingly pleased with this as a
-    solution. Would have liked to have validated that the singleton producer was
-    connected. It does expose `bootstrap_connected`, but this becomes false if
-    the cluster restarts despite still being able to successfully send messages.
-
-    I'm hoping that the load this generates on the cluster will be
-    insignificant, even if it is occuring from, say, 30 separate pods, say,
-    every 10 seconds.
-    """
-    if settings.DEBUG and not settings.TEST:
-        return True  # Skip check in development - assume Kafka is "good enough"
-
-    try:
-        _KafkaProducer(test=settings.TEST)
-    except Exception:
-        logger.debug("kafka_connection_failure", exc_info=True)
-        return False
-    return True
-
-
-def build_kafka_consumer(
-    topic: Optional[str],
-    value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-    auto_offset_reset="latest",
-    test=False,
-    group_id=None,
-    consumer_timeout_ms=5000 if (settings.DEBUG and not settings.TEST) else 305000,
-):
-    if settings.TEST:
-        test = True  # Set at runtime so that overriden settings.TEST is supported
-    if test:
-        consumer = KafkaConsumerForTests(
-            topic=topic,
-            auto_offset_reset=auto_offset_reset,
-            max=10,
-            consumer_timeout_ms=consumer_timeout_ms,
-        )
-    elif settings.KAFKA_BASE64_KEYS:
-        consumer = helper.get_kafka_consumer(
-            topic=topic,
-            auto_offset_reset=auto_offset_reset,
-            value_deserializer=value_deserializer,
-            group_id=group_id,
-            consumer_timeout_ms=consumer_timeout_ms,
-        )
-    else:
-        consumer = KC(
-            bootstrap_servers=settings.KAFKA_HOSTS,
-            auto_offset_reset=auto_offset_reset,
-            value_deserializer=value_deserializer,
-            group_id=group_id,
-            consumer_timeout_ms=consumer_timeout_ms,
-            security_protocol=settings.KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
-            **_kafka_python_sasl_params(),
-        )
-        if topic:
-            consumer.subscribe([topic])
-
-    return consumer
 
 
 class ClickhouseProducer:

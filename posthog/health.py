@@ -32,7 +32,6 @@ from structlog import get_logger
 
 from posthog.celery import app
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 from posthog.security.outbound_proxy import internal_requests
 
 logger = get_logger(__name__)
@@ -139,7 +138,6 @@ def readyz(request: HttpRequest):
         "postgres": is_postgres_connected,
         "postgres_flags": lambda: is_postgres_connected(DATABASE_FOR_FLAG_MATCHING),
         "postgres_migrations_uptodate": are_postgres_migrations_uptodate,
-        "kafka_connected": is_kafka_connected,
         "celery_broker": is_celery_broker_connected,
         "cache": is_cache_backend_connected,
     }
@@ -177,18 +175,6 @@ def readyz(request: HttpRequest):
         status = prelim_status
 
     return JsonResponse({**evaluated_checks, **evaluated_conditional_checks}, status=status)
-
-
-def is_kafka_connected() -> bool:
-    """
-    Check that we can reach Kafka,
-
-    Returns `True` if connected, `False` otherwise.
-
-    NOTE: we are only checking the Producer here, as currently this process
-    does not Consume from Kafka.
-    """
-    return can_connect_to_kafka()
 
 
 def is_postgres_connected(db_alias=DEFAULT_DB_ALIAS) -> bool:
