@@ -22,7 +22,7 @@ from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, 
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
-from posthog.hogql_queries.insights.funnels.funnel_validation import (
+from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     RequireAtLeastTwoFunnelSteps,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
