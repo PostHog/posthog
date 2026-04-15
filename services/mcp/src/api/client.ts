@@ -10,19 +10,8 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import type {
-    Experiment,
-    ExperimentExposureQuery,
-    ExperimentExposureQueryResponse,
-    ExperimentUpdateApiPayload,
-} from '@/schema/experiments'
-import {
-    ExperimentCreatePayloadSchema,
-    ExperimentExposureQuerySchema,
-    ExperimentUpdateApiPayloadSchema,
-} from '@/schema/experiments'
-import { type CreateInsightInput, CreateInsightInputSchema, type ListInsightsData } from '@/schema/insights'
-import type { ExperimentCreateSchema } from '@/schema/tool-inputs'
+import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
+import { ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -476,25 +465,6 @@ export class ApiClient {
 
     experiments({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
-                Result<Experiment[]>
-            > => {
-                try {
-                    const limit = params?.limit ?? 50
-                    const offset = params?.offset ?? 0
-                    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
-                    const result = await this.fetchJson<{ results: Experiment[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/?${qs}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
             get: async ({ experimentId }: { experimentId: number }): Promise<Result<Experiment>> => {
                 return this.fetchJson<Experiment>(
                     `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`
@@ -715,107 +685,11 @@ export class ApiClient {
                     },
                 }
             },
-
-            create: async (experimentData: z.infer<typeof ExperimentCreateSchema>): Promise<Result<Experiment>> => {
-                // Transform agent input to API payload
-                const createBody = ExperimentCreatePayloadSchema.parse(experimentData)
-
-                return this.fetchJson<Experiment>(`${this.baseUrl}/api/projects/${projectId}/experiments/`, {
-                    method: 'POST',
-                    body: JSON.stringify(createBody),
-                })
-            },
-
-            update: async ({
-                experimentId,
-                updateData,
-            }: {
-                experimentId: number
-                updateData: ExperimentUpdateApiPayload
-            }): Promise<Result<Experiment>> => {
-                try {
-                    const updateBody = ExperimentUpdateApiPayloadSchema.parse(updateData)
-
-                    return this.fetchJson<Experiment>(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify(updateBody),
-                        }
-                    )
-                } catch (error) {
-                    return { success: false, error: new Error(`Update failed: ${error}`) }
-                }
-            },
-
-            delete: async ({
-                experimentId,
-            }: {
-                experimentId: number
-            }): Promise<Result<{ success: boolean; message: string }>> => {
-                try {
-                    const deleteResponse = await this.fetch(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/`,
-                        {
-                            method: 'PATCH',
-                            body: JSON.stringify({ deleted: true }),
-                        }
-                    )
-
-                    if (deleteResponse.ok) {
-                        return {
-                            success: true,
-                            data: { success: true, message: 'Experiment deleted successfully' },
-                        }
-                    }
-
-                    return {
-                        success: false,
-                        error: new Error(`Delete failed with status: ${deleteResponse.status}`),
-                    }
-                } catch (error) {
-                    return { success: false, error: new Error(`Delete failed: ${error}`) }
-                }
-            },
         }
     }
 
     insights({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async ({ params }: { params?: ListInsightsData } = {}): Promise<Result<Array<Schemas.Insight>>> => {
-                try {
-                    const qs = new URLSearchParams()
-                    if (params?.limit !== undefined) {
-                        qs.set('limit', String(params.limit))
-                    }
-                    if (params?.offset !== undefined) {
-                        qs.set('offset', String(params.offset))
-                    }
-                    if (params?.search) {
-                        qs.set('search', params.search)
-                    }
-                    const qStr = qs.toString()
-                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
-                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
-                    )
-                    if (!result.success) {
-                        throw result.error
-                    }
-                    return { success: true, data: result.data.results }
-                } catch (error) {
-                    return { success: false, error: error as Error }
-                }
-            },
-
-            create: async ({ data }: { data: CreateInsightInput }): Promise<Result<Schemas.Insight>> => {
-                const validatedInput = CreateInsightInputSchema.parse(data)
-
-                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
-                    method: 'POST',
-                    body: JSON.stringify({ ...validatedInput, saved: true }),
-                })
-            },
-
             get: async ({ insightId }: { insightId: string }): Promise<Result<Schemas.Insight>> => {
                 // Check if insightId is a short_id (8 character alphanumeric string)
                 // Note: This won't work when we start creating insight id's with 8 digits. (We're at 7 currently)
@@ -845,6 +719,13 @@ export class ApiClient {
                 return this.fetchJson<Schemas.Insight>(
                     `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/`
                 )
+            },
+
+            create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
+                return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
+                    method: 'POST',
+                    body: JSON.stringify({ ...data, saved: true }),
+                })
             },
 
             update: async ({ insightId, data }: { insightId: number; data: any }): Promise<Result<Schemas.Insight>> => {
@@ -887,10 +768,41 @@ export class ApiClient {
                 }
             },
 
-            query: async ({ query }: { query: Record<string, any> }): Promise<Result<any>> => {
+            list: async ({ params }: { params?: Record<string, any> } = {}): Promise<
+                Result<Array<Schemas.Insight>>
+            > => {
+                try {
+                    const qs = new URLSearchParams()
+                    if (params?.limit !== undefined) {
+                        qs.set('limit', String(params.limit))
+                    }
+                    if (params?.offset !== undefined) {
+                        qs.set('offset', String(params.offset))
+                    }
+                    if (params?.search) {
+                        qs.set('search', params.search)
+                    }
+                    const qStr = qs.toString()
+                    const result = await this.fetchJson<{ results: Schemas.Insight[] }>(
+                        `${this.baseUrl}/api/projects/${projectId}/insights/${qStr ? `?${qStr}` : ''}`
+                    )
+                    if (!result.success) {
+                        throw result.error
+                    }
+                    return { success: true, data: result.data.results }
+                } catch (error) {
+                    return { success: false, error: error as Error }
+                }
+            },
+
+            query: async ({
+                query,
+            }: {
+                query: Record<string, any>
+            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns: unknown }>(url, {
+                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })

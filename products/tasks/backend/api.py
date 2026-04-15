@@ -14,6 +14,7 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
+import jsonschema
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -58,6 +59,7 @@ from .serializers import (
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
+    TaskRunSetOutputRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
@@ -67,6 +69,9 @@ from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_
 from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
 
 logger = logging.getLogger(__name__)
+TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
+TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
+TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 
 
 class TasksAccessPermission(BasePermission):
@@ -539,7 +544,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(team=self.team, task=task)
 
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunSetOutputRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated output"),
             404: OpenApiResponse(description="Run not found"),
@@ -555,17 +560,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def set_output(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        task = cast(Task, task_run.task)
+        output_data = request.validated_data["output"]
 
-        output_data = request.data.get("output", {})
-        if not isinstance(output_data, dict):
-            return Response(
-                ErrorResponseSerializer({"error": "output must be a dictionary"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # TODO: Validate output data according to schema for the task type.
+        if task.json_schema:
+            try:
+                jsonschema.validate(instance=output_data, schema=task.json_schema)
+            except jsonschema.ValidationError as e:
+                return Response(
+                    ErrorResponseSerializer({"error": f"Output validation error: {e.message}"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+        # We only really want to complete the task run if it's a structured output task.
+        if task.json_schema:
+            self._signal_workflow_completion(task_run, TaskRun.Status.COMPLETED, None)
         task_run.publish_stream_state_event()
         self._post_slack_update_for_pr(task_run)
 
@@ -1127,7 +1137,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not last_event_id and start_latest:
                 start_id = await redis_stream.get_latest_stream_id() or "0"
             try:
-                async for event_id, event in redis_stream.read_stream_entries(start_id=start_id):
+                async for stream_item in redis_stream.read_stream_entries(
+                    start_id=start_id,
+                    keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
+                ):
+                    if stream_item is None:
+                        yield format_sse_event(
+                            TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                            event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                        )
+                        continue
+                    event_id, event = stream_item
                     yield format_sse_event(event, event_id=event_id)
             except TaskRunStreamError as e:
                 logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
@@ -1294,7 +1314,11 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         user = self.request.user
-        return queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+        qs = queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+        # Exclude internal environments from list views by default
+        if self.action == "list":
+            qs = qs.filter(internal=False)
+        return qs
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

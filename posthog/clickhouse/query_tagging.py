@@ -173,6 +173,9 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
+    experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
+    experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
 
     feature: Optional[Feature] = None
     filter: Optional[object] = None

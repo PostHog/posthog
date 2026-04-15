@@ -3,7 +3,6 @@ import React, { useMemo } from 'react'
 import { AxisLabels } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
-import { GoalLines } from '../overlays/GoalLines'
 import { Tooltip } from '../overlays/Tooltip'
 import { ChartContext } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
@@ -11,6 +10,7 @@ import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { autoFormatYTick } from './scales'
+import { DEFAULT_Y_AXIS_ID } from './types'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -75,8 +75,12 @@ export function Chart<Meta = unknown>({
         showTooltip = true,
         pinnableTooltip = false,
         showCrosshair = false,
-        goalLines,
     } = config ?? {}
+
+    const hasMultipleAxes = useMemo(() => {
+        const axisIds = new Set(series.filter((s) => !s.hidden).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+        return axisIds.size > 1
+    }, [series])
 
     const margins = useMemo<ChartMargins>(() => {
         const m = { ...DEFAULT_MARGINS }
@@ -86,8 +90,11 @@ export function Chart<Meta = unknown>({
         if (hideYAxis) {
             m.left = 8
         }
+        if (hasMultipleAxes && !hideYAxis) {
+            m.right = 48
+        }
         return m
-    }, [hideXAxis, hideYAxis])
+    }, [hideXAxis, hideYAxis, hasMultipleAxes])
 
     const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
 
@@ -112,6 +119,19 @@ export function Chart<Meta = unknown>({
             return yTickFormatter
         }
         const ticks = scales?.yTicks() ?? []
+        const domainMax = ticks.length > 0 ? Math.abs(Math.max(...ticks)) : 1
+        return (v: number) => autoFormatYTick(v, domainMax)
+    }, [yTickFormatter, scales])
+
+    const resolvedYRightFormatter = useMemo(() => {
+        if (yTickFormatter) {
+            return yTickFormatter
+        }
+        const rightAxis = scales?.yAxes && Object.values(scales.yAxes).find((a) => a.position === 'right')
+        if (!rightAxis) {
+            return undefined
+        }
+        const ticks = rightAxis.ticks()
         const domainMax = ticks.length > 0 ? Math.abs(Math.max(...ticks)) : 1
         return (v: number) => autoFormatYTick(v, domainMax)
     }, [yTickFormatter, scales])
@@ -183,6 +203,7 @@ export function Chart<Meta = unknown>({
                             <AxisLabels
                                 xTickFormatter={xTickFormatter}
                                 yTickFormatter={resolvedYFormatter}
+                                yRightTickFormatter={resolvedYRightFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
                                 axisColor={theme.axisColor}
@@ -190,13 +211,11 @@ export function Chart<Meta = unknown>({
 
                             {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
-                            {goalLines && goalLines.length > 0 && <GoalLines goalLines={goalLines} />}
+                            {children}
 
                             {tooltipCtx && showTooltip && (
                                 <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
                             )}
-
-                            {children}
                         </OverlayLayer>
                     )}
                 </div>

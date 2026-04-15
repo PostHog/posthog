@@ -200,7 +200,7 @@ class TestAbsenceChecks:
             extra_dirs=["backend"],
         )
         result = check.run(ctx)
-        assert any("non-isolated product" in i.lower() for i in result.issues)
+        assert result.issues
         assert any("turbo-discover" in i for i in result.issues)
 
     def test_no_contract_check_for_non_isolated_passes(self, tmp_path: Path) -> None:

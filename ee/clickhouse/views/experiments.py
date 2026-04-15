@@ -5,12 +5,16 @@ from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, ExperimentParameters
+
 from posthog.api.cohort import CohortSerializer
+from posthog.api.documentation import extend_schema_field
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -49,17 +53,119 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
+class _ExperimentApiMetricsList(PydanticRootModel):
+    """List wrapper for OpenAPI schema generation — the field stores an array of metrics."""
+
+    root: list[ExperimentApiMetric]
+
+
+@extend_schema_field(_ExperimentApiMetricsList)  # type: ignore[arg-type]
+class ExperimentMetricsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
+class ExperimentParametersField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
+class ExperimentExposureCriteriaField(serializers.JSONField):
+    pass
+
+
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
-    feature_flag_key = serializers.CharField(source="get_feature_flag_key")
+    feature_flag_key = serializers.CharField(
+        source="get_feature_flag_key",
+        help_text=(
+            "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
+            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
     holdout_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
+        queryset=ExperimentHoldout.objects.all(),
+        source="holdout",
+        required=False,
+        allow_null=True,
+        help_text="ID of a holdout group to exclude from the experiment.",
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_null=True,
+        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
     allow_unknown_events = serializers.BooleanField(required=False, default=False, write_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Name of the experiment.",
+    )
+    description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Description of the experiment hypothesis and expected outcomes.",
+    )
+    parameters = ExperimentParametersField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Variant definitions and statistical configuration. "
+            "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
+            "Each variant needs a key and rollout_percentage; percentages must sum to 100. "
+            "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+        ),
+    )
+    metrics = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Use the event-definitions-list tool to find available events in the project."
+        ),
+    )
+    metrics_secondary = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
+    )
+    exposure_criteria = ExperimentExposureCriteriaField(
+        required=False,
+        allow_null=True,
+        help_text="Exposure configuration including filter test accounts and custom exposure events.",
+    )
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Comment about the experiment conclusion.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the experiment is archived.",
+    )
+    type = serializers.ChoiceField(
+        choices=["web", "product"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:

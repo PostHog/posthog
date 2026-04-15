@@ -326,9 +326,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics/insights',
     },
-    [Scene.InsightOptions]: {
+    [Scene.InsightQuickStart]: {
         projectBased: true,
-        name: 'New insight',
+        name: 'Quick start',
         description: 'Choose the type of insight you want to create',
         defaultDocsPath: '/docs/product-analytics/insights',
     },
@@ -424,6 +424,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
         iconType: 'persons',
+    },
+    [Scene.AccountSocialConnected]: {
+        name: 'Account connected',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
@@ -679,6 +685,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Organization Deactivated',
         layout: 'plain',
     },
+    [Scene.OrganizationPendingDeletion]: {
+        projectBased: false,
+        organizationBased: true,
+        name: 'Organization Pending Deletion',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -818,7 +830,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
-    [urls.insightOptions()]: [Scene.InsightOptions, 'insightOptions'],
+    [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
@@ -934,6 +946,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
@@ -997,5 +1010,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
+    [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
     ...productRoutes,
 }
