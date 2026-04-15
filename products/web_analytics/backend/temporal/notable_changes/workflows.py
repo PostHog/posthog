@@ -1,7 +1,8 @@
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -16,11 +17,14 @@ from products.web_analytics.backend.temporal.notable_changes.types import (
 class WebNotableChangesCoordinatorWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> WebNotableChangesCoordinatorInput:
+        if input:
+            raise ValueError(f"WebNotableChangesCoordinatorWorkflow does not accept CLI args, got: {input}")
         return WebNotableChangesCoordinatorInput()
 
     @workflow.run
     async def run(self, input: WebNotableChangesCoordinatorInput) -> None:
-        year, week, _ = datetime.now(UTC).isocalendar()
+        now = workflow.now()
+        year, week, _ = now.isocalendar()
         week_key = f"{year}-W{week:02d}"
         week_start_iso = datetime.fromisocalendar(year, week, 1).date().isoformat()
 
@@ -54,6 +58,12 @@ class WebNotableChangesCoordinatorWorkflow(PostHogWorkflow):
             return_exceptions=True,
         )
 
-        for i, result in enumerate(results):
-            if isinstance(result, BaseException):
-                workflow.logger.error(f"Batch {i} failed: {result}")
+        failures = [(i, r) for i, r in enumerate(results) if isinstance(r, BaseException)]
+        for i, result in failures:
+            workflow.logger.error(f"Batch {i} failed: {result}")
+
+        if len(failures) == len(results):
+            raise ApplicationError(
+                f"All {len(results)} notable-changes batches failed",
+                non_retryable=True,
+            )

@@ -245,6 +245,11 @@ CONSTANCE_CONFIG = {
         "When non-empty, restrict the web notable changes workflow to only these team IDs. Empty list means all eligible teams.",
         list[int],
     ),
+    "WEB_NOTABLE_CHANGES_EMIT_TEAM_IDS": (
+        get_from_env("WEB_NOTABLE_CHANGES_EMIT_TEAM_IDS", default=[], type_cast=list[int]),
+        "Team IDs for which the web notable changes workflow actually emits signals. Teams not in this list run the query in shadow mode (logged but no signal written). Empty list means shadow mode for all eligible teams.",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -292,6 +297,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
     "WEB_NOTABLE_CHANGES_ALLOWED_TEAM_IDS",
+    "WEB_NOTABLE_CHANGES_EMIT_TEAM_IDS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
