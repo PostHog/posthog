@@ -17,5 +17,16 @@ export function Action({ id, tabId }: ActionLogicProps): JSX.Element {
     // duplicate the key props here.
     const { action, actionLoading } = useValues(actionLogic)
 
-    return <ActionEdit id={id} tabId={tabId} action={action} actionLoading={actionLoading} />
+    return (
+        <ActionEdit
+            id={id}
+            tabId={tabId}
+            action={action}
+            actionLoading={actionLoading}
+            // Attach actionEditLogic to the scene-kept actionLogic so the form state survives
+            // tab switches: sceneLogic keeps actionLogic mounted per tab, and useAttachedLogic
+            // keeps actionEditLogic alive for as long as actionLogic is mounted.
+            attachTo={actionLogic({ id, tabId })}
+        />
+    )
 }

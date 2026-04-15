@@ -140,19 +140,12 @@ export const actionLogic = kea<actionLogicType>([
             actions.checkIsFinished(action)
         },
     })),
-    events(({ values, actions, props, cache }) => ({
+    events(({ values, actions, props }) => ({
         afterMount: () => {
             props.id && actions.loadAction()
-            // Mount actionEditLogic eagerly so it stays alive via our scene-logic instance
-            // for the duration of this tab. Because sceneLogic keeps one actionLogic per
-            // tab mounted in `cache.mountedTabLogic`, the edit logic (and therefore the
-            // in-progress form state) survives tab switches even when the scene component
-            // unmounts.
-            cache.editLogicUnmount = actionEditLogic({ tabId: props.tabId, id: props.id }).mount()
         },
         beforeUnmount: () => {
             values.pollTimeout && clearTimeout(values.pollTimeout)
-            cache.editLogicUnmount?.()
         },
     })),
 ])
