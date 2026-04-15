@@ -38,6 +38,7 @@ class TaskProcessingContext:
     _branch: str | None = None
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
+    json_schema: dict | None = None
 
     @property
     def mode(self) -> str:
@@ -51,6 +52,26 @@ class TaskProcessingContext:
     @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
+
+    @property
+    def runtime_adapter(self) -> str | None:
+        value = (self.state or {}).get("runtime_adapter")
+        return value if isinstance(value, str) else None
+
+    @property
+    def provider(self) -> str | None:
+        value = (self.state or {}).get("provider")
+        return value if isinstance(value, str) else None
+
+    @property
+    def model(self) -> str | None:
+        value = (self.state or {}).get("model")
+        return value if isinstance(value, str) else None
+
+    @property
+    def reasoning_effort(self) -> str | None:
+        value = (self.state or {}).get("reasoning_effort")
+        return value if isinstance(value, str) else None
 
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped via the TaskRun model."""
@@ -80,6 +101,10 @@ class TaskProcessingContext:
             "distinct_id": self.distinct_id,
             "mode": self.mode,
             "sandbox_environment_id": self.sandbox_environment_id,
+            "runtime_adapter": self.runtime_adapter,
+            "provider": self.provider,
+            "model": self.model,
+            "reasoning_effort": self.reasoning_effort,
         }
 
 
@@ -164,4 +189,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
+        json_schema=task.json_schema,
     )

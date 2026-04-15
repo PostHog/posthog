@@ -1,59 +1,168 @@
 #!/usr/bin/env node
 /**
- * Pre-compiles the Tailwind entry point at src/index.css into a flat
- * stylesheet at dist/quill.css. Consumers import the compiled output via
- * `@posthog/quill/styles.css` and need zero Tailwind setup of their own.
+ * Emits three CSS artifacts for consumers — NO pre-compiled utility
+ * stylesheet. Consumer's Tailwind v4 instance scans the compiled
+ * primitive/component/block JS and generates exactly the utilities it
+ * reaches. This eliminates the cascade-layer fight that a pre-compiled
+ * `dist/quill.css` created when consumer and quill both shipped a
+ * `utilities` layer.
  *
- * Also copies the `@theme inline` block from `@posthog/quill-tokens` to
- * `dist/theme.css` and re-exposes it as `@posthog/quill/theme.css`. This
- * is the *opt-in* path for consumers who want their own Tailwind to
- * generate utility classes against quill's design tokens (e.g.
- * `text-muted-foreground`) — see README §"Authoring
- * against quill tokens".
+ *   dist/tokens.css   @theme + light/dark CSS custom properties. Consumer
+ *                     imports this to register quill's design tokens with
+ *                     their Tailwind v4 and unlock `bg-fill-hover`,
+ *                     `text-muted-foreground`, etc.
  *
- * Runs `@tailwindcss/cli` as a child process so we don't have to pin
- * against its programmatic API (which is unstable across minor versions).
+ *   dist/base.css     One `* { border-border outline-ring/50 }` reset.
+ *                     Load-bearing — without it primitives that write
+ *                     plain `border` fall back to currentColor.
+ *
+ *   dist/tailwind.css A single `@source "./**\/*.js"` directive. When
+ *                     consumer `@import`s this file, Tailwind resolves
+ *                     paths relative to this file's location inside
+ *                     node_modules/@posthog/quill/dist, so it scans our
+ *                     compiled library JS for class-name strings and
+ *                     compiles them into the consumer's output — no
+ *                     brittle `../node_modules/...` paths required.
  */
 
-import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageRoot = resolve(__dirname, '..')
+const distDir = resolve(packageRoot, 'dist')
 
-const input = resolve(packageRoot, 'src/index.css')
-const output = resolve(packageRoot, 'dist/quill.css')
+mkdirSync(distDir, { recursive: true })
 
-mkdirSync(dirname(output), { recursive: true })
+const tokensSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.css')
+const colorsSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/color-system.css')
 
-// @tailwindcss/cli exposes its binary as `tailwindcss`
-const result = spawnSync('pnpm', ['exec', 'tailwindcss', '--input', input, '--output', output, '--minify'], {
-    cwd: packageRoot,
-    stdio: 'inherit',
-})
-
-if (result.status !== 0) {
-    process.exit(result.status ?? 1)
+for (const path of [tokensSource, colorsSource]) {
+    if (!existsSync(path)) {
+        throw new Error(
+            `Cannot build quill CSS: ${path} missing. Run @posthog/quill-tokens build first ` +
+                `(\`pnpm --filter '@posthog/quill...' build\`).`
+        )
+    }
 }
 
-// Copy the raw `@theme inline` block from quill-tokens into dist/theme.css.
-// This file is intentionally NOT precompiled — consumers run it through
-// their own Tailwind v4 instance so the `@theme` declarations register
-// quill's design tokens with their compiler. Without this, consumer code
-// like `bg-fill-hover` is silently dropped because the consumer's
-// Tailwind has no idea `--color-fill-hover` exists.
-const themeSource = resolve(packageRoot, 'node_modules/@posthog/quill-tokens/dist/tailwind-lib.css')
-const themeOutput = resolve(packageRoot, 'dist/theme.css')
+const theme = readFileSync(tokensSource, 'utf8')
+const colors = readFileSync(colorsSource, 'utf8')
 
-if (!existsSync(themeSource)) {
+/*
+ * Tailwind v4 default theme keys that quill primitives depend on but
+ * that get silently dropped when a consumer uses `@config legacy.js`
+ * (v3 compat mode). Shipping them here makes quill self-sufficient
+ * regardless of whether the consumer runs pure v4 or the v3 legacy
+ * bridge, so classes like `text-xs/relaxed`, `tracking-tight`, etc.
+ * always resolve against known values.
+ *
+ * Inserted into the SAME `@theme inline { ... }` block as quill-tokens
+ * by splicing before its closing brace.
+ */
+const quillTailwindDefaults = `
+  /* --- Line heights (leading modifier syntax: \`text-xs/relaxed\`) --- */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+
+  /* --- Tracking (letter-spacing) --- */
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* --- Font weights --- */
+  --font-weight-thin: 100;
+  --font-weight-extralight: 200;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+`
+
+const themeWithDefaults = theme.replace(/}\s*$/, `${quillTailwindDefaults}}\n`)
+if (themeWithDefaults === theme) {
     throw new Error(
-        `Cannot build @posthog/quill/theme.css: ${themeSource} does not exist. ` +
-            `Make sure @posthog/quill-tokens has built first (run pnpm --filter ` +
-            `'@posthog/quill...' build from the monorepo root to build workspace ` +
-            `dependencies in topological order).`,
+        'build-css: failed to inject Tailwind defaults into tailwind-lib.css — ' +
+            'expected the file to end with a closing brace. Check the output of ' +
+            '`@posthog/quill-tokens build` and update the regex if the format changed.'
     )
 }
 
-copyFileSync(themeSource, themeOutput)
+writeFileSync(
+    resolve(distDir, 'tokens.css'),
+    [
+        '/* @posthog/quill — design tokens.',
+        ' * Import from your Tailwind entry after `@import "tailwindcss"`.',
+        ' * Provides:',
+        ' *   1. light / dark CSS custom property values (:root + .dark)',
+        ' *   2. the @theme inline block that registers those values as',
+        ' *      Tailwind v4 theme keys so `bg-fill-hover`, `rounded-md`,',
+        ' *      `text-xxs` etc. compile in the consumer\'s own Tailwind.',
+        ' */',
+        '',
+        colors,
+        '',
+        themeWithDefaults,
+    ].join('\n')
+)
+
+writeFileSync(
+    resolve(distDir, 'base.css'),
+    [
+        '/* @posthog/quill — base reset.',
+        ' *',
+        ' * Load-bearing single rule: primitives author plain `border` (no',
+        ' * colour modifier) expecting the current border colour to resolve',
+        ' * to `--color-border`. Without this reset Tailwind v4 falls back',
+        ' * to `currentColor` and every bordered primitive looks broken.',
+        ' *',
+        ' * Deliberately does NOT paint `body { bg-background text-foreground }`',
+        ' * — consumer owns their page chrome.',
+        ' */',
+        '@layer base {',
+        '    * {',
+        '        @apply border-border outline-ring/50;',
+        '    }',
+        '}',
+        '',
+    ].join('\n')
+)
+
+writeFileSync(
+    resolve(distDir, 'tailwind.css'),
+    [
+        '/* @posthog/quill — Tailwind source directive.',
+        ' *',
+        ' * Consumer imports this file from their Tailwind v4 entry. The',
+        ' * glob path is relative to THIS file\'s on-disk location (inside',
+        ' * node_modules/@posthog/quill/dist after install), so it works',
+        ' * under pnpm, hoisted, and Docker layouts without needing',
+        ' * consumer-side `../node_modules/@posthog/quill/...` paths.',
+        ' *',
+        ' * Tailwind scans the compiled library JS for literal class',
+        ' * strings (cva variants, `cn(...)` calls, template-less className',
+        ' * props) and generates the matching utilities in the consumer\'s',
+        ' * own `utilities` layer — no pre-compiled stylesheet, no',
+        ' * cascade-layer fight with consumer Tailwind output.',
+        ' */',
+        '@source "./**/*.js";',
+        '',
+    ].join('\n')
+)
+
+// Ship the raw light/dark CSS custom property file alongside too, for
+// consumers that only want colour values without the @theme registration.
+copyFileSync(colorsSource, resolve(distDir, 'color-system.css'))
+
+console.info('wrote dist/tokens.css, dist/base.css, dist/tailwind.css, dist/color-system.css')

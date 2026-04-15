@@ -1,0 +1,349 @@
+# serializer version: 1
+# name: TestStickinessQueryRunner.test_actor_query_cumulative
+  '''
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            count() AS num_intervals
+     FROM
+       (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+               toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY aggregation_target,
+                 start_of_interval
+        HAVING ifNull(greater(count(), 0), 0))
+     GROUP BY aggregation_target)
+  WHERE ifNull(greaterOrEquals(num_intervals, 1), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_actor_query_cumulative.1
+  '''
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            count() AS num_intervals
+     FROM
+       (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+               toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY aggregation_target,
+                 start_of_interval
+        HAVING ifNull(greater(count(), 0), 0))
+     GROUP BY aggregation_target)
+  WHERE ifNull(greaterOrEquals(num_intervals, 2), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_actor_query_cumulative.2
+  '''
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            count() AS num_intervals
+     FROM
+       (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+               toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY aggregation_target,
+                 start_of_interval
+        HAVING ifNull(greater(count(), 0), 0))
+     GROUP BY aggregation_target)
+  WHERE ifNull(greaterOrEquals(num_intervals, 3), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_actor_query_non_cumulative
+  '''
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            count() AS num_intervals
+     FROM
+       (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+               toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY aggregation_target,
+                 start_of_interval
+        HAVING ifNull(greater(count(), 0), 0))
+     GROUP BY aggregation_target)
+  WHERE ifNull(equals(num_intervals, 1), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.1
+  '''
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            count() AS num_intervals
+     FROM
+       (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+               toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY aggregation_target,
+                 start_of_interval
+        HAVING ifNull(greater(count(), 0), 0))
+     GROUP BY aggregation_target)
+  WHERE ifNull(equals(num_intervals, 2), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.2
+  '''
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target AS aggregation_target,
+            count() AS num_intervals
+     FROM
+       (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+               toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY aggregation_target,
+                 start_of_interval
+        HAVING ifNull(greater(count(), 0), 0))
+     GROUP BY aggregation_target)
+  WHERE ifNull(equals(num_intervals, 3), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_cumulative_stickiness
+  '''
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-13 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_stickiness_data_warehouse
+  '''
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT e.id AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.created, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery/posthog_test_test_table_stickiness/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
+              WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
+                     readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestStickinessQueryRunner.test_stickiness_runs
+  '''
+  SELECT groupArray(num_actors) AS counts,
+         groupArray(num_intervals) AS intervals
+  FROM
+    (SELECT sum(num_actors) AS num_actors,
+            num_intervals AS num_intervals
+     FROM
+       (SELECT 0 AS num_actors,
+               plus(numbers.number, 1) AS num_intervals
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-20 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(1))), 1))) AS numbers
+        UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
+                         num_intervals AS num_intervals
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  count() AS num_intervals
+           FROM
+             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                     toStartOfInterval(toTimeZone(e.timestamp, 'UTC'), toIntervalDay(1)) AS start_of_interval
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-20 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+              GROUP BY aggregation_target,
+                       start_of_interval
+              HAVING ifNull(greater(count(), 0), 0))
+           GROUP BY aggregation_target)
+        GROUP BY num_intervals
+        ORDER BY num_intervals ASC)
+     GROUP BY num_intervals
+     ORDER BY num_intervals ASC)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---

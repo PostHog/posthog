@@ -23,17 +23,53 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            # Not only the MCP folder but any file that generates schema for the mcp folder
+            # MCP integration tests boot the full PostHog backend (Django web server,
+            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
+            # approach: trigger on any Python change across the app.
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       mcp:
+                        # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
-                        - 'products/**'
-                        - 'ee/**/*'
-                        - 'posthog/**/*'
+                        - 'products/*/mcp/**'
+                        # MCP integration tests exercise the full PostHog backend
+                        - 'posthog/**/*.py'
+                        - 'ee/**/*.py'
+                        - 'common/**/*.py'
+                        - 'products/*/backend/**/*.py'
+                        # Query schemas used by MCP analytics tools
+                        - 'frontend/src/queries/schema.json'
+                        # Shared UI component library (used by MCP UI apps)
+                        - 'common/mosaic/**'
+                        # Code generation tooling
+                        - 'tools/openapi-codegen/**'
+                        # Django entry point (manage.py migrate / generate_demo_data)
+                        - manage.py
+                        # Python dependencies (build + integration-tests run `uv sync --frozen`)
+                        - pyproject.toml
+                        - uv.lock
+                        # Node runtime + workspace dependencies
+                        - .nvmrc
+                        - pnpm-lock.yaml
+                        # Docker compose stack (dev.yml extends base.yml)
+                        - docker-compose.base.yml
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        # Docker helper scripts invoked in CI setup
+                        - bin/ci-wait-for-docker
+                        - bin/wait-for-docker
+                        # Database init scripts used by docker compose
+                        - 'docker/postgres-init-scripts/**'
+                        # Persons DB migrations (sqlx migrate run in integration tests)
+                        - 'rust/persons_migrations/**'
+                        # ClickHouse UDF copied in integration test setup
+                        - 'posthog/user_scripts/latest_user_defined_function.xml'
+                        # Composite actions used by the workflow
+                        - '.github/actions/commit-snapshots/**'
+                        # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:

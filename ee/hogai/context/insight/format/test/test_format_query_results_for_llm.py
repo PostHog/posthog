@@ -5,7 +5,16 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, LifecycleQuery, StickinessQuery, TrendsQuery
+from posthog.schema import (
+    DataTableNode,
+    DataVisualizationNode,
+    EventsNode,
+    HogQLQuery,
+    InsightVizNode,
+    LifecycleQuery,
+    StickinessQuery,
+    TrendsQuery,
+)
 
 from .. import format_query_results_for_llm
 
@@ -97,3 +106,31 @@ class TestFormatQueryResultsForLlm(TestCase):
         response: dict[str, Any] = {"results": [], "boxplot_data": []}
         result = format_query_results_for_llm(query, response, team)
         self.assertEqual(result, "No data recorded for this time period.")
+
+    @parameterized.expand(
+        [
+            (
+                "insight_viz_node_unwraps_to_trends",
+                InsightVizNode(source=TrendsQuery(series=[])),
+                {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]},
+                "Date|test",
+            ),
+            (
+                "data_visualization_node_unwraps_to_hogql",
+                DataVisualizationNode(source=HogQLQuery(query="select 1")),
+                {"results": [[1]], "columns": ["one"]},
+                "one",
+            ),
+            (
+                "data_table_node_unwraps_to_hogql",
+                DataTableNode(source=HogQLQuery(query="select 1")),
+                {"results": [[1]], "columns": ["one"]},
+                "one",
+            ),
+        ]
+    )
+    def test_envelope_nodes_are_unwrapped(self, _name: str, query, response: dict, expected_substr: str):
+        team = MagicMock()
+        result = format_query_results_for_llm(query, response, team)
+        assert result is not None, f"Expected a formatted result, got None for {_name}"
+        self.assertIn(expected_substr, result)
