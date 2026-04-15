@@ -7,6 +7,7 @@ run_migration_down.
 from __future__ import annotations
 
 import os
+import logging
 import importlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 
 # Legacy migrations live here
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+logger = logging.getLogger(__name__)
 
 
 def _map_node_roles(manifest_roles: list[str]) -> list:
@@ -114,7 +116,8 @@ def get_pending_migrations() -> list[str]:
         applied = {row[0] for row in applied_rows}
 
         return [m for m in all_migrations if m not in applied]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not read applied legacy migrations from ClickHouse: %s", exc)
         return all_migrations
 
 
