@@ -580,6 +580,7 @@ class DockerSandbox(SandboxBase):
         task_id: str,
         run_id: str,
         mode: str,
+        create_pr: bool,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_servers_arg: str = "",
@@ -588,13 +589,14 @@ class DockerSandbox(SandboxBase):
         env_prefix = (
             f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         )
+        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         server_cmd = (
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -624,6 +626,7 @@ class DockerSandbox(SandboxBase):
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
@@ -661,6 +664,7 @@ class DockerSandbox(SandboxBase):
             task_id,
             run_id,
             mode,
+            create_pr,
             interaction_origin,
             branch,
             mcp_servers_arg,
@@ -688,6 +692,7 @@ class DockerSandbox(SandboxBase):
                 task_id,
                 run_id,
                 mode,
+                create_pr,
                 interaction_origin,
                 branch=None,
                 mcp_servers_arg=mcp_servers_arg,

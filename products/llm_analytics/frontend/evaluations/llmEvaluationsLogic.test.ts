@@ -118,6 +118,25 @@ describe('llmEvaluationsLogic', () => {
             ])
         })
 
+        it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
+                        ctx.status(400),
+                        ctx.json({
+                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                        }),
+                    ],
+                },
+            })
+
+            logic.actions.loadEvaluationsSuccess([evaluationWithKey('eval-default', null)])
+
+            logic.actions.toggleEvaluationEnabled('eval-default')
+
+            await expectLogic(logic).toDispatchActions(['toggleEvaluationEnabled', 'toggleEvaluationEnabledFailure'])
+        })
+
         it('returns an empty array when all used keys are healthy', async () => {
             logic.actions.loadEvaluationsSuccess([
                 evaluationWithKey('eval-ok-1', 'key-ok'),
