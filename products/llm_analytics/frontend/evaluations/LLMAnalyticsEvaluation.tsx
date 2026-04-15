@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft, IconInfo, IconPlay, IconTrends } from '@posthog/icons'
+import { IconArrowLeft, IconInfo, IconPlay, IconTrends, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -183,9 +183,17 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             <LemonTag type="primary">New</LemonTag>
                         ) : (
                             <>
-                                <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                    {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                                </LemonTag>
+                                {!evaluation.enabled && evaluation.disabled_reason ? (
+                                    <Tooltip title={evaluation.disabled_reason}>
+                                        <LemonTag type="danger" icon={<IconWarning />}>
+                                            Error
+                                        </LemonTag>
+                                    </Tooltip>
+                                ) : (
+                                    <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
+                                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                                    </LemonTag>
+                                )}
                                 {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
                             </>
                         )}
@@ -233,6 +241,15 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     )}
                 </div>
             </div>
+
+            {!evaluation.enabled && evaluation.disabled_reason && (
+                <LemonBanner type="danger">
+                    <div className="space-y-1">
+                        <p className="font-semibold">This evaluation was disabled by the system</p>
+                        <p>{evaluation.disabled_reason}</p>
+                    </div>
+                </LemonBanner>
+            )}
 
             {evaluationProviderKeyIssue && (
                 <LemonBanner type="warning">

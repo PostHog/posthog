@@ -30,6 +30,7 @@ export interface BaseEvaluationConfig {
     name: string
     description?: string
     enabled: boolean
+    disabled_reason?: string | null
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]

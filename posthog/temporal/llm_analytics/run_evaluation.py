@@ -236,11 +236,14 @@ async def increment_trial_eval_count_activity(team_id: int) -> int | None:
 
 
 @temporalio.activity.defn
-async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
-    """Disable an evaluation when trial limit is reached"""
+async def disable_evaluation_activity(evaluation_id: str, team_id: int, reason: str = "") -> None:
+    """Disable an evaluation when trial limit is reached or model not allowed"""
 
     def _disable():
-        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(enabled=False)
+        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(
+            enabled=False,
+            disabled_reason=reason or "Disabled by system",
+        )
 
     await database_sync_to_async(_disable)()
 
@@ -920,9 +923,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     # Handle skippable errors - return success with skip info
                     if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
                         if error_type in ("trial_limit_reached", "model_not_allowed"):
+                            disable_reason = (
+                                "Trial evaluation limit reached"
+                                if error_type == "trial_limit_reached"
+                                else f"Model '{details.get('model', 'unknown')}' is not available on the trial plan"
+                            )
                             await temporalio.workflow.execute_activity(
                                 disable_evaluation_activity,
-                                args=[evaluation["id"], evaluation["team_id"]],
+                                args=[evaluation["id"], evaluation["team_id"], disable_reason],
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )

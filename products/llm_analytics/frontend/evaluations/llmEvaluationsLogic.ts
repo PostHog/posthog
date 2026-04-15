@@ -85,7 +85,11 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, enabled: !e.enabled } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id
+                            ? { ...e, enabled: !e.enabled, disabled_reason: !e.enabled ? null : e.disabled_reason }
+                            : e
+                    ),
             },
         ],
         evaluationsLoading: [

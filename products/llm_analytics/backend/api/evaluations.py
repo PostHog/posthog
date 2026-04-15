@@ -65,6 +65,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "disabled_reason",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -76,7 +77,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by", "disabled_reason"]
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:
@@ -168,6 +169,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
             validated_data["model_configuration"] = self._create_or_update_model_configuration(
                 model_config_data, instance.team_id
             )
+
+        # Clear disabled_reason when re-enabling
+        if validated_data.get("enabled") and not instance.enabled:
+            validated_data["disabled_reason"] = None
 
         return super().update(instance, validated_data)
 

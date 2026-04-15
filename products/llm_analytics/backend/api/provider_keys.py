@@ -346,7 +346,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     team_id=self.team_id,
                     deleted=False,
                     enabled=False,
-                ).update(enabled=True)
+                ).update(enabled=True, disabled_reason=None)
 
         report_user_action(
             request.user,
@@ -395,7 +395,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             with transaction.atomic():
                 Evaluation.objects.filter(
                     model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
-                ).update(enabled=False)
+                ).update(enabled=False, disabled_reason="Provider API key was deleted")
                 return super().destroy(request, *args, **kwargs)
 
 

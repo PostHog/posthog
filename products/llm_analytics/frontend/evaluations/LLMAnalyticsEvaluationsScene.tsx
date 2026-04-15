@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -119,6 +119,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             render: (_, evaluation) => {
                 const canEnable = canEnableEvaluation(evaluation)
                 const isBlocked = !canEnable && !evaluation.enabled
+                const isSystemDisabled = !evaluation.enabled && !!evaluation.disabled_reason
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
@@ -129,7 +130,9 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                                 title={
                                     isBlocked
                                         ? 'Trial evaluation limit reached. Add a provider API key to re-enable.'
-                                        : undefined
+                                        : isSystemDisabled
+                                          ? evaluation.disabled_reason
+                                          : undefined
                                 }
                             >
                                 <span>
@@ -143,9 +146,18 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                                 </span>
                             </Tooltip>
                         </AccessControlAction>
-                        <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                            {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
+                        {isSystemDisabled ? (
+                            <Tooltip title={evaluation.disabled_reason}>
+                                <span className="flex items-center gap-1 text-danger">
+                                    <IconWarning className="text-sm" />
+                                    Error
+                                </span>
+                            </Tooltip>
+                        ) : (
+                            <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                                {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                        )}
                     </div>
                 )
             },
