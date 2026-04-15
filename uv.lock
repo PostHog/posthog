@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-07T20:02:03.320662Z"
+exclude-newer = "2026-04-08T06:10:13.845708Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -5497,7 +5497,7 @@ dev = [
     { name = "ruff", specifier = "~=0.14.11" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'", specifier = "==13.1.201.22" },
     { name = "syrupy", specifier = "~=4.9.1" },
-    { name = "tach", specifier = "~=0.20" },
+    { name = "tach", specifier = "~=0.34" },
     { name = "ty", specifier = "==0.0.4" },
     { name = "types-aioboto3", extras = ["s3"], specifier = "~=14.3.0" },
     { name = "types-aiobotocore", specifier = "~=2.22.0" },
