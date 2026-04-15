@@ -2297,6 +2297,65 @@ class FeatureFlagViewSet(
             status=200,
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "version_number",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                required=True,
+                description="The version number to reconstruct.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Reconstructed feature flag state at the given version."),
+            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            404: OpenApiResponse(description="Version not found."),
+            422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"versions/(?P<version_number>[0-9]+)",
+        required_scopes=["feature_flag:read"],
+    )
+    def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
+        from posthog.models.feature_flag.version_history import (
+            VersionHistoryIncomplete,
+            VersionNotFound,
+            reconstruct_flag_at_version,
+        )
+
+        feature_flag: FeatureFlag = self.get_object()
+
+        if feature_flag.is_remote_configuration:
+            return Response(
+                {"detail": "Version history is not available for remote configuration flags."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        target_version = int(version_number)
+
+        try:
+            result = reconstruct_flag_at_version(
+                flag=feature_flag,
+                target_version=target_version,
+                team_id=self.team_id,
+            )
+        except VersionNotFound as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except VersionHistoryIncomplete as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        return Response(result)
+
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
