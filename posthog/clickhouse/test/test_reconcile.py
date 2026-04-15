@@ -11,6 +11,8 @@ from pathlib import Path
 
 import unittest
 
+from parameterized import parameterized
+
 import posthog.clickhouse.test._stubs  # noqa: F401
 from posthog.clickhouse.migration_tools.desired_state import (
     ColumnDef,
@@ -175,106 +177,119 @@ class TestParseDesiredState(unittest.TestCase):
         self.assertEqual(ecosystems, {"eco1", "eco2"})
 
 
-class TestDiffStateMissingTable(unittest.TestCase):
-    def test_missing_table_creates(self) -> None:
-        desired = _make_desired_state(
-            {
-                "new_table": _make_desired_table(
-                    "new_table",
-                    columns=[ColumnDef(name="id", type="UUID")],
+class TestDiffStateCoreCases(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (
+                "missing_table_creates",
+                _make_desired_state(
+                    {
+                        "new_table": _make_desired_table(
+                            "new_table",
+                            columns=[ColumnDef(name="id", type="UUID")],
+                        ),
+                    }
                 ),
-            }
-        )
-        current: dict[str, TableSchema] = {}
-        diffs = diff_state(desired, current)
+                {},
+                "create",
+                "new_table",
+                "CREATE TABLE",
+            ),
+            (
+                "extra_column_adds",
+                _make_desired_state(
+                    {
+                        "t": _make_desired_table(
+                            "t",
+                            columns=[
+                                ColumnDef(name="id", type="UUID"),
+                                ColumnDef(name="new_col", type="String"),
+                            ],
+                        ),
+                    }
+                ),
+                {
+                    "t": _make_table_schema(
+                        "t",
+                        columns=[
+                            ColumnSchema(name="id", type="UUID"),
+                        ],
+                    ),
+                },
+                "alter_add_column",
+                "t",
+                "ADD COLUMN",
+            ),
+            (
+                "missing_column_drops",
+                _make_desired_state(
+                    {
+                        "t": _make_desired_table(
+                            "t",
+                            columns=[
+                                ColumnDef(name="id", type="UUID"),
+                            ],
+                        ),
+                    }
+                ),
+                {
+                    "t": _make_table_schema(
+                        "t",
+                        columns=[
+                            ColumnSchema(name="id", type="UUID"),
+                            ColumnSchema(name="old_col", type="String"),
+                        ],
+                    ),
+                },
+                "alter_drop_column",
+                "t",
+                "DROP COLUMN",
+            ),
+            (
+                "type_change_modifies",
+                _make_desired_state(
+                    {
+                        "t": _make_desired_table(
+                            "t",
+                            columns=[
+                                ColumnDef(name="val", type="Int64"),
+                            ],
+                        ),
+                    }
+                ),
+                {
+                    "t": _make_table_schema(
+                        "t",
+                        columns=[
+                            ColumnSchema(name="val", type="Int32"),
+                        ],
+                    ),
+                },
+                "alter_modify_column",
+                "t",
+                "MODIFY COLUMN",
+            ),
+        ]
+    )
+    def test_diff_state_cases(
+        self,
+        _name: str,
+        desired: DesiredState,
+        current: dict[str, TableSchema],
+        expected_action: str,
+        expected_table: str,
+        expected_sql_fragment: str,
+    ) -> None:
+        diffs = [d for d in diff_state(desired, current) if d.action == expected_action]
         self.assertEqual(len(diffs), 1)
-        self.assertEqual(diffs[0].action, "create")
-        self.assertEqual(diffs[0].table, "new_table")
-        self.assertIn("CREATE TABLE", diffs[0].sql)
-
-
-class TestDiffStateExtraColumn(unittest.TestCase):
-    def test_extra_column_adds(self) -> None:
-        desired = _make_desired_state(
-            {
-                "t": _make_desired_table(
-                    "t",
-                    columns=[
-                        ColumnDef(name="id", type="UUID"),
-                        ColumnDef(name="new_col", type="String"),
-                    ],
-                ),
-            }
-        )
-        current = {
-            "t": _make_table_schema(
-                "t",
-                columns=[
-                    ColumnSchema(name="id", type="UUID"),
-                ],
-            ),
-        }
-        diffs = diff_state(desired, current)
-        add_diffs = [d for d in diffs if d.action == "alter_add_column"]
-        self.assertEqual(len(add_diffs), 1)
-        self.assertEqual(add_diffs[0].table, "t")
-        self.assertIn("new_col", add_diffs[0].sql)
-        self.assertIn("ADD COLUMN", add_diffs[0].sql)
-
-
-class TestDiffStateMissingColumn(unittest.TestCase):
-    def test_missing_column_drops(self) -> None:
-        desired = _make_desired_state(
-            {
-                "t": _make_desired_table(
-                    "t",
-                    columns=[
-                        ColumnDef(name="id", type="UUID"),
-                    ],
-                ),
-            }
-        )
-        current = {
-            "t": _make_table_schema(
-                "t",
-                columns=[
-                    ColumnSchema(name="id", type="UUID"),
-                    ColumnSchema(name="old_col", type="String"),
-                ],
-            ),
-        }
-        diffs = diff_state(desired, current)
-        drop_diffs = [d for d in diffs if d.action == "alter_drop_column"]
-        self.assertEqual(len(drop_diffs), 1)
-        self.assertIn("old_col", drop_diffs[0].sql)
-        self.assertIn("DROP COLUMN", drop_diffs[0].sql)
-
-
-class TestDiffStateTypeChange(unittest.TestCase):
-    def test_type_change_modifies(self) -> None:
-        desired = _make_desired_state(
-            {
-                "t": _make_desired_table(
-                    "t",
-                    columns=[
-                        ColumnDef(name="val", type="Int64"),
-                    ],
-                ),
-            }
-        )
-        current = {
-            "t": _make_table_schema(
-                "t",
-                columns=[
-                    ColumnSchema(name="val", type="Int32"),
-                ],
-            ),
-        }
-        diffs = diff_state(desired, current)
-        modify_diffs = [d for d in diffs if d.action == "alter_modify_column"]
-        self.assertEqual(len(modify_diffs), 1)
-        self.assertIn("MODIFY COLUMN", modify_diffs[0].sql)
-        self.assertIn("Int64", modify_diffs[0].sql)
+        self.assertEqual(diffs[0].table, expected_table)
+        self.assertIn(expected_sql_fragment, diffs[0].sql)
+        if expected_action == "alter_add_column":
+            self.assertIn("new_col", diffs[0].sql)
+        if expected_action == "alter_drop_column":
+            self.assertIn("old_col", diffs[0].sql)
+        if expected_action == "alter_modify_column":
+            self.assertIn("Int64", diffs[0].sql)
 
 
 class TestDiffStateMvChange(unittest.TestCase):

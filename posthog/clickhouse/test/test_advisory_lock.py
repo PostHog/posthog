@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 import unittest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 import posthog.clickhouse.test._stubs  # noqa: F401
 from posthog.clickhouse.migration_tools.tracking import acquire_apply_lock, release_apply_lock
 
@@ -19,66 +21,77 @@ class TestAdvisoryLock(unittest.TestCase):
     """Tests for the advisory lock mechanism."""
 
     @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
-    def test_advisory_lock_prevents_concurrent_apply(self, mock_sleep: MagicMock) -> None:
-        """An active lock from another host prevents acquisition."""
-        client = MagicMock()
-        now = datetime.now(tz=UTC)
-        # Flow: ensure table, check for existing lock (found -> reject)
-        client.execute.side_effect = [
-            None,  # CREATE TABLE ON CLUSTER (ensure tracking table)
-            [("other-pod", now)],  # Check SELECT -- another host holds the lock
+    @parameterized.expand(
+        [
+            (
+                "prevents_concurrent_apply",
+                "other-pod",
+                [
+                    None,
+                    [("other-pod", datetime.now(tz=UTC))],
+                ],
+                False,
+                "other-pod",
+                2,
+            ),
+            (
+                "expired_allows_apply",
+                "my-pod",
+                [
+                    None,
+                    [],
+                    None,
+                    None,
+                    [("my-pod", datetime.now(tz=UTC))],
+                ],
+                True,
+                "",
+                5,
+            ),
+            (
+                "same_host_allows_reacquire",
+                "my-pod",
+                [
+                    None,
+                    [],
+                    None,
+                    None,
+                    [("my-pod", datetime.now(tz=UTC))],
+                ],
+                True,
+                "",
+                5,
+            ),
         ]
-
-        acquired, reason = acquire_apply_lock(client, "default", "my-pod")
-
-        self.assertFalse(acquired)
-        self.assertIn("other-pod", reason)
-        self.assertIn("--force", reason)
-
-    @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
-    def test_advisory_lock_expired_allows_apply(self, mock_sleep: MagicMock) -> None:
-        """No active lock (expired or absent) allows acquisition."""
+    )
+    def test_advisory_lock_outcomes(
+        self,
+        _name: str,
+        hostname: str,
+        side_effect: list[object],
+        expected_acquired: bool,
+        expected_reason_fragment: str,
+        expected_call_count: int,
+        mock_sleep: MagicMock,
+    ) -> None:
         client = MagicMock()
-        now = datetime.now(tz=UTC)
-        client.execute.side_effect = [
-            None,  # CREATE TABLE ON CLUSTER (ensure tracking table)
-            [],  # Check SELECT -- no active lock
-            None,  # INSERT lock row (via _record_step)
-            None,  # SYSTEM SYNC REPLICA (replication barrier)
-            [("my-pod", now)],  # Post-replication verify -- only our lock
-        ]
+        client.execute.side_effect = side_effect
 
-        acquired, reason = acquire_apply_lock(client, "default", "my-pod")
+        acquired, reason = acquire_apply_lock(client, "default", hostname)
 
-        self.assertTrue(acquired)
-        self.assertEqual(reason, "")
-        # Five calls: CREATE ON CLUSTER + check SELECT + INSERT + SYNC REPLICA + verify SELECT
-        self.assertEqual(client.execute.call_count, 5)
-        # SYNC REPLICA succeeded, so no sleep fallback
-        mock_sleep.assert_not_called()
-        sync_sql = client.execute.call_args_list[3].args[0]
-        self.assertIn("SYSTEM SYNC REPLICA", sync_sql)
-        self.assertIn("STRICT", sync_sql)
-        verify_sql = client.execute.call_args_list[4].args[0]
-        self.assertIn("ORDER BY applied_at ASC, host ASC", verify_sql)
-
-    @patch("posthog.clickhouse.migration_tools.tracking.time.sleep")
-    def test_advisory_lock_same_host_allows_reacquire(self, mock_sleep: MagicMock) -> None:
-        """A lock from the same host allows re-acquisition (idempotent)."""
-        client = MagicMock()
-        now = datetime.now(tz=UTC)
-        client.execute.side_effect = [
-            None,  # CREATE TABLE ON CLUSTER
-            [],  # Check SELECT -- no lock from OTHER hosts
-            None,  # INSERT lock row
-            None,  # SYSTEM SYNC REPLICA
-            [("my-pod", now)],  # Verify -- our own host holds the lock
-        ]
-
-        acquired, reason = acquire_apply_lock(client, "default", "my-pod")
-
-        self.assertTrue(acquired)
-        self.assertEqual(reason, "")
+        self.assertEqual(acquired, expected_acquired)
+        self.assertEqual(client.execute.call_count, expected_call_count)
+        if expected_reason_fragment:
+            self.assertIn(expected_reason_fragment, reason)
+            self.assertIn("--force", reason)
+        else:
+            self.assertEqual(reason, "")
+            mock_sleep.assert_not_called()
+            sync_sql = client.execute.call_args_list[3].args[0]
+            self.assertIn("SYSTEM SYNC REPLICA", sync_sql)
+            self.assertIn("STRICT", sync_sql)
+            verify_sql = client.execute.call_args_list[4].args[0]
+            self.assertIn("ORDER BY applied_at ASC, host ASC", verify_sql)
 
     def test_advisory_lock_force_overrides_other_host(self) -> None:
         """force=True acquires even when another host holds the lock."""
