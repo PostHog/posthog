@@ -160,6 +160,7 @@ class WorkflowsConsumer(Consumer):
         request_task_group: asyncio.TaskGroup,
         model: str = "events",
         max_concurrent_requests: int = 1_000,
+        max_pending_requests: int = 2_000,
         hog_function_error_threshold_pct: float = 0.5,
         hog_function_error_threshold_min_records: int = 100,
     ):
@@ -174,11 +175,15 @@ class WorkflowsConsumer(Consumer):
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
         self.request_task_group = request_task_group
+
         self._requests_semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self._pending_semaphore = asyncio.Semaphore(max_pending_requests)
+
         self.hog_function_error_threshold_pct = hog_function_error_threshold_pct
         self.hog_function_error_threshold_min_records = hog_function_error_threshold_min_records
         self.records_handled_count = 0
         self.latest_hog_function_error: str | None = None
+
         self.retryable_post = make_retryable_with_exponential_backoff(
             self.post,
             retryable_exceptions=(
@@ -192,7 +197,9 @@ class WorkflowsConsumer(Consumer):
         )
 
     async def consume_chunk(self, data: bytes) -> None:
-        self.request_task_group.create_task(self.retryable_post(data))
+        await self._pending_semaphore.acquire()
+        task = self.request_task_group.create_task(self.retryable_post(data))
+        task.add_done_callback(lambda _: self._pending_semaphore.release())
 
     async def post(self, data: bytes) -> None:
         async with self._requests_semaphore:
