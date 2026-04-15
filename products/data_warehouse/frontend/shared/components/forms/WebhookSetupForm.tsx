@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -65,6 +66,15 @@ export function WebhookSetupForm({
                     We'll automatically register the webhook on your {sourceName} account. No manual configuration is
                     needed.
                 </LemonBanner>
+                {sourceConfig?.docsUrl && (
+                    <p className="text-sm text-muted">
+                        For more details, see our{' '}
+                        <Link to={sourceConfig.docsUrl} target="_blank">
+                            {sourceName} source docs
+                        </Link>
+                        .
+                    </p>
+                )}
                 <LemonButton type="primary" onClick={onCreateWebhook}>
                     Create webhook
                 </LemonButton>
@@ -121,6 +131,15 @@ export function WebhookSetupForm({
                         </LemonButton>
                     </div>
                 </Form>
+            )}
+            {sourceConfig?.docsUrl && (
+                <p className="text-sm text-muted">
+                    For more details, see our{' '}
+                    <Link to={sourceConfig.docsUrl} target="_blank">
+                        {sourceName} source docs
+                    </Link>
+                    .
+                </p>
             )}
         </WebhookSetupCard>
     )
