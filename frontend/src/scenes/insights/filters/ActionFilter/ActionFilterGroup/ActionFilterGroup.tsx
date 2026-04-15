@@ -117,11 +117,7 @@ export function ActionFilterGroup({
                 transition,
             }}
         >
-            <div
-                className={clsx('flex flex-col overflow-hidden min-w-0', {
-                    'border border-primary rounded hover:border-secondary': insightType === InsightType.TRENDS,
-                })}
-            >
+            <div className="flex flex-col overflow-hidden min-w-0 border border-primary rounded hover:border-secondary">
                 {/* Header: series indicator, math controls, action buttons */}
                 <div
                     className={clsx(
