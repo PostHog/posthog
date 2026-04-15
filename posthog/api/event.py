@@ -670,7 +670,7 @@ class EventViewSet(
 
     def _get_restricted_properties_context(self, request: request.Request, team: Team) -> dict:
         """Returns serializer context entries for field-level access control."""
-        from products.platform_features.backend.field_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_property_names
 
         user = request.user if request.user.is_authenticated else None
         return {
@@ -706,7 +706,7 @@ class EventViewSet(
 
     def _is_property_restricted(self, key: str, team: Team) -> bool:
         """Checks if a property key is restricted for the current user."""
-        from products.platform_features.backend.field_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_property_names
 
         user = self.request.user if self.request.user.is_authenticated else None
         restricted = get_restricted_property_names(

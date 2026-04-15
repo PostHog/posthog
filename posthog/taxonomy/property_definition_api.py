@@ -721,7 +721,7 @@ class PropertyDefinitionViewSet(
 
     def _get_restricted_property_names(self, prop_type: str) -> set[str]:
         """Returns the set of property names that are restricted for the current user and property type."""
-        from products.platform_features.backend.field_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_property_names
 
         type_map = {
             "event": PropertyDefinition.Type.EVENT,

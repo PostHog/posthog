@@ -87,15 +87,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "first_visit" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_with_exclude_restricted(self):
-        from products.platform_features.backend.field_access_control import FieldAccessLevel
-        from products.platform_features.backend.models.field_access_control import FieldAccessControl
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
 
         # restrict "$browser" for the current user
         prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=prop_def,
-            access_level=FieldAccessLevel.NONE.value,
+            access_level=PropertyAccessLevel.NONE.value,
         )
 
         # without exclude_restricted, $browser should still appear
@@ -111,15 +111,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$browser" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_exclude_restricted_does_not_affect_unrestricted(self):
-        from products.platform_features.backend.field_access_control import FieldAccessLevel
-        from products.platform_features.backend.models.field_access_control import FieldAccessControl
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
 
         # restrict "$browser" but not "plan"
         prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=prop_def,
-            access_level=FieldAccessLevel.NONE.value,
+            access_level=PropertyAccessLevel.NONE.value,
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")
@@ -129,15 +129,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$browser" not in [r["name"] for r in db_results]
 
     def test_list_property_definitions_exclude_restricted_read_access_still_visible(self):
-        from products.platform_features.backend.field_access_control import FieldAccessLevel
-        from products.platform_features.backend.models.field_access_control import FieldAccessControl
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
 
         # set "$browser" to READ (not NONE) — should still be visible
         prop_def = PropertyDefinition.objects.get(team=self.team, name="$browser")
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=prop_def,
-            access_level=FieldAccessLevel.READ.value,
+            access_level=PropertyAccessLevel.READ.value,
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_restricted=true")

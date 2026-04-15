@@ -434,7 +434,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context = super().get_serializer_context()
         from posthog.models import PropertyDefinition
 
-        from products.platform_features.backend.field_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_property_names
 
         user = self.request.user if self.request.user.is_authenticated else None
         context["restricted_person_properties"] = get_restricted_property_names(
@@ -757,7 +757,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Check field-level access control: return empty results for restricted properties
             from posthog.models import PropertyDefinition
 
-            from products.platform_features.backend.property_access_control import get_restricted_property_names
+            from products.access_control.backend.property_access_control import get_restricted_property_names
 
             user = request.user if request.user.is_authenticated else None
             restricted = get_restricted_property_names(
@@ -1057,7 +1057,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _get_non_writable_person_properties(self, request: request.Request) -> set[str]:
         from posthog.models import PropertyDefinition
 
-        from products.platform_features.backend.field_access_control import get_non_writable_property_names
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
 
         user = request.user if request.user.is_authenticated else None
         return get_non_writable_property_names(

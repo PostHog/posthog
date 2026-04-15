@@ -3,11 +3,11 @@ from posthog.test.base import BaseTest
 from posthog.models import PropertyDefinition
 from posthog.models.event.util import ClickhouseEventSerializer
 
-from products.platform_features.backend.field_access_control import FieldAccessLevel
-from products.platform_features.backend.models.field_access_control import FieldAccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 
-class TestClickhouseEventSerializerFieldAccess(BaseTest):
+class TestClickhouseEventSerializerPropertyAccess(BaseTest):
     def setUp(self):
         super().setUp()
         self.event_prop = PropertyDefinition.objects.create(
@@ -49,10 +49,10 @@ class TestClickhouseEventSerializerFieldAccess(BaseTest):
         assert "public_prop" in data["properties"]
 
     def test_restricted_event_property_stripped_from_response(self):
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.event_prop,
-            access_level=FieldAccessLevel.NONE.value,
+            access_level=PropertyAccessLevel.NONE.value,
         )
         event = self._make_event()
         data = ClickhouseEventSerializer(event, context={"restricted_event_properties": {"secret_event_prop"}}).data
@@ -80,7 +80,7 @@ class TestClickhouseEventSerializerFieldAccess(BaseTest):
         assert "name" in data["person"]["properties"]
 
 
-class TestPersonSerializerFieldAccess(BaseTest):
+class TestPersonSerializerPropertyAccess(BaseTest):
     def setUp(self):
         super().setUp()
         from posthog.models import Person
@@ -111,10 +111,10 @@ class TestPersonSerializerFieldAccess(BaseTest):
     def test_restricted_person_property_stripped(self):
         from posthog.api.person import PersonSerializer
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.NONE.value,
+            access_level=PropertyAccessLevel.NONE.value,
         )
         data = PersonSerializer(
             self.person,
@@ -130,10 +130,10 @@ class TestPersonSerializerFieldAccess(BaseTest):
     def test_read_access_does_not_strip_property(self):
         from posthog.api.person import PersonSerializer
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.READ.value,
+            access_level=PropertyAccessLevel.READ.value,
         )
         data = PersonSerializer(
             self.person,
@@ -145,7 +145,7 @@ class TestPersonSerializerFieldAccess(BaseTest):
         assert "secret_prop" in data["properties"]
 
 
-class TestFieldAccessControlHelpers(BaseTest):
+class TestPropertyAccessControlHelpers(BaseTest):
     def setUp(self):
         super().setUp()
         self.person_prop = PropertyDefinition.objects.create(
@@ -156,12 +156,12 @@ class TestFieldAccessControlHelpers(BaseTest):
         )
 
     def test_get_restricted_property_names(self):
-        from products.platform_features.backend.field_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_property_names
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.NONE.value,
+            access_level=PropertyAccessLevel.NONE.value,
         )
         restricted = get_restricted_property_names(
             team_id=self.team.pk,
@@ -171,12 +171,12 @@ class TestFieldAccessControlHelpers(BaseTest):
         assert restricted == {"secret_prop"}
 
     def test_get_restricted_property_names_empty_for_read_write(self):
-        from products.platform_features.backend.field_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_property_names
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.READ_WRITE.value,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
         )
         restricted = get_restricted_property_names(
             team_id=self.team.pk,
@@ -186,12 +186,12 @@ class TestFieldAccessControlHelpers(BaseTest):
         assert restricted == set()
 
     def test_get_non_writable_property_names(self):
-        from products.platform_features.backend.field_access_control import get_non_writable_property_names
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.READ.value,
+            access_level=PropertyAccessLevel.READ.value,
         )
         non_writable = get_non_writable_property_names(
             team_id=self.team.pk,
@@ -201,12 +201,12 @@ class TestFieldAccessControlHelpers(BaseTest):
         assert non_writable == {"secret_prop"}
 
     def test_get_non_writable_property_names_empty_for_read_write(self):
-        from products.platform_features.backend.field_access_control import get_non_writable_property_names
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.READ_WRITE.value,
+            access_level=PropertyAccessLevel.READ_WRITE.value,
         )
         non_writable = get_non_writable_property_names(
             team_id=self.team.pk,
@@ -216,12 +216,12 @@ class TestFieldAccessControlHelpers(BaseTest):
         assert non_writable == set()
 
     def test_get_non_writable_includes_none_level(self):
-        from products.platform_features.backend.field_access_control import get_non_writable_property_names
+        from products.access_control.backend.property_access_control import get_non_writable_property_names
 
-        FieldAccessControl.objects.create(
+        PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.person_prop,
-            access_level=FieldAccessLevel.NONE.value,
+            access_level=PropertyAccessLevel.NONE.value,
         )
         non_writable = get_non_writable_property_names(
             team_id=self.team.pk,
@@ -231,14 +231,14 @@ class TestFieldAccessControlHelpers(BaseTest):
         assert non_writable == {"secret_prop"}
 
     def test_strip_restricted_properties(self):
-        from products.platform_features.backend.field_access_control import strip_restricted_properties
+        from products.access_control.backend.property_access_control import strip_restricted_properties
 
         props = {"secret": "hidden", "public": "visible", "other": "also_visible"}
         result = strip_restricted_properties(props, {"secret"})
         assert result == {"public": "visible", "other": "also_visible"}
 
     def test_strip_restricted_properties_empty_restricted(self):
-        from products.platform_features.backend.field_access_control import strip_restricted_properties
+        from products.access_control.backend.property_access_control import strip_restricted_properties
 
         props = {"a": 1, "b": 2}
         result = strip_restricted_properties(props, set())
