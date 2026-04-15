@@ -225,6 +225,16 @@ Responsibilities:
 - Convert frozen dataclasses → JSON responses
 - No business logic
 
+Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. This is enforced by import-linter in CI.
+
+### Where do cross-cutting utilities go?
+
+If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
+
+- **Presentation concern** (response caching, rate limiting) → `presentation/`
+- **Business concern** (domain-level caching, permission checks) → `logic/`, exposed through the facade
+- **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
 ### Why not mix with the facade?
 
 - Keeps HTTP concerns decoupled
