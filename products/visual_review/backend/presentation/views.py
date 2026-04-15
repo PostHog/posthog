@@ -324,12 +324,13 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: AutoApproveResultSerializer}, deprecated=True)
     @action(detail=True, methods=["post"], url_path="auto-approve")
     def auto_approve(self, request: Request, pk: str, **kwargs) -> Response:
-        """Deprecated: use POST /approve/ with approve_all=true instead."""
+        """CLI auto-approve: approve all and return baseline YAML for local write."""
         try:
             result = api.auto_approve_run(
                 run_id=UUID(pk),
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                commit_to_github=False,
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)

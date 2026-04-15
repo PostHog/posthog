@@ -192,7 +192,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         new_hash: snapshot.current_artifact.content_hash,
                     },
                 ],
-                commit_to_github: false,
             }
 
             try {

@@ -270,10 +270,12 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run)
 
 
-def auto_approve_run(run_id: UUID, user_id: int, team_id: int | None = None) -> contracts.AutoApproveResult:
+def auto_approve_run(
+    run_id: UUID, user_id: int, team_id: int | None = None, commit_to_github: bool = True
+) -> contracts.AutoApproveResult:
     if team_id is not None:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
-    run, baseline_content = logic.auto_approve_run(run_id=run_id, user_id=user_id)
+    run, baseline_content = logic.auto_approve_run(run_id=run_id, user_id=user_id, commit_to_github=commit_to_github)
     return contracts.AutoApproveResult(
         run=_to_run(run),
         baseline_content=baseline_content,
@@ -281,14 +283,16 @@ def auto_approve_run(run_id: UUID, user_id: int, team_id: int | None = None) -> 
 
 
 def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
+    """Approve specific snapshots (DB only, no GitHub commit).
+
+    For full run approval with GitHub commit, use auto_approve_run via approve_all=true.
+    """
     if team_id is not None:
         logic.get_run(input.run_id, team_id=team_id)  # validates ownership
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
-
-    run = logic.approve_run(
+    run = logic.approve_snapshots(
         run_id=input.run_id,
         user_id=input.user_id,
         approved_snapshots=approved_snapshots,
-        commit_to_github=input.commit_to_github,
     )
     return _to_run(run)

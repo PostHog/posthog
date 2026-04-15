@@ -1187,11 +1187,13 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
-def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
+def auto_approve_run(run_id: UUID, user_id: int, commit_to_github: bool = True) -> tuple[Run, str]:
     """Auto-approve a completed run and return signed baseline YAML.
 
-    Used by the CLI during the transition period to keep baselines in sync
-    with jest-image-snapshot. Approves all CHANGED + NEW snapshots via the
+    Commits the baseline to GitHub by default. Set commit_to_github=False
+    for CLI auto-approve where the CLI writes the baseline locally.
+
+    Approves all CHANGED + NEW snapshots via the
     normal approve_run path, then builds a fresh signed YAML.
 
     Idempotent: if the run is already approved, rebuilds the YAML from
@@ -1219,10 +1221,9 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
             run_id=run_id,
             user_id=user_id,
             approved_snapshots=needs_approval,
-            commit_to_github=False,
+            review_decision=ReviewDecision.AUTO_APPROVED,
+            commit_to_github=commit_to_github,
         )
-        # Override to AUTO_APPROVED (approve_run sets HUMAN_APPROVED)
-        Run.objects.filter(id=run_id, team_id=repo.team_id).update(review_decision=ReviewDecision.AUTO_APPROVED)
         run = get_run_with_snapshots(run_id)
 
     snapshots = list(run.snapshots.all().order_by("identifier"))
@@ -1256,14 +1257,49 @@ def auto_approve_run(run_id: UUID, user_id: int) -> tuple[Run, str]:
 
 
 @transaction.atomic(using=WRITER_DB)
-def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], commit_to_github: bool = True) -> Run:
-    """
-    Approve visual changes for a run.
+def approve_snapshots(run_id: UUID, user_id: int, approved_snapshots: list[dict]) -> Run:
+    """Approve specific snapshots within a run (DB only, no GitHub commit).
 
-    If commit_to_github is True and run has a PR:
-    1. Validates PR SHA matches run's commit_sha
-    2. Commits updated baseline to GitHub
-    3. Updates baseline hashes for approved snapshots in DB
+    Used for per-snapshot "Accept change" in the UI. Does not finalize
+    the run — that happens via finalize_run_approval.
+    """
+    run = get_run(run_id)
+
+    if run.purpose == RunPurpose.OBSERVE:
+        raise ValueError("Observational runs cannot be approved")
+
+    if is_run_stale(run):
+        raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
+
+    approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+    _validate_approval(run, approvals)
+
+    now = timezone.now()
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        new_hash = approvals[snapshot.identifier]
+        snapshot.review_state = ReviewState.APPROVED
+        snapshot.reviewed_at = now
+        snapshot.reviewed_by_id = user_id
+        snapshot.approved_hash = new_hash
+        snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    return run
+
+
+def approve_run(
+    run_id: UUID,
+    user_id: int,
+    approved_snapshots: list[dict],
+    review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
+    commit_to_github: bool = True,
+) -> Run:
+    """Approve snapshots and finalize the run — commit baseline, post status.
+
+    This is the full approval path: validate, commit to GitHub, mark
+    snapshots approved, mark removed as approved, mark run approved,
+    and post a success commit status.
+
+    Set commit_to_github=False only for CLI auto-approve (writes locally).
     """
     run = get_run(run_id)
     repo = run.repo
@@ -1274,37 +1310,14 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
     if is_run_stale(run):
         raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
-    # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+    _validate_approval(run, approvals)
 
-    # Validate all identifiers exist in this run
-    run_identifiers = set(run.snapshots.values_list("identifier", flat=True))
-    unknown = set(approvals.keys()) - run_identifiers
-    if unknown:
-        raise ValueError(f"Unknown snapshot identifiers: {', '.join(sorted(unknown))}")
-
-    # Validate approved hashes match snapshot current_hash (prevents baseline corruption)
-    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
-        expected_hash = approvals[snapshot.identifier]
-        if expected_hash != snapshot.current_hash:
-            raise ValueError(
-                f"Hash mismatch for {snapshot.identifier}: "
-                f"approved {expected_hash[:12]} but current is {snapshot.current_hash[:12]}"
-            )
-
-    # Validate all artifacts exist before making any changes
-    for identifier, new_hash in approvals.items():
-        artifact = get_artifact(repo.id, new_hash)
-        if not artifact:
-            raise ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
-
-    # Commit to GitHub first (if enabled and PR exists)
-    # Do this before DB changes so we can fail cleanly
+    # Commit to GitHub first — do this before DB changes so we can fail cleanly
     if commit_to_github and run.pr_number and repo.repo_full_name:
         _commit_baseline_to_github(run, repo, approved_snapshots)
 
-    # Record approval on each snapshot without mutating result/baseline
-    # This preserves the diff history while tracking what was approved
+    # Mark approved snapshots
     now = timezone.now()
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         new_hash = approvals[snapshot.identifier]
@@ -1314,25 +1327,47 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
         snapshot.approved_hash = new_hash
         snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
-    # Run-level approval only when committing to GitHub (bulk "Approve all" action).
-    # Single-snapshot approvals just mark the snapshot — no run-level state change.
-    if commit_to_github:
-        run.approved = True
-        run.review_decision = ReviewDecision.HUMAN_APPROVED
-        run.approved_at = now
-        run.approved_by_id = user_id
-        run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
+    # Mark removed snapshots as approved (cleanup, not actionable)
+    run.snapshots.filter(result=SnapshotResult.REMOVED).update(
+        review_state=ReviewState.APPROVED,
+        reviewed_at=now,
+        reviewed_by_id=user_id,
+    )
 
+    # Finalize run
+    run.approved = True
+    run.review_decision = review_decision
+    run.approved_at = now
+    run.approved_by_id = user_id
+    run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
+
+    if commit_to_github:
         _post_commit_status(run, repo, "success", "Visual changes approved")
 
-        # Also mark removed snapshots as approved
-        run.snapshots.filter(result=SnapshotResult.REMOVED).update(
-            review_state=ReviewState.APPROVED,
-            reviewed_at=now,
-            reviewed_by_id=user_id,
-        )
-
     return run
+
+
+def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
+    """Validate snapshot identifiers, hash matches, and artifact existence."""
+    repo = run.repo
+
+    run_identifiers = set(run.snapshots.values_list("identifier", flat=True))
+    unknown = set(approvals.keys()) - run_identifiers
+    if unknown:
+        raise ValueError(f"Unknown snapshot identifiers: {', '.join(sorted(unknown))}")
+
+    for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
+        expected_hash = approvals[snapshot.identifier]
+        if expected_hash != snapshot.current_hash:
+            raise ValueError(
+                f"Hash mismatch for {snapshot.identifier}: "
+                f"approved {expected_hash[:12]} but current is {snapshot.current_hash[:12]}"
+            )
+
+    for identifier, new_hash in approvals.items():
+        artifact = get_artifact(repo.id, new_hash)
+        if not artifact:
+            raise ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
 
 
 # --- Snapshot Operations ---
