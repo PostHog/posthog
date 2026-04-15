@@ -1,3 +1,4 @@
+import uuid
 import typing
 import datetime as dt
 from datetime import datetime
@@ -373,11 +374,11 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
 
 
 @temporalio.activity.defn
-async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> int:
+async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUID:
     scheduled_at = datetime.fromisoformat(inputs.scheduled_at) if inputs.scheduled_at else None
 
     @database_sync_to_async(thread_sensitive=False)
-    def _create() -> int:
+    def _create() -> uuid.UUID:
         subscription = Subscription.objects.select_related("insight", "dashboard").get(pk=inputs.subscription_id)
         if subscription.team_id != inputs.team_id:
             raise ValueError(
