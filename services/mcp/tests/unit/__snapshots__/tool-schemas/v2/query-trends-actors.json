@@ -2,23 +2,11 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "breakdown": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                }
-            ],
-            "description": "Breakdown value to filter by."
+            "description": "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
         },
         "compare": {
             "description": "Whether to pull from the previous period when `compare` is enabled in the source.",
