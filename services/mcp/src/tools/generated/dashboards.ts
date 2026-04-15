@@ -11,6 +11,8 @@ import {
     DashboardsReorderTilesCreateBody,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRunInsightsRetrieveParams,
+    DashboardsRunInsightsRetrieveQueryParams,
 } from '@/generated/dashboards/api'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -292,6 +294,30 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
     },
 })
 
+const DashboardInsightsRunSchema = DashboardsRunInsightsRetrieveParams.omit({ project_id: true }).extend(
+    DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape
+)
+
+const dashboardInsightsRun = (): ToolBase<
+    typeof DashboardInsightsRunSchema,
+    WithPostHogUrl<Schemas.RunInsightsResponse>
+> => ({
+    name: 'dashboard-insights-run',
+    schema: DashboardInsightsRunSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardInsightsRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RunInsightsResponse>({
+            method: 'GET',
+            path: `/api/projects/${projectId}/dashboards/${params.id}/run_insights/`,
+            query: {
+                output_format: params.output_format,
+                refresh: params.refresh,
+            },
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
 const DashboardReorderTilesSchema = DashboardsReorderTilesCreateParams.omit({ project_id: true }).extend(
     DashboardsReorderTilesCreateBody.shape
 )
@@ -320,5 +346,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-update': dashboardUpdate,
     'dashboard-delete': dashboardDelete,
+    'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
 }

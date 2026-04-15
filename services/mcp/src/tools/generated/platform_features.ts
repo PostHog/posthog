@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     ActivityLogListQueryParams,
+    AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
     ApprovalPoliciesRetrieveParams,
     ChangeRequestsListQueryParams,
@@ -104,6 +105,10 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
             path: `/api/projects/${projectId}/comments/`,
             query: {
                 cursor: params.cursor,
+                item_id: params.item_id,
+                scope: params.scope,
+                search: params.search,
+                source_comment: params.source_comment,
             },
         })
         return result
@@ -179,7 +184,7 @@ const activityLogList = (): ToolBase<typeof ActivityLogListSchema, Schemas.Pagin
     },
 })
 
-const AdvancedActivityLogsListSchema = z.object({})
+const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams
 
 const advancedActivityLogsList = (): ToolBase<
     typeof AdvancedActivityLogsListSchema,
@@ -187,12 +192,24 @@ const advancedActivityLogsList = (): ToolBase<
 > => ({
     name: 'advanced-activity-logs-list',
     schema: AdvancedActivityLogsListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof AdvancedActivityLogsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedActivityLogList>({
             method: 'GET',
             path: `/api/projects/${projectId}/advanced_activity_logs/`,
+            query: {
+                activities: params.activities,
+                detail_filters: params.detail_filters,
+                end_date: params.end_date,
+                hogql_filter: params.hogql_filter,
+                is_system: params.is_system,
+                item_ids: params.item_ids,
+                scopes: params.scopes,
+                search_text: params.search_text,
+                start_date: params.start_date,
+                users: params.users,
+                was_impersonated: params.was_impersonated,
+            },
         })
         return result
     },
@@ -200,13 +217,16 @@ const advancedActivityLogsList = (): ToolBase<
 
 const AdvancedActivityLogsFiltersSchema = z.object({})
 
-const advancedActivityLogsFilters = (): ToolBase<typeof AdvancedActivityLogsFiltersSchema, Schemas.ActivityLog> => ({
+const advancedActivityLogsFilters = (): ToolBase<
+    typeof AdvancedActivityLogsFiltersSchema,
+    Schemas.AvailableFiltersResponse
+> => ({
     name: 'advanced-activity-logs-filters',
     schema: AdvancedActivityLogsFiltersSchema,
     // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof AdvancedActivityLogsFiltersSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ActivityLog>({
+        const result = await context.api.request<Schemas.AvailableFiltersResponse>({
             method: 'GET',
             path: `/api/projects/${projectId}/advanced_activity_logs/available_filters/`,
         })

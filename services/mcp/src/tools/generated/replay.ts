@@ -116,6 +116,9 @@ const sessionRecordingPlaylistCreate = (): ToolBase<
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'POST',
             path: `/api/projects/${projectId}/session_recording_playlists/`,
