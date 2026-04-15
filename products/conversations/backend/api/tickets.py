@@ -421,19 +421,21 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Update other fields normally
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
 
-        # Auto-status on snooze transitions (only when user didn't explicitly set status)
         explicit_status = "status" in data
-        new_snoozed_until = instance.snoozed_until
-        snooze_changed = old_snoozed_until != new_snoozed_until
-        if snooze_changed and not explicit_status:
-            if old_snoozed_until is None and new_snoozed_until is not None:
-                instance.status = Status.ON_HOLD
-                instance.save(update_fields=["status"])
-            elif old_snoozed_until is not None and new_snoozed_until is None:
-                instance.status = Status.OPEN
-                instance.save(update_fields=["status"])
+        with transaction.atomic():
+            self.perform_update(serializer)
+
+            # Auto-status on snooze transitions (only when user didn't explicitly set status)
+            new_snoozed_until = instance.snoozed_until
+            snooze_changed = old_snoozed_until != new_snoozed_until
+            if snooze_changed and not explicit_status:
+                if old_snoozed_until is None and new_snoozed_until is not None:
+                    instance.status = Status.ON_HOLD
+                    instance.save(update_fields=["status"])
+                elif old_snoozed_until is not None and new_snoozed_until is None:
+                    instance.status = Status.OPEN
+                    instance.save(update_fields=["status"])
 
         # Handle assignee update if provided (not ... sentinel)
         if assignee is not ...:
