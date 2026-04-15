@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from posthog.clickhouse.migration_tools.desired_state import DesiredState
 from posthog.clickhouse.migration_tools.schema_graph import DictRef, TableEcosystem, lookup_ecosystem
 from posthog.clickhouse.migration_tools.state_diff import _is_distributed, _is_kafka, _is_mergetree, _is_mv
@@ -81,17 +83,18 @@ def build_ecosystems_from_yaml(desired_states: list[DesiredState]) -> list[Table
             )
 
             base_name = local_name.replace("sharded_", "")
+            base_name_pattern = re.compile(rf"(^|_){re.escape(base_name)}($|_)")
 
             kafka_tbl = next(
-                (n for n in kafka if base_name in n),
+                (n for n in kafka if base_name_pattern.search(n)),
                 None,
             )
             mv_tbl = next(
-                (n for n in mvs if base_name in n),
+                (n for n in mvs if base_name_pattern.search(n)),
                 None,
             )
             dict_tbl = next(
-                (n for n in dicts if base_name in n),
+                (n for n in dicts if base_name_pattern.search(n)),
                 None,
             )
 
@@ -141,6 +144,7 @@ def _check_ecosystem_completeness(
     the hardcoded registry in schema_graph.py.
     """
     errors: list[str] = []
+    reported_ecosystems: set[str] = set()
 
     for table_name in state.tables:
         # Try dynamic lookup first, then hardcoded
@@ -156,12 +160,12 @@ def _check_ecosystem_completeness(
         declared_tables = set(state.tables.keys())
         missing = expected_tables - declared_tables
 
-        if missing:
+        if missing and eco.base_name not in reported_ecosystems:
             errors.append(
                 f"[{state.ecosystem}] Table '{table_name}' belongs to ecosystem "
                 f"'{eco.base_name}' but companion tables are missing: {sorted(missing)}"
             )
-            break  # one warning per ecosystem is enough
+            reported_ecosystems.add(eco.base_name)
 
     return errors
 
