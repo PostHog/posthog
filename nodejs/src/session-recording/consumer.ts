@@ -4,17 +4,9 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
-import { KAFKA_CLICKHOUSE_TOPHOG, KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
-import {
-    DLQ_OUTPUT,
-    INGESTION_WARNINGS_OUTPUT,
-    OVERFLOW_OUTPUT,
-    OverflowOutput,
-    TOPHOG_OUTPUT,
-} from '../ingestion/common/outputs'
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput, TophogOutput } from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -83,7 +75,6 @@ export class SessionRecordingIngester {
         OverflowOutput
     >
     private readonly kafkaMetadataProducer: KafkaProducerWrapper
-    private readonly kafkaMessageProducer: KafkaProducerWrapper
     private readonly topHog: TopHog
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
@@ -91,8 +82,8 @@ export class SessionRecordingIngester {
     constructor(
         private config: SessionRecordingIngesterConfig,
         postgres: PostgresRouter,
+        outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput>,
         kafkaMetadataProducer: KafkaProducerWrapper,
-        kafkaMessageProducer: KafkaProducerWrapper,
         redisPool: RedisPool,
         restrictionRedisPool: RedisPool
     ) {
@@ -111,7 +102,6 @@ export class SessionRecordingIngester {
         })
 
         this.kafkaMetadataProducer = kafkaMetadataProducer
-        this.kafkaMessageProducer = kafkaMessageProducer
         this.redisPool = redisPool
         this.restrictionRedisPool = restrictionRedisPool
 
@@ -137,33 +127,6 @@ export class SessionRecordingIngester {
 
             s3Client = new S3Client(s3Config)
         }
-
-        const outputs = new IngestionOutputs({
-            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
-                INGESTION_WARNINGS_OUTPUT,
-                KAFKA_INGESTION_WARNINGS,
-                kafkaMetadataProducer,
-                'default'
-            ),
-            [DLQ_OUTPUT]: new SingleIngestionOutput(
-                DLQ_OUTPUT,
-                config.INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC,
-                kafkaMessageProducer,
-                'default'
-            ),
-            [OVERFLOW_OUTPUT]: new SingleIngestionOutput(
-                OVERFLOW_OUTPUT,
-                config.INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC,
-                kafkaMessageProducer,
-                'default'
-            ),
-            [TOPHOG_OUTPUT]: new SingleIngestionOutput(
-                TOPHOG_OUTPUT,
-                KAFKA_CLICKHOUSE_TOPHOG,
-                kafkaMetadataProducer,
-                'default'
-            ),
-        })
 
         this.topHog = new TopHog({
             outputs,
