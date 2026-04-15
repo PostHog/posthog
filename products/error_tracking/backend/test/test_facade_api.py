@@ -123,3 +123,17 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert symbol_set_counts[other_team.id] == 1
         assert resolved_symbol_set_counts[self.team.id] == 1
         assert resolved_symbol_set_counts[other_team.id] == 1
+
+    def test_get_issue_assignment_for_notification(self):
+        issue = self._create_issue(team=self.team, name="Assigned issue", description="Assigned description")
+        assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+
+        result = api.get_issue_assignment_for_notification(assignment_id=assignment.id)
+
+        assert isinstance(result, contracts.ErrorTrackingIssueAssignmentNotification)
+        assert result.id == assignment.id
+        assert result.assigned_user_id == self.user.id
+        assert result.role_member_user_ids == []
+        assert result.issue.id == issue.id
+        assert result.issue.team_id == self.team.id
+        assert result.issue.name == "Assigned issue"
