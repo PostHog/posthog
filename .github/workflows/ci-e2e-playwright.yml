@@ -593,12 +593,8 @@ jobs:
                       }
 
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const snapshotMode = '${{ needs.changes.outputs.mode }}';
-                      const snapshotHint = (snapshotMode === 'check' && failed.length > 0)
-                          ? '\n\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
-                          : '';
                       const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${snapshotHint}${footer}`;
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
 
                       if (existing) {
                           await github.rest.issues.updateComment({
@@ -688,9 +684,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-complete.result }}" == "failure" ]]; then
-                    echo "Visual Review detected unapproved changes."
+                  if [[ "${{ needs.vr-complete.result }}" != "success" ]]; then
+                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi
-
-                  echo "All jobs passed or were skipped successfully."

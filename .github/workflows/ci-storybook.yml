@@ -415,7 +415,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [visual-regression, vr-complete]
+        needs: [visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -428,8 +428,13 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-complete.result }}" == "failure" ]]; then
-                    echo "Visual Review detected unapproved changes."
+                  if [[ "${{ needs.vr-setup.result }}" == "failure" ]]; then
+                    echo "Visual Review setup failed — VR CLI or API error."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.vr-complete.result }}" != "success" ]]; then
+                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi
 
