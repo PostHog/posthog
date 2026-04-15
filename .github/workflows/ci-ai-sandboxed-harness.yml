@@ -35,6 +35,7 @@ on:
             - 'uv.lock'
             - 'docker-compose.dev.yml'
             - 'docker-compose.profiles.yml'
+            - 'docker/temporal/**'
             # The workflow itself.
             - '.github/workflows/ci-ai-sandboxed-harness.yml'
     push:
@@ -54,6 +55,7 @@ on:
             - 'uv.lock'
             - 'docker-compose.dev.yml'
             - 'docker-compose.profiles.yml'
+            - 'docker/temporal/**'
             - '.github/workflows/ci-ai-sandboxed-harness.yml'
     schedule:
         # Daily at 06:17 UTC — offset from the top of the hour to avoid
