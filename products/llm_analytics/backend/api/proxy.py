@@ -52,6 +52,15 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "gemini": "Gemini",
+    "openrouter": "OpenRouter",
+    "fireworks": "Fireworks",
+    "azure_openai": "Azure OpenAI",
+}
+
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
@@ -388,9 +397,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
-                models = Client.list_models(provider_key.provider, api_key)
+                extra_kwargs: dict = {}
+                if provider_key.provider == "azure_openai":
+                    extra_kwargs["azure_endpoint"] = provider_key.encrypted_config.get("azure_endpoint", "")
+                    extra_kwargs["api_version"] = provider_key.encrypted_config.get("api_version", "")
+                models = Client.list_models(provider_key.provider, api_key, **extra_kwargs)
                 recommended = Client.recommended_models(provider_key.provider)
-                provider_display = provider_key.provider.title()
+                provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 return Response(
                     [
                         ModelInfo(

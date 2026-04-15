@@ -22,6 +22,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import {
     AlternativeKey,
+    CreateLLMProviderKeyPayload,
     DependentConfigsResponse,
     KeyValidationResult,
     LLMProvider,
@@ -93,6 +94,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your OpenRouter API key'
         case 'fireworks':
             return 'Enter your Fireworks API key'
+        case 'azure_openai':
+            return 'Enter your Azure OpenAI API key'
     }
 }
 
@@ -142,10 +145,13 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     const [provider, setProvider] = useState<LLMProvider>('openai')
     const [name, setName] = useState('')
     const [apiKey, setApiKey] = useState('')
+    const [azureEndpoint, setAzureEndpoint] = useState('')
+    const [apiVersion, setApiVersion] = useState('2024-10-21')
     const [pendingSubmit, setPendingSubmit] = useState(false)
 
+    const isAzure = provider === 'azure_openai'
     const keyValidated = preValidationResult?.state === 'ok'
-    const isValid = name.length > 0 && apiKey.length > 0
+    const isValid = name.length > 0 && apiKey.length > 0 && (!isAzure || azureEndpoint.length > 0)
 
     // Reset form when modal closes
     useEffect(() => {
@@ -153,6 +159,8 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
             setProvider('openai')
             setName('')
             setApiKey('')
+            setAzureEndpoint('')
+            setApiVersion('2024-10-21')
             setPendingSubmit(false)
         }
     }, [newKeyModalOpen])
@@ -162,17 +170,31 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
         if (pendingSubmit && preValidationResult && !preValidationResultLoading) {
             setPendingSubmit(false)
             if (preValidationResult.state === 'ok') {
-                createProviderKey({
-                    payload: {
-                        provider,
-                        name,
-                        api_key: apiKey,
-                        set_as_active: !evaluationConfig?.active_provider_key,
-                    },
-                })
+                const payload: CreateLLMProviderKeyPayload = {
+                    provider,
+                    name,
+                    api_key: apiKey,
+                    set_as_active: !evaluationConfig?.active_provider_key,
+                }
+                if (isAzure) {
+                    payload.azure_endpoint = azureEndpoint
+                    payload.api_version = apiVersion
+                }
+                createProviderKey({ payload })
             }
         }
-    }, [pendingSubmit, preValidationResult, preValidationResultLoading, createProviderKey, name, apiKey, provider]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        pendingSubmit,
+        preValidationResult,
+        preValidationResultLoading,
+        createProviderKey,
+        name,
+        apiKey,
+        provider,
+        isAzure,
+        azureEndpoint,
+        apiVersion,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleClose = (): void => {
         setNewKeyModalOpen(false)
@@ -181,23 +203,34 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
 
     const handleSubmit = (): void => {
         if (keyValidated) {
-            createProviderKey({
-                payload: {
-                    provider,
-                    name,
-                    api_key: apiKey,
-                    set_as_active: !evaluationConfig?.active_provider_key,
-                },
-            })
+            const payload: CreateLLMProviderKeyPayload = {
+                provider,
+                name,
+                api_key: apiKey,
+                set_as_active: !evaluationConfig?.active_provider_key,
+            }
+            if (isAzure) {
+                payload.azure_endpoint = azureEndpoint
+                payload.api_version = apiVersion
+            }
+            createProviderKey({ payload })
         } else if (apiKey.length > 0) {
             setPendingSubmit(true)
-            preValidateKey({ apiKey, provider })
+            preValidateKey({
+                apiKey,
+                provider,
+                ...(isAzure ? { azure_endpoint: azureEndpoint, api_version: apiVersion } : {}),
+            })
         }
     }
 
     const handleApiKeyBlur = (): void => {
         if (apiKey.length > 0 && !preValidationResult) {
-            preValidateKey({ apiKey, provider })
+            preValidateKey({
+                apiKey,
+                provider,
+                ...(isAzure ? { azure_endpoint: azureEndpoint, api_version: apiVersion } : {}),
+            })
         }
     }
 
@@ -211,6 +244,8 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     const handleProviderChange = (value: LLMProvider): void => {
         setProvider(value)
         setApiKey('')
+        setAzureEndpoint('')
+        setApiVersion('2024-10-21')
         clearPreValidation()
     }
 
@@ -248,6 +283,32 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         fullWidth
                     />
                 </div>
+                {isAzure && (
+                    <>
+                        <div>
+                            <label className="text-sm font-medium">Azure endpoint</label>
+                            <LemonInput
+                                value={azureEndpoint}
+                                onChange={setAzureEndpoint}
+                                placeholder="https://my-resource.openai.azure.com/"
+                                className="mt-1"
+                                fullWidth
+                            />
+                            <p className="text-xs text-muted mt-1">The endpoint URL of your Azure OpenAI resource</p>
+                        </div>
+                        <div>
+                            <label className="text-sm font-medium">API version</label>
+                            <LemonInput
+                                value={apiVersion}
+                                onChange={setApiVersion}
+                                placeholder="2024-10-21"
+                                className="mt-1"
+                                fullWidth
+                            />
+                            <p className="text-xs text-muted mt-1">Azure OpenAI API version (defaults to 2024-10-21)</p>
+                        </div>
+                    </>
+                )}
                 <div>
                     <label className="text-sm font-medium">Name</label>
                     <LemonInput
@@ -311,9 +372,20 @@ function EditKeyModal({
         updateProviderKey({ id: keyToEdit.id, payload })
     }
 
+    const isAzureEdit = keyToEdit.provider === 'azure_openai'
+
     const handleApiKeyBlur = (): void => {
         if (apiKey.length > 0) {
-            preValidateKey({ apiKey, provider: keyToEdit.provider })
+            preValidateKey({
+                apiKey,
+                provider: keyToEdit.provider,
+                ...(isAzureEdit
+                    ? {
+                          azure_endpoint: keyToEdit.azure_endpoint_display || undefined,
+                          api_version: keyToEdit.api_version_display || undefined,
+                      }
+                    : {}),
+            })
         }
     }
 
@@ -357,6 +429,18 @@ function EditKeyModal({
                         <span>{LLM_PROVIDER_LABELS[keyToEdit.provider]}</span>
                     </div>
                 </div>
+                {isAzureEdit && keyToEdit.azure_endpoint_display && (
+                    <div>
+                        <label className="text-sm font-medium">Azure endpoint</label>
+                        <p className="text-sm text-muted mt-1">{keyToEdit.azure_endpoint_display}</p>
+                    </div>
+                )}
+                {isAzureEdit && keyToEdit.api_version_display && (
+                    <div>
+                        <label className="text-sm font-medium">API version</label>
+                        <p className="text-sm text-muted mt-1">{keyToEdit.api_version_display}</p>
+                    </div>
+                )}
                 <div>
                     <label className="text-sm font-medium">Name</label>
                     <LemonInput value={name} onChange={setName} className="mt-1" fullWidth />

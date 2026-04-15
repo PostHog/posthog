@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai'
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -16,6 +16,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     gemini: 'Google Gemini',
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
+    azure_openai: 'Azure OpenAI',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -52,6 +53,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     if (normalized === 'google' || normalized === 'google-ai-studio') {
         return 'gemini'
     }
+    if (normalized === 'azure_openai' || normalized === 'azure-openai' || normalized === 'azure openai') {
+        return 'azure_openai'
+    }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
@@ -63,6 +67,8 @@ export interface LLMProviderKey {
     state: LLMProviderKeyState
     error_message: string | null
     api_key_masked: string
+    azure_endpoint_display: string | null
+    api_version_display: string | null
     created_at: string
     created_by: {
         id: number
@@ -126,6 +132,8 @@ export interface CreateLLMProviderKeyPayload {
     name: string
     api_key: string
     set_as_active?: boolean
+    azure_endpoint?: string
+    api_version?: string
 }
 
 export interface UpdateLLMProviderKeyPayload {
@@ -261,18 +269,29 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 preValidateKey: async ({
                     apiKey,
                     provider,
+                    azure_endpoint,
+                    api_version,
                 }: {
                     apiKey: string
                     provider: LLMProvider
+                    azure_endpoint?: string
+                    api_version?: string
                 }): Promise<KeyValidationResult> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return { state: 'error', error_message: 'No team selected' }
                     }
                     try {
+                        const body: Record<string, string> = { api_key: apiKey, provider }
+                        if (azure_endpoint) {
+                            body.azure_endpoint = azure_endpoint
+                        }
+                        if (api_version) {
+                            body.api_version = api_version
+                        }
                         const response = await api.create(
                             `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
-                            { api_key: apiKey, provider }
+                            body
                         )
                         return response
                     } catch (error) {

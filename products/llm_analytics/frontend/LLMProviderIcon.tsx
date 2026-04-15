@@ -14,6 +14,7 @@ const PROVIDER_COMPONENTS: Partial<Record<LLMProvider, React.ComponentType>> = {
     openai: OpenAILogo,
     openrouter: OpenRouterLogo,
     anthropic: AnthropicLogo,
+    azure_openai: OpenAILogo,
 }
 
 export function LLMProviderIcon({

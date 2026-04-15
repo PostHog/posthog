@@ -12,6 +12,7 @@ class LLMProvider(models.TextChoices):
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
     FIREWORKS = "fireworks"
+    AZURE_OPENAI = "azure_openai"
 
 
 class LLMProviderKey(UUIDTModel):

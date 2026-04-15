@@ -94,6 +94,30 @@ class OpenAIAdapter:
 
     name = "openai"
 
+    def _create_client(
+        self,
+        api_key: str,
+        base_url: str | None,
+        analytics: AnalyticsContext,
+    ) -> Any:
+        """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
+        default_headers = self._get_default_headers()
+        posthog_client = posthoganalytics.default_client
+        if analytics.capture and posthog_client:
+            return OpenAI(
+                api_key=api_key,
+                posthog_client=posthog_client,
+                base_url=base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
+            )
+        return openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=OpenAIConfig.TIMEOUT,
+            default_headers=default_headers or None,
+        )
+
     def complete(
         self,
         request: CompletionRequest,
@@ -105,25 +129,7 @@ class OpenAIAdapter:
         effective_api_key = api_key or self._get_default_api_key()
         effective_base_url = base_url or settings.OPENAI_BASE_URL
 
-        default_headers = self._get_default_headers()
-
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        if analytics.capture and posthog_client:
-            client = OpenAI(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
-        else:
-            client = openai.OpenAI(
-                api_key=effective_api_key,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
 
         messages: Any = self._build_messages(request)
 
@@ -241,25 +247,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         effective_base_url = base_url or settings.OPENAI_BASE_URL
         model_id = request.model
 
-        default_headers = self._get_default_headers()
-
-        posthog_client = posthoganalytics.default_client
-        client: Any
-        if analytics.capture and posthog_client:
-            client = OpenAI(
-                api_key=effective_api_key,
-                posthog_client=posthog_client,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
-        else:
-            client = openai.OpenAI(
-                api_key=effective_api_key,
-                base_url=effective_base_url,
-                timeout=OpenAIConfig.TIMEOUT,
-                default_headers=default_headers or None,
-            )
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
 
         supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
         reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
