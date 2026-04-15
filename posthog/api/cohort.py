@@ -1409,6 +1409,64 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             }
         )
 
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def used_in(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+
+        # Find feature flags using this cohort in their targeting conditions
+        active_flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True)
+        flags_using_cohort = [
+            {"id": flag.id, "key": flag.key, "name": flag.name}
+            for flag in active_flags
+            if cohort.id in flag.get_cohort_ids()
+        ]
+
+        # Find insights referencing this cohort in their query filters or breakdown
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        insights_using_cohort = list(
+            Insight.objects.filter(
+                team_id=cohort.team_id,
+                deleted=False,
+            )
+            .extra(
+                where=[
+                    """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+                    OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                        AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+                ],
+                params=[cohort.id, cohort.id, cohort.id],
+            )
+            .values("id", "short_id", "name", "derived_name")[:100]
+        )
+        for insight in insights_using_cohort:
+            insight["name"] = insight["name"] or insight.pop("derived_name", None) or "Unnamed"
+            insight.pop("derived_name", None)
+
+        # Find other cohorts that include this cohort as criteria
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        cohorts_using_cohort = list(
+            Cohort.objects.filter(
+                team__project_id=cohort.team.project_id,
+                deleted=False,
+            )
+            .exclude(id=cohort.id)
+            .extra(
+                where=[
+                    """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                ],
+                params=[cohort.id, cohort.id],
+            )
+            .values("id", "name")[:100]
+        )
+
+        return Response(
+            {
+                "feature_flags": flags_using_cohort,
+                "insights": insights_using_cohort,
+                "cohorts": cohorts_using_cohort,
+            }
+        )
+
     def perform_create(self, serializer):
         serializer.save()
         instance = cast(Cohort, serializer.instance)

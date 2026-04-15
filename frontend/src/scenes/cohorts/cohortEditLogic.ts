@@ -38,6 +38,7 @@ import {
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
+    CohortUsedInResponse,
     FilterLogicalOperator,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -525,6 +526,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+
+        usedIn: [
+            null as CohortUsedInResponse | null,
+            {
+                loadUsedIn: async () => {
+                    const { id } = values.cohort
+                    if (!id || id === 'new') {
+                        return null
+                    }
+                    return await api.cohorts.getUsedIn(id)
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
@@ -617,6 +631,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             actions.setCohort(NEW_COHORT)
         } else {
             actions.fetchCohort(props.id)
+            actions.loadUsedIn()
         }
     }),
     beforeUnmount(({ values }) => {

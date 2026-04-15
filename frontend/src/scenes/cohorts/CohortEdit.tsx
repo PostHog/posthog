@@ -94,6 +94,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         canRemovePersonFromCohort,
         isPendingCalculation,
         isCalculatingOrPending,
+        usedIn,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -492,6 +493,37 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         <Link to={urls.experiment(cohort.experiment_set[0])}>
                                             check the experiment details.
                                         </Link>
+                                    </LemonBanner>
+                                )}
+                                {!isNewCohort && usedIn && (usedIn.feature_flags.length > 0 || usedIn.insights.length > 0 || usedIn.cohorts.length > 0) && (
+                                    <LemonBanner type="info">
+                                        <div className="font-semibold mb-1">Used in</div>
+                                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                                            {usedIn.feature_flags.map((flag) => (
+                                                <li key={`flag-${flag.id}`}>
+                                                    Feature flag:{' '}
+                                                    <Link to={urls.featureFlag(flag.id)}>
+                                                        {flag.name || flag.key}
+                                                    </Link>
+                                                </li>
+                                            ))}
+                                            {usedIn.insights.map((insight) => (
+                                                <li key={`insight-${insight.id}`}>
+                                                    Insight:{' '}
+                                                    <Link to={urls.insightView(insight.short_id)}>
+                                                        {insight.name}
+                                                    </Link>
+                                                </li>
+                                            ))}
+                                            {usedIn.cohorts.map((c) => (
+                                                <li key={`cohort-${c.id}`}>
+                                                    Cohort:{' '}
+                                                    <Link to={urls.cohort(c.id)}>
+                                                        {c.name}
+                                                    </Link>
+                                                </li>
+                                            ))}
+                                        </ul>
                                     </LemonBanner>
                                 )}
                                 <SceneSection
