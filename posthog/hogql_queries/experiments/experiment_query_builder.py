@@ -1669,9 +1669,11 @@ class ExperimentQueryBuilder:
 
     def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
-        Returns the funnel metric events query and placeholders for lazy computation.
+        Returns the SELECT query that the lazy computation system wraps in an
+        INSERT INTO experiment_metric_events_preaggregated. This is the write
+        path — it scans the events table and stores one row per matching event
+        with step indicators packed into an Array(UInt8).
 
-        Stores one row per event with step indicators packed into an Array(UInt8).
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
 
