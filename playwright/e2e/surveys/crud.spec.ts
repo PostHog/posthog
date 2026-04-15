@@ -21,6 +21,27 @@ async function expectNoToastErrors(page: Page): Promise<void> {
     }
 }
 
+async function forceLegacySurveyView(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+        let context: any
+
+        Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+            get() {
+                return context
+            },
+            set(value: any) {
+                if (value) {
+                    value.persisted_feature_flags = (value.persisted_feature_flags || []).filter(
+                        (flag: string) => flag !== 'surveys-redesigned-view'
+                    )
+                }
+                context = value
+            },
+            configurable: true,
+        })
+    })
+}
+
 async function launchSurveyEvenIfDisabled(page: Page): Promise<void> {
     // check if page.getByText('Surveys are currently disabled') is visible
     if (await page.getByText('Surveys are currently disabled').isVisible()) {
@@ -153,6 +174,7 @@ test.describe('CRUD Survey', () => {
         // "new survey" URL auto-redirects to whichever editor the user
         // previously preferred (default: guided wizard), so force the
         // preference to 'full' before navigating.
+        await forceLegacySurveyView(page)
         await page.addInitScript(() => {
             localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
         })
@@ -186,6 +208,7 @@ test.describe('CRUD Survey', () => {
         // Cancellation events aren't exposed in the guided wizard. Force the
         // editor preference to 'full' so the /surveys/new redirect doesn't
         // send us into the wizard.
+        await forceLegacySurveyView(page)
         await page.addInitScript(() => {
             localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
         })
