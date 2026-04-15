@@ -12,6 +12,9 @@ catalogs:
     '@parcel/transformer-typescript-types':
       specifier: 2.13.3
       version: 2.13.3
+    '@posthog/react':
+      specifier: ^1.9.0
+      version: 1.9.0
     '@storybook/addon-actions':
       specifier: ^7.6.4
       version: 7.6.4
@@ -710,6 +713,9 @@ importers:
       '@posthog/products-workflows':
         specifier: workspace:*
         version: link:../products/workflows
+      '@posthog/react':
+        specifier: 'catalog:'
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.369.0)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -8628,6 +8634,16 @@ packages:
       kea-router: '*'
       react: 18.3.1
       react-dom: 18.3.1
+
+  '@posthog/react@1.9.0':
+    resolution: {integrity: sha512-lVdTsWT5+PtHBu44gSQ7QohbLjAYqHkFAIGAQ+HV8Eh9yj+OcnQ7mXCmyhaMlTBD3z7D0H1eWMp4vQaFnsIyWQ==}
+    peerDependencies:
+      '@types/react': 18.3.27
+      posthog-js: '>=1.257.2'
+      react: 18.3.1
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
@@ -31456,6 +31472,13 @@ snapshots:
       kea-router: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.369.0)(react@18.3.1)':
+    dependencies:
+      posthog-js: 1.369.0
+      react: 18.3.1
+    optionalDependencies:
+      '@types/react': 18.3.27
 
   '@posthog/rrdom@0.0.4':
     dependencies:
