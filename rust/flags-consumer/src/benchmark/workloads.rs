@@ -24,6 +24,71 @@ pub struct PhaseResult {
     pub errors: u64,
 }
 
+fn spawn_merge_writers(
+    pool: &PgPool,
+    data: &BenchmarkData,
+    concurrency: usize,
+    deadline: Instant,
+    seed_offset: u64,
+    version_counter: Arc<AtomicI64>,
+    error_counter: Arc<AtomicU64>,
+) -> Vec<tokio::task::JoinHandle<Vec<Duration>>> {
+    let mut handles = Vec::with_capacity(concurrency);
+
+    for task_id in 0..concurrency {
+        let storage = PostgresStorage::new(pool.clone());
+        let distinct_ids = data.distinct_ids.clone();
+        let team_indices = data.team_person_indices.clone();
+        let team_cdf = data.team_cdf.clone();
+        let version_counter = version_counter.clone();
+        let error_counter = error_counter.clone();
+
+        handles.push(tokio::spawn(async move {
+            let mut latencies = Vec::with_capacity(10_000);
+            let mut rng = StdRng::seed_from_u64(seed_offset + task_id as u64);
+
+            while Instant::now() < deadline {
+                let team_id = match select_team_weighted(&team_cdf, &mut rng) {
+                    Some(tid) => tid,
+                    None => continue,
+                };
+
+                let indices = match team_indices.get(&team_id) {
+                    Some(idx) if idx.len() >= 2 => idx,
+                    _ => continue,
+                };
+
+                let src_local = rng.gen_range(0..indices.len());
+                let mut tgt_local = rng.gen_range(0..indices.len());
+                while tgt_local == src_local {
+                    tgt_local = rng.gen_range(0..indices.len());
+                }
+
+                let (_, _, src_did) = &distinct_ids[indices[src_local]];
+                let (_, tgt_uuid, _) = &distinct_ids[indices[tgt_local]];
+
+                let assignment = DistinctIdAssignmentData {
+                    team_id,
+                    person_uuid: *tgt_uuid,
+                    distinct_id: src_did.clone().into_boxed_str(),
+                    version: version_counter.fetch_add(1, Ordering::Relaxed),
+                };
+
+                let start = Instant::now();
+                match storage.upsert_distinct_id(&assignment).await {
+                    Ok(_) => latencies.push(start.elapsed()),
+                    Err(_) => {
+                        error_counter.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            latencies
+        }));
+    }
+
+    handles
+}
+
 /// Property-only updates. Does not mutate distinct_ids, so the GIN index is untouched
 /// and updates should be HOT-eligible.
 pub async fn phase_property_updates(
@@ -190,58 +255,15 @@ pub async fn phase_merges(
     let version_counter = Arc::new(AtomicI64::new(10_000_000));
     let error_counter = Arc::new(AtomicU64::new(0));
 
-    let mut handles = Vec::with_capacity(concurrency);
-
-    for task_id in 0..concurrency {
-        let storage = PostgresStorage::new(pool.clone());
-        let distinct_ids = data.distinct_ids.clone();
-        let team_indices = data.team_person_indices.clone();
-        let team_cdf = data.team_cdf.clone();
-        let version_counter = version_counter.clone();
-        let error_counter = error_counter.clone();
-
-        handles.push(tokio::spawn(async move {
-            let mut latencies = Vec::with_capacity(10_000);
-            let mut rng = StdRng::seed_from_u64(2000 + task_id as u64);
-
-            while Instant::now() < deadline {
-                let team_id = match select_team_weighted(&team_cdf, &mut rng) {
-                    Some(tid) => tid,
-                    None => continue,
-                };
-
-                let indices = match team_indices.get(&team_id) {
-                    Some(idx) if idx.len() >= 2 => idx,
-                    _ => continue,
-                };
-
-                let src_local = rng.gen_range(0..indices.len());
-                let mut tgt_local = rng.gen_range(0..indices.len());
-                while tgt_local == src_local {
-                    tgt_local = rng.gen_range(0..indices.len());
-                }
-
-                let (_, _, src_did) = &distinct_ids[indices[src_local]];
-                let (_, tgt_uuid, _) = &distinct_ids[indices[tgt_local]];
-
-                let assignment = DistinctIdAssignmentData {
-                    team_id,
-                    person_uuid: *tgt_uuid,
-                    distinct_id: src_did.clone().into_boxed_str(),
-                    version: version_counter.fetch_add(1, Ordering::Relaxed),
-                };
-
-                let start = Instant::now();
-                match storage.upsert_distinct_id(&assignment).await {
-                    Ok(_) => latencies.push(start.elapsed()),
-                    Err(_) => {
-                        error_counter.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-            }
-            latencies
-        }));
-    }
+    let handles = spawn_merge_writers(
+        pool,
+        data,
+        concurrency,
+        deadline,
+        2000,
+        version_counter,
+        error_counter.clone(),
+    );
 
     let mut all_latencies = Vec::new();
     for handle in handles {
@@ -268,65 +290,26 @@ pub async fn phase_concurrent_reads_writes(
     data: &BenchmarkData,
     args: &BenchmarkArgs,
 ) -> anyhow::Result<(PhaseResult, PhaseResult)> {
+    // Verify the planner uses the GIN index after heavy mutations in earlier phases.
+    log_read_query_plan(pool, data).await;
+
     let before = metrics::capture_snapshot(pool).await?;
     let deadline = Instant::now() + Duration::from_secs(args.duration_secs);
     let version_counter = Arc::new(AtomicI64::new(100_000_000));
     let write_errors = Arc::new(AtomicU64::new(0));
     let read_errors = Arc::new(AtomicU64::new(0));
 
-    let mut write_handles = Vec::with_capacity(args.concurrency);
+    let write_handles = spawn_merge_writers(
+        pool,
+        data,
+        args.concurrency,
+        deadline,
+        5000,
+        version_counter,
+        write_errors.clone(),
+    );
+
     let mut read_handles = Vec::with_capacity(args.concurrency);
-
-    for task_id in 0..args.concurrency {
-        let storage = PostgresStorage::new(pool.clone());
-        let distinct_ids = data.distinct_ids.clone();
-        let team_indices = data.team_person_indices.clone();
-        let team_cdf = data.team_cdf.clone();
-        let version_counter = version_counter.clone();
-        let write_errors = write_errors.clone();
-
-        write_handles.push(tokio::spawn(async move {
-            let mut latencies = Vec::with_capacity(10_000);
-            let mut rng = StdRng::seed_from_u64(5000 + task_id as u64);
-
-            while Instant::now() < deadline {
-                let team_id = match select_team_weighted(&team_cdf, &mut rng) {
-                    Some(tid) => tid,
-                    None => continue,
-                };
-
-                let indices = match team_indices.get(&team_id) {
-                    Some(idx) if idx.len() >= 2 => idx,
-                    _ => continue,
-                };
-
-                let src_local = rng.gen_range(0..indices.len());
-                let mut tgt_local = rng.gen_range(0..indices.len());
-                while tgt_local == src_local {
-                    tgt_local = rng.gen_range(0..indices.len());
-                }
-
-                let (_, _, src_did) = &distinct_ids[indices[src_local]];
-                let (_, tgt_uuid, _) = &distinct_ids[indices[tgt_local]];
-
-                let assignment = DistinctIdAssignmentData {
-                    team_id,
-                    person_uuid: *tgt_uuid,
-                    distinct_id: src_did.clone().into_boxed_str(),
-                    version: version_counter.fetch_add(1, Ordering::Relaxed),
-                };
-
-                let start = Instant::now();
-                match storage.upsert_distinct_id(&assignment).await {
-                    Ok(_) => latencies.push(start.elapsed()),
-                    Err(_) => {
-                        write_errors.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-            }
-            latencies
-        }));
-    }
 
     for task_id in 0..args.concurrency {
         let pool = pool.clone();
@@ -395,4 +378,40 @@ pub async fn phase_concurrent_reads_writes(
     };
 
     Ok((write_result, read_result))
+}
+
+/// Log the EXPLAIN plan for the read query to confirm the GIN index is used.
+/// After heavy mutations the planner might fall back to sequential scans.
+async fn log_read_query_plan(pool: &PgPool, data: &BenchmarkData) {
+    if data.distinct_ids.is_empty() {
+        return;
+    }
+
+    let (team_id, _, did) = &data.distinct_ids[0];
+
+    let plan: Result<Vec<(String,)>, _> = sqlx::query_as(
+        "EXPLAIN (ANALYZE, BUFFERS) \
+         SELECT person_uuid, distinct_ids, properties \
+         FROM flags_person_lookup \
+         WHERE team_id = $1 AND $2 = ANY(distinct_ids) \
+         LIMIT 1",
+    )
+    .bind(team_id)
+    .bind(did)
+    .fetch_all(pool)
+    .await;
+
+    match plan {
+        Ok(rows) => {
+            let plan_text: String = rows
+                .into_iter()
+                .map(|(line,)| line)
+                .collect::<Vec<_>>()
+                .join("\n");
+            tracing::info!("Phase 5 read query plan:\n{plan_text}");
+        }
+        Err(e) => {
+            tracing::warn!("could not run EXPLAIN for read query: {e}");
+        }
+    }
 }

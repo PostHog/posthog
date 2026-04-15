@@ -65,9 +65,7 @@ async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> a
     for (batch_idx, chunk) in entries.chunks(batch_size).enumerate() {
         let team_ids: Vec<i32> = chunk.iter().map(|((tid, _), _)| *tid).collect();
         let person_uuids: Vec<Uuid> = chunk.iter().map(|((_, uuid), _)| *uuid).collect();
-        let did_arrays: Vec<Vec<String>> = chunk.iter().map(|(_, dids)| dids.clone()).collect();
-
-        let primary_dids: Vec<String> = did_arrays.iter().map(|dids| dids[0].clone()).collect();
+        let primary_dids: Vec<String> = chunk.iter().map(|(_, dids)| dids[0].clone()).collect();
 
         sqlx::query(
             r#"

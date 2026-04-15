@@ -1,5 +1,7 @@
 use sqlx::PgPool;
 
+pub const PARTITION_COUNT: usize = 64;
+
 pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
     tracing::info!("dropping existing schema (if any)");
     sqlx::query("DROP TABLE IF EXISTS flags_person_lookup CASCADE")
@@ -28,11 +30,11 @@ pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    for i in 0..64 {
+    for i in 0..PARTITION_COUNT {
         let ddl = format!(
             "CREATE TABLE IF NOT EXISTS flags_person_lookup_p{i} \
              PARTITION OF flags_person_lookup \
-             FOR VALUES WITH (MODULUS 64, REMAINDER {i})"
+             FOR VALUES WITH (MODULUS {PARTITION_COUNT}, REMAINDER {i})"
         );
         sqlx::query(&ddl).execute(pool).await?;
     }

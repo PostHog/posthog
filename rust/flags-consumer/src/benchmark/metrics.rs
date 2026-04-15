@@ -112,7 +112,7 @@ pub async fn compute_wal_delta(
 
 /// Requires pg_stat_scan_tables role. Logs a warning and returns early if unavailable.
 pub async fn reset_stats(pool: &PgPool) {
-    for i in 0..64 {
+    for i in 0..super::schema::PARTITION_COUNT {
         let table = format!("flags_person_lookup_p{i}");
         let result = sqlx::query(
             "SELECT pg_stat_reset_single_table_counters(oid) FROM pg_class WHERE relname = $1",
@@ -121,11 +121,9 @@ pub async fn reset_stats(pool: &PgPool) {
         .execute(pool)
         .await;
         if let Err(e) = result {
-            if i == 0 {
-                tracing::warn!(
-                    "could not reset pg_stat counters (need pg_stat_scan_tables role): {e}"
-                );
-            }
+            tracing::warn!(
+                "could not reset pg_stat counters for {table} (need pg_stat_scan_tables role): {e}"
+            );
             return;
         }
     }
