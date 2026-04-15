@@ -461,7 +461,7 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             key="delete"
-            status="danger"
+            status={enablePopup ? 'danger' : 'default'}
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
