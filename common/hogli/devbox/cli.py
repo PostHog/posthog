@@ -32,6 +32,7 @@ from .coder import (
     extract_workspace_label,
     get_coder_user_info,
     get_default_git_identity,
+    get_shared_users,
     get_sharing_status,
     get_workspace,
     get_workspace_name,
@@ -428,16 +429,18 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     default=None,
     help="Prompt for a Claude OAuth token to store in Keychain",
 )
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
+    verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
-    ensure_coder_installed()
+    ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
-    maybe_configure_ssh(configure_ssh=configure_ssh)
+    maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_token(configure_claude_setup)
@@ -469,6 +472,19 @@ def devbox_list() -> None:
             status = get_workspace_status(ws)
             owner = ws.get("owner_name", "unknown")
             click.echo(f"  {ws_name:<30} {click.style(status, fg=_workspace_status_color(status)):<20} (from {owner})")
+
+    shared_out: list[tuple[str, list[str]]] = []
+    for ws in workspaces:
+        ws_name = ws.get("name", "")
+        users = get_shared_users(ws_name)
+        if users:
+            shared_out.append((ws_name, users))
+    if shared_out:
+        click.echo()
+        click.echo("Shared with others:")
+        for ws_name, users in shared_out:
+            label = extract_workspace_label(ws_name) or "(default)"
+            click.echo(f"  {label:<16} {', '.join(users)}")
 
 
 @cli.command(name="devbox:users", help="List Coder users (for devbox sharing)")

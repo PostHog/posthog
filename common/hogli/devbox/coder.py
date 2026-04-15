@@ -256,7 +256,7 @@ def _warn_version_mismatch() -> None:
     )
 
 
-def _install_coder_cli() -> None:
+def _install_coder_cli(*, verbose: bool = False) -> None:
     """Install the Coder CLI into ~/.hogli/bin from the public Coder install script."""
     try:
         version = get_expected_coder_version()
@@ -269,15 +269,27 @@ def _install_coder_cli() -> None:
     prefix.mkdir(parents=True, exist_ok=True)
     version_flag = f" --version {shlex.quote(version)}" if version else ""
     cmd = f"curl -fsSL https://coder.com/install.sh | sh -s -- --prefix {shlex.quote(str(prefix))}{version_flag}"
-    result = subprocess.run(["sh", "-c", cmd], text=True)
+    result = subprocess.run(["sh", "-c", cmd], text=True, capture_output=not verbose)
     if result.returncode != 0:
+        if not verbose:
+            click.echo(result.stdout or "")
+            click.echo(result.stderr or "", err=True)
         _fail(f"Coder CLI installation failed.\nTry manually: {cmd}")
 
+    if not verbose:
+        # Show only the preamble lines (before shell trace output starts)
+        for line in (result.stdout or "").splitlines():
+            if line.startswith("+ "):
+                break
+            stripped = line.strip()
+            if stripped:
+                click.echo(f"  {stripped}")
 
-def ensure_coder_installed() -> None:
+
+def ensure_coder_installed(*, verbose: bool = False) -> None:
     """Install the Coder CLI at the expected version, or reinstall on mismatch."""
     if not coder_installed():
-        _install_coder_cli()
+        _install_coder_cli(verbose=verbose)
         return
 
     try:
@@ -289,7 +301,7 @@ def ensure_coder_installed() -> None:
     installed = get_installed_coder_version()
     if installed is not None and installed != expected:
         click.echo(f"coder CLI v{installed} does not match expected v{expected}.")
-        _install_coder_cli()
+        _install_coder_cli(verbose=verbose)
     else:
         click.echo("coder CLI is installed.")
 
@@ -336,7 +348,7 @@ def ensure_runtime_ready() -> None:
     _warn_version_mismatch()
 
 
-def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
+def maybe_configure_ssh(*, configure_ssh: bool | None, verbose: bool = False) -> None:
     """Install Coder SSH config, skipping only when explicitly opted out."""
     if not _ssh_config_needs_update():
         click.echo("Coder SSH config is up to date.")
@@ -344,15 +356,23 @@ def maybe_configure_ssh(*, configure_ssh: bool | None) -> None:
 
     if configure_ssh is False:
         click.echo("Skipping SSH config.")
-        click.echo("Run `coder config-ssh` later if you want local SSH host entries.")
+        click.echo("Run `hogli devbox:setup` later if you want local SSH host entries.")
         return
 
     click.echo("Adding Coder workspace entries to ~/.ssh/config...")
-    result = _run([*_config_ssh_args(), "--yes"])
+    result = _run([*_config_ssh_args(), "--yes"], capture_output=not verbose)
     if result.returncode != 0:
+        if not verbose:
+            click.echo(result.stdout or "")
+            click.echo(result.stderr or "", err=True)
         raise SystemExit(result.returncode)
 
-    click.echo("Run `coder config-ssh --remove` to revert.")
+    if not verbose:
+        # Show only the "Updated ..." line from coder's output
+        for line in (result.stdout or "").splitlines():
+            if "Updated" in line:
+                click.echo(f"  {line.strip()}")
+                break
 
 
 def print_setup_summary() -> None:
@@ -716,9 +736,22 @@ def get_sharing_status(name: str) -> subprocess.CompletedProcess[str]:
     return _run(["coder", "sharing", "status", name], capture_output=True)
 
 
+def get_shared_users(name: str) -> list[str]:
+    """Return usernames that a workspace is shared with (empty if none)."""
+    result = get_sharing_status(name)
+    if result.returncode != 0:
+        return []
+    users: list[str] = []
+    for line in result.stdout.strip().splitlines()[1:]:  # skip header
+        parts = line.split()
+        if parts and parts[0] != "-":
+            users.append(parts[0])
+    return users
+
+
 def list_shared_workspaces() -> list[dict[str, Any]]:
-    """Return workspaces that have been shared with the current user."""
-    result = _run(["coder", "list", "--search", "shared:true", "--output", "json"], capture_output=True)
+    """Return workspaces that other users have shared with the current user."""
+    result = _run(["coder", "list", "--search", "shared:true owner:!me", "--output", "json"], capture_output=True)
     if result.returncode != 0:
         return []
 

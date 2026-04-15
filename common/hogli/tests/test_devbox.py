@@ -380,12 +380,12 @@ class TestDevboxCommands:
     def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: calls.append("install"))
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_ssh",
-            lambda configure_ssh: calls.append(f"ssh:{configure_ssh}"),
+            lambda configure_ssh, **kw: calls.append(f"ssh:{configure_ssh}"),
         )
         monkeypatch.setattr(
             devbox_cli,
@@ -431,9 +431,9 @@ class TestDevboxCommands:
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
     ) -> None:
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -460,9 +460,9 @@ class TestDevboxCommands:
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
