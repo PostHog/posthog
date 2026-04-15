@@ -41,7 +41,7 @@ export function ProjectsGridCell({ state }: { state: CellState }): JSX.Element {
 
     const { sibling } = state
     const rollout = groupFilters(sibling.filters, true)
-    const evals = sibling.evaluations_7d_available ? (sibling.evaluations_7d ?? 0).toLocaleString() : '—'
+    const evals = typeof sibling.evaluations_7d === 'number' ? sibling.evaluations_7d.toLocaleString() : '—'
 
     return (
         <LemonTableLink

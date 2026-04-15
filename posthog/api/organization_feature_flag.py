@@ -1,6 +1,5 @@
 import copy
-
-from django.core.cache import cache
+from typing import cast
 
 import structlog
 from rest_framework import mixins, serializers, status, viewsets
@@ -15,7 +14,7 @@ from posthog.api.utils import action
 from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
-from posthog.models.feature_flag.cross_project_evaluations import get_evaluations_7d_by_team
+from posthog.models.feature_flag.flag_analytics import get_cached_evaluations_7d_by_team
 from posthog.models.filters.filter import Filter
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.user_permissions import UserPermissions
@@ -71,30 +70,22 @@ class OrganizationFeatureFlagView(
     lookup_field = "feature_flag_key"
 
     def retrieve(self, request, *args, **kwargs):
-        feature_flag_key: str = kwargs[self.lookup_field]
+        feature_flag_key = kwargs.get(self.lookup_field)
 
         # Only return flags from teams the user has access to
         user_permissions = UserPermissions(user=request.user)
         accessible_team_ids = user_permissions.team_ids_visible_for_user
         org_team_ids = set(self.organization.teams.values_list("id", flat=True))
-        team_ids = sorted(org_team_ids & set(accessible_team_ids))
+        team_ids = list(org_team_ids & set(accessible_team_ids))
 
         flags = FeatureFlag.objects.filter(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
 
-        flag_team_ids = [flag.team_id for flag in flags]
-        cache_key = f"org_ff_evals_7d:{self.organization_id}:{feature_flag_key}:" + ",".join(
-            str(t) for t in sorted(flag_team_ids)
+        counts_by_team = get_cached_evaluations_7d_by_team(
+            cast(str, feature_flag_key), [flag.team_id for flag in flags]
         )
-
-        cached = cache.get(cache_key)
-        if cached is None:
-            cached = get_evaluations_7d_by_team(feature_flag_key, flag_team_ids)
-            if cached[1]:  # only cache when the helper reports success
-                cache.set(cache_key, cached, timeout=300)
-        counts_by_team, evals_available = cached
 
         flags_data = [
             {
@@ -106,8 +97,7 @@ class OrganizationFeatureFlagView(
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
-                "evaluations_7d": counts_by_team.get(flag.team_id, 0),
-                "evaluations_7d_available": evals_available,
+                "evaluations_7d": counts_by_team.get(flag.team_id) if counts_by_team is not None else None,
             }
             for flag in flags
         ]

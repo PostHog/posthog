@@ -5,13 +5,17 @@ import concurrent.futures
 import pytest
 from freezegun import config, configure, freeze_time  # type: ignore
 from posthog.test.base import (
+    APIBaseTest,
     BaseTest,
+    ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
     flush_persons_and_events,
     snapshot_postgres_queries_context,
 )
 from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
 
 from posthog import redis
 from posthog.api.feature_flag import _create_usage_dashboard
@@ -23,6 +27,8 @@ from posthog.models.feature_flag.flag_analytics import (
     capture_team_decide_usage,
     capture_usage_for_all_teams,
     find_flags_with_enriched_analytics,
+    get_cached_evaluations_7d_by_team,
+    get_evaluations_7d_by_team,
     get_team_request_library_key,
     increment_request_count,
 )
@@ -985,3 +991,84 @@ class TestEnrichedAnalytics(BaseTest):
         f1.refresh_from_db()
         self.assertEqual(f1.has_enriched_analytics, True)
         self.assertEqual(f1.usage_dashboard, None)
+
+
+class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
+    def test_returns_zero_when_no_events(self):
+        counts = get_evaluations_7d_by_team("some_key", [self.team.id])
+        assert counts == {self.team.id: 0}
+
+    def test_counts_events_by_team(self):
+        other_team = self.organization.teams.create(name="Other")
+        _create_event(
+            team=self.team,
+            distinct_id="u1",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "my_flag", "$feature_flag_response": True},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u2",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "my_flag", "$feature_flag_response": False},
+        )
+        _create_event(
+            team=other_team,
+            distinct_id="u3",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "my_flag", "$feature_flag_response": True},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u4",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "unrelated", "$feature_flag_response": True},
+        )
+        flush_persons_and_events()
+
+        counts = get_evaluations_7d_by_team("my_flag", [self.team.id, other_team.id])
+
+        assert counts == {self.team.id: 2, other_team.id: 1}
+
+    def test_returns_empty_dict_when_no_team_ids(self):
+        assert get_evaluations_7d_by_team("any_flag", []) == {}
+
+    def test_returns_none_when_clickhouse_fails(self):
+        with patch(
+            "posthog.models.feature_flag.flag_analytics.sync_execute",
+            side_effect=RuntimeError("boom"),
+        ):
+            assert get_evaluations_7d_by_team("my_flag", [self.team.id, 99]) is None
+
+
+class TestCachedCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_cached_returns_same_result_on_second_call(self):
+        with patch(
+            "posthog.models.feature_flag.flag_analytics.get_evaluations_7d_by_team",
+            return_value={self.team.id: 5},
+        ) as spy:
+            first = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
+            second = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
+
+        assert first == {self.team.id: 5}
+        assert second == {self.team.id: 5}
+        assert spy.call_count == 1
+
+    def test_failure_results_are_not_cached(self):
+        with patch(
+            "posthog.models.feature_flag.flag_analytics.get_evaluations_7d_by_team",
+            side_effect=[None, {self.team.id: 7}],
+        ) as spy:
+            first = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
+            second = get_cached_evaluations_7d_by_team("my_flag", [self.team.id])
+
+        assert first is None
+        assert second == {self.team.id: 7}
+        assert spy.call_count == 2
+
+    def test_cached_returns_empty_dict_when_no_team_ids(self):
+        assert get_cached_evaluations_7d_by_team("any_flag", []) == {}

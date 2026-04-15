@@ -72,7 +72,6 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
                 "evaluations_7d": 0,
-                "evaluations_7d_available": True,
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
@@ -1289,15 +1288,13 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
     def _url(self, key: str) -> str:
         return f"/api/organizations/{self.organization.id}/feature_flags/{key}/"
 
-    def test_response_includes_evaluation_fields(self):
+    def test_response_includes_evaluations_field(self):
         response = self.client.get(self._url("shared_flag"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert len(body) == 2
         for entry in body:
             assert "evaluations_7d" in entry
-            assert "evaluations_7d_available" in entry
-            assert entry["evaluations_7d_available"] is True
 
     def test_evaluation_counts_match_events(self):
         _create_event(
@@ -1326,36 +1323,11 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
         assert by_team[self.team.id] == 2
         assert by_team[self.other_team.id] == 1
 
-    def test_second_call_hits_cache(self):
+    def test_clickhouse_failure_returns_null_evaluations(self):
         with patch(
-            "posthog.api.organization_feature_flag.get_evaluations_7d_by_team",
-            return_value=({self.team.id: 5, self.other_team.id: 3}, True),
-        ) as spy:
-            self.client.get(self._url("shared_flag"))
-            self.client.get(self._url("shared_flag"))
-        assert spy.call_count == 1
-
-    def test_clickhouse_failure_sets_available_false(self):
-        with patch(
-            "posthog.api.organization_feature_flag.get_evaluations_7d_by_team",
-            return_value=({self.team.id: 0, self.other_team.id: 0}, False),
+            "posthog.api.organization_feature_flag.get_cached_evaluations_7d_by_team",
+            return_value=None,
         ):
             body = self.client.get(self._url("shared_flag")).json()
         for entry in body:
-            assert entry["evaluations_7d"] == 0
-            assert entry["evaluations_7d_available"] is False
-
-    def test_failure_results_are_not_cached(self):
-        with patch(
-            "posthog.api.organization_feature_flag.get_evaluations_7d_by_team",
-            side_effect=[
-                ({self.team.id: 0, self.other_team.id: 0}, False),
-                ({self.team.id: 7, self.other_team.id: 3}, True),
-            ],
-        ) as spy:
-            first = self.client.get(self._url("shared_flag")).json()
-            second = self.client.get(self._url("shared_flag")).json()
-
-        assert spy.call_count == 2
-        assert {entry["evaluations_7d_available"] for entry in first} == {False}
-        assert {entry["evaluations_7d_available"] for entry in second} == {True}
+            assert entry["evaluations_7d"] is None

@@ -200,7 +200,12 @@ async function drainQueue(
             actions.siblingsFailed(nextKey)
             return
         }
-        const siblings = await api.organizationFeatureFlags.get(orgId, nextKey)
+        // The wrapper is typed as `OrganizationFeatureFlags` (a legacy name), but the
+        // endpoint actually returns a list of `OrganizationFeatureFlag`. Narrow once here.
+        const siblings = (await api.organizationFeatureFlags.get(
+            orgId,
+            nextKey
+        )) as unknown as OrganizationFeatureFlag[]
         actions.siblingsLoaded(nextKey, siblings)
     } catch {
         actions.siblingsFailed(nextKey)
