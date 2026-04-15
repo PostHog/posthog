@@ -38,6 +38,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.item_id, "6")
         self.assertEqual(log.scope, "FeatureFlag")
         self.assertEqual(log.activity, "updated")
+        assert log.detail is not None
         self.assertEqual(log.detail["changes"], [change.__dict__])
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:

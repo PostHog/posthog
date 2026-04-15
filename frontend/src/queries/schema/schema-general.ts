@@ -1891,6 +1891,15 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
+    /**
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     */
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -3482,6 +3491,7 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
+    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -5964,10 +5974,22 @@ export interface CustomerAnalyticsConfig {
  */
 export interface ProductItem {
     path: string
-    category: string | null
+    category: ProductItemCategory | null
     iconType: string | null
     type: string | null
     intents: ProductKey[]
+}
+
+export enum ProductItemCategory {
+    ANALYTICS = 'Analytics',
+    AI_ENGINEERING = 'AI engineering',
+    BEHAVIOR = 'Behavior',
+    FEATURES = 'Features',
+    TOOLS = 'Tools',
+    SCHEMA = 'Schema',
+    PIPELINE = 'Pipeline',
+    METADATA = 'Metadata',
+    UNRELEASED = 'Unreleased',
 }
 
 /**

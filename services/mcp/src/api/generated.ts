@@ -4580,6 +4580,8 @@ export namespace Schemas {
       experiment_id?: number | null;
       kind?: ExperimentQueryKind;
       metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
+      /** @nullable */
+      metric_events_precomputation?: boolean | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** @nullable */
@@ -8859,6 +8861,27 @@ export namespace Schemas {
       deleted?: boolean | null;
     }
 
+    /**
+     * InsightSerializer restricted to identifiers + result only.
+     */
+    export interface InsightResult {
+      readonly id: number;
+      readonly short_id: string;
+      /** @nullable */
+      readonly name: string | null;
+      /** @nullable */
+      readonly derived_name: string | null;
+      readonly result: unknown;
+    }
+
+    /**
+     * DashboardTileSerializer restricted to tile id + insight result fields.
+     */
+    export interface DashboardTileResult {
+      id?: number;
+      insight: InsightResult;
+    }
+
     export interface DataColorTheme {
       readonly id: number;
       /** @maxLength 100 */
@@ -9652,6 +9675,9 @@ export namespace Schemas {
       Firebase: 'firebase',
       Jira: 'jira',
       PinterestAds: 'pinterest-ads',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -13660,6 +13686,7 @@ export namespace Schemas {
        * @nullable
        */
       debug?: boolean | null;
+      filters_override?: DashboardFilter | null;
       /**
        * Maximum number of results to return. If not provided, returns all results.
        * @nullable
@@ -14393,6 +14420,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `error` - Error
+     */
+    export type EvaluationStatusEnum = typeof EvaluationStatusEnum[keyof typeof EvaluationStatusEnum];
+
+
+    export const EvaluationStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Error: 'error',
+    } as const;
+
+    /**
+     * * `trial_limit_reached` - Trial evaluation limit reached
+    * `model_not_allowed` - Model not available on the trial plan
+    * `provider_key_deleted` - Provider API key was deleted
+     */
+    export type StatusReasonEnum = typeof StatusReasonEnum[keyof typeof StatusReasonEnum];
+
+
+    export const StatusReasonEnum = {
+      TrialLimitReached: 'trial_limit_reached',
+      ModelNotAllowed: 'model_not_allowed',
+      ProviderKeyDeleted: 'provider_key_deleted',
+    } as const;
+
+    /**
      * * `llm_judge` - LLM as a judge
     * `hog` - Hog
      */
@@ -14421,10 +14476,10 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
      */
-    export type ProviderEnum = typeof ProviderEnum[keyof typeof ProviderEnum];
+    export type Provider519Enum = typeof Provider519Enum[keyof typeof Provider519Enum];
 
 
-    export const ProviderEnum = {
+    export const Provider519Enum = {
       Openai: 'openai',
       Anthropic: 'anthropic',
       Gemini: 'gemini',
@@ -14436,7 +14491,7 @@ export namespace Schemas {
      * Nested serializer for model configuration.
      */
     export interface ModelConfiguration {
-      provider: ProviderEnum;
+      provider: Provider519Enum;
       /** @maxLength 100 */
       model: string;
       /** @nullable */
@@ -14451,6 +14506,8 @@ export namespace Schemas {
       name: string;
       description?: string;
       enabled?: boolean;
+      readonly status: EvaluationStatusEnum;
+      readonly status_reason: StatusReasonEnum | NullEnum | null;
       evaluation_type: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type: OutputTypeEnum;
@@ -15019,6 +15076,8 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       only_count_matured_users?: boolean;
+      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      update_feature_flag_params?: boolean;
       readonly status: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -17988,11 +18047,14 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
     * `stripe` - Stripe
+    * `customerio-app` - Customerio App
+    * `customerio-webhook` - Customerio Webhook
+    * `customerio-track` - Customerio Track
      */
-    export type KindBa9Enum = typeof KindBa9Enum[keyof typeof KindBa9Enum];
+    export type KindEc9Enum = typeof KindEc9Enum[keyof typeof KindEc9Enum];
 
 
-    export const KindBa9Enum = {
+    export const KindEc9Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -18022,6 +18084,9 @@ export namespace Schemas {
       Jira: 'jira',
       PinterestAds: 'pinterest-ads',
       Stripe: 'stripe',
+      CustomerioApp: 'customerio-app',
+      CustomerioWebhook: 'customerio-webhook',
+      CustomerioTrack: 'customerio-track',
     } as const;
 
     /**
@@ -18029,7 +18094,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: KindBa9Enum;
+      kind: KindEc9Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -18570,6 +18635,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions
+     */
+    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
+
+
+    export const InitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+    } as const;
+
+    /**
      * @nullable
      */
     export type InsightResolvedDateRange = {
@@ -18946,7 +19027,7 @@ export namespace Schemas {
 
     export interface LLMProviderKey {
       readonly id: string;
-      provider: ProviderEnum;
+      provider: Provider519Enum;
       /** @maxLength 255 */
       name: string;
       readonly state: LLMProviderKeyStateEnum;
@@ -19575,6 +19656,8 @@ export namespace Schemas {
      * * `user_message` - user_message
     * `cancel` - cancel
     * `close` - close
+    * `permission_response` - permission_response
+    * `set_config_option` - set_config_option
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -19583,6 +19666,8 @@ export namespace Schemas {
       UserMessage: 'user_message',
       Cancel: 'cancel',
       Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
     } as const;
 
     export interface MinimalPerson {
@@ -19711,6 +19796,21 @@ export namespace Schemas {
        */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
+    }
+
+    export interface NotebookCollabSave {
+      /** Unique identifier for the client session. */
+      client_id: string;
+      /** The collab version the client's steps are based on. */
+      version: number;
+      /** List of ProseMirror step JSON objects to apply. */
+      steps: unknown[];
+      /** The resulting ProseMirror document after applying the steps locally. */
+      content: unknown;
+      /** Plain text for search indexing. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
     }
 
     export interface NotebookMinimal {
@@ -22152,6 +22252,42 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    /**
+     * * `claude` - claude
+    * `codex` - codex
+     */
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+
+
+    export const RuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+    } as const;
+
+    export type TaskRunDetailProviderEnum = typeof TaskRunDetailProviderEnum[keyof typeof TaskRunDetailProviderEnum];
+
+
+    export const TaskRunDetailProviderEnum = {
+      Anthropic: 'anthropic',
+      Openai: 'openai',
+    } as const;
+
+    /**
+     * * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max
+     */
+    export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
+
+
+    export const ReasoningEffortEnum = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Max: 'max',
+    } as const;
+
     export interface TaskRunArtifactResponse {
       /** Artifact file name */
       name: string;
@@ -22188,6 +22324,17 @@ export namespace Schemas {
     * `local` - Local
     * `cloud` - Cloud */
       environment?: EnvironmentEnum;
+      /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
+      readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
+      /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
+      readonly provider: TaskRunDetailProviderEnum | NullEnum | null;
+      /**
+       * Configured LLM model identifier for this run.
+       * @nullable
+       */
+      readonly model: string | null;
+      /** Configured reasoning effort for this run when the selected model supports it. */
+      readonly reasoning_effort: ReasoningEffortEnum | NullEnum | null;
       /**
        * Presigned S3 URL for log access (valid for 1 hour).
        * @nullable
@@ -22347,9 +22494,22 @@ export namespace Schemas {
       readonly channel_source: ChannelSourceEnum;
       readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
+      /** Ticket status: new, open, pending, on_hold, or resolved
+
+    * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved */
       status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, or high. Null if unset.
+
+    * `low` - Low
+    * `medium` - Medium
+    * `high` - High */
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee: TicketAssignment;
+      /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
       /** @nullable */
@@ -22366,8 +22526,13 @@ export namespace Schemas {
       /** @nullable */
       readonly session_id: string | null;
       readonly session_context: unknown;
-      /** @nullable */
+      /**
+       * SLA deadline set via workflows. Null means no SLA.
+       * @nullable
+       */
       sla_due_at?: string | null;
+      /** @nullable */
+      snoozed_until?: string | null;
       /** @nullable */
       readonly slack_channel_id: string | null;
       /** @nullable */
@@ -23917,6 +24082,8 @@ export namespace Schemas {
       name?: string;
       description?: string;
       enabled?: boolean;
+      readonly status?: EvaluationStatusEnum;
+      readonly status_reason?: StatusReasonEnum | NullEnum | null;
       evaluation_type?: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type?: OutputTypeEnum;
@@ -24017,6 +24184,8 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown | null;
       secondary_metrics_ordered_uuids?: unknown | null;
       only_count_matured_users?: boolean;
+      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      update_feature_flag_params?: boolean;
       readonly status?: ExperimentStatusEnum | NullEnum | null;
       /**
        * The effective access level the user has for this object
@@ -24560,7 +24729,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: KindBa9Enum;
+      kind?: KindEc9Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -24582,7 +24751,7 @@ export namespace Schemas {
 
     export interface PatchedLLMProviderKey {
       readonly id?: string;
-      provider?: ProviderEnum;
+      provider?: Provider519Enum;
       /** @maxLength 255 */
       name?: string;
       readonly state?: LLMProviderKeyStateEnum;
@@ -25484,7 +25653,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: KindBa9Enum;
+      readonly kind: KindEc9Enum;
       readonly display_name: string;
     }
 
@@ -26597,9 +26766,22 @@ export namespace Schemas {
       readonly channel_source?: ChannelSourceEnum;
       readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
+      /** Ticket status: new, open, pending, on_hold, or resolved
+
+    * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved */
       status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, or high. Null if unset.
+
+    * `low` - Low
+    * `medium` - Medium
+    * `high` - High */
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee?: TicketAssignment;
+      /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
       /** @nullable */
@@ -26616,8 +26798,13 @@ export namespace Schemas {
       /** @nullable */
       readonly session_id?: string | null;
       readonly session_context?: unknown;
-      /** @nullable */
+      /**
+       * SLA deadline set via workflows. Null means no SLA.
+       * @nullable
+       */
       sla_due_at?: string | null;
+      /** @nullable */
+      snoozed_until?: string | null;
       /** @nullable */
       readonly slack_channel_id?: string | null;
       /** @nullable */
@@ -30265,6 +30452,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RunInsightsResponse {
+      /** Results for each insight tile on the dashboard. */
+      results: DashboardTileResult[];
+    }
+
     /**
      * * `manual` - manual
     * `signal_report` - signal_report
@@ -31116,7 +31308,9 @@ export namespace Schemas {
 
     * `user_message` - user_message
     * `cancel` - cancel
-    * `close` - close */
+    * `close` - close
+    * `permission_response` - permission_response
+    * `set_config_option` - set_config_option */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -31193,8 +31387,29 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
+      /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
+
+    * `claude` - claude
+    * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier to run in the selected runtime. */
+      model?: string;
+      /** Reasoning effort to request for models that expose an effort control.
+
+    * `low` - low
+    * `medium` - medium
+    * `high` - high
+    * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
+      /** Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).
+
+    * `default` - default
+    * `acceptEdits` - acceptEdits
+    * `plan` - plan
+    * `bypassPermissions` - bypassPermissions */
+      initial_permission_mode?: InitialPermissionModeEnum;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -31889,6 +32104,43 @@ export namespace Schemas {
     export const EnvironmentsDashboardsReorderTilesCreateFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
+    format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: EnvironmentsDashboardsRunInsightsRetrieveOutputFormat;
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
+    };
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = {
+      Json: 'json',
+      Optimized: 'optimized',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveRefresh = typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
     } as const;
 
     export type EnvironmentsDashboardsSnapshotCreateParams = {
@@ -34654,6 +34906,30 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
+     * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
+     */
+    assignee?: string;
+    /**
+     * Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).
+     */
+    channel_detail?: ConversationsTicketsListChannelDetail;
+    /**
+     * Filter by the channel the ticket originated from.
+     */
+    channel_source?: ConversationsTicketsListChannelSource;
+    /**
+     * Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter.
+     */
+    date_from?: string;
+    /**
+     * Only include tickets updated on or before this date. Same format as `date_from`.
+     */
+    date_to?: string;
+    /**
+     * Comma-separated list of person `distinct_id`s to filter by (max 100).
+     */
+    distinct_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -34661,7 +34937,60 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.
+     */
+    order_by?: string;
+    /**
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     */
+    priority?: string;
+    /**
+     * Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match).
+     */
+    search?: string;
+    /**
+     * Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.
+     */
+    sla?: ConversationsTicketsListSla;
+    /**
+     * Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.
+     */
+    status?: string;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     */
+    tags?: string;
     };
+
+    export type ConversationsTicketsListChannelDetail = typeof ConversationsTicketsListChannelDetail[keyof typeof ConversationsTicketsListChannelDetail];
+
+
+    export const ConversationsTicketsListChannelDetail = {
+      SlackBotMention: 'slack_bot_mention',
+      SlackChannelMessage: 'slack_channel_message',
+      SlackEmojiReaction: 'slack_emoji_reaction',
+      WidgetApi: 'widget_api',
+      WidgetEmbedded: 'widget_embedded',
+    } as const;
+
+    export type ConversationsTicketsListChannelSource = typeof ConversationsTicketsListChannelSource[keyof typeof ConversationsTicketsListChannelSource];
+
+
+    export const ConversationsTicketsListChannelSource = {
+      Email: 'email',
+      Slack: 'slack',
+      Widget: 'widget',
+    } as const;
+
+    export type ConversationsTicketsListSla = typeof ConversationsTicketsListSla[keyof typeof ConversationsTicketsListSla];
+
+
+    export const ConversationsTicketsListSla = {
+      AtRisk: 'at-risk',
+      Breached: 'breached',
+      OnTrack: 'on-track',
+    } as const;
 
     export type DashboardTemplatesListParams = {
     /**
@@ -34833,6 +35162,43 @@ export namespace Schemas {
     export const DashboardsReorderTilesCreateFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveParams = {
+    format?: DashboardsRunInsightsRetrieveFormat;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat;
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh;
+    };
+
+    export type DashboardsRunInsightsRetrieveFormat = typeof DashboardsRunInsightsRetrieveFormat[keyof typeof DashboardsRunInsightsRetrieveFormat];
+
+
+    export const DashboardsRunInsightsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveOutputFormat = typeof DashboardsRunInsightsRetrieveOutputFormat[keyof typeof DashboardsRunInsightsRetrieveOutputFormat];
+
+
+    export const DashboardsRunInsightsRetrieveOutputFormat = {
+      Json: 'json',
+      Optimized: 'optimized',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveRefresh = typeof DashboardsRunInsightsRetrieveRefresh[keyof typeof DashboardsRunInsightsRetrieveRefresh];
+
+
+    export const DashboardsRunInsightsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
     } as const;
 
     export type DashboardsSnapshotCreateParams = {

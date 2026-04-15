@@ -1,7 +1,7 @@
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric, ProductKey } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -47,7 +47,7 @@ export const manifest: ProductManifest = {
         {
             path: `Experiments`,
             intents: [ProductKey.EXPERIMENTS],
-            category: 'Features',
+            category: ProductItemCategory.FEATURES,
             type: 'experiment',
             href: urls.experiments(),
             iconType: 'experiment',

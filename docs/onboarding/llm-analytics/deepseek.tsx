@@ -9,14 +9,25 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
 
     return [
         {
-            title: 'Install the PostHog SDK',
+            title: 'Install dependencies',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
-                        works best with our Python and Node SDKs.
-                    </Markdown>
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                        <Markdown>
+                            See the complete
+                            [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-deepseek) and
+                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-deepseek)
+                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
+                            the [Node.js
+                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-deepseek)
+                            and [Python
+                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-deepseek)
+                            examples.
+                        </Markdown>
+                    </CalloutBox>
+
+                    <Markdown>Install the OpenTelemetry SDK, the OpenAI instrumentation, and the OpenAI SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -24,14 +35,14 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install posthog
+                                    pip install openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node
+                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}
@@ -40,47 +51,13 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
             ),
         },
         {
-            title: 'Install the OpenAI SDK',
+            title: 'Set up OpenTelemetry tracing',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI
-                        client. The PostHog SDK **does not** proxy your calls.
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'bash',
-                                file: 'Python',
-                                code: dedent`
-                                    pip install openai
-                                `,
-                            },
-                            {
-                                language: 'bash',
-                                file: 'Node',
-                                code: dedent`
-                                    npm install openai
-                                `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Initialize PostHog and OpenAI client',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        We call DeepSeek through the OpenAI client and generate a response. We'll use PostHog's OpenAI
-                        provider to capture all the details of the call. Initialize PostHog with your PostHog project
-                        token and host from [your project settings](https://app.posthog.com/settings/project), then pass
-                        the PostHog client along with the DeepSeek config (the base URL and API key) to our OpenAI
-                        wrapper.
+                        Configure OpenTelemetry to auto-instrument OpenAI SDK calls and export traces to PostHog.
+                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
                     </Markdown>
 
                     <CodeBlock
@@ -89,61 +66,58 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog.ai.openai import OpenAI
-                                    from posthog import Posthog
+                                    from opentelemetry import trace
+                                    from opentelemetry.sdk.trace import TracerProvider
+                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+                                    from posthog.ai.otel import PostHogSpanProcessor
+                                    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 
-                                    posthog = Posthog(
-                                        "<ph_project_token>",
-                                        host="<ph_client_api_host>"
-                                    )
+                                    resource = Resource(attributes={
+                                        SERVICE_NAME: "my-app",
+                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
+                                        "foo": "bar", # custom properties are passed through
+                                    })
 
-                                    client = OpenAI(
-                                        base_url="https://api.deepseek.com",
-                                        api_key="<deepseek_api_key>",
-                                        posthog_client=posthog
+                                    provider = TracerProvider(resource=resource)
+                                    provider.add_span_processor(
+                                        PostHogSpanProcessor(
+                                            api_key="<ph_project_token>",
+                                            host="<ph_client_api_host>",
+                                        )
                                     )
+                                    trace.set_tracer_provider(provider)
+
+                                    OpenAIInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { OpenAI } from '@posthog/ai'
-                                    import { PostHog } from 'posthog-node'
+                                    import { NodeSDK } from '@opentelemetry/sdk-node'
+                                    import { resourceFromAttributes } from '@opentelemetry/resources'
+                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
+                                    import { OpenAIInstrumentation } from '@opentelemetry/instrumentation-openai'
 
-                                    const phClient = new PostHog(
-                                      '<ph_project_token>',
-                                      { host: '<ph_client_api_host>' }
-                                    );
-
-                                    const openai = new OpenAI({
-                                      baseURL: 'https://api.deepseek.com',
-                                      apiKey: '<deepseek_api_key>',
-                                      posthog: phClient,
-                                    });
-
-                                    // ... your code here ...
-
-                                    // IMPORTANT: Shutdown the client when you're done to ensure all events are sent
-                                    phClient.shutdown()
+                                    const sdk = new NodeSDK({
+                                      resource: resourceFromAttributes({
+                                        'service.name': 'my-app',
+                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
+                                        foo: 'bar', // custom properties are passed through
+                                      }),
+                                      spanProcessors: [
+                                        new PostHogSpanProcessor({
+                                          apiKey: '<ph_project_token>',
+                                          host: '<ph_client_api_host>',
+                                        }),
+                                      ],
+                                      instrumentations: [new OpenAIInstrumentation()],
+                                    })
+                                    sdk.start()
                                 `,
                             },
                         ]}
                     />
-
-                    <Blockquote>
-                        <Markdown>**Note:** This also works with the `AsyncOpenAI` client.</Markdown>
-                    </Blockquote>
-
-                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
-                        <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
-                            you will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
-                            details.
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },
@@ -153,9 +127,8 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
             content: (
                 <>
                     <Markdown>
-                        Now, when you call DeepSeek with the OpenAI SDK, PostHog automatically captures an
-                        `$ai_generation` event. You can also capture or modify additional properties with the distinct
-                        ID, trace ID, properties, groups, and privacy mode parameters.
+                        Now, when you use the OpenAI SDK to call DeepSeek, PostHog automatically captures
+                        `$ai_generation` events via the OpenTelemetry instrumentation.
                     </Markdown>
 
                     <CodeBlock
@@ -164,16 +137,19 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
+                                    import openai
+
+                                    client = openai.OpenAI(
+                                        base_url="https://api.deepseek.com",
+                                        api_key="<deepseek_api_key>",
+                                    )
+
                                     response = client.chat.completions.create(
                                         model="deepseek-chat",
+                                        max_completion_tokens=1024,
                                         messages=[
                                             {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
                                         ],
-                                        posthog_distinct_id="user_123", # optional
-                                        posthog_trace_id="trace_123", # optional
-                                        posthog_properties={"conversation_id": "abc123", "paid": True}, # optional
-                                        posthog_groups={"company": "company_id_in_your_db"},  # optional
-                                        posthog_privacy_mode=False # optional
                                     )
 
                                     print(response.choices[0].message.content)
@@ -183,17 +159,20 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const completion = await openai.chat.completions.create({
-                                        model: "deepseek-chat",
-                                        messages: [{ role: "user", content: "Tell me a fun fact about hedgehogs" }],
-                                        posthogDistinctId: "user_123", // optional
-                                        posthogTraceId: "trace_123", // optional
-                                        posthogProperties: { conversation_id: "abc123", paid: true }, // optional
-                                        posthogGroups: { company: "company_id_in_your_db" }, // optional
-                                        posthogPrivacyMode: false // optional
-                                    });
+                                    import OpenAI from 'openai'
 
-                                    console.log(completion.choices[0].message.content)
+                                    const client = new OpenAI({
+                                      baseURL: 'https://api.deepseek.com',
+                                      apiKey: '<deepseek_api_key>',
+                                    })
+
+                                    const response = await client.chat.completions.create({
+                                      model: 'deepseek-chat',
+                                      max_completion_tokens: 1024,
+                                      messages: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
+                                    })
+
+                                    console.log(response.choices[0].message.content)
                                 `,
                             },
                         ]}
@@ -201,14 +180,9 @@ export const getDeepSeekSteps = (ctx: OnboardingComponentsContext): StepDefiniti
 
                     <Blockquote>
                         <Markdown>
-                            {dedent`
-                            **Notes:**
-                            - We also support the old \`chat.completions\` API.
-                            - This works with responses where \`stream=True\`.
-                            - If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request.
-
-                            See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
-                            `}
+                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
+                            resource attribute. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
 
