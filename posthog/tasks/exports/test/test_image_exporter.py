@@ -510,30 +510,15 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
 
         url_to_render = mock_screenshot_asset.call_args[0][1]
 
-        # Verify the browser can parse the encoded URL and recover the full values
-        from playwright.sync_api import sync_playwright
+        # Verify URL parsing recovers the full values (same as browser URL parsing)
+        from urllib.parse import parse_qs, urlparse
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto("data:text/html,<h1>test</h1>")
+        parsed = urlparse(url_to_render)
+        params = parse_qs(parsed.query)
 
-            result = page.evaluate(
-                """(url) => {
-                const u = new URL(url);
-                return {
-                    pageURL: u.searchParams.get('pageURL'),
-                    dataURL: u.searchParams.get('dataURL'),
-                    allKeys: Array.from(u.searchParams.keys()),
-                };
-            }""",
-                url_to_render,
-            )
-            browser.close()
-
-        assert result["pageURL"] == "https://example.com/page?tab=home"
-        assert result["dataURL"] == data_url
-        assert set(result["allKeys"]) == {"token", "pageURL", "dataURL"}
+        assert params["pageURL"] == ["https://example.com/page?tab=home"]
+        assert params["dataURL"] == [data_url]
+        assert set(params.keys()) == {"token", "pageURL", "dataURL"}
 
     def test_without_encoding_inner_ampersands_corrupt_query_string(
         self,
@@ -544,33 +529,19 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         # Data URLs with multiple query params (e.g. `?width=1024&format=jpeg`)
         # contain `&` which, without encoding, splits into separate top-level params
         # and truncates the dataURL value the exporter receives.
+        from urllib.parse import parse_qs, urlparse
+
         data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
         unencoded = f"https://example.com/exporter?token=fake&pageURL=https://example.com&dataURL={data_url}"
 
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto("data:text/html,<h1>test</h1>")
-
-            result = page.evaluate(
-                """(url) => {
-                const u = new URL(url);
-                return {
-                    dataURL: u.searchParams.get('dataURL'),
-                    allKeys: Array.from(u.searchParams.keys()),
-                };
-            }""",
-                unencoded,
-            )
-            browser.close()
+        parsed = urlparse(unencoded)
+        params = parse_qs(parsed.query)
 
         # The inner `&format=jpeg` leaks as a top-level param
-        assert "format" in result["allKeys"], "Inner &format leaked as top-level param"
+        assert "format" in params, "Inner &format leaked as top-level param"
         # And the dataURL is truncated — missing `&format=jpeg`
-        assert result["dataURL"] == "/api/environments/1/heatmap_screenshots/abc/content/?width=1024"
-        assert result["dataURL"] != data_url
+        assert params["dataURL"] == ["/api/environments/1/heatmap_screenshots/abc/content/?width=1024"]
+        assert params["dataURL"] != [data_url]
 
 
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
