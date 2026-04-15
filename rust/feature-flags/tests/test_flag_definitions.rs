@@ -459,6 +459,75 @@ async fn test_missing_token_param_with_valid_secret_token() {
     );
 }
 
+/// When token param is missing, the response should contain flags for the team
+/// that owns the phs_ token — not a different team's flags.
+#[tokio::test]
+async fn test_missing_token_param_returns_correct_team_flags() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+    use serde_json::Value;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    // Create two teams with different secret tokens
+    let (team1, secret1, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let (team2, secret2, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    context.populate_cache_for_team(team1.id).await.unwrap();
+    context.populate_cache_for_team(team2.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Request with team1's secret token (no ?token= param)
+    let resp1 = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {secret1}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), 200);
+
+    // Request with team2's secret token (no ?token= param)
+    let resp2 = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {secret2}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp2.status(), 200);
+
+    // Also verify that the with-token and without-token responses match for team1
+    let resp_with_token = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team1.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret1}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_with_token.status(), 200);
+
+    let body_without_token: Value = serde_json::from_str(&resp1.text().await.unwrap()).unwrap();
+    let body_with_token: Value =
+        serde_json::from_str(&resp_with_token.text().await.unwrap()).unwrap();
+
+    // Both should return the same flags for the same team
+    assert_eq!(
+        body_without_token.get("flags"),
+        body_with_token.get("flags"),
+        "With-token and without-token should return the same flags for the same team"
+    );
+}
+
 /// When token param is missing and auth is a valid project secret API key,
 /// the team should be derived from the key (200).
 #[tokio::test]
