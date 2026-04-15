@@ -231,7 +231,7 @@ function PhaseRow({ label, detail, status, elapsedSeconds, subProgressPercent }:
     )
 }
 
-function SummarizationProgressView({
+export function SummarizationProgressView({
     progress,
     sessionDurationMs,
 }: {
@@ -303,7 +303,7 @@ function SummarizationProgressView({
     )
 }
 
-function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
+export function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
     const { isVisible: isPageVisible } = usePageVisibility()
 

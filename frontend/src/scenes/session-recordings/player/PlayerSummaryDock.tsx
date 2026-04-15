@@ -9,14 +9,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { SessionSummary } from './sidebar/PlayerSidebarSessionSummary'
+import { LoadingTimer, SessionSummary, SummarizationProgressView } from './sidebar/PlayerSidebarSessionSummary'
 
 const EXPANDED_MAX_HEIGHT = 480
 
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
+    const { logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionSummary, sessionSummaryLoading, summarizationProgress } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
     const isEnabled =
@@ -80,13 +80,25 @@ export function PlayerSummaryDock(): JSX.Element | null {
             </div>
             {isOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3">
-                    {hasContentToExpand ? (
+                    {sessionSummaryLoading ? (
+                        summarizationProgress ? (
+                            <SummarizationProgressView
+                                progress={summarizationProgress}
+                                sessionDurationMs={sessionPlayerData?.durationMs}
+                            />
+                        ) : (
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    Researching the session... <Spinner />
+                                </div>
+                                <div className="flex items-center gap-1 ml-auto">
+                                    <LoadingTimer />
+                                </div>
+                            </div>
+                        )
+                    ) : hasSummary ? (
                         <SessionSummary />
-                    ) : (
-                        <div className="flex items-center gap-2 text-secondary text-sm">
-                            <Spinner /> Generating summary…
-                        </div>
-                    )}
+                    ) : null}
                 </div>
             )}
         </div>
