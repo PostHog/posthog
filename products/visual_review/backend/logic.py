@@ -18,7 +18,7 @@ from django.utils import timezone
 import structlog
 
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult
-from .models import Artifact, Repo, Run, RunSnapshot
+from .models import Artifact, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
@@ -573,24 +573,55 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline once — used for classification and removal detection
     baseline = _resolve_baselines(repo, run.run_type, run.branch)
 
+    # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
+    run_identifiers = set(run.snapshots.using(WRITER_DB).values_list("identifier", flat=True))
+    baseline_hashes_in_use = set(baseline.values())
+    tolerated_lookup: dict[tuple[str, str], ToleratedHash] = {}
+    if run_identifiers and baseline_hashes_in_use:
+        for t in ToleratedHash.objects.filter(
+            repo=repo,
+            identifier__in=run_identifiers,
+            baseline_hash__in=baseline_hashes_in_use,
+        ):
+            tolerated_lookup[(t.identifier, t.content_hash)] = t
+
     # Classify existing snapshots against baseline
     for snapshot in run.snapshots.using(WRITER_DB).all():
         baseline_hash = baseline.get(snapshot.identifier)
         baseline_artifact = get_artifact(repo.id, baseline_hash) if baseline_hash else None
+        classification_reason = ""
+        tolerated_match = None
 
         if baseline_hash is None:
             result = SnapshotResult.NEW
         elif snapshot.current_hash == baseline_hash:
             result = SnapshotResult.UNCHANGED
+            classification_reason = "exact"
         else:
-            result = SnapshotResult.CHANGED
+            match = tolerated_lookup.get((snapshot.identifier, snapshot.current_hash))
+            if match is not None and match.baseline_hash == baseline_hash:
+                result = SnapshotResult.UNCHANGED
+                classification_reason = "tolerated_hash"
+                tolerated_match = match
+            else:
+                result = SnapshotResult.CHANGED
 
         snapshot.result = result
+        snapshot.classification_reason = classification_reason
+        snapshot.tolerated_hash_match = tolerated_match
         snapshot.baseline_hash = baseline_hash or ""
         snapshot.baseline_artifact = baseline_artifact
         snapshot.current_artifact = get_artifact(repo.id, snapshot.current_hash)
         snapshot.save(
-            using=WRITER_DB, update_fields=["result", "baseline_hash", "baseline_artifact", "current_artifact"]
+            using=WRITER_DB,
+            update_fields=[
+                "result",
+                "classification_reason",
+                "tolerated_hash_match",
+                "baseline_hash",
+                "baseline_artifact",
+                "current_artifact",
+            ],
         )
 
     # Detect removed: baseline identifiers with no RunSnapshot row
@@ -698,6 +729,7 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED)
     new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW)
     removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED)
+    tolerated_match_count = sum(1 for s in snapshots if s.tolerated_hash_match_id is not None)
 
     run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
     run.error_message = error_message
@@ -705,7 +737,18 @@ def mark_run_completed(run_id: UUID, error_message: str = "") -> Run:
     run.changed_count = changed_count
     run.new_count = new_count
     run.removed_count = removed_count
-    run.save(update_fields=["status", "error_message", "completed_at", "changed_count", "new_count", "removed_count"])
+    run.tolerated_match_count = tolerated_match_count
+    run.save(
+        update_fields=[
+            "status",
+            "error_message",
+            "completed_at",
+            "changed_count",
+            "new_count",
+            "removed_count",
+            "tolerated_match_count",
+        ]
+    )
 
     repo = run.repo
     if error_message:
