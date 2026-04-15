@@ -21,7 +21,11 @@ class ErrorTrackingIssueNotFoundError(Exception):
     pass
 
 
-def get_issues_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
+def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
+    return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
+
+
+def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .select_related("assignment")
@@ -32,11 +36,11 @@ def get_issues_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
 
 
 def list_issues(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return get_issues_queryset(team_id)
+    return get_issue_list_queryset(team_id)
 
 
 def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
-    issue = get_issues_queryset(team_id).filter(id=issue_id).first()
+    issue = get_issue_detail_queryset(team_id).filter(id=issue_id).first()
     if issue is None:
         raise ErrorTrackingIssueNotFoundError
     return issue
@@ -61,10 +65,18 @@ def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[s
     queryset = ErrorTrackingIssue.objects.filter(team_id=team_id)
 
     if key == "name":
-        return list(queryset.filter(name__icontains=value).values_list("name", flat=True))
+        return [
+            issue_name
+            for issue_name in queryset.filter(name__icontains=value).values_list("name", flat=True)
+            if issue_name is not None
+        ]
 
     if key == "issue_description":
-        return list(queryset.filter(description__icontains=value).values_list("description", flat=True))
+        return [
+            issue_description
+            for issue_description in queryset.filter(description__icontains=value).values_list("description", flat=True)
+            if issue_description is not None
+        ]
 
     return []
 

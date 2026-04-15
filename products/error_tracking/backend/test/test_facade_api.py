@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.models import Team
 
 from products.error_tracking.backend.facade import (
@@ -69,12 +71,19 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         assert result == issue.id
 
-    def test_get_issue_values(self):
+    @parameterized.expand(
+        [
+            ["name", "name", "checkout", ["Checkout timeout", "Checkout type error"]],
+            ["issue_description", "issue_description", "timeout", ["A timeout during payment"]],
+            ["missing_key", None, "timeout", []],
+            ["missing_value", "name", None, []],
+            ["unknown_key", "unknown", "checkout", []],
+        ]
+    )
+    def test_get_issue_values(self, _name: str, key: str | None, value: str | None, expected: list[str]):
         self._create_issue(team=self.team, name="Checkout timeout", description="A timeout during payment")
         self._create_issue(team=self.team, name="Checkout type error", description="Type mismatch in checkout")
 
-        values_by_name = api.get_issue_values(team_id=self.team.id, key="name", value="checkout")
-        values_by_description = api.get_issue_values(team_id=self.team.id, key="issue_description", value="timeout")
+        values = api.get_issue_values(team_id=self.team.id, key=key, value=value)
 
-        assert sorted(values_by_name) == ["Checkout timeout", "Checkout type error"]
-        assert values_by_description == ["A timeout during payment"]
+        assert sorted(values) == sorted(expected)
