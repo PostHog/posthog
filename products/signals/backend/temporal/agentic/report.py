@@ -9,11 +9,16 @@ import temporalio
 from pydantic import ValidationError
 
 from posthog.models import Team, User
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.models import SignalAutonomyConfig, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -44,13 +49,6 @@ class ReviewerContent(TypedDict):
     github_login: str
     github_name: str | None
     relevant_commits: list[dict]
-
-
-class TaskRunArtefactContent(TypedDict):
-    task_id: str
-    task_run_id: str
-    repository: str
-    title: str
 
 
 @dataclass
@@ -195,16 +193,58 @@ def _build_autostart_task_description(result: ReportResearchOutput, repository: 
     )
 
 
-def _select_opted_in_autostart_user(
+def _resolve_autostart_assignee(
     team_id: int,
-    opted_in_user_ids: set[int],
+    report_priority: Priority,
     reviewers_content: list[ReviewerContent],
+    team_default_priority: Priority,
 ) -> User | None:
+    """Return the first suggested reviewer whose effective priority threshold allows auto-start.
+
+    Walks *reviewers_content* in order (most relevant first). For each reviewer
+    that maps to an org member with an autonomy config, resolves their effective
+    threshold (personal setting, falling back to the team default) and checks
+    whether the report's priority is high enough (lower rank = higher priority).
+    Returns the first matching ``User``, or ``None`` if nobody qualifies.
+    """
     login_to_user = get_org_member_github_login_to_user_map(team_id) or {}
+    report_rank = _priority_rank(report_priority)
+
+    # Map reviewer github logins to user IDs (preserving reviewer order)
+    candidate_user_ids: list[int] = []
     for reviewer in reviewers_content:
-        candidate = login_to_user.get(reviewer["github_login"].lower())
-        if isinstance(candidate, User) and candidate.id in opted_in_user_ids:
-            return candidate
+        login = reviewer["github_login"].lower()
+        candidate = login_to_user.get(login)
+        if isinstance(candidate, User):
+            candidate_user_ids.append(candidate.id)
+
+    if not candidate_user_ids:
+        return None
+
+    # Single query: fetch users who have an autonomy config, joined eagerly
+    users_with_config = {
+        u.id: u
+        for u in User.objects.filter(
+            id__in=candidate_user_ids,
+            signal_autonomy_config__isnull=False,
+        ).select_related("signal_autonomy_config")
+    }
+
+    # Walk in reviewer order (most relevant first)
+    for uid in candidate_user_ids:
+        user = users_with_config.get(uid)
+        if user is None:
+            continue
+        # Check team membership
+        if not user.teams.filter(id=team_id).exists():
+            continue
+        config: SignalUserAutonomyConfig = user.signal_autonomy_config  # type: ignore[assignment]
+        effective_threshold = (
+            Priority(config.autostart_priority) if config.autostart_priority else team_default_priority
+        )
+        if report_rank <= _priority_rank(effective_threshold):
+            return user
+
     return None
 
 
@@ -215,28 +255,23 @@ async def _maybe_autostart_task_for_report(
     result: ReportResearchOutput,
     reviewers_content: list[ReviewerContent],
 ) -> None:
+    task_exists = await SignalReportTask.objects.filter(
+        report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+    ).aexists()
     if (
         result.actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         or result.priority is None
         or not reviewers_content
-        or await Task.objects.filter(signal_report_id=report_id).aexists()
+        or task_exists
     ):
         return
 
     team = await Team.objects.select_related("organization").aget(id=team_id)
-    autonomy_config = await database_sync_to_async(get_or_create_team_extension, thread_sensitive=False)(
-        team, SignalAutonomyConfig
-    )
+    team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
+    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P0
 
-    if _priority_rank(result.priority.priority) > _priority_rank(Priority(autonomy_config.minimum_autostart_priority)):
-        return
-
-    opted_in_user_ids = set(autonomy_config.opted_in_user_ids or [])
-    if not opted_in_user_ids:
-        return
-
-    task_user = await database_sync_to_async(_select_opted_in_autostart_user, thread_sensitive=False)(
-        team_id, opted_in_user_ids, reviewers_content
+    task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
+        team_id, result.priority.priority, reviewers_content, team_default_priority
     )
     if task_user is None:
         return
@@ -249,23 +284,17 @@ async def _maybe_autostart_task_for_report(
         user_id=task_user.id,
         repository=repository,
         signal_report_id=report_id,
-        posthog_mcp_scopes="full",
+        posthog_mcp_scopes="read_only",
     )
-    task_run = await task.runs.order_by("-created_at").afirst()
+    task_run = task.latest_run
     if task_run is None:
         raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
 
-    artefact_content: TaskRunArtefactContent = {
-        "task_id": str(task.id),
-        "task_run_id": str(task_run.id),
-        "repository": repository,
-        "title": task.title,
-    }
-    await SignalReportArtefact.objects.acreate(
+    await SignalReportTask.objects.acreate(
         team_id=team_id,
         report_id=report_id,
-        type=SignalReportArtefact.ArtefactType.TASK_RUN,
-        content=json.dumps(artefact_content),
+        task=task,
+        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
     )
 
 

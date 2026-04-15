@@ -25,14 +25,16 @@ from django.db.models.functions import Cast, Coalesce
 
 import structlog
 from asgiref.sync import async_to_sync
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -50,23 +52,24 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import (
     InvalidStatusTransition,
-    SignalAutonomyConfig,
     SignalReport,
     SignalReportArtefact,
+    SignalReportTask,
     SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
 )
 from products.signals.backend.serializers import (
-    SignalAutonomyAddUserSerializer,
-    SignalAutonomyConfigSerializer,
-    SignalAutonomyLevelSerializer,
-    SignalAutonomyUserPathSerializer,
     SignalReportArtefactSerializer,
     SignalReportSerializer,
+    SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
+    SignalTeamConfigSerializer,
+    SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -290,106 +293,41 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
-class SignalAutonomyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Team-level signal autonomy config (singleton per team).
+
+    GET  /signals/config/  → retrieve
+    POST /signals/config/  → update
+    """
+
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
+    serializer_class = SignalTeamConfigSerializer
+    queryset = SignalTeamConfig.objects.all()
     scope_object = "task"
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        if view.action in ("level", "users"):
-            if request.method == "GET":
-                return ["task:read"]
-            if request.method == "POST":
-                return ["task:write"]
-        return None
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return ["task:read"]
+        return ["task:write"]
 
-    def _get_config(self) -> SignalAutonomyConfig:
-        from posthog.models.team.extensions import get_or_create_team_extension
-
-        return get_or_create_team_extension(self.team, SignalAutonomyConfig)
-
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+    def _get_config(self) -> SignalTeamConfig:
+        try:
+            return SignalTeamConfig.objects.get(team=self.team)
+        except SignalTeamConfig.DoesNotExist:
+            raise exceptions.NotFound("No signal config exists for this team.")
 
     @extend_schema(exclude=True)
-    @action(detail=False, methods=["get", "post"], url_path="level")
-    def level(self, request: Request, *args, **kwargs) -> Response:
-        config = self._get_config()
-
-        if request.method == "GET":
-            return Response(
-                {
-                    "minimum_autostart_priority": config.minimum_autostart_priority,
-                }
-            )
-
-        serializer = SignalAutonomyLevelSerializer(data=request.data, context=self.get_serializer_context())
-        serializer.is_valid(raise_exception=True)
-        serializer.update(config, serializer.validated_data)
-
-        return Response(
-            {
-                "minimum_autostart_priority": config.minimum_autostart_priority,
-            }
-        )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return Response(SignalTeamConfigSerializer(self._get_config()).data)
 
     @extend_schema(exclude=True)
-    @action(detail=False, methods=["get", "post"], url_path="users")
-    def users(self, request: Request, *args, **kwargs) -> Response:
+    def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
-
-        if request.method == "GET":
-            return Response(
-                {
-                    "opted_in_user_ids": config.opted_in_user_ids or [],
-                    "opted_in_users": SignalAutonomyConfigSerializer(
-                        config, context=self.get_serializer_context()
-                    ).data["opted_in_users"],
-                }
-            )
-
-        serializer = SignalAutonomyAddUserSerializer(
-            data=request.data,
-            context=self.get_serializer_context(),
-        )
+        serializer = SignalTeamConfigSerializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-
-        user_id_to_add = serializer.validated_data["user_id"]
-        existing_user_ids = config.opted_in_user_ids or []
-        if user_id_to_add not in existing_user_ids:
-            config.opted_in_user_ids = [*existing_user_ids, user_id_to_add]
-            config.save(update_fields=["opted_in_user_ids"])
-
-        return Response(
-            {
-                "opted_in_user_ids": config.opted_in_user_ids or [],
-                "opted_in_users": SignalAutonomyConfigSerializer(config, context=self.get_serializer_context()).data[
-                    "opted_in_users"
-                ],
-            }
-        )
-
-    @extend_schema(exclude=True)
-    @action(detail=False, methods=["delete"], url_path=r"users/(?P<user_id>[^/.]+)", required_scopes=["task:write"])
-    def delete_user(self, request: Request, user_id: str, *args, **kwargs) -> Response:
-        config = self._get_config()
-        serializer = SignalAutonomyUserPathSerializer(
-            data={"user_id": user_id},
-            context=self.get_serializer_context(),
-        )
-        serializer.is_valid(raise_exception=True)
-
-        user_id_to_remove = serializer.validated_data["user_id"]
-        existing_user_ids = config.opted_in_user_ids or []
-        updated_user_ids = [
-            existing_user_id for existing_user_id in existing_user_ids if existing_user_id != user_id_to_remove
-        ]
-
-        if updated_user_ids != existing_user_ids:
-            config.opted_in_user_ids = updated_user_ids
-            config.save(update_fields=["opted_in_user_ids"])
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        serializer.save()
+        return Response(serializer.data)
 
 
 @extend_schema_view(
@@ -793,6 +731,76 @@ class SignalReportViewSet(
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
 
+@extend_schema_view(list=extend_schema(exclude=True))
+class SignalReportTaskViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Read-only list of tasks associated with a signal report."""
+
+    serializer_class = SignalReportTaskSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    queryset = SignalReportTask.objects.all().order_by("-created_at")
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["relationship", "task_id", "created_at"]
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(report_id=self.parents_query_dict["report_id"], team=self.team)
+
+
+class SignalUserAutonomyConfigView(APIView):
+    """Per-user signal autonomy config (singleton keyed by user).
+
+    GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+    POST   /api/users/<id>/signal_autonomy/ → create or update
+    DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+    """
+
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "user"
+    required_scopes = ["user:write"]
+
+    def _resolve_user(self, request, user_id):
+        if str(user_id) == "@me":
+            return request.user
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff can access other users' autonomy config.")
+        from posthog.models import User
+
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise exceptions.NotFound()
+
+    def get(self, request, user_id, **kwargs):
+        user = self._resolve_user(request, user_id)
+        config = SignalUserAutonomyConfig.objects.filter(user=user).first()
+        if config is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(SignalUserAutonomyConfigSerializer(config).data)
+
+    def post(self, request, user_id, **kwargs):
+        from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
+
+        user = self._resolve_user(request, user_id)
+        serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        config, _created = SignalUserAutonomyConfig.objects.update_or_create(
+            user=user,
+            defaults={"autostart_priority": serializer.validated_data.get("autostart_priority")},
+        )
+        return Response(SignalUserAutonomyConfigSerializer(config).data)
+
+    def delete(self, request, user_id, **kwargs):
+        user = self._resolve_user(request, user_id)
+        SignalUserAutonomyConfig.objects.filter(user=user).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class PauseUntilRequestSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="Pause the grouping pipeline until this timestamp (ISO 8601).")
 
@@ -816,7 +824,7 @@ class PauseStateResponseSerializer(serializers.Serializer):
 class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """View and control signal processing pipeline state for a team."""
 
-    scope_object = "INTERNAL"
+    scope_object = "task"
 
     @extend_schema(request=None, responses={200: PauseStateResponseSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -825,16 +833,14 @@ class SignalProcessingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response({"paused_until": state.isoformat() if state else None})
 
     @extend_schema(request=PauseUntilRequestSerializer, responses={200: PauseResponseSerializer})
-    @action(methods=["PUT"], detail=False, url_path="pause")
+    @action(methods=["PUT", "DELETE"], detail=False, url_path="pause")
     def pause(self, request: Request, *args, **kwargs) -> Response:
+        if request.method == "DELETE":
+            was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
+            return Response({"status": "unpaused", "was_paused": was_paused})
+
         serializer = PauseUntilRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         timestamp = serializer.validated_data["timestamp"]
         async_to_sync(TeamSignalGroupingV2Workflow.pause_until)(self.team.id, timestamp)
         return Response({"status": "paused", "paused_until": timestamp.isoformat()})
-
-    @extend_schema(request=None, responses={200: UnpauseResponseSerializer})
-    @action(methods=["POST"], detail=False, url_path="unpause")
-    def unpause(self, request: Request, *args, **kwargs) -> Response:
-        was_paused = async_to_sync(TeamSignalGroupingV2Workflow.unpause)(self.team.id)
-        return Response({"status": "unpaused", "was_paused": was_paused})

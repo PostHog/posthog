@@ -70,6 +70,7 @@ class Task(DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
         on_delete=models.SET_NULL,
@@ -281,10 +282,6 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
-
-        if origin_product == Task.OriginProduct.SIGNAL_REPORT and signal_report_id:
-            extra_state["run_source"] = "signal_report"
-            extra_state["signal_report_id"] = signal_report_id
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 

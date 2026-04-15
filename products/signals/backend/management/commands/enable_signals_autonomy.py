@@ -4,13 +4,13 @@ from django.db.models import Q
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.signals.backend.models import SignalAutonomyConfig
+from products.signals.backend.models import AutonomyPriority, SignalTeamConfig, SignalUserAutonomyConfig
 
 
 class Command(BaseCommand):
     help = (
-        "Enable Signals autonomy for a team by setting the minimum autostart priority "
-        "and replacing the opted-in autonomy users from a comma-separated list of emails."
+        "Enable Signals autonomy for a team by setting the default autostart priority "
+        "and opting in users from a comma-separated list of emails."
     )
 
     def add_arguments(self, parser):
@@ -22,8 +22,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "priority_threshold",
             type=str,
-            choices=[choice for choice, _label in SignalAutonomyConfig.Priority.choices],
-            help="Minimum autostart priority threshold (P0-P4)",
+            choices=[choice for choice, _label in AutonomyPriority.choices],
+            help="Default autostart priority threshold (P0-P4)",
         )
         parser.add_argument(
             "emails",
@@ -47,21 +47,28 @@ class Command(BaseCommand):
 
         resolved_users = self._resolve_users_for_team(team, emails)
 
-        autonomy_config = get_or_create_team_extension(team, SignalAutonomyConfig)
-        autonomy_config.minimum_autostart_priority = priority_threshold
-        autonomy_config.opted_in_user_ids = [user.id for user in resolved_users]
-        autonomy_config.save(update_fields=["minimum_autostart_priority", "opted_in_user_ids"])
+        # Update or create team-level config
+        team_config = get_or_create_team_extension(team, SignalTeamConfig)
+        team_config.default_autostart_priority = priority_threshold
+        team_config.save(update_fields=["default_autostart_priority"])
+
+        # Upsert per-user autonomy configs
+        for user in resolved_users:
+            SignalUserAutonomyConfig.objects.update_or_create(
+                user=user,
+                defaults={"autostart_priority": None},  # Use team default
+            )
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Updated Signals autonomy for team {team.id} ({team.name})\n"
-                f"  priority_threshold: {autonomy_config.minimum_autostart_priority}\n"
-                f"  opted_in_user_ids: {autonomy_config.opted_in_user_ids}"
+                f"  default_autostart_priority: {team_config.default_autostart_priority}"
             )
         )
 
+        self.stdout.write("  Opted-in users:")
         for user in resolved_users:
-            self.stdout.write(f"  - {user.id}: {user.email}")
+            self.stdout.write(f"    - {user.id}: {user.email}")
 
         self.stdout.write("")
         if not team.organization.is_ai_data_processing_approved:

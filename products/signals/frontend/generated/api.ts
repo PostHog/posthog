@@ -51,8 +51,8 @@ export const getSignalProcessingListUrl = (projectId: string, params?: SignalPro
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signal_processing/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signal_processing/`
+        ? `/api/projects/${projectId}/signals/processing/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/processing/`
 }
 
 export const signalProcessingList = async (
@@ -70,7 +70,7 @@ export const signalProcessingList = async (
  * View and control signal processing pipeline state for a team.
  */
 export const getSignalProcessingPauseUpdateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_processing/pause/`
+    return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
 export const signalProcessingPauseUpdate = async (
@@ -81,7 +81,10 @@ export const signalProcessingPauseUpdate = async (
     return apiMutator<PauseResponseApi>(getSignalProcessingPauseUpdateUrl(projectId), {
         ...options,
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        headers: {
+            'Content-Type': 'application/json',
+            ...options?.headers,
+        },
         body: JSON.stringify(pauseUntilRequestApi),
     })
 }
@@ -89,17 +92,17 @@ export const signalProcessingPauseUpdate = async (
 /**
  * View and control signal processing pipeline state for a team.
  */
-export const getSignalProcessingUnpauseCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_processing/unpause/`
+export const getSignalProcessingPauseDeleteUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
-export const signalProcessingUnpauseCreate = async (
+export const signalProcessingPauseDelete = async (
     projectId: string,
     options?: RequestInit
 ): Promise<UnpauseResponseApi> => {
-    return apiMutator<UnpauseResponseApi>(getSignalProcessingUnpauseCreateUrl(projectId), {
+    return apiMutator<UnpauseResponseApi>(getSignalProcessingPauseDeleteUrl(projectId), {
         ...options,
-        method: 'POST',
+        method: 'DELETE',
     })
 }
 
@@ -115,8 +118,8 @@ export const getSignalSourceConfigsListUrl = (projectId: string, params?: Signal
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signal_source_configs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signal_source_configs/`
+        ? `/api/projects/${projectId}/signals/source_configs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/source_configs/`
 }
 
 export const signalSourceConfigsList = async (
@@ -131,7 +134,7 @@ export const signalSourceConfigsList = async (
 }
 
 export const getSignalSourceConfigsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signal_source_configs/`
+    return `/api/projects/${projectId}/signals/source_configs/`
 }
 
 export const signalSourceConfigsCreate = async (
@@ -142,7 +145,10 @@ export const signalSourceConfigsCreate = async (
     return apiMutator<SignalSourceConfigApi>(getSignalSourceConfigsCreateUrl(projectId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        headers: {
+            'Content-Type': 'application/json',
+            ...options?.headers,
+        },
         body: JSON.stringify(signalSourceConfigApi),
     })
 }

@@ -63,29 +63,46 @@ class SignalSourceConfig(UUIDModel):
         ]
 
 
-class SignalAutonomyConfig(models.Model):
-    class Priority(models.TextChoices):
-        P0 = "P0", "P0"
-        P1 = "P1", "P1"
-        P2 = "P2", "P2"
-        P3 = "P3", "P3"
-        P4 = "P4", "P4"
+class AutonomyPriority(models.TextChoices):
+    P0 = "P0", "P0"
+    P1 = "P1", "P1"
+    P2 = "P2", "P2"
+    P3 = "P3", "P3"
+    P4 = "P4", "P4"
+
+
+class SignalTeamConfig(UUIDModel):
+    # Keep for backward compat — aliases to module-level enum
+    Priority = AutonomyPriority
 
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
-        primary_key=True,
-        related_name="signal_autonomy_config",
+        related_name="signal_team_config",
     )
-    minimum_autostart_priority = models.CharField(max_length=2, choices=Priority.choices, default=Priority.P0)
-    opted_in_user_ids = ArrayField(models.PositiveIntegerField(), default=list, blank=True)
+    default_autostart_priority = models.CharField(
+        max_length=2, choices=AutonomyPriority.choices, default=AutonomyPriority.P0
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Signal autonomy config"
-        verbose_name_plural = "Signal autonomy configs"
+        verbose_name = "Signal team config"
+        verbose_name_plural = "Signal team configs"
 
 
-register_team_extension_signal(SignalAutonomyConfig, logger=logger)
+register_team_extension_signal(SignalTeamConfig, logger=logger)
+
+
+class SignalUserAutonomyConfig(UUIDModel):
+    user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
+    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority.choices, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal user autonomy config"
+        verbose_name_plural = "Signal user autonomy configs"
 
 
 class InvalidStatusTransition(Exception):
@@ -256,7 +273,6 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
-        TASK_RUN = "task_run"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
@@ -268,3 +284,20 @@ class SignalReportArtefact(UUIDModel):
         indexes = [
             models.Index(fields=["report"], name="signals_sig_report__idx"),
         ]
+
+
+class SignalReportTask(UUIDModel):
+    class Relationship(models.TextChoices):
+        REPO_SELECTION = "repo_selection"
+        RESEARCH = "research"
+        IMPLEMENTATION = "implementation"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
+    task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
+    relationship = models.CharField(max_length=200, choices=Relationship.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal report task"
+        verbose_name_plural = "Signal report tasks"

@@ -6,11 +6,19 @@ from rest_framework import serializers
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import User
 from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.common.client import sync_connect
 
-from .models import SignalAutonomyConfig, SignalReport, SignalReportArtefact, SignalSourceConfig
+from .models import (
+    AutonomyPriority,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
@@ -111,75 +119,38 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class SignalAutonomyUserSerializer(serializers.ModelSerializer):
+class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalTeamConfig
+        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class _UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "uuid", "first_name", "last_name", "email"]
         read_only_fields = fields
 
 
-class SignalAutonomyConfigSerializer(serializers.ModelSerializer):
-    opted_in_users = serializers.SerializerMethodField()
+class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
+    user = _UserSerializer(read_only=True)
 
     class Meta:
-        model = SignalAutonomyConfig
-        fields = [
-            "minimum_autostart_priority",
-            "opted_in_user_ids",
-            "opted_in_users",
-        ]
+        model = SignalUserAutonomyConfig
+        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "created_at", "updated_at"]
+
+
+class SignalReportTaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalReportTask
+        fields = ["id", "relationship", "task_id", "created_at"]
         read_only_fields = fields
 
-    def get_opted_in_users(self, obj: SignalAutonomyConfig) -> list[dict]:
-        user_ids = obj.opted_in_user_ids or []
-        if not user_ids:
-            return []
 
-        team = self.context.get("team")
-        if team is None:
-            return []
-
-        users = (
-            User.objects.filter(
-                id__in=user_ids,
-                organization_membership__organization_id=team.organization_id,
-            )
-            .order_by("id")
-            .distinct()
-        )
-        users_by_id = {user.id: user for user in users}
-        ordered_users = [users_by_id[user_id] for user_id in user_ids if user_id in users_by_id]
-        return list(SignalAutonomyUserSerializer(ordered_users, many=True).data)
-
-
-class SignalAutonomyLevelSerializer(serializers.Serializer):
-    minimum_autostart_priority = serializers.ChoiceField(choices=SignalAutonomyConfig.Priority.choices)
-
-    def update(self, instance: SignalAutonomyConfig, validated_data: dict) -> SignalAutonomyConfig:
-        instance.minimum_autostart_priority = validated_data["minimum_autostart_priority"]
-        instance.save(update_fields=["minimum_autostart_priority"])
-        return instance
-
-
-class SignalAutonomyAddUserSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField(min_value=1)
-
-    def validate_user_id(self, value: int) -> int:
-        team = self.context.get("team")
-        if team is None:
-            raise serializers.ValidationError("team is required in serializer context")
-
-        if not OrganizationMembership.objects.filter(
-            organization_id=team.organization_id,
-            user_id=value,
-        ).exists():
-            raise serializers.ValidationError("User must be a member of the team's organization")
-
-        return value
-
-
-class SignalAutonomyUserPathSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField(min_value=1)
+class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
+    autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
