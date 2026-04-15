@@ -15,7 +15,10 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.sync import database_sync_to_async
-from posthog.temporal.subscriptions.insight_snapshot import build_insight_delivery_snapshot
+from posthog.temporal.subscriptions.insight_snapshot import (
+    build_initial_content_snapshot,
+    build_insight_delivery_snapshot,
+)
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -385,24 +388,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 f"Subscription team_id ({subscription.team_id}) does not match inputs.team_id ({inputs.team_id})"
             )
 
-        content_snapshot: dict[str, typing.Any] = {
-            "dashboard": None,
-            "insights": [],
-            "total_insight_count": 0,
-        }
-        if subscription.dashboard:
-            content_snapshot["dashboard"] = {
-                "id": subscription.dashboard.id,
-                "name": subscription.dashboard.name,
-            }
-        if subscription.insight:
-            content_snapshot["insights"] = [
-                {
-                    "id": subscription.insight.id,
-                    "short_id": str(subscription.insight.short_id),
-                    "name": subscription.insight.name or subscription.insight.derived_name or "",
-                }
-            ]
+        content_snapshot = build_initial_content_snapshot(subscription)
 
         delivery, _created = SubscriptionDelivery.objects.get_or_create(
             idempotency_key=inputs.idempotency_key,
@@ -437,15 +423,14 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         update_fields: list[str] = ["status", "last_updated_at"]
         delivery.status = inputs.status
 
-        if inputs.exported_asset_ids:
+        if inputs.exported_asset_ids is not None:
             delivery.exported_asset_ids = inputs.exported_asset_ids
             update_fields.append("exported_asset_ids")
-        if inputs.content_snapshot:
+        if inputs.content_snapshot is not None:
             # Merge so workflow patches (e.g. total_insight_count) do not wipe create_delivery_record snapshot.
             delivery.content_snapshot = {**(delivery.content_snapshot or {}), **inputs.content_snapshot}
             update_fields.append("content_snapshot")
-        # Skip persisting when [] — distinguish "omit" from "clear all"; callers pass non-empty when there are results.
-        if inputs.recipient_results:
+        if inputs.recipient_results is not None:
             delivery.recipient_results = inputs.recipient_results
             update_fields.append("recipient_results")
         delivery.error = inputs.error

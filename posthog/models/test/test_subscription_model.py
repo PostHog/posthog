@@ -303,59 +303,55 @@ class TestSubscription(BaseTest):
         assert delivery.exported_asset_ids == []
         assert delivery.finished_at is None
 
-    @parameterized.expand(
-        [
-            (
-                "duplicate idempotency key raises",
-                "same-key",
-                "same-key",
-                "integrity",
-            ),
-            (
-                "distinct idempotency keys create two rows",
-                "key-run-1",
-                "key-run-2",
-                "two_rows",
-            ),
-        ]
-    )
-    def test_subscription_delivery_idempotency_key_behavior(self, _label, key_a, key_b, outcome):
+    def test_duplicate_idempotency_key_raises(self):
         subscription = self._create_insight_subscription()
 
         SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
             temporal_workflow_id="process-subscription-1",
-            idempotency_key=key_a,
+            idempotency_key="same-key",
             trigger_type="scheduled",
             target_type="email",
             target_value="test@posthog.com",
         )
 
-        if outcome == "integrity":
-            with pytest.raises(IntegrityError):
-                SubscriptionDelivery.objects.create(
-                    subscription=subscription,
-                    team=self.team,
-                    temporal_workflow_id="process-subscription-1",
-                    idempotency_key=key_b,
-                    trigger_type="scheduled",
-                    target_type="email",
-                    target_value="test@posthog.com",
-                )
-        else:
-            second = SubscriptionDelivery.objects.create(
+        with pytest.raises(IntegrityError):
+            SubscriptionDelivery.objects.create(
                 subscription=subscription,
                 team=self.team,
                 temporal_workflow_id="process-subscription-1",
-                idempotency_key=key_b,
+                idempotency_key="same-key",
                 trigger_type="scheduled",
                 target_type="email",
                 target_value="test@posthog.com",
             )
-            first = SubscriptionDelivery.objects.get(idempotency_key=key_a)
-            assert first.id != second.id
-            assert SubscriptionDelivery.objects.filter(subscription=subscription).count() == 2
+
+    def test_distinct_idempotency_keys_create_two_rows(self):
+        subscription = self._create_insight_subscription()
+
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="key-run-1",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+
+        second = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="process-subscription-1",
+            idempotency_key="key-run-2",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="test@posthog.com",
+        )
+        first = SubscriptionDelivery.objects.get(idempotency_key="key-run-1")
+        assert first.id != second.id
+        assert SubscriptionDelivery.objects.filter(subscription=subscription).count() == 2
 
     def test_subscription_delivery_get_or_create_idempotency(self):
         subscription = self._create_insight_subscription()

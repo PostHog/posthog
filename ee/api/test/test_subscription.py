@@ -726,6 +726,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
 class TestSubscriptionDeliveryAPI(APILicensedTest):
     subscription: Subscription = None  # type: ignore
+    insight: Insight = None  # type: ignore
 
     @classmethod
     def setUpTestData(cls):

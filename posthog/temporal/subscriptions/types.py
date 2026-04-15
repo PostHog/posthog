@@ -128,7 +128,6 @@ class DeliverSubscriptionResult:
 
 @dataclasses.dataclass
 class CreateDeliveryRecordInputs:
-    # TODO: subscription id should be uuid.UUID
     subscription_id: int
     team_id: int
     trigger_type: str
@@ -139,11 +138,13 @@ class CreateDeliveryRecordInputs:
 
 @dataclasses.dataclass
 class UpdateDeliveryRecordInputs:
+    """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged."""
+
     delivery_id: uuid.UUID
     status: str
-    exported_asset_ids: list[int] = dataclasses.field(default_factory=list)
-    content_snapshot: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
-    recipient_results: list[dict[str, typing.Any]] = dataclasses.field(default_factory=list)
+    exported_asset_ids: typing.Optional[list[int]] = None
+    content_snapshot: typing.Optional[dict[str, typing.Any]] = None
+    recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
     finished: bool = False
 
