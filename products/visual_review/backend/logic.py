@@ -1305,22 +1305,32 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
 
     # Record approval on each snapshot without mutating result/baseline
     # This preserves the diff history while tracking what was approved
+    now = timezone.now()
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         new_hash = approvals[snapshot.identifier]
         snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = timezone.now()
+        snapshot.reviewed_at = now
         snapshot.reviewed_by_id = user_id
         snapshot.approved_hash = new_hash
         snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
-    # Mark run approved
-    run.approved = True
-    run.review_decision = ReviewDecision.HUMAN_APPROVED
-    run.approved_at = timezone.now()
-    run.approved_by_id = user_id
-    run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
+    # Run-level approval only when committing to GitHub (bulk "Approve all" action).
+    # Single-snapshot approvals just mark the snapshot — no run-level state change.
+    if commit_to_github:
+        run.approved = True
+        run.review_decision = ReviewDecision.HUMAN_APPROVED
+        run.approved_at = now
+        run.approved_by_id = user_id
+        run.save(update_fields=["approved", "review_decision", "approved_at", "approved_by_id"])
 
-    _post_commit_status(run, repo, "success", "Visual changes approved")
+        _post_commit_status(run, repo, "success", "Visual changes approved")
+
+        # Also mark removed snapshots as approved
+        run.snapshots.filter(result=SnapshotResult.REMOVED).update(
+            review_state=ReviewState.APPROVED,
+            reviewed_at=now,
+            reviewed_by_id=user_id,
+        )
 
     return run
 
