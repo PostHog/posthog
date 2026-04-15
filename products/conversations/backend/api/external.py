@@ -103,9 +103,9 @@ class ExternalTicketView(APIView):
         assert team is not None
 
         try:
-            ticket = Ticket.objects.select_related("assignment", "assignment__user", "assignment__role").get(
-                id=ticket_id, team_id=team.id
-            )
+            ticket = Ticket.objects.select_related(
+                "assignment", "assignment__user", "assignment__role", "email_config"
+            ).get(id=ticket_id, team_id=team.id)
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -149,6 +149,10 @@ class ExternalTicketView(APIView):
                 "slack_channel_id": ticket.slack_channel_id,
                 "slack_thread_ts": ticket.slack_thread_ts,
                 "slack_team_id": ticket.slack_team_id,
+                "email_subject": ticket.email_subject,
+                "email_from": ticket.email_from,
+                "email_to": ticket.email_config.from_email if ticket.email_config else None,
+                "cc_participants": ticket.cc_participants,
                 "tags": tags,
             }
         )
