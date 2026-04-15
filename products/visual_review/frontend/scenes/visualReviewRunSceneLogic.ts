@@ -10,7 +10,7 @@ import { Breadcrumb } from '~/types'
 import {
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
-    visualReviewRunsMarkToleratedCreate,
+    visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
     visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
@@ -220,7 +220,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         },
         markAsTolerated: async ({ snapshot }) => {
             try {
-                await visualReviewRunsMarkToleratedCreate(String(values.currentProjectId), props.runId, {
+                await visualReviewRunsTolerateCreate(String(values.currentProjectId), props.runId, {
                     snapshot_id: snapshot.id,
                 })
                 lemonToast.success('Marked as tolerated')

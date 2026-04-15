@@ -188,7 +188,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=MarkToleratedInputSerializer,
         responses={200: SnapshotSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="mark-tolerated")
+    @action(detail=True, methods=["post"], url_path="tolerate")
     def mark_tolerated(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Mark a changed snapshot as a known tolerated alternate."""
         try:
@@ -200,8 +200,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.RunNotFoundError:
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"detail": "Snapshot cannot be marked as tolerated"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(SnapshotSerializer(instance=snapshot).data)
 
     @extend_schema(

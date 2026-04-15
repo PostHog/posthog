@@ -160,11 +160,22 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
-export interface MarkToleratedInputApi {
-    snapshot_id: string
+export interface SnapshotHistoryEntryApi {
+    run_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
 }
 
-export type SnapshotApiMetadata = { [key: string]: unknown }
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
+}
 
 export interface ArtifactApi {
     id: string
@@ -176,6 +187,8 @@ export interface ArtifactApi {
     /** @nullable */
     download_url: string | null
 }
+
+export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
     current_artifact?: ArtifactApi | null
@@ -198,23 +211,6 @@ export interface SnapshotApi {
     metadata?: SnapshotApiMetadata
 }
 
-export interface SnapshotHistoryEntryApi {
-    run_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
-}
-
 export interface PaginatedSnapshotListApi {
     count: number
     /** @nullable */
@@ -222,6 +218,10 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export interface MarkToleratedInputApi {
+    snapshot_id: string
 }
 
 export interface ToleratedHashEntryApi {

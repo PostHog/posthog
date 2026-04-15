@@ -255,27 +255,6 @@ export const visualReviewRunsCompleteCreate = async (
 }
 
 /**
- * Mark a changed snapshot as a known tolerated alternate.
- */
-export const getVisualReviewRunsMarkToleratedCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/runs/${id}/mark-tolerated/`
-}
-
-export const visualReviewRunsMarkToleratedCreate = async (
-    projectId: string,
-    id: string,
-    markToleratedInputApi: MarkToleratedInputApi,
-    options?: RequestInit
-): Promise<SnapshotApi> => {
-    return apiMutator<SnapshotApi>(getVisualReviewRunsMarkToleratedCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(markToleratedInputApi),
-    })
-}
-
-/**
  * Recent change history for a snapshot identifier across runs.
  */
 export const getVisualReviewRunsSnapshotHistoryListUrl = (
@@ -345,6 +324,27 @@ export const visualReviewRunsSnapshotsList = async (
     return apiMutator<PaginatedSnapshotListApi>(getVisualReviewRunsSnapshotsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Mark a changed snapshot as a known tolerated alternate.
+ */
+export const getVisualReviewRunsTolerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/tolerate/`
+}
+
+export const visualReviewRunsTolerateCreate = async (
+    projectId: string,
+    id: string,
+    markToleratedInputApi: MarkToleratedInputApi,
+    options?: RequestInit
+): Promise<SnapshotApi> => {
+    return apiMutator<SnapshotApi>(getVisualReviewRunsTolerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(markToleratedInputApi),
     })
 }
 
