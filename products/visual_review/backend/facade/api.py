@@ -54,6 +54,7 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
         id=snapshot.id,
         identifier=snapshot.identifier,
         result=snapshot.result,
+        classification_reason=snapshot.classification_reason or "",
         current_artifact=_to_artifact(snapshot.current_artifact, repo_id) if snapshot.current_artifact else None,
         baseline_artifact=_to_artifact(snapshot.baseline_artifact, repo_id) if snapshot.baseline_artifact else None,
         diff_artifact=_to_artifact(snapshot.diff_artifact, repo_id) if snapshot.diff_artifact else None,
@@ -62,6 +63,7 @@ def _to_snapshot(snapshot, repo_id: UUID) -> contracts.Snapshot:
         review_state=snapshot.review_state,
         reviewed_at=snapshot.reviewed_at,
         approved_hash=snapshot.approved_hash,
+        tolerated_hash_id=snapshot.tolerated_hash_match_id,
         metadata=snapshot.metadata or {},
     )
 
@@ -83,6 +85,7 @@ def _to_run(run) -> contracts.Run:
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
+            tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
         created_at=run.created_at,
@@ -232,6 +235,26 @@ def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.Snaps
             branch=e["branch"],
             commit_sha=e["commit_sha"],
             created_at=e["created_at"],
+        )
+        for e in entries
+    ]
+
+
+def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> contracts.Snapshot:
+    snapshot = logic.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id)
+    return _to_snapshot(snapshot, snapshot.run.repo_id)
+
+
+def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.ToleratedHashEntry]:
+    entries = logic.get_tolerated_hashes_for_identifier(repo_id, identifier)
+    return [
+        contracts.ToleratedHashEntry(
+            id=e.id,
+            content_hash=e.content_hash,
+            baseline_hash=e.baseline_hash,
+            reason=e.reason,
+            created_at=e.created_at,
+            source_run_id=e.source_run_id,
         )
         for e in entries
     ]
