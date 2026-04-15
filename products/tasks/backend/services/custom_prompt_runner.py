@@ -126,10 +126,12 @@ async def _poll_for_turn(
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
-            # Poll the logs
-            finished, last_message, full_log, total_lines, empty_end_turn = await sync_to_async(_check_logs)(
-                task_run, skip_lines
-            )
+            # Poll the logs.
+            finished, last_message, full_log, total_lines, empty_end_turn = await sync_to_async(
+                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
+                _check_logs,
+                thread_sensitive=False,
+            )(task_run, skip_lines)
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -228,9 +230,11 @@ async def _drain_final_log(
     final_empty_end_turn = False
     for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
         try:
-            _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(_check_logs)(
-                task_run, skip_lines
-            )
+            _, final_message, final_log, final_lines, final_empty_end_turn = await sync_to_async(
+                # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
+                _check_logs,
+                thread_sensitive=False,
+            )(task_run, skip_lines)
             break
         except ObjectStorageError:
             logger.warning(
