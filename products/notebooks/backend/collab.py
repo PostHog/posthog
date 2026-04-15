@@ -78,14 +78,10 @@ def submit_steps(
         for i, s in enumerate(steps_json)
     ]
 
-    accepted, version = client.eval(
-        _APPEND_STEPS_LUA,
-        2,  # number of KEYS
-        version_key,  # KEYS[1]
-        steps_key,  # KEYS[2]
-        last_seen_version,  # ARGV[1]
-        TTL_SECONDS,  # ARGV[2]
-        *step_entries,  # ARGV[3..]
+    script = client.register_script(_APPEND_STEPS_LUA)
+    accepted, version = script(
+        keys=[version_key, steps_key],
+        args=[last_seen_version, TTL_SECONDS, *step_entries],
     )
 
     if accepted == -1:
