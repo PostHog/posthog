@@ -118,6 +118,20 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
+            elif level in (
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
+            ):
+                # No platform data at UTM granularity — single empty group for the FULL OUTER JOIN.
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
             else:
                 # Campaign level (default) — include campaign, id, source, match_key
                 select_columns.extend(

@@ -22756,7 +22756,7 @@
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign"],
+            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {

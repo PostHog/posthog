@@ -759,7 +759,7 @@
         "chromium": 86.0,
         "webkit": 4.1
     },
-    "frontend/src/scenes/insights/InsightOptions/InsightOptions.stories.tsx": {
+    "frontend/src/scenes/insights/InsightQuickStart/InsightQuickStart.stories.tsx": {
         "chromium": 8.8,
         "webkit": 2.5
     },

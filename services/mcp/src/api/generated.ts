@@ -11295,6 +11295,9 @@ export namespace Schemas {
       Channel: 'channel',
       Source: 'source',
       Campaign: 'campaign',
+      Medium: 'medium',
+      Content: 'content',
+      Term: 'term',
     } as const;
 
     export interface IntegrationFilter {
@@ -15246,6 +15249,8 @@ export namespace Schemas {
       readonly sync_time_of_day: string | null;
       /** @nullable */
       readonly description: string | null;
+      /** @nullable */
+      readonly primary_key_columns: readonly string[] | null;
       readonly cdc_table_mode: CdcTableModeEnum;
     }
 
@@ -24093,6 +24098,8 @@ export namespace Schemas {
       readonly sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
+      /** @nullable */
+      readonly primary_key_columns?: readonly string[] | null;
       readonly cdc_table_mode?: CdcTableModeEnum;
     }
 
@@ -26313,6 +26320,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
+    }
+
+    export interface PatchedTaskRunSetOutputRequest {
+      /** Output data from the run. Validated against the task's json_schema if one is set. */
+      output?: unknown;
     }
 
     /**

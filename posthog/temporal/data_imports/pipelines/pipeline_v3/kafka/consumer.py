@@ -214,7 +214,7 @@ class KafkaConsumerService:
                     timeout=self._config.batch_timeout_seconds,
                 )
 
-                messages: list[Any] = []
+                messages: list[tuple[Any, dict]] = []
                 for msg in raw_messages:
                     err = msg.error()
                     if err is not None:
@@ -225,7 +225,7 @@ class KafkaConsumerService:
                     raw = msg.value()
                     if raw is None:
                         continue
-                    messages.append(json.loads(raw.decode("utf-8")))
+                    messages.append((msg, json.loads(raw.decode("utf-8"))))
 
                 if not messages:
                     continue
@@ -243,8 +243,24 @@ class KafkaConsumerService:
         finally:
             self._cleanup()
 
+    def _commit_message(self, raw_msg: Any) -> None:
+        """Commit the offset for a single Kafka message synchronously.
+
+        Used on DLQ paths so a stuck message doesn't block the offset commit of
+        its healthy siblings in the same batch. Failures are logged but swallowed
+        so a commit blip doesn't prevent continued processing — redelivery will
+        hit the is_retry_exhausted branch and re-DLQ idempotently.
+        """
+        assert self._consumer is not None
+        try:
+            self._consumer.commit(message=raw_msg, asynchronous=False)
+            OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+        except Exception as e:
+            OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+            logger.warning("per_message_commit_failed", error=str(e))
+
     def _process_batch_with_retry(
-        self, messages: list[Any], health_reporter: Optional[Callable[[], None]] = None
+        self, messages: list[tuple[Any, dict]], health_reporter: Optional[Callable[[], None]] = None
     ) -> None:
         """Process a batch of messages with persistent retry tracking.
 
@@ -261,7 +277,7 @@ class KafkaConsumerService:
 
         dlq_count = 0
 
-        for message in messages:
+        for raw_msg, message in messages:
             team_id = str(message.get("team_id") or "unknown")
             schema_id = str(message.get("schema_id") or "unknown")
 
@@ -290,7 +306,12 @@ class KafkaConsumerService:
                 )
                 self._send_to_dlq(message, error)
                 self._mark_job_failed_from_message(message, error)
-                clear_retry_info(*msg_key)
+                # Deliberately keep retry_info in Redis: if this per-message
+                # commit or the trailing batch commit fails, redelivery must
+                # still observe the exhausted state and re-DLQ idempotently
+                # rather than starting a fresh retry cycle. Cleanup relies on
+                # the 72h TTL.
+                self._commit_message(raw_msg)
                 MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
                 DLQ_MESSAGES_TOTAL.labels(team_id=team_id, schema_id=schema_id, error_type="RetryExhausted").inc()
                 BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=retry_info.error_type or "unknown").inc()
@@ -323,10 +344,14 @@ class KafkaConsumerService:
                 BATCH_RETRY_TOTAL.labels(attempt=str(retry_info.count), error_type=type(e).__name__).inc()
 
                 if is_retry_exhausted(retry_info):
-                    # Exhausted after this attempt — DLQ and mark failed
+                    # Exhausted after this attempt — DLQ and mark failed.
+                    # Retry state stays in Redis (72h TTL) so that if the
+                    # per-message commit or a sibling failure prevents the
+                    # trailing batch commit, redelivery will re-DLQ via the
+                    # is_retry_exhausted branch rather than retrying from zero.
                     self._send_to_dlq(message, e)
                     self._mark_job_failed_from_message(message, e)
-                    clear_retry_info(*msg_key)
+                    self._commit_message(raw_msg)
                     MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
                     DLQ_MESSAGES_TOTAL.labels(team_id=team_id, schema_id=schema_id, error_type=type(e).__name__).inc()
                     BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=error_class).inc()

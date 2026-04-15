@@ -318,7 +318,13 @@ def _screenshot_asset(
         # Funnels are handled separately with fit-content measurement below
         width = driver.execute_script(
             f"""
-            // Check for replay player first
+            // Check for heatmap exporter first — its width is set explicitly
+            const heatmapElement = document.querySelector('.heatmap-exporter');
+            if (heatmapElement) {{
+                return heatmapElement.offsetWidth;
+            }}
+
+            // Check for replay player
             const replayElement = document.querySelector('.replayer-wrapper');
             if (replayElement) {{
                 return replayElement.offsetWidth;

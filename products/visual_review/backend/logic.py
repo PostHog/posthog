@@ -1032,6 +1032,11 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
     for identifier in removed_identifiers:
         current_baselines.pop(identifier, None)
 
+    # Remove entries for snapshots detected as removed in this run
+    removed_identifiers = set(run.snapshots.filter(result=SnapshotResult.REMOVED).values_list("identifier", flat=True))
+    for identifier in removed_identifiers:
+        current_baselines.pop(identifier, None)
+
     updates = [{"identifier": s["identifier"], "new_hash": s["new_hash"]} for s in approved_snapshots]
     new_content = _build_snapshots_yaml(repo, current_baselines, updates)
 
