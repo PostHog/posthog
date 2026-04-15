@@ -244,7 +244,7 @@ const handleRequest = async (
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
-    const version = 2 // Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
+    const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
