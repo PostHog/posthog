@@ -14,6 +14,7 @@ import json
 import uuid
 import logging
 from collections.abc import Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -31,11 +32,6 @@ DEFAULT_PROVIDER = "anthropic"
 # Context var for injecting per-scorer-invocation trace properties
 # into the traced OpenAI client's ``create()`` calls.
 _scorer_context: ContextVar[dict[str, Any] | None] = ContextVar("_scorer_context", default=None)
-
-
-# ---------------------------------------------------------------------------
-# Parsed log structures
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -96,266 +92,285 @@ class ParsedLog:
         return total
 
 
-# ---------------------------------------------------------------------------
-# ACP JSONL → per-turn generations + spans
-# ---------------------------------------------------------------------------
+class AcpLogParser:
+    """Single-use parser for an ACP JSONL session log.
+
+    Holds all state that accumulates as the parser walks the log, dispatches
+    each line to a handler method based on notification method and session
+    update kind, and returns a populated ``ParsedLog``.
+
+    Each generation represents one model API call with the full accumulated
+    conversation history as input (matching how autoregressive LLMs work).
+    Generation boundaries are detected when a new ``agent_message`` or
+    ``tool_call`` arrives after tool results have been collected — that
+    signals the model received the tool results and is producing a new
+    response.
+    """
+
+    def __init__(self, initial_prompt: str = ""):
+        self._result = ParsedLog()
+
+        # Full conversation history — grows with each generation.
+        # Seed with the initial prompt (not present in the ACP log).
+        self._history: list[dict[str, Any]] = []
+        if initial_prompt:
+            self._history.append({"role": "user", "content": initial_prompt})
+
+        # State for the current generation being built
+        self._current_output: list[dict[str, Any]] = []
+        self._pending_tool_results: list[dict[str, Any]] = []
+        self._last_token_usage: dict[str, int] = {}
+        self._gen_timestamp: str = ""
+        self._gen_start_ts: str = ""  # When the model call was invoked
+        self._gen_last_output_ts: str = ""  # Timestamp of most recent output block
+        self._last_tool_result_ts: str = ""  # Drives next gen's start_ts
+
+    def parse(self, raw_log: str) -> ParsedLog:
+        for line in raw_log.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            self._handle_entry(entry)
+
+        # Flush anything remaining (e.g. if end_turn was missing)
+        self._drain_pending_tool_results_into_history()
+        self._flush_generation()
+        return self._result
+
+    def _handle_entry(self, entry: dict) -> None:
+        ts = entry.get("timestamp", "")
+        if ts:
+            if not self._result.first_timestamp:
+                self._result.first_timestamp = ts
+            self._result.last_timestamp = ts
+
+        notification = entry.get("notification")
+        if not isinstance(notification, dict):
+            return
+
+        # Capture the session/prompt timestamp as the start of the first model call
+        # (orchestrator sends the prompt; the model starts processing it).
+        method = notification.get("method", "")
+        if method == "session/prompt" and ts and not self._gen_start_ts:
+            self._gen_start_ts = ts
+
+        # Token usage + end_turn completion
+        entry_result = notification.get("result")
+        if isinstance(entry_result, dict):
+            if self._handle_result(entry_result):
+                return  # end_turn consumed this entry
+
+        if method == "_posthog/console":
+            self._on_console(notification, ts)
+            return
+        if method == "_posthog/error":
+            self._on_error(notification, ts)
+            return
+        if method != "session/update":
+            return
+
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if isinstance(update, dict):
+            self._dispatch_session_update(update, ts)
+
+    def _handle_result(self, entry_result: dict) -> bool:
+        """Process token usage and end_turn. Returns True if end_turn was handled."""
+        usage = entry_result.get("usage")
+        if isinstance(usage, dict):
+            self._last_token_usage = {
+                "inputTokens": usage.get("inputTokens", 0),
+                "outputTokens": usage.get("outputTokens", 0),
+                "cachedReadTokens": usage.get("cachedReadTokens", 0),
+                "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
+                "totalTokens": usage.get("totalTokens", 0),
+            }
+        if entry_result.get("stopReason") == "end_turn":
+            self._flush_generation(token_usage=self._last_token_usage)
+            self._last_token_usage = {}
+            return True
+        return False
+
+    def _on_console(self, notification: dict, ts: str) -> None:
+        params = notification.get("params", {}) or {}
+        level = params.get("level", "info")
+        msg = params.get("message", "")
+        if not msg:
+            return
+        self._result.spans.append(
+            SpanDescriptor(
+                span_id=str(uuid.uuid4()),
+                span_name=f"console/{level}",
+                content=msg,
+                timestamp=ts,
+            )
+        )
+
+    def _on_error(self, notification: dict, ts: str) -> None:
+        params = notification.get("params", {})
+        msg = params.get("message", "") if isinstance(params, dict) else str(params)
+        self._result.spans.append(
+            SpanDescriptor(
+                span_id=str(uuid.uuid4()),
+                span_name="error",
+                content=msg or "unknown error",
+                timestamp=ts,
+            )
+        )
+
+    def _dispatch_session_update(self, update: dict, ts: str) -> None:
+        kind = update.get("sessionUpdate", "")
+        handler = self._SESSION_UPDATE_HANDLERS.get(kind)
+        if handler is not None:
+            handler(self, update, ts)
+        # Intentionally ignored: agent_message_chunk, agent_thought_chunk,
+        # usage_update, available_commands_update, etc.
+
+    def _on_user_message(self, update: dict, _ts: str) -> None:
+        self._flush_generation()
+        self._drain_pending_tool_results_into_history()
+        text = self._extract_text(update)
+        if text:
+            self._history.append({"role": "user", "content": text})
+
+    def _on_agent_message(self, update: dict, ts: str) -> None:
+        # If tool results are pending, the model has received them and is
+        # producing a new response — flush the previous generation first.
+        self._flush_for_new_turn_if_pending()
+
+        if not self._gen_timestamp:
+            self._gen_timestamp = ts
+        text = self._extract_text(update)
+        if text:
+            self._current_output.append({"type": "text", "text": text})
+            self._gen_last_output_ts = ts
+
+    def _on_tool_call(self, update: dict, ts: str) -> None:
+        # A new tool_call with pending tool_results means the previous model call
+        # finished (with just its tool_use output, no text), tools ran, and now a
+        # new model call has produced this next tool_use. Flush the previous gen.
+        self._flush_for_new_turn_if_pending()
+
+        if not self._gen_timestamp:
+            self._gen_timestamp = ts
+        meta = update.get("_meta", {})
+        cc = meta.get("claudeCode", {}) if isinstance(meta, dict) else {}
+        tool_name = cc.get("toolName", update.get("title", "unknown_tool"))
+        tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
+        raw_input = update.get("rawInput", {})
+
+        self._current_output.append(
+            {
+                "type": "tool_use",
+                "id": tool_call_id,
+                "name": tool_name,
+                "input": raw_input if isinstance(raw_input, dict) else {},
+            }
+        )
+        self._gen_last_output_ts = ts
+
+    def _on_tool_call_update(self, update: dict, ts: str) -> None:
+        tool_call_id = update.get("toolCallId", "")
+
+        # ACP streams the tool input in a follow-up update, not the initial tool_call.
+        # Patch the matching tool_use block so $ai_output_choices carries real args.
+        late_input = update.get("rawInput")
+        if isinstance(late_input, dict) and late_input and tool_call_id:
+            for block in self._current_output:
+                if block.get("type") == "tool_use" and block.get("id") == tool_call_id:
+                    block["input"] = late_input
+                    break
+
+        status = update.get("status", "")
+        if status not in ("completed", "failed", "error") or not tool_call_id:
+            return
+
+        raw_output = update.get("rawOutput", "")
+        content = self._extract_text(update)
+        output_text = raw_output if raw_output else (content or "")
+        if isinstance(output_text, dict):
+            output_text = json.dumps(output_text)
+
+        tool_result: dict[str, Any] = {
+            "type": "tool_result",
+            "tool_use_id": tool_call_id,
+            "content": str(output_text) if output_text else "(no output)",
+        }
+        if status in ("failed", "error"):
+            tool_result["is_error"] = True
+        self._pending_tool_results.append(tool_result)
+        if ts:
+            self._last_tool_result_ts = ts
+
+    _SESSION_UPDATE_HANDLERS = {
+        "user_message": _on_user_message,
+        "agent_message": _on_agent_message,
+        "tool_call": _on_tool_call,
+        "tool_call_update": _on_tool_call_update,
+    }
+
+    def _flush_for_new_turn_if_pending(self) -> None:
+        """If we have queued tool_results, we're starting a new model call:
+        flush the previous generation, append the tool_results as a user
+        message in history, and set the next generation's start_ts."""
+        if not self._pending_tool_results:
+            return
+        self._flush_generation()
+        self._history.append({"role": "user", "content": list(self._pending_tool_results)})
+        self._pending_tool_results = []
+        self._gen_start_ts = self._last_tool_result_ts
+
+    def _drain_pending_tool_results_into_history(self) -> None:
+        if self._pending_tool_results:
+            self._history.append({"role": "user", "content": list(self._pending_tool_results)})
+            self._pending_tool_results = []
+
+    def _flush_generation(self, token_usage: dict[str, int] | None = None) -> None:
+        """Flush accumulated output into a GenerationDescriptor with full history as input."""
+        if not self._current_output:
+            return
+        self._result.generations.append(
+            GenerationDescriptor(
+                input_messages=list(self._history),
+                output_content=list(self._current_output),
+                token_usage=token_usage or {},
+                timestamp=self._gen_timestamp,
+                start_ts=self._gen_start_ts,
+                end_ts=self._gen_last_output_ts or self._gen_timestamp,
+            )
+        )
+        # Add the assistant response to history for the next generation
+        self._history.append({"role": "assistant", "content": list(self._current_output)})
+        self._current_output = []
+        self._gen_timestamp = ""
+        self._gen_start_ts = ""
+        self._gen_last_output_ts = ""
+
+    @staticmethod
+    def _extract_text(update: dict) -> str:
+        content = update.get("content")
+        if isinstance(content, dict) and content.get("type") == "text":
+            return content.get("text", "").strip()
+        if isinstance(content, str):
+            return content.strip()
+        message = update.get("message")
+        if isinstance(message, str):
+            return message.strip()
+        return ""
 
 
 def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
     """Parse an ACP JSONL log into per-turn generations and span descriptors.
 
-    Each generation represents one model API call with the **full accumulated
-    conversation history** as input (matching how autoregressive LLMs work):
-    - ``input_messages``: full message history sent to the model for this call
-    - ``output_content``: the assistant's response (text + tool_use blocks)
-    - ``token_usage``: populated on the final generation from ``end_turn``
-    - ``timestamp``: ISO timestamp of the first agent output in this generation
-
-    Generation boundaries are detected when a new ``agent_message`` arrives
-    after tool results have been collected — this signals the model received
-    the tool results and is producing a new response.
-
     ``initial_prompt`` is injected as the first user message because the
     agent-server's ``sendInitialTaskMessage`` doesn't emit a ``user_message``
     session update in the ACP log.
     """
-    result = ParsedLog()
-
-    # Full conversation history — grows with each generation.
-    # Seed with the initial prompt (not present in the ACP log).
-    history: list[dict[str, Any]] = []
-    if initial_prompt:
-        history.append({"role": "user", "content": initial_prompt})
-
-    # State for the current generation being built
-    current_output: list[dict[str, Any]] = []
-    pending_tool_results: list[dict[str, Any]] = []
-    last_token_usage: dict[str, int] = {}
-    gen_timestamp: str = ""
-    gen_start_ts: str = ""  # When the model call was invoked
-    gen_last_output_ts: str = ""  # Timestamp of most recent block in current_output
-    last_tool_result_ts: str = ""  # Most recent tool_result completion, drives next gen's start_ts
-
-    def _flush_generation(token_usage: dict[str, int] | None = None) -> None:
-        """Flush accumulated output into a GenerationDescriptor with full history as input."""
-        nonlocal current_output, gen_timestamp, gen_start_ts, gen_last_output_ts
-        if not current_output:
-            return
-        result.generations.append(
-            GenerationDescriptor(
-                input_messages=list(history),
-                output_content=list(current_output),
-                token_usage=token_usage or {},
-                timestamp=gen_timestamp,
-                start_ts=gen_start_ts,
-                end_ts=gen_last_output_ts or gen_timestamp,
-            )
-        )
-        # Add the assistant response to history for the next generation
-        history.append({"role": "assistant", "content": list(current_output)})
-        current_output = []
-        gen_timestamp = ""
-        gen_start_ts = ""
-        gen_last_output_ts = ""
-
-    for line in raw_log.strip().split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        ts = entry.get("timestamp", "")
-        if ts:
-            if not result.first_timestamp:
-                result.first_timestamp = ts
-            result.last_timestamp = ts
-
-        notification = entry.get("notification")
-        if not isinstance(notification, dict):
-            continue
-
-        # Capture the session/prompt timestamp as the start of the first model call
-        # (orchestrator sends the prompt; the model starts processing it).
-        if notification.get("method") == "session/prompt" and ts and not gen_start_ts:
-            gen_start_ts = ts
-
-        # Token usage from turn completion
-        entry_result = notification.get("result")
-        if isinstance(entry_result, dict):
-            usage = entry_result.get("usage")
-            if isinstance(usage, dict):
-                last_token_usage = {
-                    "inputTokens": usage.get("inputTokens", 0),
-                    "outputTokens": usage.get("outputTokens", 0),
-                    "cachedReadTokens": usage.get("cachedReadTokens", 0),
-                    "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
-                    "totalTokens": usage.get("totalTokens", 0),
-                }
-            if entry_result.get("stopReason") == "end_turn":
-                _flush_generation(token_usage=last_token_usage)
-                last_token_usage = {}
-                continue
-
-        method = notification.get("method", "")
-
-        # Non-AI events → spans
-        if method == "_posthog/console":
-            params = notification.get("params", {})
-            level = params.get("level", "info")
-            msg = params.get("message", "")
-            if msg:
-                result.spans.append(
-                    SpanDescriptor(
-                        span_id=str(uuid.uuid4()),
-                        span_name=f"console/{level}",
-                        content=msg,
-                        timestamp=ts,
-                    )
-                )
-            continue
-
-        if method == "_posthog/error":
-            params = notification.get("params", {})
-            msg = params.get("message", "") if isinstance(params, dict) else str(params)
-            result.spans.append(
-                SpanDescriptor(
-                    span_id=str(uuid.uuid4()),
-                    span_name="error",
-                    content=msg or "unknown error",
-                    timestamp=ts,
-                )
-            )
-            continue
-
-        if method != "session/update":
-            continue
-
-        params = notification.get("params")
-        update = params.get("update") if isinstance(params, dict) else None
-        if not isinstance(update, dict):
-            continue
-
-        session_update = update.get("sessionUpdate", "")
-
-        # --- User message ---
-        if session_update == "user_message":
-            _flush_generation()
-            # Flush any pending tool results into history
-            if pending_tool_results:
-                history.append({"role": "user", "content": list(pending_tool_results)})
-                pending_tool_results = []
-
-            text = _extract_text(update)
-            if text:
-                history.append({"role": "user", "content": text})
-
-        # --- Agent message (text block) ---
-        elif session_update == "agent_message":
-            # If tool results are pending, this means the model has received them
-            # and is producing a new response — flush the previous generation.
-            if pending_tool_results:
-                _flush_generation()
-                history.append({"role": "user", "content": list(pending_tool_results)})
-                pending_tool_results = []
-                gen_start_ts = last_tool_result_ts
-
-            if not gen_timestamp:
-                gen_timestamp = ts
-            text = _extract_text(update)
-            if text:
-                current_output.append({"type": "text", "text": text})
-                gen_last_output_ts = ts
-
-        # --- Tool call start ---
-        elif session_update == "tool_call":
-            # A new tool_call with pending tool_results means the previous model call
-            # finished (with just its tool_use output, no text), tools ran, and now a
-            # new model call has produced this next tool_use. Flush the previous gen.
-            if pending_tool_results:
-                _flush_generation()
-                history.append({"role": "user", "content": list(pending_tool_results)})
-                pending_tool_results = []
-                gen_start_ts = last_tool_result_ts
-
-            if not gen_timestamp:
-                gen_timestamp = ts
-            meta = update.get("_meta", {})
-            cc = meta.get("claudeCode", {}) if isinstance(meta, dict) else {}
-            tool_name = cc.get("toolName", update.get("title", "unknown_tool"))
-            tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
-            raw_input = update.get("rawInput", {})
-
-            current_output.append(
-                {
-                    "type": "tool_use",
-                    "id": tool_call_id,
-                    "name": tool_name,
-                    "input": raw_input if isinstance(raw_input, dict) else {},
-                }
-            )
-            gen_last_output_ts = ts
-
-        # --- Tool call update (may contain result or late-arriving input) ---
-        elif session_update == "tool_call_update":
-            status = update.get("status", "")
-            tool_call_id = update.get("toolCallId", "")
-
-            # ACP streams the tool input in a follow-up update, not the initial tool_call.
-            # Patch the matching tool_use block so $ai_output_choices carries real arguments.
-            late_input = update.get("rawInput")
-            if isinstance(late_input, dict) and late_input and tool_call_id:
-                for block in current_output:
-                    if block.get("type") == "tool_use" and block.get("id") == tool_call_id:
-                        block["input"] = late_input
-                        break
-
-            if status in ("completed", "failed", "error") and tool_call_id:
-                raw_output = update.get("rawOutput", "")
-                content = _extract_text(update)
-                output_text = raw_output if raw_output else (content or "")
-                if isinstance(output_text, dict):
-                    output_text = json.dumps(output_text)
-
-                is_error = status in ("failed", "error")
-                tool_result: dict[str, Any] = {
-                    "type": "tool_result",
-                    "tool_use_id": tool_call_id,
-                    "content": str(output_text) if output_text else "(no output)",
-                }
-                if is_error:
-                    tool_result["is_error"] = True
-                pending_tool_results.append(tool_result)
-                if ts:
-                    last_tool_result_ts = ts
-
-        # Skip agent_message_chunk, agent_thought_chunk, usage_update, available_commands_update
-
-    # Flush anything remaining (e.g. if end_turn was missing)
-    if pending_tool_results:
-        history.append({"role": "user", "content": list(pending_tool_results)})
-    _flush_generation()
-
-    return result
-
-
-def _extract_text(update: dict) -> str:
-    content = update.get("content")
-    if isinstance(content, dict) and content.get("type") == "text":
-        return content.get("text", "").strip()
-    if isinstance(content, str):
-        return content.strip()
-    message = update.get("message")
-    if isinstance(message, str):
-        return message.strip()
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# Traced scorer wrapper
-# ---------------------------------------------------------------------------
+    return AcpLogParser(initial_prompt=initial_prompt).parse(raw_log)
 
 
 def _build_posthog_kwargs() -> dict[str, Any]:
@@ -471,8 +486,13 @@ class TracedScorer(Scorer):
     def _name(self) -> str:
         return self._inner._name()
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        case_name = _case_name_from_kwargs(kwargs)
+    @contextmanager
+    def _invocation_context(self, case_name: str):
+        """Patch traced clients onto the inner scorer and set the scorer trace context.
+
+        Yields ``is_llm_scorer`` so the caller knows whether to emit a span.
+        Restores the original client attributes and context var on exit.
+        """
         has_client = hasattr(self._inner, "client")
         has_anthropic = hasattr(self._inner, "anthropic_client")
         is_llm_scorer = has_client or has_anthropic
@@ -492,7 +512,7 @@ class TracedScorer(Scorer):
         ctx = {"trace_id": scorer_trace_id, **self._eval_metadata} if scorer_trace_id else None
         token = _scorer_context.set(ctx)
         try:
-            result = await self._inner._run_eval_async(output, expected, **kwargs)
+            yield is_llm_scorer
         finally:
             _scorer_context.reset(token)
             if has_client:
@@ -500,44 +520,20 @@ class TracedScorer(Scorer):
             if has_anthropic:
                 self._inner.anthropic_client = original_anthropic
 
-        # Emit deterministic scorers as spans on the agent trace
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        case_name = _case_name_from_kwargs(kwargs)
+        with self._invocation_context(case_name) as is_llm_scorer:
+            result = await self._inner._run_eval_async(output, expected, **kwargs)
         if not is_llm_scorer and self._posthog_client:
             self._emit_scorer_span(case_name, result)
-
         return result
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         case_name = _case_name_from_kwargs(kwargs)
-        has_client = hasattr(self._inner, "client")
-        has_anthropic = hasattr(self._inner, "anthropic_client")
-        is_llm_scorer = has_client or has_anthropic
-
-        scorer_trace_id = str(uuid.uuid4()) if is_llm_scorer else None
-        if scorer_trace_id:
-            self._scorer_traces[(case_name, self._name())] = scorer_trace_id
-
-        original_client = getattr(self._inner, "client", None) if has_client else None
-        if has_client:
-            self._inner.client = self._traced_clients.openai_llm_client
-
-        original_anthropic = getattr(self._inner, "anthropic_client", None) if has_anthropic else None
-        if has_anthropic:
-            self._inner.anthropic_client = self._traced_clients.anthropic_client
-
-        ctx = {"trace_id": scorer_trace_id, **self._eval_metadata} if scorer_trace_id else None
-        token = _scorer_context.set(ctx)
-        try:
+        with self._invocation_context(case_name) as is_llm_scorer:
             result = self._inner._run_eval_sync(output, expected, **kwargs)
-        finally:
-            _scorer_context.reset(token)
-            if has_client:
-                self._inner.client = original_client
-            if has_anthropic:
-                self._inner.anthropic_client = original_anthropic
-
         if not is_llm_scorer and self._posthog_client:
             self._emit_scorer_span(case_name, result)
-
         return result
 
     def _emit_scorer_span(self, case_name: str, result: Any) -> None:
@@ -608,11 +604,6 @@ def _case_name_from_kwargs(kwargs: dict) -> str:
     return input_data.get("name", "unknown") if isinstance(input_data, dict) else "unknown"
 
 
-# ---------------------------------------------------------------------------
-# Emit trace events to PostHog
-# ---------------------------------------------------------------------------
-
-
 def _parse_iso_timestamp(ts: str) -> datetime | None:
     if not ts:
         return None
@@ -620,6 +611,203 @@ def _parse_iso_timestamp(ts: str) -> datetime | None:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+
+
+class TraceEventEmitter:
+    """Emits PostHog $ai_* events for a single eval case trace.
+
+    Holds the PostHog client, trace_id, and experiment metadata so individual
+    emit methods don't have to thread them through every call.
+    """
+
+    def __init__(
+        self,
+        client: Posthog,
+        trace_id: str,
+        experiment_id: str,
+        experiment_name: str,
+        case_name: str,
+    ):
+        self._client = client
+        self._trace_id = trace_id
+        self._experiment_id = experiment_id
+        self._formatted_experiment_name = f"sandboxed-agent/{experiment_name}"
+        self._case_name = case_name
+
+    @property
+    def _eval_metadata(self) -> dict[str, Any]:
+        return {
+            "ai_product": "evals",
+            "$ai_experiment_id": self._experiment_id,
+            "$ai_experiment_name": self._formatted_experiment_name,
+        }
+
+    def emit_parsed_events(self, parsed: ParsedLog) -> None:
+        """Emit ``$ai_generation`` per model turn and ``$ai_span`` per log span."""
+        error_spans = [s for s in parsed.spans if s.span_name == "error"]
+
+        for gen in parsed.generations:
+            self._emit_generation(gen, error_spans)
+        for span in parsed.spans:
+            self._emit_span(span)
+
+        # NOTE: $ai_trace root event is emitted separately by emit_trace_root()
+        # after scoring completes, so it can include scores in the output.
+
+        logger.info(
+            "Emitted child events for '%s' (trace=%s): %d generations, %d spans",
+            self._case_name,
+            self._trace_id,
+            len(parsed.generations),
+            len(parsed.spans),
+        )
+
+    def _emit_generation(self, gen: GenerationDescriptor, error_spans: list[SpanDescriptor]) -> None:
+        # Prefer the real "model call invoked" time; fall back to first-output time.
+        gen_start = _parse_iso_timestamp(gen.start_ts) or _parse_iso_timestamp(gen.timestamp)
+        gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
+
+        properties: dict[str, Any] = {
+            "$ai_trace_id": self._trace_id,
+            "$ai_span_id": str(uuid.uuid4()),
+            "$ai_parent_id": self._trace_id,
+            "$ai_model": DEFAULT_MODEL,
+            "$ai_provider": DEFAULT_PROVIDER,
+            "$ai_input": gen.input_messages,
+            **self._eval_metadata,
+        }
+        if gen.output_content:
+            properties["$ai_output_choices"] = [
+                {"role": "assistant", "content": gen.output_content},
+            ]
+
+        # Token usage. The ACP agent-server emits one ``usage`` block per session
+        # (at end_turn), so only the final generation carries non-empty counts when
+        # a session spans multiple model calls.
+        self._apply_token_usage(properties, gen.token_usage)
+
+        if gen_start and gen_end and gen_end >= gen_start:
+            properties["$ai_latency"] = (gen_end - gen_start).total_seconds()
+
+        self._apply_matching_errors(properties, error_spans, gen_start, gen_end)
+
+        capture_kwargs: dict[str, Any] = {}
+        if gen_start:
+            capture_kwargs["timestamp"] = gen_start
+
+        self._client.capture(
+            distinct_id=DISTINCT_ID,
+            event="$ai_generation",
+            properties=properties,
+            **capture_kwargs,
+        )
+
+    @staticmethod
+    def _apply_token_usage(properties: dict[str, Any], token_usage: dict[str, int]) -> None:
+        if not token_usage:
+            return
+        if "inputTokens" in token_usage:
+            properties["$ai_input_tokens"] = token_usage["inputTokens"]
+        if "outputTokens" in token_usage:
+            properties["$ai_output_tokens"] = token_usage["outputTokens"]
+        if token_usage.get("cachedReadTokens"):
+            properties["$ai_cache_read_input_tokens"] = token_usage["cachedReadTokens"]
+        if token_usage.get("cachedWriteTokens"):
+            properties["$ai_cache_creation_input_tokens"] = token_usage["cachedWriteTokens"]
+
+    @staticmethod
+    def _apply_matching_errors(
+        properties: dict[str, Any],
+        error_spans: list[SpanDescriptor],
+        gen_start: datetime | None,
+        gen_end: datetime | None,
+    ) -> None:
+        """Attribute errors that fired within this generation's time window."""
+        if not gen_start:
+            return
+        matching: list[str] = []
+        for span in error_spans:
+            span_ts = _parse_iso_timestamp(span.timestamp)
+            if not span_ts:
+                continue
+            if span_ts >= gen_start and (gen_end is None or span_ts <= gen_end):
+                matching.append(span.content or "unknown error")
+        if matching:
+            properties["$ai_is_error"] = True
+            properties["$ai_error"] = "; ".join(matching)[:2000]
+
+    def _emit_span(self, span: SpanDescriptor) -> None:
+        capture_kwargs: dict[str, Any] = {}
+        span_ts = _parse_iso_timestamp(span.timestamp)
+        if span_ts:
+            capture_kwargs["timestamp"] = span_ts
+
+        self._client.capture(
+            distinct_id=DISTINCT_ID,
+            event="$ai_span",
+            properties={
+                "$ai_trace_id": self._trace_id,
+                "$ai_span_id": span.span_id,
+                "$ai_parent_id": self._trace_id,
+                "$ai_span_name": span.span_name,
+                "$ai_output_state": span.content,
+                **self._eval_metadata,
+            },
+            **capture_kwargs,
+        )
+
+    def emit_root(
+        self,
+        prompt: str,
+        duration: float,
+        first_timestamp: str,
+        last_message: str = "",
+        artifacts_summary: dict[str, Any] | None = None,
+        scores: dict[str, float | None] | None = None,
+        token_usage: dict[str, int] | None = None,
+    ) -> None:
+        """Emit the ``$ai_trace`` root event after scoring so output includes scores.
+
+        Token usage is placed here (not on individual generations) because the ACP
+        log only reports aggregate totals at ``end_turn``, not per sub-generation.
+        """
+        prompt_preview = prompt[:20].replace("\n", " ") if prompt else ""
+        trace_name = f"{self._case_name}: {prompt_preview}" if prompt_preview else self._case_name
+
+        output_state: dict[str, Any] = {}
+        if last_message:
+            output_state["last_message"] = last_message
+        if scores:
+            output_state["scores"] = scores
+        if artifacts_summary:
+            output_state["artifacts"] = artifacts_summary
+
+        properties: dict[str, Any] = {
+            "$ai_trace_id": self._trace_id,
+            "$ai_trace_name": trace_name,
+            "$ai_latency": duration,
+            **self._eval_metadata,
+        }
+        if prompt:
+            properties["$ai_input_state"] = {"prompt": prompt}
+        if output_state:
+            properties["$ai_output_state"] = output_state
+        if token_usage:
+            properties["$ai_input_tokens"] = token_usage.get("inputTokens", 0)
+            properties["$ai_output_tokens"] = token_usage.get("outputTokens", 0)
+            properties["$ai_cache_read_input_tokens"] = token_usage.get("cachedReadTokens", 0)
+
+        capture_kwargs: dict[str, Any] = {}
+        ts = _parse_iso_timestamp(first_timestamp)
+        if ts:
+            capture_kwargs["timestamp"] = ts
+
+        self._client.capture(
+            distinct_id=DISTINCT_ID,
+            event="$ai_trace",
+            properties=properties,
+            **capture_kwargs,
+        )
 
 
 def emit_trace_events(
@@ -630,108 +818,11 @@ def emit_trace_events(
     case_name: str,
     parsed: ParsedLog,
 ) -> None:
-    """Emit one ``$ai_generation`` per turn, plus ``$ai_span`` and ``$ai_trace`` events.
+    """Emit one ``$ai_generation`` per turn, plus ``$ai_span`` events.
 
-    Uses timestamps from the ACP log so events sort chronologically in the trace view.
+    Thin wrapper over ``TraceEventEmitter.emit_parsed_events``.
     """
-    formatted_exp_name = f"sandboxed-agent/{experiment_name}"
-
-    # Common properties for linking traces to the eval experiment
-    eval_metadata: dict[str, Any] = {
-        "ai_product": "evals",
-        "$ai_experiment_id": experiment_id,
-        "$ai_experiment_name": formatted_exp_name,
-    }
-
-    # Error spans from the ACP log get attached to whichever generation covers their timestamp.
-    error_spans = [s for s in parsed.spans if s.span_name == "error"]
-
-    # $ai_generation — one per model turn, with accumulated history as input
-    for gen in parsed.generations:
-        generation_id = str(uuid.uuid4())
-        # Prefer the real "model call invoked" time; fall back to first-output time.
-        gen_start = _parse_iso_timestamp(gen.start_ts) or _parse_iso_timestamp(gen.timestamp)
-        gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
-
-        gen_properties: dict[str, Any] = {
-            "$ai_trace_id": trace_id,
-            "$ai_span_id": generation_id,
-            "$ai_parent_id": trace_id,
-            "$ai_model": DEFAULT_MODEL,
-            "$ai_provider": DEFAULT_PROVIDER,
-            "$ai_input": gen.input_messages,
-            **eval_metadata,
-        }
-        if gen.output_content:
-            gen_properties["$ai_output_choices"] = [
-                {"role": "assistant", "content": gen.output_content},
-            ]
-
-        # Token usage. The ACP agent-server emits one ``usage`` block per session
-        # (at end_turn), so only the final generation carries non-empty counts when
-        # a session spans multiple model calls.
-        if gen.token_usage:
-            if "inputTokens" in gen.token_usage:
-                gen_properties["$ai_input_tokens"] = gen.token_usage["inputTokens"]
-            if "outputTokens" in gen.token_usage:
-                gen_properties["$ai_output_tokens"] = gen.token_usage["outputTokens"]
-            if gen.token_usage.get("cachedReadTokens"):
-                gen_properties["$ai_cache_read_input_tokens"] = gen.token_usage["cachedReadTokens"]
-            if gen.token_usage.get("cachedWriteTokens"):
-                gen_properties["$ai_cache_creation_input_tokens"] = gen.token_usage["cachedWriteTokens"]
-
-        if gen_start and gen_end and gen_end >= gen_start:
-            gen_properties["$ai_latency"] = (gen_end - gen_start).total_seconds()
-
-        # Attribute errors that fired within this generation's time window.
-        matching_errors: list[str] = []
-        for span in error_spans:
-            span_ts = _parse_iso_timestamp(span.timestamp)
-            if not span_ts or not gen_start:
-                continue
-            if span_ts >= gen_start and (gen_end is None or span_ts <= gen_end):
-                matching_errors.append(span.content or "unknown error")
-        if matching_errors:
-            gen_properties["$ai_is_error"] = True
-            gen_properties["$ai_error"] = "; ".join(matching_errors)[:2000]
-
-        capture_kwargs: dict[str, Any] = {}
-        if gen_start:
-            capture_kwargs["timestamp"] = gen_start
-
-        client.capture(distinct_id=DISTINCT_ID, event="$ai_generation", properties=gen_properties, **capture_kwargs)
-
-    # $ai_span — non-AI events (console, errors)
-    for span in parsed.spans:
-        capture_kwargs = {}
-        span_ts = _parse_iso_timestamp(span.timestamp)
-        if span_ts:
-            capture_kwargs["timestamp"] = span_ts
-
-        client.capture(
-            distinct_id=DISTINCT_ID,
-            event="$ai_span",
-            properties={
-                "$ai_trace_id": trace_id,
-                "$ai_span_id": span.span_id,
-                "$ai_parent_id": trace_id,
-                "$ai_span_name": span.span_name,
-                "$ai_output_state": span.content,
-                **eval_metadata,
-            },
-            **capture_kwargs,
-        )
-
-    # NOTE: $ai_trace root event is emitted separately by emit_trace_root()
-    # after scoring completes, so it can include scores in the output.
-
-    logger.info(
-        "Emitted child events for '%s' (trace=%s): %d generations, %d spans",
-        case_name,
-        trace_id,
-        len(parsed.generations),
-        len(parsed.spans),
-    )
+    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name).emit_parsed_events(parsed)
 
 
 def emit_trace_root(
@@ -748,51 +839,16 @@ def emit_trace_root(
     scores: dict[str, float | None] | None = None,
     token_usage: dict[str, int] | None = None,
 ) -> None:
-    """Emit the ``$ai_trace`` root event after scoring so output includes scores.
-
-    Token usage is placed here (not on individual generations) because the ACP
-    log only reports aggregate totals at ``end_turn``, not per sub-generation.
-    """
-    formatted_exp_name = f"sandboxed-agent/{experiment_name}"
-    prompt_preview = prompt[:20].replace("\n", " ") if prompt else ""
-    trace_name = f"{case_name}: {prompt_preview}" if prompt_preview else case_name
-
-    output_state: dict[str, Any] = {}
-    if last_message:
-        output_state["last_message"] = last_message
-    if scores:
-        output_state["scores"] = scores
-    if artifacts_summary:
-        output_state["artifacts"] = artifacts_summary
-
-    trace_properties: dict[str, Any] = {
-        "$ai_trace_id": trace_id,
-        "$ai_trace_name": trace_name,
-        "$ai_latency": duration,
-        "ai_product": "evals",
-        "$ai_experiment_id": experiment_id,
-        "$ai_experiment_name": formatted_exp_name,
-    }
-    if prompt:
-        trace_properties["$ai_input_state"] = {"prompt": prompt}
-    if output_state:
-        trace_properties["$ai_output_state"] = output_state
-    if token_usage:
-        trace_properties["$ai_input_tokens"] = token_usage.get("inputTokens", 0)
-        trace_properties["$ai_output_tokens"] = token_usage.get("outputTokens", 0)
-        trace_properties["$ai_cache_read_input_tokens"] = token_usage.get("cachedReadTokens", 0)
-
-    capture_kwargs: dict[str, Any] = {}
-    ts = _parse_iso_timestamp(first_timestamp)
-    if ts:
-        capture_kwargs["timestamp"] = ts
-
-    client.capture(distinct_id=DISTINCT_ID, event="$ai_trace", properties=trace_properties, **capture_kwargs)
-
-
-# ---------------------------------------------------------------------------
-# Emit evaluation events to PostHog
-# ---------------------------------------------------------------------------
+    """Thin wrapper over ``TraceEventEmitter.emit_root``."""
+    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name).emit_root(
+        prompt=prompt,
+        duration=duration,
+        first_timestamp=first_timestamp,
+        last_message=last_message,
+        artifacts_summary=artifacts_summary,
+        scores=scores,
+        token_usage=token_usage,
+    )
 
 
 def emit_evaluation_events(

@@ -77,11 +77,6 @@ def _cleanup_sandbox_containers(pytestconfig):
     _cleanup_eval_containers()
 
 
-# ---------------------------------------------------------------------------
-# Django live server (in-process, shares test DB)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="session", autouse=True)
 def _django_live_server(django_db_setup, django_db_blocker):
     """Start an in-process Django HTTP server on the test database.
@@ -106,11 +101,6 @@ def _django_live_server(django_db_setup, django_db_blocker):
     server.stop()
     django_db_blocker.restore()
     logger.info("Django live server stopped")
-
-
-# ---------------------------------------------------------------------------
-# Sandbox settings
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -145,11 +135,6 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
         yield
-
-
-# ---------------------------------------------------------------------------
-# Temporal worker (in-process, same DB as test)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -239,11 +224,6 @@ def _temporal_worker(_sandbox_settings, _terminate_stale_workflows, django_db_bl
     loop.call_soon_threadsafe(stop_event.set)
     thread.join(timeout=10)
     django_db_blocker.restore()
-
-
-# ---------------------------------------------------------------------------
-# LLM gateway (subprocess)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -336,11 +316,6 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
     logger.info("LLM gateway stopped")
 
 
-# ---------------------------------------------------------------------------
-# MCP server (subprocess, pointed at in-process Django server)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="session", autouse=True)
 def _mcp_server(_django_live_server, _sandbox_settings):
     """Start the MCP server as a subprocess for the eval session.
@@ -416,11 +391,6 @@ def _mcp_server(_django_live_server, _sandbox_settings):
     except subprocess.TimeoutExpired:
         proc.kill()
     logger.info("MCP server stopped")
-
-
-# ---------------------------------------------------------------------------
-# Demo data fixtures
-# ---------------------------------------------------------------------------
 
 
 class SandboxedDemoData:
