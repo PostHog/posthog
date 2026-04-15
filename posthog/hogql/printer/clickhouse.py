@@ -97,16 +97,17 @@ class ClickHousePrinter(BasePrinter):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
-        if not isinstance(limit, ast.Constant) or not isinstance(limit.value, (int, float)):
-            raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
-        return str(limit.value / 100)
+        return str(self._limit_percent_constant_value(limit))
 
     def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
         if not is_percent:
             return f"LIMIT {self.visit(limit)}"
+        return f"LIMIT {self._limit_percent_constant_value(limit)}"
+
+    def _limit_percent_constant_value(self, limit: ast.Expr) -> float:
         if not isinstance(limit, ast.Constant) or not isinstance(limit.value, (int, float)):
             raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
-        return f"LIMIT {limit.value / 100}"
+        return limit.value / 100
 
     def _validate_within_group_for_aggregation(self, node: ast.Call, func_meta) -> None:
         if node.within_group is not None:
