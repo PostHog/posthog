@@ -1408,15 +1408,22 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         summarizeDisabledReason: [
-            (s) => [s.totalFiltersCount, s.recordings, s.sessionRecordingsResponseLoading, (_, props) => props.type],
-            (totalFiltersCount, recordings, loading, type): string | undefined => {
+            (s) => [
+                s.totalFiltersCount,
+                s.recordings,
+                s.sessionRecordingsResponseLoading,
+                (_, props) => props.type,
+                (_, props) => props.personUUID,
+                (_, props) => props.pinnedFilters,
+            ],
+            (totalFiltersCount, recordings, loading, type, personUUID, pinnedFilters): string | undefined => {
                 if (loading) {
                     return 'Loading…'
                 }
                 if (recordings.length === 0) {
                     return 'No recordings in the list'
                 }
-                if (!type && totalFiltersCount === 0) {
+                if (!type && !personUUID && !pinnedFilters && totalFiltersCount === 0) {
                     return 'Add filters to summarize recordings'
                 }
                 return undefined
