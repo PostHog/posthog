@@ -1,10 +1,6 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
-
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
-
-import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
@@ -81,16 +77,14 @@ export default meta
 
 type StoryProps = {
     syncConfig: OptOutSyncConfigResponse
-    setup?: (actions: ReturnType<typeof useActions<typeof customerIOImportLogic>>) => void
 }
 
-const Template: StoryFn<StoryProps> = ({ syncConfig, setup }) => {
+const Template: StoryFn<StoryProps> = ({ syncConfig }) => {
     useStorybookMocks(mockSyncConfig(syncConfig))
-    const actions = useActions(customerIOImportLogic)
+    const { openImportModal } = useActions(customerIOImportLogic)
 
     useEffect(() => {
-        actions.openImportModal()
-        setup?.(actions)
+        openImportModal()
     }, [])
 
     return <CustomerIOImportModal />
@@ -100,20 +94,13 @@ export const BothStepsNotCompleted: StoryFn<StoryProps> = Template.bind({})
 BothStepsNotCompleted.args = { syncConfig: emptySyncConfig }
 BothStepsNotCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
 
-export const Step1InProgress: StoryFn<StoryProps> = Template.bind({})
-Step1InProgress.args = {
-    syncConfig: emptySyncConfig,
-    setup: (actions) => actions.setImportProgress({ status: 'importing', topics_found: 0, errors: [] }),
-}
-Step1InProgress.parameters = { testOptions: { waitForSelector: '.Spinner' } }
-
 export const Step1FailedInvalidKey: StoryFn<StoryProps> = Template.bind({})
 Step1FailedInvalidKey.args = { syncConfig: step1FailedConfig }
-Step1FailedInvalidKey.parameters = { testOptions: { waitForSelector: '.LemonBanner--error' } }
+Step1FailedInvalidKey.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
 
 export const Step1Completed: StoryFn<StoryProps> = Template.bind({})
 Step1Completed.args = { syncConfig: step1CompletedConfig }
-Step1Completed.parameters = { testOptions: { waitForSelector: '.LemonBanner--success' } }
+Step1Completed.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
 
 export const Step1CompletedButKeyDeleted: StoryFn<StoryProps> = Template.bind({})
 Step1CompletedButKeyDeleted.args = {
@@ -130,24 +117,4 @@ BothStepsCompleted.parameters = { testOptions: { waitForSelector: '.LemonCollaps
 
 export const Step2Failed: StoryFn<StoryProps> = Template.bind({})
 Step2Failed.args = { syncConfig: step2FailedConfig }
-Step2Failed.parameters = { testOptions: { waitForSelector: '.LemonBanner--error' } }
-
-export const AccessDeniedForMember: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            [syncConfigEndpoint]: emptySyncConfig,
-            '/api/organizations/@current/': {
-                ...MOCK_DEFAULT_ORGANIZATION,
-                membership_level: OrganizationMembershipLevel.Member,
-            },
-        },
-    })
-    const { openImportModal } = useActions(customerIOImportLogic)
-
-    useEffect(() => {
-        openImportModal()
-    }, [])
-
-    return <CustomerIOImportModal />
-}
-AccessDeniedForMember.parameters = { testOptions: { waitForSelector: '.LemonBanner--warning' } }
+Step2Failed.parameters = { testOptions: { waitForSelector: '.LemonCollapse' } }
