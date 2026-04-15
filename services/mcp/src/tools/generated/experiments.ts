@@ -41,7 +41,7 @@ const experimentGetAll = (): ToolBase<typeof ExperimentGetAllSchema, WithPostHog
             })
             const filtered = {
                 ...result,
-                results: result.results.map((item: any) =>
+                results: (result.results ?? []).map((item: any) =>
                     pickResponseFields(item, [
                         'id',
                         'name',
@@ -62,7 +62,7 @@ const experimentGetAll = (): ToolBase<typeof ExperimentGetAllSchema, WithPostHog
                 {
                     ...filtered,
                     results: await Promise.all(
-                        filtered.results.map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
+                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
                     ),
                 },
                 '/experiments'

@@ -917,6 +917,75 @@ mod tests {
             }
         }
     }
+
+    mod compute_evaluation_metadata {
+        use super::*;
+
+        #[test]
+        fn test_empty_graph() {
+            let nodes: Vec<TestItem> = vec![];
+            let (graph, _, missing) = build_graph_from_nodes(&nodes).unwrap();
+            let result = graph.compute_evaluation_metadata(&missing).unwrap();
+
+            assert!(result.stages.is_empty());
+            assert!(result.transitive_deps.is_empty());
+            assert!(result.nodes_with_missing_deps.is_empty());
+        }
+
+        #[test]
+        fn test_linear_chain() {
+            // 1 → 2 → 3 (1 depends on 2, 2 depends on 3)
+            let nodes = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::from([3])),
+                TestItem::new(3, HashSet::new()),
+            ];
+            let (graph, _, missing) = build_graph_from_nodes(&nodes).unwrap();
+            let result = graph.compute_evaluation_metadata(&missing).unwrap();
+
+            assert_eq!(result.stages, vec![vec![3], vec![2], vec![1]]);
+            assert!(result.transitive_deps[&3].is_empty());
+            assert_eq!(result.transitive_deps[&2], HashSet::from([3]));
+            assert_eq!(result.transitive_deps[&1], HashSet::from([2, 3]));
+            assert!(result.nodes_with_missing_deps.is_empty());
+        }
+
+        #[test]
+        fn test_diamond() {
+            // 4 depends on 2 and 3; both 2 and 3 depend on 1
+            let nodes = vec![
+                TestItem::new(1, HashSet::new()),
+                TestItem::new(2, HashSet::from([1])),
+                TestItem::new(3, HashSet::from([1])),
+                TestItem::new(4, HashSet::from([2, 3])),
+            ];
+            let (graph, _, missing) = build_graph_from_nodes(&nodes).unwrap();
+            let result = graph.compute_evaluation_metadata(&missing).unwrap();
+
+            assert_eq!(result.stages.len(), 3);
+            assert_eq!(result.stages[0], vec![1]);
+            assert_eq!(result.stages[1], vec![2, 3]);
+            assert_eq!(result.stages[2], vec![4]);
+            assert_eq!(result.transitive_deps[&4], HashSet::from([1, 2, 3]));
+            assert!(result.nodes_with_missing_deps.is_empty());
+        }
+
+        #[test]
+        fn test_missing_dep_propagation() {
+            // Node 1 has no deps, node 2 depends on 1, node 3 depends on 2
+            // Mark node 1 as having missing deps — should propagate to 2 and 3
+            let nodes = vec![
+                TestItem::new(1, HashSet::new()),
+                TestItem::new(2, HashSet::from([1])),
+                TestItem::new(3, HashSet::from([2])),
+            ];
+            let (graph, _, _) = build_graph_from_nodes(&nodes).unwrap();
+            let pre_missing = HashSet::from([1_i64]);
+            let result = graph.compute_evaluation_metadata(&pre_missing).unwrap();
+
+            assert_eq!(result.nodes_with_missing_deps, vec![1, 2, 3]);
+        }
+    }
 }
 
 #[cfg(test)]

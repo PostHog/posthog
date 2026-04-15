@@ -38,7 +38,7 @@ const dashboardsGetAll = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/dashboard/${item.id}`))
                 ),
             },
             '/dashboard'

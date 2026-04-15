@@ -1379,6 +1379,23 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
 
+    @parameterized.expand(
+        [
+            ("/dashboard", status.HTTP_302_FOUND, "/organization-pending-deletion"),
+            ("/some-page", status.HTTP_302_FOUND, "/organization-pending-deletion"),
+            ("/organization-pending-deletion", status.HTTP_200_OK, None),
+            ("/api/users/@me/", status.HTTP_200_OK, None),
+        ]
+    )
+    def test_pending_deletion_routing(self, path, expected_status, expected_location):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_location:
+            self.assertEqual(response.headers["Location"], expected_location)
+
 
 class TestCSPMiddleware(APIBaseTest):
     def test_non_html_response_gets_strict_csp(self):

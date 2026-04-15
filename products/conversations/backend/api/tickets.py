@@ -124,6 +124,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "email_subject",
             "email_from",
             "email_to",
+            "cc_participants",
             "person",
             "tags",
         ]
@@ -148,6 +149,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "email_subject",
             "email_from",
             "email_to",
+            "cc_participants",
             "person",
         ]
 
