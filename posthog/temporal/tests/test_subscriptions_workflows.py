@@ -401,7 +401,7 @@ async def test_process_subscription_records_missing_slack_integration_failure(
         target_type="slack",
         target_value="C12345|#test-channel",
     )
-    asset = await sync_to_async(ExportedAsset.objects.create)(
+    await sync_to_async(ExportedAsset.objects.create)(
         team=team,
         insight=insight,
         export_format="image/png",
