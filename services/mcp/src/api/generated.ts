@@ -5529,18 +5529,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `trace` - trace
-    * `generation` - generation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
-    /**
      * * `USR` - user
     * `GIT` - GitHub
      */
@@ -7534,11 +7522,25 @@ export namespace Schemas {
       readonly elements_chain: string;
     }
 
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+    * `evaluation` - evaluation
+     */
+    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
+
+
+    export const ClusteringJobAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringJobAnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -23169,7 +23171,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringJobAnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -30541,13 +30543,25 @@ export namespace Schemas {
       results: SentimentBatchResponseResults;
     }
 
+    /**
+     * * `trace` - trace
+    * `generation` - generation
+     */
+    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
+
+
+    export const SentimentRequestAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+    } as const;
+
     export interface SentimentRequest {
       /**
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: SentimentRequestAnalysisLevelEnum;
       force_refresh?: boolean;
       /** @nullable */
       date_from?: string | null;
