@@ -242,6 +242,34 @@ class TestReconstructFlagAtVersion(BaseTest):
         assert v4["version"] == 4
         assert v4["is_historical"] is False
 
+    def test_reconstruct_filters_without_groups_key_gets_normalized(self):
+        v1_filters: dict = {"some_legacy_key": "value"}
+        v2_filters = {"groups": [{"rollout_percentage": 100}]}
+
+        flag = self._create_flag(filters=v2_filters, version=1)
+        self._simulate_update(flag, {"filters": (v1_filters, v2_filters)})
+
+        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
+        assert result["filters"] == {"some_legacy_key": "value", "groups": []}
+
+    def test_reconstruct_filters_none_gets_normalized(self):
+        v2_filters = {"groups": [{"rollout_percentage": 100}]}
+
+        flag = self._create_flag(filters=v2_filters, version=1)
+        self._simulate_update(flag, {"filters": (None, v2_filters)})
+
+        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
+        assert result["filters"] == {"groups": []}
+
+    def test_reconstruct_filters_empty_dict_gets_normalized(self):
+        v2_filters = {"groups": [{"rollout_percentage": 100}]}
+
+        flag = self._create_flag(filters=v2_filters, version=1)
+        self._simulate_update(flag, {"filters": ({}, v2_filters)})
+
+        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
+        assert result["filters"] == {"groups": []}
+
     def test_reconstruct_field_cleared_to_none(self):
         rollback = {"threshold": 5}
         flag = self._create_flag(rollback_conditions=rollback, version=1)

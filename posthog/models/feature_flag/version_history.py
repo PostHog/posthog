@@ -144,6 +144,13 @@ def reconstruct_flag_at_version(
         else:
             raise VersionHistoryIncomplete(f"Activity log is incomplete. Cannot reconstruct version {target_version}.")
 
+    # Normalize filters to always include "groups", matching get_filters() behavior.
+    raw_filters = fields.get("filters")
+    if not raw_filters:
+        fields["filters"] = {"groups": []}
+    elif "groups" not in raw_filters:
+        fields["filters"] = {**raw_filters, "groups": []}
+
     return _build_response(
         flag,
         fields,
