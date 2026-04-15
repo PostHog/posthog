@@ -12,12 +12,12 @@ This documentation is deprecated, and likely not up to date. Please use the [Flo
 
 In this step we will start all the external services needed by PostHog to work.
 
-First, append line `127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage` and line `::1 kafka clickhouse clickhouse-coordinator objectstorage` to `/etc/hosts`. Our ClickHouse and Kafka data services won't be able to talk to each other without these mapped hosts.
+First, append line `127.0.0.1 kafka clickhouse clickhouse-coordinator clickhouse-logs objectstorage` and line `::1 kafka clickhouse clickhouse-coordinator clickhouse-logs objectstorage` to `/etc/hosts`. Our ClickHouse and Kafka data services won't be able to talk to each other without these mapped hosts.
 You can do this with:
 
 ```bash
-echo '127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage' | sudo tee -a /etc/hosts
-echo '::1 kafka clickhouse clickhouse-coordinator objectstorage' | sudo tee -a /etc/hosts
+echo '127.0.0.1 kafka clickhouse clickhouse-coordinator clickhouse-logs objectstorage' | sudo tee -a /etc/hosts
+echo '::1 kafka clickhouse clickhouse-coordinator clickhouse-logs objectstorage' | sudo tee -a /etc/hosts
 ```
 
 > If you are using a newer (>=4.1) version of Podman instead of Docker, the host machine's `/etc/hosts` is used as the base hosts file for containers by default, instead of container's `/etc/hosts` like in Docker. This can make hostname resolution fail in the ClickHouse container, and can be mended by setting `base_hosts_file="none"` in [`containers.conf`](https://github.com/containers/common/blob/main/docs/containers.conf.5.md#containers-table).
@@ -51,7 +51,7 @@ CONTAINER ID   IMAGE                                      COMMAND               
 f876f8bff35f   bitnami/kafka:2.8.1-debian-10-r99          "/opt/bitnami/script…"   51 seconds ago   Up 50 seconds             0.0.0.0:9092->9092/tcp                                                                           posthog-kafka-1
 d22559261575   temporalio/auto-setup:1.20.0               "/etc/temporal/entry…"   51 seconds ago   Up 45 seconds             6933-6935/tcp, 6939/tcp, 7234-7235/tcp, 7239/tcp, 0.0.0.0:7233->7233/tcp                         posthog-temporal-1
 5313fc278a70   postgres:12-alpine                         "docker-entrypoint.s…"   51 seconds ago   Up 50 seconds (healthy)   0.0.0.0:5432->5432/tcp                                                                           posthog-db-1
-c04358d8309f   zookeeper:3.7.0                            "/docker-entrypoint.…"   51 seconds ago   Up 50 seconds             2181/tcp, 2888/tcp, 3888/tcp, 8080/tcp                                                           posthog-zookeeper-1
+c04358d8309f   clickhouse/clickhouse-keeper:25.12.8.9     "/entrypoint.sh"         51 seconds ago   Up 50 seconds (healthy)   0.0.0.0:9181->9181/tcp                                                           posthog-keeper-1
 09add699866e   maildev/maildev:2.0.5                      "bin/maildev"            51 seconds ago   Up 50 seconds (healthy)   0.0.0.0:1025->1025/tcp, 0.0.0.0:1080->1080/tcp                                                   posthog-maildev-1
 61a44c094753   elasticsearch:7.16.2                       "/bin/tini -- /usr/l…"   51 seconds ago   Up 50 seconds             9200/tcp, 9300/tcp                                                                               posthog-elasticsearch-1
 a478cadf6911   minio/minio:RELEASE.2022-06-25T15-50-16Z   "sh -c 'mkdir -p /da…"   51 seconds ago   Up 50 seconds             9000/tcp, 0.0.0.0:19000-19001->19000-19001/tcp                                                   posthog-object_storage-1
@@ -73,8 +73,8 @@ Saved preprocessed configuration to '/var/lib/clickhouse/preprocessed_configs/us
 # docker logs posthog-kafka-1
 [2021-12-06 13:47:23,814] INFO [KafkaServer id=1001] started (kafka.server.KafkaServer)
 
-# docker logs posthog-zookeeper-1
-# Because ClickHouse and Kafka connect to Zookeeper, there will be a lot of noise here. That's good.
+# docker logs posthog-keeper-1
+# Keeper logs are minimal — a few startup lines and then silence. That's expected.
 ```
 
 > **Friendly tip 1:** Kafka is currently the only x86 container used, and might segfault randomly when running on ARM. Restart it when that happens.
