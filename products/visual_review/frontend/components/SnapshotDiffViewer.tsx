@@ -84,6 +84,16 @@ export function SnapshotDiffViewer({
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {/* Transition indicator */}
+                        <span className="text-xs text-muted font-mono">
+                            {snapshot.result === 'changed' && '(baseline) → changed'}
+                            {snapshot.result === 'new' && '→ new'}
+                            {snapshot.result === 'removed' && '(baseline) → removed'}
+                            {snapshot.result === 'unchanged' &&
+                                snapshot.classification_reason === 'tolerated_hash' &&
+                                '(baseline) → auto-tolerated'}
+                        </span>
+
                         {needsAction && (
                             <>
                                 <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
@@ -188,10 +198,28 @@ export function SnapshotDiffViewer({
                             <span className="font-mono">{snapshot.diff_percentage}%</span>
                         </div>
                     )}
+                    {snapshot.baseline_artifact?.content_hash && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted">Baseline</span>
+                            <span className="font-mono">{snapshot.baseline_artifact.content_hash.slice(0, 10)}…</span>
+                        </div>
+                    )}
+                    {snapshot.current_artifact?.content_hash && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted">Current</span>
+                            <span className="font-mono">{snapshot.current_artifact.content_hash.slice(0, 10)}…</span>
+                        </div>
+                    )}
                     {isApproved && snapshot.reviewed_at && (
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-muted">Approved</span>
                             <span className="text-success">{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
+                        </div>
+                    )}
+                    {isTolerated && snapshot.reviewed_at && (
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted">Tolerated</span>
+                            <span>{new Date(snapshot.reviewed_at).toLocaleDateString()}</span>
                         </div>
                     )}
                 </div>
