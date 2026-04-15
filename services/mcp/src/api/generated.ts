@@ -9904,6 +9904,8 @@ export namespace Schemas {
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
       /** @nullable */
+      requestCost?: number | null;
+      /** @nullable */
       tools?: string[] | null;
       /** @nullable */
       totalCost?: number | null;
@@ -9911,6 +9913,8 @@ export namespace Schemas {
       totalLatency?: number | null;
       /** @nullable */
       traceName?: string | null;
+      /** @nullable */
+      webSearchCost?: number | null;
     }
 
     export interface Response25 {

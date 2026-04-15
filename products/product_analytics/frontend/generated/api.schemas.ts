@@ -4873,6 +4873,8 @@ export interface LLMTraceApi {
     outputTokens?: number | null
     person?: LLMTracePersonApi | null
     /** @nullable */
+    requestCost?: number | null
+    /** @nullable */
     tools?: string[] | null
     /** @nullable */
     totalCost?: number | null
@@ -4880,6 +4882,8 @@ export interface LLMTraceApi {
     totalLatency?: number | null
     /** @nullable */
     traceName?: string | null
+    /** @nullable */
+    webSearchCost?: number | null
 }
 
 export interface Response25Api {
