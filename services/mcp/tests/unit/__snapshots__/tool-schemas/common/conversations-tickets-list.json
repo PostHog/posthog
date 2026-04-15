@@ -1,0 +1,81 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "assignee": {
+            "description": "Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.",
+            "type": "string"
+        },
+        "channel_detail": {
+            "description": "Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).",
+            "enum": [
+                "slack_bot_mention",
+                "slack_channel_message",
+                "slack_emoji_reaction",
+                "widget_api",
+                "widget_embedded"
+            ],
+            "type": "string"
+        },
+        "channel_source": {
+            "description": "Filter by the channel the ticket originated from.",
+            "enum": ["email", "slack", "widget"],
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Only include tickets updated on or before this date. Same format as `date_from`.",
+            "type": "string"
+        },
+        "distinct_ids": {
+            "description": "Comma-separated list of person `distinct_id`s to filter by (max 100).",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.",
+            "enum": [
+                "-created_at",
+                "-sla_due_at",
+                "-ticket_number",
+                "-updated_at",
+                "created_at",
+                "sla_due_at",
+                "ticket_number",
+                "updated_at"
+            ],
+            "type": "string"
+        },
+        "priority": {
+            "description": "Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match).",
+            "type": "string"
+        },
+        "sla": {
+            "description": "Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.",
+            "enum": ["at-risk", "breached", "on-track"],
+            "type": "string"
+        },
+        "status": {
+            "description": "Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded array of tag names to filter by, e.g. `[\"billing\",\"urgent\"]`.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

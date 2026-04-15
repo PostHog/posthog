@@ -8859,6 +8859,27 @@ export namespace Schemas {
       deleted?: boolean | null;
     }
 
+    /**
+     * InsightSerializer restricted to identifiers + result only.
+     */
+    export interface InsightResult {
+      readonly id: number;
+      readonly short_id: string;
+      /** @nullable */
+      readonly name: string | null;
+      /** @nullable */
+      readonly derived_name: string | null;
+      readonly result: unknown;
+    }
+
+    /**
+     * DashboardTileSerializer restricted to tile id + insight result fields.
+     */
+    export interface DashboardTileResult {
+      id?: number;
+      insight: InsightResult;
+    }
+
     export interface DataColorTheme {
       readonly id: number;
       /** @maxLength 100 */
@@ -11295,6 +11316,9 @@ export namespace Schemas {
       Channel: 'channel',
       Source: 'source',
       Campaign: 'campaign',
+      Medium: 'medium',
+      Content: 'content',
+      Term: 'term',
     } as const;
 
     export interface IntegrationFilter {
@@ -15246,6 +15270,8 @@ export namespace Schemas {
       readonly sync_time_of_day: string | null;
       /** @nullable */
       readonly description: string | null;
+      /** @nullable */
+      readonly primary_key_columns: readonly string[] | null;
       readonly cdc_table_mode: CdcTableModeEnum;
     }
 
@@ -22342,9 +22368,22 @@ export namespace Schemas {
       readonly channel_source: ChannelSourceEnum;
       readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
+      /** Ticket status: new, open, pending, on_hold, or resolved
+
+    * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved */
       status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, or high. Null if unset.
+
+    * `low` - Low
+    * `medium` - Medium
+    * `high` - High */
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee: TicketAssignment;
+      /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
       /** @nullable */
@@ -22361,7 +22400,10 @@ export namespace Schemas {
       /** @nullable */
       readonly session_id: string | null;
       readonly session_context: unknown;
-      /** @nullable */
+      /**
+       * SLA deadline set via workflows. Null means no SLA.
+       * @nullable
+       */
       sla_due_at?: string | null;
       /** @nullable */
       readonly slack_channel_id: string | null;
@@ -24093,6 +24135,8 @@ export namespace Schemas {
       readonly sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
+      /** @nullable */
+      readonly primary_key_columns?: readonly string[] | null;
       readonly cdc_table_mode?: CdcTableModeEnum;
     }
 
@@ -26315,6 +26359,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export interface PatchedTaskRunSetOutputRequest {
+      /** Output data from the run. Validated against the task's json_schema if one is set. */
+      output?: unknown;
+    }
+
     /**
      * * `not_started` - not_started
     * `queued` - queued
@@ -26585,9 +26634,22 @@ export namespace Schemas {
       readonly channel_source?: ChannelSourceEnum;
       readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
+      /** Ticket status: new, open, pending, on_hold, or resolved
+
+    * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved */
       status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, or high. Null if unset.
+
+    * `low` - Low
+    * `medium` - Medium
+    * `high` - High */
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
       readonly assignee?: TicketAssignment;
+      /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
       ai_resolved?: boolean;
       /** @nullable */
@@ -26604,7 +26666,10 @@ export namespace Schemas {
       /** @nullable */
       readonly session_id?: string | null;
       readonly session_context?: unknown;
-      /** @nullable */
+      /**
+       * SLA deadline set via workflows. Null means no SLA.
+       * @nullable
+       */
       sla_due_at?: string | null;
       /** @nullable */
       readonly slack_channel_id?: string | null;
@@ -30253,6 +30318,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RunInsightsResponse {
+      /** Results for each insight tile on the dashboard. */
+      results: DashboardTileResult[];
+    }
+
     /**
      * * `manual` - manual
     * `signal_report` - signal_report
@@ -31877,6 +31947,43 @@ export namespace Schemas {
     export const EnvironmentsDashboardsReorderTilesCreateFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
+    format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: EnvironmentsDashboardsRunInsightsRetrieveOutputFormat;
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
+    };
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveOutputFormat];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveOutputFormat = {
+      Json: 'json',
+      Optimized: 'optimized',
+    } as const;
+
+    export type EnvironmentsDashboardsRunInsightsRetrieveRefresh = typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveRefresh];
+
+
+    export const EnvironmentsDashboardsRunInsightsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
     } as const;
 
     export type EnvironmentsDashboardsSnapshotCreateParams = {
@@ -34642,6 +34749,30 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
+     * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
+     */
+    assignee?: string;
+    /**
+     * Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).
+     */
+    channel_detail?: ConversationsTicketsListChannelDetail;
+    /**
+     * Filter by the channel the ticket originated from.
+     */
+    channel_source?: ConversationsTicketsListChannelSource;
+    /**
+     * Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter.
+     */
+    date_from?: string;
+    /**
+     * Only include tickets updated on or before this date. Same format as `date_from`.
+     */
+    date_to?: string;
+    /**
+     * Comma-separated list of person `distinct_id`s to filter by (max 100).
+     */
+    distinct_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -34649,7 +34780,60 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.
+     */
+    order_by?: string;
+    /**
+     * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`.
+     */
+    priority?: string;
+    /**
+     * Free-text search. A numeric value matches a ticket number exactly; otherwise matches against the customer's name or email (case-insensitive, partial match).
+     */
+    search?: string;
+    /**
+     * Filter by SLA state. `breached` = past `sla_due_at`, `at-risk` = due within the next hour, `on-track` = more than an hour remaining.
+     */
+    sla?: ConversationsTicketsListSla;
+    /**
+     * Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.
+     */
+    status?: string;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     */
+    tags?: string;
     };
+
+    export type ConversationsTicketsListChannelDetail = typeof ConversationsTicketsListChannelDetail[keyof typeof ConversationsTicketsListChannelDetail];
+
+
+    export const ConversationsTicketsListChannelDetail = {
+      SlackBotMention: 'slack_bot_mention',
+      SlackChannelMessage: 'slack_channel_message',
+      SlackEmojiReaction: 'slack_emoji_reaction',
+      WidgetApi: 'widget_api',
+      WidgetEmbedded: 'widget_embedded',
+    } as const;
+
+    export type ConversationsTicketsListChannelSource = typeof ConversationsTicketsListChannelSource[keyof typeof ConversationsTicketsListChannelSource];
+
+
+    export const ConversationsTicketsListChannelSource = {
+      Email: 'email',
+      Slack: 'slack',
+      Widget: 'widget',
+    } as const;
+
+    export type ConversationsTicketsListSla = typeof ConversationsTicketsListSla[keyof typeof ConversationsTicketsListSla];
+
+
+    export const ConversationsTicketsListSla = {
+      AtRisk: 'at-risk',
+      Breached: 'breached',
+      OnTrack: 'on-track',
+    } as const;
 
     export type DashboardTemplatesListParams = {
     /**
@@ -34821,6 +35005,43 @@ export namespace Schemas {
     export const DashboardsReorderTilesCreateFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveParams = {
+    format?: DashboardsRunInsightsRetrieveFormat;
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat;
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh;
+    };
+
+    export type DashboardsRunInsightsRetrieveFormat = typeof DashboardsRunInsightsRetrieveFormat[keyof typeof DashboardsRunInsightsRetrieveFormat];
+
+
+    export const DashboardsRunInsightsRetrieveFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveOutputFormat = typeof DashboardsRunInsightsRetrieveOutputFormat[keyof typeof DashboardsRunInsightsRetrieveOutputFormat];
+
+
+    export const DashboardsRunInsightsRetrieveOutputFormat = {
+      Json: 'json',
+      Optimized: 'optimized',
+    } as const;
+
+    export type DashboardsRunInsightsRetrieveRefresh = typeof DashboardsRunInsightsRetrieveRefresh[keyof typeof DashboardsRunInsightsRetrieveRefresh];
+
+
+    export const DashboardsRunInsightsRetrieveRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+      ForceCache: 'force_cache',
     } as const;
 
     export type DashboardsSnapshotCreateParams = {

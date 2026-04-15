@@ -211,6 +211,8 @@ export interface ExternalDataSchemaApi {
     readonly sync_time_of_day: string | null
     /** @nullable */
     readonly description: string | null
+    /** @nullable */
+    readonly primary_key_columns: readonly string[] | null
     readonly cdc_table_mode: CdcTableModeEnumApi
 }
 
