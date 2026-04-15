@@ -71,7 +71,7 @@ class OrganizationFeatureFlagView(
     lookup_field = "feature_flag_key"
 
     def retrieve(self, request, *args, **kwargs):
-        feature_flag_key = kwargs.get(self.lookup_field)
+        feature_flag_key: str = kwargs[self.lookup_field]
 
         # Only return flags from teams the user has access to
         user_permissions = UserPermissions(user=request.user)
