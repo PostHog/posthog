@@ -411,12 +411,12 @@ jobs:
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
             - name: Install VR CLI
-              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
-              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}

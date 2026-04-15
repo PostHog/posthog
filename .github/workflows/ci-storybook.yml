@@ -104,7 +104,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: needs.changes.outputs.frontend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
