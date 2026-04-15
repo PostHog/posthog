@@ -116,6 +116,48 @@ pub async fn validate_secret_api_token_for_team(
     }
 }
 
+/// Validates a phs_-prefixed token without checking against a specific team.
+///
+/// Used when the `?token=` query parameter is omitted and the team must be derived
+/// from the secret token itself. Returns the team_id embedded in the token's auth data.
+///
+/// Only works for Secret and ProjectSecret tokens (which are team-scoped).
+/// Personal API keys are multi-team and cannot be used to derive a team.
+pub async fn validate_secret_api_token(
+    state: &AppState,
+    token: &str,
+) -> Result<(TokenAuthData, i32), FlagError> {
+    let token_hash = hash_token_value(token);
+    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let token_owned = token.to_string();
+    let hash_for_loader = token_hash.clone();
+
+    let result = state
+        .auth_token_cache
+        .get_or_load(&token_hash, |_key| {
+            load_token_from_pg(pg_reader, &token_owned, &hash_for_loader)
+        })
+        .await?;
+
+    match result.value {
+        Some(data @ TokenAuthData::Secret { team_id }) => {
+            debug!(
+                team_id = team_id,
+                "Secret API token validated (no token param)"
+            );
+            Ok((data, team_id))
+        }
+        Some(data @ TokenAuthData::ProjectSecret { team_id, .. }) => {
+            debug!(
+                team_id = team_id,
+                "Project secret API key validated (no token param)"
+            );
+            Ok((data, team_id))
+        }
+        _ => Err(FlagError::SecretApiTokenInvalid),
+    }
+}
+
 /// Load token auth data from PostgreSQL, trying Team secret tokens first then ProjectSecretAPIKeys.
 ///
 /// Extracted from `validate_secret_api_token_for_team` for testability.

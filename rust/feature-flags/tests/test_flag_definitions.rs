@@ -424,8 +424,120 @@ async fn test_secret_api_token_authentication_invalid_token() {
     assert_eq!(body["attr"], Value::Null);
 }
 
+/// When token param is missing and auth is a valid phs_ secret token, the team
+/// should be derived from the token itself (200).
 #[tokio::test]
-async fn test_missing_token_parameter() {
+async fn test_missing_token_param_with_valid_secret_token() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // No ?token= param — team should be derived from the phs_ token
+    let response = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
+
+/// When token param is missing and auth is a valid project secret API key,
+/// the team should be derived from the key (200).
+#[tokio::test]
+async fn test_missing_token_param_with_valid_project_secret_key() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let raw_key = context
+        .create_project_secret_api_key(team.id, "Test Key", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {raw_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
+
+/// When token param is missing and auth is a personal API key (multi-team),
+/// should return 400 since we can't derive the team.
+#[tokio::test]
+async fn test_missing_token_param_with_personal_api_key_returns_400() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = format!("test-pak-{}@posthog.com", uuid::Uuid::new_v4());
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    let (_, pak_token) = context
+        .create_personal_api_key(user_id, "Test PAK", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {pak_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 400);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("token"),
+        "Error should mention the token parameter: {body}"
+    );
+}
+
+/// When token param is missing and there is no auth header at all,
+/// should return 401.
+#[tokio::test]
+async fn test_missing_token_param_with_no_auth_returns_401() {
     use feature_flags::config::Config;
     use reqwest;
 
@@ -433,16 +545,33 @@ async fn test_missing_token_parameter() {
     let server = common::ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
-    // Test that the endpoint returns 400 when token parameter is missing
     let response = client
         .get(format!("http://{}/flags/definitions", server.addr))
-        .header("Authorization", "Bearer phs_test_token")
         .send()
         .await
         .unwrap();
 
-    // Should return 400 Bad Request when token parameter is missing
-    assert_eq!(response.status(), 400);
+    assert_eq!(response.status(), 401);
+}
+
+/// When token param is missing and the phs_ token is invalid, should return 401.
+#[tokio::test]
+async fn test_missing_token_param_with_invalid_secret_token_returns_401() {
+    use feature_flags::config::Config;
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let server = common::ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", "Bearer phs_invalid_token_xyz")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
 }
 
 #[tokio::test]

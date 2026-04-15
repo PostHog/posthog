@@ -105,6 +105,14 @@ impl FlagService {
         }
     }
 
+    /// Fetches a team by its database ID.
+    ///
+    /// Used when the team_id is known from authentication (e.g. a phs_ token)
+    /// but the team object is needed for cache lookups and response building.
+    pub async fn get_team_by_id(&self, team_id: i32) -> Result<Team, FlagError> {
+        Team::from_pg_by_id(self.pg_client.clone(), team_id).await
+    }
+
     /// Fetches the team from HyperCache or the database.
     ///
     /// Uses team_metadata HyperCache (Redis → S3 → PostgreSQL fallback).

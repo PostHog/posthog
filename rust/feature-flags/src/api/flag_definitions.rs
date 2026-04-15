@@ -124,8 +124,11 @@ pub type FlagDefinitionsResponse = Value;
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
-    /// Team API token - required to specify which team's flags to return
-    pub token: String,
+    /// Team API token. Required when authenticating with a personal API key (which
+    /// can access multiple teams). Optional when authenticating with a `phs_` secret
+    /// token or project secret API key, since those are team-scoped and the team can
+    /// be derived from the token itself.
+    pub token: Option<String>,
 }
 
 /// Flag definitions endpoint handler
@@ -161,7 +164,7 @@ pub async fn flags_definitions(
 ) -> Result<Response, FlagError> {
     info!(
         method = %method,
-        token = %params.token,
+        token = ?params.token,
         "Processing flag definitions request"
     );
 
@@ -171,11 +174,17 @@ pub async fn flags_definitions(
         return Ok(handle_non_get_method(&method));
     }
 
-    // Fetch team using the token from query parameter
-    let team = fetch_team_by_token(&state, &params.token).await?;
-
-    // Authenticate against the specified team
-    authenticate_flag_definitions(&state, &team, &headers).await?;
+    // Resolve the team. Two flows:
+    // 1. Token provided: look up team by token, then authenticate against it (standard SDK flow)
+    // 2. Token absent: authenticate with phs_ secret token first, derive team_id from it
+    //    (supports direct API callers who authenticate with Bearer phs_<key> only)
+    let team = if let Some(ref token) = params.token {
+        let team = fetch_team_by_token(&state, token).await?;
+        authenticate_flag_definitions(&state, &team, &headers).await?;
+        team
+    } else {
+        resolve_team_from_auth(&state, &headers).await?
+    };
 
     // Refresh the rate limit allowlist from the database if stale (every ~60s)
     refresh_rate_limit_allowlist_if_stale(&state).await;
@@ -183,10 +192,12 @@ pub async fn flags_definitions(
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior.
+    // Use the explicit token param if provided, otherwise fall back to the team's api_token.
+    let billing_token = params.token.as_deref().unwrap_or(&team.api_token);
     if state
         .feature_flags_billing_limiter
-        .is_limited(&params.token)
+        .is_limited(billing_token)
         .await
     {
         return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
@@ -381,6 +392,50 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
         *state.config.skip_pg_team_fallback,
     );
     flag_service.verify_token_and_get_team(token).await
+}
+
+/// Resolves a team from the Authorization header when no `?token=` param is provided.
+///
+/// Only works with `phs_` secret tokens and project secret API keys, which are
+/// team-scoped. Personal API keys can access multiple teams and require an explicit
+/// `?token=` param to disambiguate — returns an error in that case.
+async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result<Team, FlagError> {
+    // Only phs_ tokens can derive team_id without a token param
+    if let Some(token) = auth::extract_team_secret_token(headers) {
+        let (auth_data, team_id) = auth::validate_secret_api_token(state, &token).await?;
+        let method = match &auth_data {
+            auth::TokenAuthData::ProjectSecret { .. } => "project_secret_api_key",
+            _ => "secret_api_key",
+        };
+        inc(
+            FLAG_DEFINITIONS_AUTH_COUNTER,
+            &[("method".to_string(), method.to_string())],
+            1,
+        );
+
+        // Look up the full Team object by the team_id embedded in the token
+        let flag_service = FlagService::new(
+            state.redis_client.clone(),
+            state.database_pools.non_persons_reader.clone(),
+            state.team_hypercache_reader.clone(),
+            state.flags_hypercache_reader.clone(),
+            state.team_negative_cache.clone(),
+            *state.config.skip_pg_team_fallback,
+        );
+        return flag_service.get_team_by_id(team_id).await;
+    }
+
+    // Check if there's a personal API key — it's valid auth but can't derive team
+    if auth::extract_personal_api_key(headers)?.is_some() {
+        return Err(FlagError::ClientFacing(ClientFacingError::BadRequest(
+            "The 'token' query parameter is required when authenticating with a personal API key. \
+             It can be omitted only when using a project secret API key (phs_)."
+                .to_string(),
+        )));
+    }
+
+    // No auth provided at all
+    Err(FlagError::NoAuthenticationProvided)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
