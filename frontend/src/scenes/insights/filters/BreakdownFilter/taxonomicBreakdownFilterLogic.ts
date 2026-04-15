@@ -521,11 +521,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         setBreakdownLimitInput: ({ value }) => {
             // Only commit valid numbers — an empty/cleared input should not
             // trigger a reload. `setBreakdownLimit`'s own listener debounces
-            // the actual filter update.
+            // the actual filter update. Clamp to [1, 1000]: the selector's
+            // `|| 25` fallback would otherwise silently swallow `0`/negatives.
             if (value === undefined) {
                 return
             }
-            actions.setBreakdownLimit(Math.min(value, 1000))
+            actions.setBreakdownLimit(Math.min(Math.max(value, 1), 1000))
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL, breakdown, breakdownType }) => {
             if (values.isMultipleBreakdownsEnabled && !isSingleBreakdown(values.breakdownFilter)) {
