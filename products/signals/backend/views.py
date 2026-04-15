@@ -523,6 +523,7 @@ class SignalReportViewSet(
         login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
         query = (request.query_params.get("query") or "").strip().lower()
 
+        user_to_login: dict[int, str] = {user.id: login for login, user in login_to_user.items()}
         users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
 
         filtered_users = [
@@ -537,6 +538,7 @@ class SignalReportViewSet(
             user_uuid: {
                 "name": f"{user.first_name} {user.last_name}".strip(),
                 "email": user.email or "",
+                "github_login": user_to_login.get(user.id, ""),
             }
             for user_uuid, user in sorted(
                 filtered_users,
