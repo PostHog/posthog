@@ -1265,13 +1265,21 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
 
     # Record approval on each snapshot without mutating result/baseline
     # This preserves the diff history while tracking what was approved
+    now = timezone.now()
     for snapshot in run.snapshots.filter(identifier__in=approvals.keys()):
         new_hash = approvals[snapshot.identifier]
         snapshot.review_state = ReviewState.APPROVED
-        snapshot.reviewed_at = timezone.now()
+        snapshot.reviewed_at = now
         snapshot.reviewed_by_id = user_id
         snapshot.approved_hash = new_hash
         snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
+
+    # Also mark removed snapshots as approved — they're cleanup, not actionable
+    run.snapshots.filter(result=SnapshotResult.REMOVED).update(
+        review_state=ReviewState.APPROVED,
+        reviewed_at=now,
+        reviewed_by_id=user_id,
+    )
 
     # Mark run approved
     run.approved = True
