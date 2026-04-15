@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -31,7 +31,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Metrics',
             intents: [ProductKey.METRICS],
-            category: 'Unreleased',
+            category: ProductItemCategory.UNRELEASED,
             iconType: 'metrics',
             iconColor: [
                 'var(--color-product-metrics-light)',

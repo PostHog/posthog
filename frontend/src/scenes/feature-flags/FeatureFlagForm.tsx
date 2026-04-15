@@ -70,6 +70,7 @@ import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
     variant: MultivariateFlagVariant
@@ -823,19 +824,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <LemonInput
-                                                                    type="number"
-                                                                    min={0}
-                                                                    max={100}
-                                                                    value={variant.rollout_percentage || 0}
+                                                                <PercentageInput
+                                                                    value={variant.rollout_percentage}
                                                                     onChange={(value) =>
                                                                         updateVariant(
                                                                             index,
                                                                             'rollout_percentage',
-                                                                            parseInt(value?.toString() || '0')
+                                                                            value
                                                                         )
                                                                     }
-                                                                    suffix={<span>%</span>}
                                                                     data-attr={`feature-flag-variant-rollout-${index}`}
                                                                 />
 

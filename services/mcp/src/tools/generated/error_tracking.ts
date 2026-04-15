@@ -12,7 +12,7 @@ import {
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams
@@ -34,12 +34,18 @@ const errorTrackingIssuesList = (): ToolBase<
                     offset: params.offset,
                 },
             })
+            const filtered = {
+                ...result,
+                results: (result.results ?? []).map((item: any) =>
+                    pickResponseFields(item, ['id', 'status', 'name', 'first_seen', 'assignee'])
+                ),
+            } as typeof result
             return await withPostHogUrl(
                 context,
                 {
-                    ...result,
+                    ...filtered,
                     results: await Promise.all(
-                        (result.results ?? []).map((item) =>
+                        (filtered.results ?? []).map((item) =>
                             withPostHogUrl(context, item, `/error_tracking/${item.id}`)
                         )
                     ),

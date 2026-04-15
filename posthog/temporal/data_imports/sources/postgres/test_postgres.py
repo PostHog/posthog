@@ -19,6 +19,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _build_count_query,
     _build_query,
     _get_estimated_row_count_for_partitioned_table,
+    _get_partition_settings,
+    _get_partition_settings_for_partitioned_table,
     _get_primary_keys,
     _get_sslmode,
     _get_table,
@@ -478,6 +480,100 @@ class TestGetEstimatedRowCountForPartitionedTable:
             assert result is None
 
 
+class TestGetPartitionSettings:
+    @pytest.mark.django_db
+    def test_partitioned_table_uses_catalog_fast_path(self):
+        """On a partitioned parent, settings come from pg_inherits/reltuples,
+        not a COUNT(*) + pg_table_size on the parent.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    payload TEXT,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned_q1
+                PARTITION OF test_ps_partitioned
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partitioned_q2
+                PARTITION OF test_ps_partitioned
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_ps_partitioned (created_at, payload)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months',
+                       repeat('x', 256)
+                FROM generate_series(1, 500) g
+            """)
+            dj_cursor.execute("ANALYZE test_ps_partitioned")
+
+            result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_partitioned", logger)
+            assert result is not None
+            assert result.partition_count >= 1
+            assert result.partition_size > 0
+
+    @pytest.mark.django_db
+    def test_partitioned_table_returns_none_when_any_partition_unanalyzed(self):
+        """Mixed analyzed + unanalyzed partitions must not produce a setting —
+        the catalog numbers are stale, so fall through to exact scan.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial (
+                    id BIGSERIAL,
+                    created_at DATE NOT NULL,
+                    PRIMARY KEY (id, created_at)
+                ) PARTITION BY RANGE (created_at)
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial_q1
+                PARTITION OF test_ps_partial
+                FOR VALUES FROM ('2026-01-01') TO ('2026-04-01')
+            """)
+            dj_cursor.execute("""
+                CREATE TABLE test_ps_partial_q2
+                PARTITION OF test_ps_partial
+                FOR VALUES FROM ('2026-04-01') TO ('2026-07-01')
+            """)
+            dj_cursor.execute("""
+                INSERT INTO test_ps_partial (created_at)
+                SELECT '2026-01-15'::date + (g % 2) * interval '3 months'
+                FROM generate_series(1, 200) g
+            """)
+            dj_cursor.execute("ANALYZE test_ps_partial_q1")
+
+            result = _get_partition_settings_for_partitioned_table(
+                cast(Any, dj_cursor), "public", "test_ps_partial", logger
+            )
+            assert result is None
+
+    @pytest.mark.django_db
+    def test_non_partitioned_table_still_uses_legacy_query(self):
+        """Regular tables must skip the catalog fast path and go through the
+        original COUNT(*) + pg_table_size query.
+        """
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_ps_regular (id SERIAL PRIMARY KEY, data TEXT)")
+            dj_cursor.execute("INSERT INTO test_ps_regular (data) SELECT repeat('x', 128) FROM generate_series(1, 200)")
+            dj_cursor.execute("ANALYZE test_ps_regular")
+
+            result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_regular", logger)
+            assert result is not None
+            assert result.partition_size > 0
+
+
 class TestPostgreSQLColumnToArrowField:
     @pytest.mark.parametrize(
         "data_type,expected_arrow_type",
@@ -614,7 +710,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_pk_table", logger)
             assert result is not None
             assert "id" in result
 
@@ -629,7 +725,7 @@ class TestGetPrimaryKeys:
                     name TEXT
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_no_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_no_pk_table", logger)
             assert result is None
 
     @pytest.mark.django_db
@@ -645,7 +741,7 @@ class TestGetPrimaryKeys:
                     PRIMARY KEY (org_id, user_id)
                 )
             """)
-            result = _get_primary_keys(dj_cursor, "public", "test_composite_pk_table", logger)
+            result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_composite_pk_table", logger)
             assert result is not None
             assert len(result) == 2
             assert "org_id" in result
@@ -751,8 +847,8 @@ class TestHasDuplicatePrimaryKeys:
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", None, logger) is False
-            assert _has_duplicate_primary_keys(dj_cursor, "public", "any_table", [], logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", None, logger) is False
+            assert _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "any_table", [], logger) is False
 
     @pytest.mark.django_db
     def test_returns_false_when_no_duplicates(self):
@@ -766,7 +862,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_no_dup_table VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_no_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_no_dup_table", ["id"], logger)
             assert result is False
 
     @pytest.mark.django_db
@@ -781,7 +877,7 @@ class TestHasDuplicatePrimaryKeys:
                 )
             """)
             dj_cursor.execute("INSERT INTO test_dup_table VALUES (1, 'a'), (1, 'b'), (2, 'c')")
-            result = _has_duplicate_primary_keys(dj_cursor, "public", "test_dup_table", ["id"], logger)
+            result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
 
@@ -789,7 +885,7 @@ class TestIsReadReplica:
     @pytest.mark.django_db
     def test_primary_is_not_read_replica(self):
         with django_connection.cursor() as dj_cursor:
-            result = _is_read_replica(dj_cursor)
+            result = _is_read_replica(cast(Any, dj_cursor))
             assert result is False
 
 
@@ -806,7 +902,7 @@ class TestGetTable:
                     score DOUBLE PRECISION
                 )
             """)
-            table = _get_table(dj_cursor, "public", "test_get_table_regular", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_regular", logger)
             assert table.type == "table"
             col_names = [c.name for c in table.columns]
             assert "id" in col_names
@@ -820,7 +916,7 @@ class TestGetTable:
         with django_connection.cursor() as dj_cursor:
             dj_cursor.execute("CREATE TABLE test_get_table_view_base (id INTEGER, name TEXT)")
             dj_cursor.execute("CREATE VIEW test_get_table_view AS SELECT * FROM test_get_table_view_base")
-            table = _get_table(dj_cursor, "public", "test_get_table_view", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_view", logger)
             assert table.type == "view"
 
     @pytest.mark.django_db
@@ -832,5 +928,5 @@ class TestGetTable:
             dj_cursor.execute(
                 "CREATE MATERIALIZED VIEW test_get_table_matview AS SELECT * FROM test_get_table_matview_base"
             )
-            table = _get_table(dj_cursor, "public", "test_get_table_matview", logger)
+            table = _get_table(cast(Any, dj_cursor), "public", "test_get_table_matview", logger)
             assert table.type == "materialized_view"
