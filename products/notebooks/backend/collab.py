@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from posthog import redis
 
 TTL_SECONDS = 60 * 60 * 24  # 1 day
-VERSION_KEY = "notebook:collab:{id}:version"
-STEPS_KEY = "notebook:collab:{id}:steps"
+VERSION_KEY = "notebook:collab:{team_id}:{notebook_id}:version"
+STEPS_KEY = "notebook:collab:{team_id}:{notebook_id}:steps"
 
 # Atomic operation: append steps only if the last_seen_version matches the current version in Redis.
 # Each step is stored individually in a sorted set (score=version), for example:
@@ -52,14 +52,15 @@ class SubmitResult:
     steps_since: list[StepEntry] | None = None
 
 
-def initialize_collab_session(notebook_id: str, version: int) -> None:
+def initialize_collab_session(team_id: int, notebook_id: str, version: int) -> None:
     """Seed the Redis version from Postgres if not already present."""
     client = redis.get_client()
-    version_key = VERSION_KEY.format(id=notebook_id)
+    version_key = VERSION_KEY.format(team_id=team_id, notebook_id=notebook_id)
     client.set(version_key, str(version), ex=TTL_SECONDS, nx=True)
 
 
 def submit_steps(
+    team_id: int,
     notebook_id: str,
     client_id: str,
     steps_json: list[dict],
@@ -70,8 +71,8 @@ def submit_steps(
     If rejected, steps_since contains missed StepEntry items for rebase.
     """
     client = redis.get_client()
-    version_key = VERSION_KEY.format(id=notebook_id)
-    steps_key = STEPS_KEY.format(id=notebook_id)
+    version_key = VERSION_KEY.format(team_id=team_id, notebook_id=notebook_id)
+    steps_key = STEPS_KEY.format(team_id=team_id, notebook_id=notebook_id)
 
     step_entries = [
         json.dumps({"step": s, "client_id": client_id, "v": last_seen_version + i + 1})

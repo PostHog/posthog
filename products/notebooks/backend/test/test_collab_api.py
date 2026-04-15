@@ -35,7 +35,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         )
 
     def _init_collab(self, notebook) -> int:
-        initialize_collab_session(notebook["short_id"], notebook["version"])
+        initialize_collab_session(self.team.pk, notebook["short_id"], notebook["version"])
         return notebook["version"]
 
     def test_collab_save_accepted(self):

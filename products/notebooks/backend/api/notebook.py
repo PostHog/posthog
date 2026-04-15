@@ -742,9 +742,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         notebook = self.get_object()
 
-        initialize_collab_session(str(notebook.short_id), notebook.version)
+        initialize_collab_session(notebook.team_id, str(notebook.short_id), notebook.version)
 
         result = submit_steps(
+            team_id=notebook.team_id,
             notebook_id=str(notebook.short_id),
             client_id=data["client_id"],
             steps_json=data["steps"],
