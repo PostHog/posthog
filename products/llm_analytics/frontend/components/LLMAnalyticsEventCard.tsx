@@ -10,7 +10,7 @@ import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
-import { formatLLMCost } from '../utils'
+import { costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
 import { CostBreakdownTooltip } from './CostBreakdownTooltip'
 import { SentimentBar } from './SentimentTag'
 
@@ -50,7 +50,7 @@ export function LLMAnalyticsEventCard({
 
     // Generation-specific properties
     const model = event.properties.$ai_model || 'Unknown model'
-    const cost = event.properties.$ai_total_cost_usd
+    const costContext = isGeneration || isEmbedding ? costContextFromProperties(event.properties) : undefined
 
     // Span-specific properties
     const spanName = event.properties.$ai_span_name || 'Unnamed span'
@@ -94,23 +94,18 @@ export function LLMAnalyticsEventCard({
                                 )}
                         </LemonTag>
                     )}
-                    {(isGeneration || isEmbedding) && typeof cost === 'number' && (
+                    {costContext && (
                         <Tooltip
                             title={
-                                typeof event.properties.$ai_input_cost_usd === 'number' ||
-                                typeof event.properties.$ai_output_cost_usd === 'number' ? (
-                                    <CostBreakdownTooltip
-                                        inputCost={event.properties.$ai_input_cost_usd}
-                                        outputCost={event.properties.$ai_output_cost_usd}
-                                        totalCost={cost}
-                                    />
+                                hasCostBreakdown(costContext) ? (
+                                    <CostBreakdownTooltip costContext={costContext} />
                                 ) : (
                                     'Total cost'
                                 )
                             }
                         >
                             <LemonTag type="muted" size="small">
-                                {formatLLMCost(cost)}
+                                {formatLLMCost(costContext.totalCost)}
                             </LemonTag>
                         </Tooltip>
                     )}

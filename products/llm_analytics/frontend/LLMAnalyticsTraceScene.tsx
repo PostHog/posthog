@@ -92,6 +92,9 @@ import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoad
 import { getTraceReviewTagItems } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
+    CostContext,
+    costContextFromProperties,
+    costContextFromTrace,
     formatLLMCost,
     formatLLMEventTitle,
     formatLLMLatency,
@@ -100,6 +103,7 @@ import {
     getSessionID,
     getSessionStartTimestamp,
     getTraceTimestamp,
+    hasCostBreakdown,
     isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
@@ -595,28 +599,24 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
 }
 
 function CostChip({
-    totalCost,
-    inputCost,
-    outputCost,
+    costContext,
     billedTotalUsd,
     billedCredits,
     markupUsd,
     showBillingInfo,
 }: {
-    totalCost: number
-    inputCost?: number
-    outputCost?: number
+    costContext: CostContext
     billedTotalUsd?: number
     billedCredits?: number
     markupUsd?: number
     showBillingInfo?: boolean
 }): JSX.Element {
-    const hasBreakdown = typeof inputCost === 'number' || typeof outputCost === 'number'
+    const hasBreakdown = hasCostBreakdown(costContext)
     const hasBilling = showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0
 
     const tooltipContent =
         hasBreakdown || hasBilling ? (
-            <CostBreakdownTooltip inputCost={inputCost} outputCost={outputCost} totalCost={totalCost}>
+            <CostBreakdownTooltip costContext={costContext}>
                 {hasBilling && (
                     <>
                         <hr className="my-0.5 border-border" />
@@ -632,7 +632,7 @@ function CostChip({
 
     return (
         <Chip title="Total cost" tooltipTitle={tooltipContent} icon={<IconReceipt />}>
-            {formatLLMCost(totalCost)}
+            {formatLLMCost(costContext.totalCost)}
         </Chip>
     )
 }
@@ -979,6 +979,8 @@ function TraceMetadata({
         })
     }
 
+    const traceCostContext = costContextFromTrace(trace)
+
     const cached = personsCache[trace.distinctId]
 
     const personData = cached
@@ -1026,11 +1028,9 @@ function TraceMetadata({
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.totalCost === 'number' && (
+            {traceCostContext && (
                 <CostChip
-                    totalCost={trace.totalCost}
-                    inputCost={trace.inputCost}
-                    outputCost={trace.outputCost}
+                    costContext={traceCostContext}
                     billedTotalUsd={billedTotalUsd}
                     billedCredits={billedCredits}
                     markupUsd={markupUsd}
@@ -1550,9 +1550,7 @@ const EventContent = React.memo(
                                     outputTokens={event.properties.$ai_output_tokens}
                                     cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
                                     cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
-                                    totalCostUsd={event.properties.$ai_total_cost_usd}
-                                    inputCostUsd={event.properties.$ai_input_cost_usd}
-                                    outputCostUsd={event.properties.$ai_output_cost_usd}
+                                    costContext={costContextFromProperties(event.properties)}
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
@@ -1563,9 +1561,7 @@ const EventContent = React.memo(
                                 <MetadataHeader
                                     inputTokens={event.inputTokens}
                                     outputTokens={event.outputTokens}
-                                    totalCostUsd={event.totalCost}
-                                    inputCostUsd={event.inputCost}
-                                    outputCostUsd={event.outputCost}
+                                    costContext={costContextFromTrace(event)}
                                     latency={event.totalLatency}
                                     timestamp={event.createdAt}
                                 />

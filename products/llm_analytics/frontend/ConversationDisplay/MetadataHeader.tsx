@@ -7,14 +7,12 @@ import { lowercaseFirstLetter } from 'lib/utils'
 
 import { CostBreakdownTooltip } from '../components/CostBreakdownTooltip'
 import { MetadataTag } from '../components/MetadataTag'
-import { formatLLMCost } from '../utils'
+import { CostContext, formatLLMCost, hasCostBreakdown } from '../utils'
 
 export function MetadataHeader({
     inputTokens,
     outputTokens,
-    totalCostUsd,
-    inputCostUsd,
-    outputCostUsd,
+    costContext,
     model,
     latency,
     className,
@@ -29,9 +27,7 @@ export function MetadataHeader({
     outputTokens?: number
     cacheReadTokens?: number
     cacheWriteTokens?: number
-    totalCostUsd?: number
-    inputCostUsd?: number
-    outputCostUsd?: number
+    costContext?: CostContext
     model?: string
     latency?: number
     isError?: boolean
@@ -72,20 +68,14 @@ export function MetadataHeader({
                     {model}
                 </MetadataTag>
             )}
-            {typeof totalCostUsd === 'number' && (
+            {costContext && (
                 <MetadataTag
                     label="Total generation cost"
                     tooltipContent={
-                        typeof inputCostUsd === 'number' || typeof outputCostUsd === 'number' ? (
-                            <CostBreakdownTooltip
-                                inputCost={inputCostUsd}
-                                outputCost={outputCostUsd}
-                                totalCost={totalCostUsd}
-                            />
-                        ) : undefined
+                        hasCostBreakdown(costContext) ? <CostBreakdownTooltip costContext={costContext} /> : undefined
                     }
                 >
-                    {formatLLMCost(totalCostUsd)}
+                    {formatLLMCost(costContext.totalCost)}
                 </MetadataTag>
             )}
         </div>
