@@ -13,6 +13,7 @@ from hogli.product.checks import (
     _has_test_files,
     _is_noop_script,
     _parse_pytest_paths,
+    has_legacy_interface_leaks,
 )
 
 # ---------------------------------------------------------------------------
@@ -368,3 +369,88 @@ class TestCombinedScenarios:
         result = check.run(ctx)
         # Should report: contract-check forbidden, || true, nonexistent path
         assert len(result.issues) >= 3
+
+
+# ---------------------------------------------------------------------------
+# has_legacy_interface_leaks
+# ---------------------------------------------------------------------------
+
+_TACH_SAMPLE = """\
+[[modules]]
+path = "products.visual_review"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.experiments"
+depends_on = ["ee", "posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.mcp_store"
+depends_on = ["ee", "posthog"]
+layer = "modules"
+
+# Facade + views: canonical public surface
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products\\.(experiments|mcp_store|visual_review)",
+]
+
+# Legacy leaks — experiments
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "stats\\..*",
+]
+from = [
+    "products.experiments",
+]
+
+# Legacy leaks — mcp_store
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.oauth.*",
+]
+from = [
+    "products.mcp_store",
+]
+"""
+
+
+class TestLegacyInterfaceLeaks:
+    @pytest.mark.parametrize(
+        "module_path, expected",
+        [
+            ("products.visual_review", False),
+            ("products.experiments", True),
+            ("products.mcp_store", True),
+            ("products.nonexistent", False),
+        ],
+    )
+    def test_detection(self, module_path: str, expected: bool) -> None:
+        assert has_legacy_interface_leaks(_TACH_SAMPLE, module_path) == expected
+
+    def test_empty_tach(self) -> None:
+        assert has_legacy_interface_leaks("", "products.anything") is False
+
+    def test_only_facade_block(self) -> None:
+        tach = """\
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.clean_product",
+]
+"""
+        assert has_legacy_interface_leaks(tach, "products.clean_product") is False
+
+    def test_regex_from_does_not_false_positive(self) -> None:
+        assert has_legacy_interface_leaks(_TACH_SAMPLE, "products.mcp") is False

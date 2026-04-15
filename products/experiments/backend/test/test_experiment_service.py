@@ -816,6 +816,106 @@ class TestExperimentService(APIBaseTest):
         assert len(variants) == 3
         assert variants[2]["key"] == "variant-b"
 
+    def test_update_running_experiment_syncs_flag_when_update_feature_flag_params_true(self):
+        experiment = self._create_running_experiment()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+        assert experiment.feature_flag.filters["groups"][0]["rollout_percentage"] == 100
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 75},
+                        {"key": "test", "name": "Test", "rollout_percentage": 25},
+                    ],
+                    "rollout_percentage": 50,
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        variants = experiment.feature_flag.filters["multivariate"]["variants"]
+        assert variants[0]["rollout_percentage"] == 75
+        assert variants[1]["rollout_percentage"] == 25
+        assert experiment.feature_flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    @parameterized.expand(
+        [
+            ("absent", {}),
+            ("false", {"update_feature_flag_params": False}),
+        ]
+    )
+    def test_update_running_experiment_does_not_sync_flag(self, _name: str, extra: dict):
+        experiment = self._create_running_experiment()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 75},
+                        {"key": "test", "name": "Test", "rollout_percentage": 25},
+                    ],
+                },
+                **extra,
+            },
+        )
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"] == 50
+
+    def test_update_running_experiment_with_flag_preserves_existing_groups(self):
+        experiment = self._create_running_experiment()
+
+        flag = experiment.feature_flag
+        flag.filters["groups"] = [
+            {"properties": [], "rollout_percentage": 100},
+            {"properties": [{"key": "country", "value": "US", "type": "person"}], "rollout_percentage": 100},
+        ]
+        flag.save()
+
+        self._service().update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "rollout_percentage": 30,
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 30
+        assert len(flag.filters["groups"]) == 2
+        assert flag.filters["groups"][1]["properties"] == [{"key": "country", "value": "US", "type": "person"}]
+
+    def test_update_running_experiment_with_flag_still_rejects_adding_variants(self):
+        experiment = self._create_running_experiment()
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                        ]
+                    },
+                    "update_feature_flag_params": True,
+                },
+            )
+
+        assert "Can't update feature_flag_variants" in str(ctx.exception)
+
     def test_update_experiment_recalculates_fingerprints(self):
         experiment = self._create_draft_experiment()
         assert experiment.metrics is not None
