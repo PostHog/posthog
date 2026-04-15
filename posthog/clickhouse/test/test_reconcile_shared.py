@@ -5,6 +5,7 @@ No Django or ClickHouse connection required.
 
 from __future__ import annotations
 
+import atexit
 import tempfile
 import textwrap
 from pathlib import Path
@@ -23,10 +24,20 @@ from posthog.clickhouse.migration_tools.plan_generator import generate_manifest_
 from posthog.clickhouse.migration_tools.schema_introspect import ColumnSchema, TableSchema
 from posthog.clickhouse.migration_tools.state_diff import StateDiff, diff_state
 
+_TEMP_DIRS: list[tempfile.TemporaryDirectory[str]] = []
+
+
+@atexit.register
+def _cleanup_temp_dirs() -> None:
+    for tmp_dir in _TEMP_DIRS:
+        tmp_dir.cleanup()
+    _TEMP_DIRS.clear()
+
 
 def _write_yaml(content: str) -> Path:
-    d = tempfile.mkdtemp()
-    p = Path(d) / "test_ecosystem.yaml"
+    tmp_dir = tempfile.TemporaryDirectory()
+    _TEMP_DIRS.append(tmp_dir)
+    p = Path(tmp_dir.name) / "test_ecosystem.yaml"
     p.write_text(textwrap.dedent(content))
     return p
 
@@ -142,9 +153,9 @@ class TestParseDesiredState(unittest.TestCase):
         self.assertEqual(mv.source, "kafka_t")
 
     def test_parse_dir(self) -> None:
-        d = tempfile.mkdtemp()
-        (Path(d) / "eco1.yaml").write_text(
-            textwrap.dedent("""\
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "eco1.yaml").write_text(
+                textwrap.dedent("""\
             ecosystem: eco1
             cluster: main
             tables:
@@ -155,9 +166,9 @@ class TestParseDesiredState(unittest.TestCase):
                   - name: id
                     type: UInt64
         """)
-        )
-        (Path(d) / "eco2.yaml").write_text(
-            textwrap.dedent("""\
+            )
+            (Path(d) / "eco2.yaml").write_text(
+                textwrap.dedent("""\
             ecosystem: eco2
             cluster: main
             tables:
@@ -168,11 +179,11 @@ class TestParseDesiredState(unittest.TestCase):
                   - name: id
                     type: UInt64
         """)
-        )
-        states = parse_desired_state_dir(Path(d))
-        self.assertEqual(len(states), 2)
-        ecosystems = {s.ecosystem for s in states}
-        self.assertEqual(ecosystems, {"eco1", "eco2"})
+            )
+            states = parse_desired_state_dir(Path(d))
+            self.assertEqual(len(states), 2)
+            ecosystems = {s.ecosystem for s in states}
+            self.assertEqual(ecosystems, {"eco1", "eco2"})
 
 
 class TestDiffStateMissingTable(unittest.TestCase):
@@ -469,57 +480,57 @@ class TestReconcileImportYamlRoundTrip(unittest.TestCase):
                 columns: inherit sharded_t
         """)
 
-        d = tempfile.mkdtemp()
-        p = Path(d) / "roundtrip_test.yaml"
-        p.write_text(yaml_content)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "roundtrip_test.yaml"
+            p.write_text(yaml_content)
 
-        state = parse_desired_state(p)
-        self.assertEqual(state.ecosystem, "roundtrip_test")
-        self.assertEqual(len(state.tables), 2)
+            state = parse_desired_state(p)
+            self.assertEqual(state.ecosystem, "roundtrip_test")
+            self.assertEqual(len(state.tables), 2)
 
-        sharded = state.tables["sharded_t"]
-        self.assertEqual(sharded.order_by, ["team_id", "id"])
-        self.assertEqual(sharded.partition_by, "toYYYYMM(timestamp)")
-        self.assertEqual(len(sharded.columns), 3)
+            sharded = state.tables["sharded_t"]
+            self.assertEqual(sharded.order_by, ["team_id", "id"])
+            self.assertEqual(sharded.partition_by, "toYYYYMM(timestamp)")
+            self.assertEqual(len(sharded.columns), 3)
 
-        writable = state.tables["writable_t"]
-        self.assertEqual(writable.source, "sharded_t")
-        self.assertEqual(len(writable.columns), 3)  # inherited
+            writable = state.tables["writable_t"]
+            self.assertEqual(writable.source, "sharded_t")
+            self.assertEqual(len(writable.columns), 3)  # inherited
 
-        # Write back out as YAML and re-parse
-        tables_out: dict[str, dict] = {}
-        for tname, tbl in state.tables.items():
-            tdata: dict = {"engine": tbl.engine, "on_nodes": tbl.on_nodes}
-            if tbl.order_by:
-                tdata["order_by"] = tbl.order_by
-            if tbl.partition_by:
-                tdata["partition_by"] = tbl.partition_by
-            if tbl.source:
-                tdata["source"] = tbl.source
-            if tbl.sharding_key:
-                tdata["sharding_key"] = tbl.sharding_key
-            if tbl.sharded:
-                tdata["sharded"] = True
-            tdata["columns"] = [{"name": c.name, "type": c.type} for c in tbl.columns]
-            tables_out[tname] = tdata
-        out_data = {
-            "ecosystem": state.ecosystem,
-            "cluster": state.cluster,
-            "tables": tables_out,
-        }
+            # Write back out as YAML and re-parse
+            tables_out: dict[str, dict] = {}
+            for tname, tbl in state.tables.items():
+                tdata: dict = {"engine": tbl.engine, "on_nodes": tbl.on_nodes}
+                if tbl.order_by:
+                    tdata["order_by"] = tbl.order_by
+                if tbl.partition_by:
+                    tdata["partition_by"] = tbl.partition_by
+                if tbl.source:
+                    tdata["source"] = tbl.source
+                if tbl.sharding_key:
+                    tdata["sharding_key"] = tbl.sharding_key
+                if tbl.sharded:
+                    tdata["sharded"] = True
+                tdata["columns"] = [{"name": c.name, "type": c.type} for c in tbl.columns]
+                tables_out[tname] = tdata
+            out_data = {
+                "ecosystem": state.ecosystem,
+                "cluster": state.cluster,
+                "tables": tables_out,
+            }
 
-        out_path = Path(d) / "roundtrip_out.yaml"
-        with open(out_path, "w") as f:
-            yaml.dump(out_data, f, default_flow_style=False, sort_keys=False)
+            out_path = Path(d) / "roundtrip_out.yaml"
+            with open(out_path, "w") as f:
+                yaml.dump(out_data, f, default_flow_style=False, sort_keys=False)
 
-        state2 = parse_desired_state(out_path)
-        self.assertEqual(state2.ecosystem, state.ecosystem)
-        self.assertEqual(len(state2.tables), len(state.tables))
-        for tname in state.tables:
-            self.assertEqual(
-                len(state2.tables[tname].columns),
-                len(state.tables[tname].columns),
-            )
+            state2 = parse_desired_state(out_path)
+            self.assertEqual(state2.ecosystem, state.ecosystem)
+            self.assertEqual(len(state2.tables), len(state.tables))
+            for tname in state.tables:
+                self.assertEqual(
+                    len(state2.tables[tname].columns),
+                    len(state.tables[tname].columns),
+                )
 
 
 class TestMvSelectChange(unittest.TestCase):
