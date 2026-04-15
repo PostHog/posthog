@@ -3330,6 +3330,23 @@ class FeatureFlagViewSet(
         # Build person properties at timestamp if provided
         if timestamp:
             try:
+                # First check if the person actually existed at the timestamp
+                from posthog.models.person.point_in_time_properties import person_existed_at_timestamp
+
+                person_existed = person_existed_at_timestamp(
+                    team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids
+                )
+
+                if not person_existed:
+                    return Response(
+                        {
+                            "error": f"Unable to build person properties at the selected timestamp. "
+                            f"This person may not have had any recorded activity at that time, "
+                            f"or the timestamp may be too far in the past."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 properties_result = build_person_properties_at_time(
                     team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
                 )

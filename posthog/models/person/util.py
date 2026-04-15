@@ -132,7 +132,7 @@ if TEST:
                 f"('{person.uuid}', '{created_at}', {person.team_id}, '{json.dumps(person.properties)}', {'1' if person.is_identified else '0'}, '{timestamp}', 0, 0, 0, '{last_seen_at}')"
             )
 
-        PersonDistinctId.objects.bulk_create(distinct_ids)
+        PersonDistinctId.objects.bulk_create(distinct_ids, ignore_conflicts=True)
         sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
         sync_execute(
             BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts),

@@ -227,3 +227,58 @@ def build_person_properties_at_time(
                 continue
 
     return person_properties
+
+
+def person_existed_at_timestamp(team_id: int, timestamp: datetime, distinct_ids: list[str]) -> bool:
+    """
+    Check if a person existed at a specific timestamp by looking for any events.
+
+    A person is considered to have existed if there were any events for their
+    distinct_ids at or before the given timestamp.
+
+    Args:
+        team_id: The team ID to filter events by
+        timestamp: The point in time to check person existence at
+        distinct_ids: List of distinct_ids to query for person existence
+
+    Returns:
+        True if the person had any activity at or before the timestamp, False otherwise
+
+    Raises:
+        ValueError: If parameters are invalid
+        Exception: If ClickHouse query fails
+    """
+    # Validation
+    if not isinstance(team_id, int) or team_id <= 0:
+        raise ValueError("team_id must be a positive integer")
+
+    if not isinstance(distinct_ids, list) or not distinct_ids:
+        raise ValueError("distinct_ids must be a non-empty list")
+
+    if not all(isinstance(did, str) and did for did in distinct_ids):
+        raise ValueError("All distinct_ids must be non-empty strings")
+
+    if not isinstance(timestamp, datetime):
+        raise ValueError("timestamp must be a datetime object")
+
+    # Query to check if any events exist for this person at or before the timestamp
+    query = """
+    SELECT 1
+    FROM events
+    WHERE team_id = %(team_id)s
+        AND distinct_id IN %(distinct_ids)s
+        AND timestamp <= %(timestamp)s
+    LIMIT 1
+    """
+
+    params = {
+        "team_id": team_id,
+        "distinct_ids": distinct_ids,
+        "timestamp": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    try:
+        rows = sync_execute(query, params, settings={"max_execution_time": 10})
+        return len(rows) > 0
+    except Exception as e:
+        raise Exception(f"Failed to check person existence: {str(e)}") from e

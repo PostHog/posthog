@@ -320,7 +320,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                 <div
                                                     key={condition.index}
                                                     className={`border rounded-lg p-3 ${
-                                                        condition.matched
+                                                        condition.matched && !condition.rollout_excluded
                                                             ? 'border-success bg-success-highlight'
                                                             : condition.rollout_excluded
                                                               ? 'border-warning bg-warning-highlight'
@@ -333,17 +333,17 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                         </h6>
                                                         <span
                                                             className={`px-2 py-1 rounded text-xs font-mono ${
-                                                                condition.matched
+                                                                condition.matched && !condition.rollout_excluded
                                                                     ? 'bg-success text-success-content'
                                                                     : condition.rollout_excluded
                                                                       ? 'bg-warning text-warning-content'
                                                                       : 'bg-muted text-muted-alt'
                                                             }`}
                                                         >
-                                                            {condition.matched
-                                                                ? 'MATCHED'
-                                                                : condition.rollout_excluded
-                                                                  ? 'ROLLOUT EXCLUDED'
+                                                            {condition.rollout_excluded
+                                                                ? 'ROLLOUT EXCLUDED'
+                                                                : condition.matched
+                                                                  ? 'MATCHED'
                                                                   : 'NOT MATCHED'}
                                                         </span>
                                                         {condition.rollout_percentage < 100 && (

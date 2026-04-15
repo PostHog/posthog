@@ -581,62 +581,23 @@ impl FlagDetails {
                     }
                     .to_string();
 
-                    let explanation = match property.operator {
-                        Some(OperatorType::IsSet) => {
-                            format!("Property '{}' is set", property.key)
-                        }
-                        Some(OperatorType::IsNotSet) => {
-                            format!("Property '{}' is not set", property.key)
-                        }
-                        Some(OperatorType::Exact) => {
-                            format_operator_explanation(&property.key, "equals", &property.value)
-                        }
-                        Some(OperatorType::IsNot) => format_operator_explanation(
-                            &property.key,
-                            "does not equal",
-                            &property.value,
-                        ),
-                        Some(OperatorType::Icontains) => {
-                            format_operator_explanation(&property.key, "contains", &property.value)
-                        }
-                        Some(OperatorType::NotIcontains) => format_operator_explanation(
-                            &property.key,
-                            "does not contain",
-                            &property.value,
-                        ),
-                        Some(OperatorType::Gt) => {
-                            format_operator_explanation(&property.key, ">", &property.value)
-                        }
-                        Some(OperatorType::Lt) => {
-                            format_operator_explanation(&property.key, "<", &property.value)
-                        }
-                        Some(OperatorType::Gte) => {
-                            format_operator_explanation(&property.key, ">=", &property.value)
-                        }
-                        Some(OperatorType::Lte) => {
-                            format_operator_explanation(&property.key, "<=", &property.value)
-                        }
-                        Some(OperatorType::In) => {
-                            format_operator_explanation(&property.key, "is in", &property.value)
-                        }
-                        Some(OperatorType::NotIn) => {
-                            format_operator_explanation(&property.key, "is not in", &property.value)
-                        }
-                        Some(OperatorType::Regex) => format_operator_explanation(
-                            &property.key,
-                            "matches regex",
-                            &property.value,
-                        ),
-                        Some(OperatorType::NotRegex) => format_operator_explanation(
-                            &property.key,
-                            "does not match regex",
-                            &property.value,
-                        ),
-                        _ => format_operator_explanation(
-                            &property.key,
-                            &operator_str,
-                            &property.value,
-                        ),
+                    // Generate explanation placeholder - will be updated after we know if property matched
+                    let explanation_placeholder = match property.operator {
+                        Some(OperatorType::IsSet) => ("is set", "is not set"),
+                        Some(OperatorType::IsNotSet) => ("is not set", "is set"),
+                        Some(OperatorType::Exact) => ("equals", "does not equal"),
+                        Some(OperatorType::IsNot) => ("does not equal", "equals"),
+                        Some(OperatorType::Icontains) => ("contains", "does not contain"),
+                        Some(OperatorType::NotIcontains) => ("does not contain", "contains"),
+                        Some(OperatorType::Gt) => (">", "<="),
+                        Some(OperatorType::Lt) => ("<", ">="),
+                        Some(OperatorType::Gte) => (">=", "<"),
+                        Some(OperatorType::Lte) => ("<=", ">"),
+                        Some(OperatorType::In) => ("is in", "is not in"),
+                        Some(OperatorType::NotIn) => ("is not in", "is in"),
+                        Some(OperatorType::Regex) => ("matches regex", "does not match regex"),
+                        Some(OperatorType::NotRegex) => ("does not match regex", "matches regex"),
+                        _ => (operator_str.as_str(), "does not match"),
                     };
 
                     let (property_matched, actual_value) = if let Some(props) = property_values {
@@ -646,6 +607,31 @@ impl FlagDetails {
                     } else {
                         // No properties available, fall back to condition-level match
                         (condition_matched, None)
+                    };
+
+                    // Generate the correct explanation based on whether the property matched
+                    let explanation = if property_matched {
+                        match property.operator {
+                            Some(OperatorType::IsSet) | Some(OperatorType::IsNotSet) => {
+                                format!("Property '{}' {}", property.key, explanation_placeholder.0)
+                            }
+                            _ => format_operator_explanation(
+                                &property.key,
+                                explanation_placeholder.0,
+                                &property.value,
+                            ),
+                        }
+                    } else {
+                        match property.operator {
+                            Some(OperatorType::IsSet) | Some(OperatorType::IsNotSet) => {
+                                format!("Property '{}' {}", property.key, explanation_placeholder.1)
+                            }
+                            _ => format_operator_explanation(
+                                &property.key,
+                                explanation_placeholder.1,
+                                &property.value,
+                            ),
+                        }
                     };
 
                     let property_analysis = PropertyAnalysis {
@@ -672,6 +658,14 @@ impl FlagDetails {
                 .map(|props| !props.is_empty())
                 .unwrap_or(false);
 
+            // Determine if all properties in this condition actually matched
+            let all_properties_matched = if has_properties {
+                property_analyses.iter().all(|prop| prop.matched)
+            } else {
+                // If no properties, consider it a match (rollout-only condition)
+                true
+            };
+
             // Key insight: Use the overall match reason to determine what happened
             // If reason is OutOfRolloutBound, it means properties matched but rollout failed
             let properties_matched_but_rollout_failed =
@@ -685,11 +679,11 @@ impl FlagDetails {
                     index == match_condition_index && is_zero_rollout
                 } else {
                     // No specific condition index, so could be this one if it has zero rollout
-                    is_zero_rollout
+                    is_zero_rollout && all_properties_matched
                 }
             } else {
                 // Overall reason is not OutOfRolloutBound, so use simple zero rollout check
-                is_zero_rollout && has_properties
+                is_zero_rollout && all_properties_matched
             };
 
             let explanation = if this_condition_rollout_excluded {
@@ -697,7 +691,7 @@ impl FlagDetails {
                     "Condition {} matched properties but was excluded by {}% rollout",
                     index, rollout_percentage
                 )
-            } else if condition_matched {
+            } else if all_properties_matched && condition_matched {
                 format!(
                     "Condition {} matched and passed {}% rollout",
                     index, rollout_percentage
@@ -711,7 +705,7 @@ impl FlagDetails {
                 properties: property_analyses,
                 rollout_percentage,
                 variant: group.variant.clone(),
-                matched: condition_matched && !this_condition_rollout_excluded,
+                matched: all_properties_matched,
                 rollout_excluded: this_condition_rollout_excluded,
                 explanation,
             };
