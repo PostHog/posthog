@@ -1891,6 +1891,15 @@ export interface EndpointRunRequest {
      * Unknown variable names will return a 400 error.
      */
     variables?: Record<string, any>
+    /**
+     * @deprecated Use `variables` instead. Will be removed in a future release.
+     *
+     * Override dashboard filters for insight endpoints (TrendsQuery, FunnelsQuery, etc.).
+     * Not allowed for HogQL endpoints.
+     *
+     * For date filtering, use variables: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     */
+    filters_override?: DashboardFilter
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: integer
     /**
@@ -5225,6 +5234,9 @@ export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
     Source = 'source',
     Campaign = 'campaign',
+    Medium = 'medium',
+    Content = 'content',
+    Term = 'term',
 }
 
 export enum MarketingAnalyticsBaseColumns {
@@ -5270,6 +5282,18 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
         excludedBaseColumns: [],
+    },
+    [MarketingAnalyticsDrillDownLevel.Medium]: {
+        columnAlias: 'Medium',
+        excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
+    },
+    [MarketingAnalyticsDrillDownLevel.Content]: {
+        columnAlias: 'Content',
+        excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
+    },
+    [MarketingAnalyticsDrillDownLevel.Term]: {
+        columnAlias: 'Term',
+        excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
     },
 }
 
