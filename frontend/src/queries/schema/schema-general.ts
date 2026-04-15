@@ -3491,6 +3491,7 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
+    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {

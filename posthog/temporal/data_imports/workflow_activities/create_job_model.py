@@ -1,6 +1,7 @@
 import uuid
 import typing
 import dataclasses
+from typing import Any
 
 from django.db import close_old_connections
 
@@ -50,6 +51,22 @@ def _is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
 
 
 LOGGER = get_logger(__name__)
+
+
+def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
+    return {
+        "name": schema.name,
+        "sync_type": schema.sync_type,
+        "sync_type_config": schema.sync_type_config,
+        "sync_frequency_interval": schema.sync_frequency_interval.total_seconds()
+        if schema.sync_frequency_interval
+        else None,
+        "should_sync": schema.should_sync,
+        "status": schema.status,
+        "last_synced_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
+        "initial_sync_complete": schema.initial_sync_complete,
+    }
+
 
 # TODO: remove dependency
 
@@ -119,6 +136,7 @@ def create_external_data_job_model_activity(
             workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
+            schema_snapshot=_build_schema_snapshot(schema),
         )
 
         logger.info(
