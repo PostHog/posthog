@@ -21,7 +21,6 @@ import type { CookielessManager } from './ingestion/cookieless/cookieless-manage
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
-import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
 import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
