@@ -45,7 +45,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_errortrackingrecommendation",
-                "indexes": [models.Index(fields=["team_id"], name="posthog_err_team_id_4395a7_idx")],
+                "indexes": [],
             },
         ),
         migrations.AddConstraint(

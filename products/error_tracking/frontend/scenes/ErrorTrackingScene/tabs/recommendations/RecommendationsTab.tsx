@@ -58,8 +58,10 @@ export function RecommendationsTab(): JSX.Element {
             {ignoredRecommendations.length > 0 && (
                 <div>
                     <button
+                        type="button"
                         className="flex items-center gap-1 text-xs text-muted hover:text-primary cursor-pointer bg-transparent border-0 p-0"
                         onClick={toggleDismissedExpanded}
+                        aria-expanded={dismissedExpanded}
                     >
                         <IconChevronRight className={`text-sm ${dismissedExpanded ? 'rotate-90' : ''}`} />
                         {ignoredRecommendations.length} dismissed

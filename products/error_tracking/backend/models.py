@@ -617,6 +617,3 @@ class ErrorTrackingRecommendation(UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
         ]
-        indexes = [
-            models.Index(fields=["team_id"]),
-        ]

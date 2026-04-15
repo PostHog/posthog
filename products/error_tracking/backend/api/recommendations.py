@@ -34,12 +34,17 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
 def _compute_if_stale(team_id: int, team) -> None:
     now = timezone.now()
     for rec in RECOMMENDATIONS:
-        obj, created = ErrorTrackingRecommendation.objects.get_or_create(
-            team_id=team_id,
-            type=rec.type,
-            defaults={"meta": rec.compute(team), "computed_at": now},
-        )
-        if not created and (obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval):
+        try:
+            obj = ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
+        except ErrorTrackingRecommendation.DoesNotExist:
+            obj = ErrorTrackingRecommendation.objects.create(
+                team_id=team_id,
+                type=rec.type,
+                meta=rec.compute(team),
+                computed_at=now,
+            )
+            continue
+        if obj.computed_at is None or now >= obj.computed_at + rec.refresh_interval:
             obj.meta = rec.compute(team)
             obj.computed_at = now
             obj.save(update_fields=["meta", "computed_at", "updated_at"])
@@ -52,6 +57,7 @@ class ErrorTrackingRecommendationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["refresh", "dismiss", "restore"]
     queryset = ErrorTrackingRecommendation.objects.all().order_by("type")
     serializer_class = ErrorTrackingRecommendationSerializer
 
@@ -64,6 +70,7 @@ class ErrorTrackingRecommendationViewSet(
         _compute_if_stale(self.team.id, self.team)
         return super().list(request, *args, **kwargs)
 
+    @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
     @action(detail=True, methods=["post"])
     def refresh(self, request: Request, *args, **kwargs) -> Response:
         recommendation = self.get_object()
@@ -77,6 +84,7 @@ class ErrorTrackingRecommendationViewSet(
             recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
     @action(detail=True, methods=["post"])
     def dismiss(self, request: Request, *args, **kwargs) -> Response:
         recommendation = self.get_object()
@@ -84,6 +92,7 @@ class ErrorTrackingRecommendationViewSet(
         recommendation.save(update_fields=["dismissed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
     @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args, **kwargs) -> Response:
         recommendation = self.get_object()
