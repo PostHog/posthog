@@ -14,4 +14,12 @@ class Migration(migrations.Migration):
             model_name="ticket",
             index=models.Index(fields=["team", "snoozed_until"], name="posthog_con_team_snooze_idx"),
         ),
+        AddIndexConcurrently(
+            model_name="ticket",
+            index=models.Index(
+                fields=["snoozed_until"],
+                name="posthog_con_snooze_wake_idx",
+                condition=models.Q(snoozed_until__isnull=False),
+            ),
+        ),
     ]
