@@ -14,6 +14,7 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, renderers, serializers, status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -76,6 +77,7 @@ def _hash_oauth_state_token(token: str) -> str:
 
 
 def _create_oauth_state(
+    request: Request,
     installation: MCPServerInstallation,
     server: MCPServer,
     token: str,
@@ -83,6 +85,7 @@ def _create_oauth_state(
     posthog_code_callback_url: str = "",
     pkce_verifier: str = "",
 ) -> MCPOAuthState:
+    # Ties the state to the initiating user. Only that user can consume it; prevents OAuth CSRF/session fixation.
     return MCPOAuthState.objects.create(
         token_hash=_hash_oauth_state_token(token),
         installation=installation,
@@ -92,6 +95,7 @@ def _create_oauth_state(
         posthog_code_callback_url=posthog_code_callback_url,
         pkce_verifier=pkce_verifier,
         expires_at=timezone.now() + timedelta(seconds=OAUTH_STATE_MAX_AGE_SECONDS),
+        created_by=cast(User, request.user),
     )
 
 
@@ -524,7 +528,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
-            installation, server, token, install_source, posthog_code_callback_url, pkce_verifier=code_verifier
+            request, installation, server, token, install_source, posthog_code_callback_url, pkce_verifier=code_verifier
         )
 
         try:
@@ -709,7 +713,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         if installation:
             _create_oauth_state(
-                installation, server, token, install_source, posthog_code_callback_url, pkce_verifier=code_verifier
+                self.request,
+                installation,
+                server,
+                token,
+                install_source,
+                posthog_code_callback_url,
+                pkce_verifier=code_verifier,
             )
 
         try:
@@ -736,8 +746,9 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     redirects to the originating client (PostHog web or PostHog Code).
     """
 
+    # Use SessionAuthentication; leave permission_classes empty for uniform 400s, not 401s
     permission_classes: list = []
-    authentication_classes: list = []
+    authentication_classes = [SessionAuthentication]
     throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -745,9 +756,8 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         if not state_token:
             return Response({"detail": "Missing state parameter"}, status=status.HTTP_400_BAD_REQUEST)
 
-        oauth_state = self._consume_oauth_state(state_token)
+        oauth_state = self._consume_oauth_state(request, state_token)
         if not oauth_state:
-            logger.warning("OAuth redirect: invalid or expired state")
             return Response({"detail": "Invalid or expired OAuth state"}, status=status.HTTP_400_BAD_REQUEST)
 
         installation = oauth_state.installation
@@ -839,19 +849,23 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             install_source, installation, posthog_code_callback_url=posthog_code_callback_url
         )
 
-    @staticmethod
-    def _consume_oauth_state(state_token: str) -> MCPOAuthState | None:
+    def _consume_oauth_state(self, request: Request, state_token: str) -> MCPOAuthState | None:
+        # Only allow the user who created the state to redeem it. Prevents CSRF or session fixation.
+        if not request.user or not request.user.is_authenticated:
+            logger.warning("OAuth redirect: unauthenticated callback")
+            return None
+
         token_hash = _hash_oauth_state_token(state_token)
         now = timezone.now()
-
         with transaction.atomic():
             oauth_state = (
                 MCPOAuthState.objects.select_for_update()
                 .select_related("installation", "server")
-                .filter(token_hash=token_hash, consumed_at__isnull=True)
+                .filter(token_hash=token_hash, consumed_at__isnull=True, created_by=request.user)
                 .first()
             )
             if not oauth_state or oauth_state.expires_at <= now:
+                logger.warning("OAuth redirect: state missing, expired, or owned by a different user")
                 return None
 
             oauth_state.consumed_at = now

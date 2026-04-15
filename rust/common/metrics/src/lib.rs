@@ -229,6 +229,13 @@ mod tests {
             ("/array/package.json", "/array/"),
             ("/metrics", "/metrics"),
             ("/", "/"),
+            // Edge cases from scanner/malformed input
+            ("/foo/", "/foo/"),
+            ("//", "//"),
+            ("/array/", "/array/"),
+            ("/a/b", "/a/"),
+            ("/array/phc_xxx/", "/array/"),
+            ("", ""),
         ];
         for (input, expected) in cases {
             assert_eq!(normalize_unmatched_path(input), expected, "input: {input}");

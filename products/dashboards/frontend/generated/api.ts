@@ -27,6 +27,7 @@ import type {
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRunInsightsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
@@ -38,6 +39,7 @@ import type {
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
     ReorderTilesRequestApi,
+    RunInsightsResponseApi,
     SharingConfigurationApi,
 } from './api.schemas'
 
@@ -645,6 +647,41 @@ export const dashboardsReorderTilesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(reorderTilesRequestApi),
+    })
+}
+
+/**
+ * Run all insights on a dashboard and return their results.
+ */
+export const getDashboardsRunInsightsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/run_insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/run_insights/`
+}
+
+export const dashboardsRunInsightsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsRunInsightsRetrieveParams,
+    options?: RequestInit
+): Promise<RunInsightsResponseApi> => {
+    return apiMutator<RunInsightsResponseApi>(getDashboardsRunInsightsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -14,7 +14,6 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from django.conf import settings
 from django.db.models import F
 
 import structlog
@@ -477,7 +476,7 @@ def create_or_update_slack_ticket(
     )
 
     # Post a confirmation reply in the Slack thread
-    ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
+    # ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
     support_settings = team.conversations_settings or {}
     confirmation_kwargs: dict = {
         "channel": slack_channel_id,
@@ -491,16 +490,16 @@ def create_or_update_slack_ticket(
                     "text": f":ticket: Ticket #{ticket.ticket_number} created",
                 },
             },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
-                        "url": ticket_url,
-                    }
-                ],
-            },
+            # {
+            #     "type": "actions",
+            #     "elements": [
+            #         {
+            #             "type": "button",
+            #             "text": {"type": "plain_text", "text": "View in PostHog", "emoji": True},
+            #             "url": ticket_url,
+            #         }
+            #     ],
+            # },
         ],
     }
     bot_display_name = support_settings.get("slack_bot_display_name")

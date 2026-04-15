@@ -45,6 +45,7 @@ from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_sche
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
@@ -52,6 +53,8 @@ from posthog.temporal.session_replay.enforce_max_replay_retention.types import E
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
+
+from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
@@ -214,6 +217,44 @@ async def create_salesforce_usage_enrichment_schedule(client: Client):
         )
 
 
+async def create_salesforce_stripe_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce stripe enrichment workflow.
+
+    Runs daily at 4 AM UTC to push Stripe customer data and billing customer
+    names to Salesforce Accounts. The workflow is incremental via a Redis
+    watermark, so a long backfill run is only expected on the first execution;
+    ``SKIP`` prevents the next day's run from starting while a backfill is still
+    in progress.
+    """
+    salesforce_stripe_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-stripe-enrichment",
+            asdict(StripeEnrichmentInputs()),
+            id="salesforce-stripe-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 4 AM UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "salesforce-stripe-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-stripe-enrichment-schedule", salesforce_stripe_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-stripe-enrichment-schedule",
+            salesforce_stripe_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_enforce_max_replay_retention_schedule(client: Client):
     """Create or update the schedule for the enforce max replay retention workflow.
 
@@ -283,6 +324,40 @@ async def create_weekly_digest_schedule(client: Client):
             client,
             "weekly-digest-schedule",
             weekly_digest_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_wa_weekly_digest_schedule(client: Client):
+    """Create or update the schedule for the WA weekly digest workflow."""
+    wa_digest_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "wa-weekly-digest",
+            WAWeeklyDigestInput(),
+            id="wa-weekly-digest-schedule",
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 9 AM UTC",
+                    hour=[ScheduleRange(start=9, end=9)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "wa-weekly-digest-schedule"):
+        await a_update_schedule(client, "wa-weekly-digest-schedule", wa_digest_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "wa-weekly-digest-schedule",
+            wa_digest_schedule,
             trigger_immediately=False,
         )
 
@@ -445,6 +520,7 @@ schedules = [
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_health_check_schedules,
+    create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
 ]
 
@@ -453,6 +529,7 @@ if settings.EE_AVAILABLE:
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
         schedules.append(create_salesforce_usage_enrichment_schedule)
+        schedules.append(create_salesforce_stripe_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():
