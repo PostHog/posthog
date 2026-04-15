@@ -63,7 +63,6 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            products: ${{ steps.filter.outputs.products || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -116,9 +115,8 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
-                        # Generated from frontend/src/queries/schema.json
-                        # ci-python drift check keeps them in sync
-                        - posthog/schema.py
+                        # generates posthog/schema.py
+                        - frontend/src/queries/schema.json
                         # Operator parity check
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
@@ -164,12 +162,9 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
-<<<<<<< HEAD
-=======
                         - frontend/src/queries/schema.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
->>>>>>> master
                         - rust/feature-flags/src/properties/property_models.rs
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
