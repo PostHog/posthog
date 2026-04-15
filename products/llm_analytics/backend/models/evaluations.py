@@ -26,6 +26,7 @@ class Evaluation(UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     enabled = models.BooleanField(default=False)
+    disabled_reason = models.CharField(max_length=100, blank=True, default="")
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType.choices)
     evaluation_config = models.JSONField(default=dict)

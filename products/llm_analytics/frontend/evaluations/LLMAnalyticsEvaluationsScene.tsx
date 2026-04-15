@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -43,7 +43,20 @@ import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
-import { EvaluationConfig } from './types'
+import { DisabledReason, EvaluationConfig } from './types'
+
+function disabledReasonLabel(reason: DisabledReason): string {
+    switch (reason) {
+        case 'trial_limit_reached':
+            return 'Trial limit reached'
+        case 'model_not_allowed':
+            return 'Model not allowed'
+        case 'provider_key_deleted':
+            return 'API key deleted'
+        default:
+            return 'Disabled by system'
+    }
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsEvaluationsScene,
@@ -119,6 +132,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             render: (_, evaluation) => {
                 const canEnable = canEnableEvaluation(evaluation)
                 const isBlocked = !canEnable && !evaluation.enabled
+                const isSystemDisabled = !evaluation.enabled && !!evaluation.disabled_reason
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
@@ -143,9 +157,20 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                                 </span>
                             </Tooltip>
                         </AccessControlAction>
-                        <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                            {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
+                        {isSystemDisabled ? (
+                            <Tooltip
+                                title={`This evaluation was automatically disabled: ${disabledReasonLabel(evaluation.disabled_reason)}`}
+                            >
+                                <span className="flex items-center gap-1 text-danger">
+                                    <IconWarning className="text-sm" />
+                                    {disabledReasonLabel(evaluation.disabled_reason)}
+                                </span>
+                            </Tooltip>
+                        ) : (
+                            <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                                {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                        )}
                     </div>
                 )
             },

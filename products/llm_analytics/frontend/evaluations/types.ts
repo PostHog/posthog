@@ -25,11 +25,14 @@ export interface HogEvaluationConfig {
     bytecode?: unknown[]
 }
 
+export type DisabledReason = '' | 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
+
 export interface BaseEvaluationConfig {
     id: string
     name: string
     description?: string
     enabled: boolean
+    disabled_reason: DisabledReason
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
