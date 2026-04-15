@@ -106,6 +106,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
 - **PostHog event capture in Celery tasks:** Do not use `posthoganalytics.capture()` directly in Celery tasks — events will be silently lost because the global client's background flush may never run before the worker exits. Instead, use `ph_scoped_capture` from `posthog.ph_client`, which creates a dedicated client and flushes on context-manager exit:
+
   ```python
   from posthog.ph_client import ph_scoped_capture
 
