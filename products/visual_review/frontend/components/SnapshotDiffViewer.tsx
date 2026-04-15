@@ -3,13 +3,16 @@ import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 
-import type { SnapshotApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import type { SnapshotApi, SnapshotHistoryEntryApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
     snapshotHistory?: SnapshotHistoryEntryApi[]
     snapshotHistoryLoading?: boolean
+    toleratedHashes?: ToleratedHashEntryApi[]
+    toleratedHashesLoading?: boolean
     onApprove?: () => void
+    onMarkTolerated?: () => void
     onPrevious?: () => void
     onNext?: () => void
     hasPrevious?: boolean
@@ -25,7 +28,10 @@ export function SnapshotDiffViewer({
     snapshot,
     snapshotHistory,
     snapshotHistoryLoading,
+    toleratedHashes,
+    toleratedHashesLoading,
     onApprove,
+    onMarkTolerated,
     onPrevious,
     onNext,
     hasPrevious = false,
@@ -94,18 +100,37 @@ export function SnapshotDiffViewer({
                         </LemonButton>
                     </div>
 
-                    {hasChanges && !isApproved && (
-                        <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
-                            Accept change
-                        </LemonButton>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {hasChanges && !isApproved && (
+                            <>
+                                <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={onApprove}>
+                                    Accept change
+                                </LemonButton>
+                                <LemonButton type="secondary" size="small" onClick={onMarkTolerated}>
+                                    Mark as tolerated
+                                </LemonButton>
+                            </>
+                        )}
 
-                    {isApproved && (
-                        <span className="flex items-center gap-1 text-sm text-success font-medium">
-                            <IconCheck className="w-4 h-4" />
-                            Approved
-                        </span>
-                    )}
+                        {isApproved && (
+                            <span className="flex items-center gap-1 text-sm text-success font-medium">
+                                <IconCheck className="w-4 h-4" />
+                                Approved
+                            </span>
+                        )}
+
+                        {snapshot.classification_reason === 'tolerated_hash' && (
+                            <LemonTag type="muted" size="small">
+                                tolerated
+                            </LemonTag>
+                        )}
+
+                        {snapshot.classification_reason === 'below_threshold' && (
+                            <LemonTag type="muted" size="small">
+                                noise
+                            </LemonTag>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -207,6 +232,30 @@ export function SnapshotDiffViewer({
                         </div>
                     ) : (
                         <p className="text-xs text-muted">No history yet</p>
+                    )}
+                </div>
+
+                {/* Known tolerated hashes */}
+                <div>
+                    <h4 className="text-xs font-semibold text-muted mb-2">Tolerated hashes</h4>
+                    {toleratedHashesLoading ? (
+                        <div className="space-y-2">
+                            <LemonSkeleton className="h-4 w-full" />
+                            <LemonSkeleton className="h-4 w-3/4" />
+                        </div>
+                    ) : toleratedHashes && toleratedHashes.length > 0 ? (
+                        <div className="space-y-1.5">
+                            {toleratedHashes.map((entry) => (
+                                <div key={entry.id} className="flex items-center justify-between text-xs">
+                                    <span className="font-mono text-muted">{entry.content_hash.slice(0, 10)}…</span>
+                                    <LemonTag type="muted" size="small">
+                                        {entry.reason === 'human' ? 'manual' : 'auto'}
+                                    </LemonTag>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-muted">None</p>
                     )}
                 </div>
             </div>

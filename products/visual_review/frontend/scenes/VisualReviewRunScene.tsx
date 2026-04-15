@@ -89,9 +89,12 @@ export function VisualReviewRunScene(): JSX.Element {
         changedSnapshots,
         snapshotHistory,
         snapshotHistoryLoading,
+        toleratedHashes,
+        toleratedHashesLoading,
         repoFullName,
     } = useValues(visualReviewRunSceneLogic)
-    const { setSelectedSnapshotId, approveChanges, approveSnapshot } = useActions(visualReviewRunSceneLogic)
+    const { setSelectedSnapshotId, approveChanges, approveSnapshot, markAsTolerated } =
+        useActions(visualReviewRunSceneLogic)
 
     if (runLoading || !run) {
         return (
@@ -167,6 +170,12 @@ export function VisualReviewRunScene(): JSX.Element {
                             {newCount > 0 && <span className="text-primary-dark">{newCount} new</span>}
                             {newCount > 0 && removedCount > 0 && ' · '}
                             {removedCount > 0 && <span className="text-danger">{removedCount} removed</span>}
+                            {run.summary.tolerated_matched > 0 && (
+                                <>
+                                    {(changedCount > 0 || newCount > 0 || removedCount > 0) && ' · '}
+                                    <span className="text-muted">{run.summary.tolerated_matched} tolerated</span>
+                                </>
+                            )}
                         </span>
                     </div>
 
@@ -191,7 +200,10 @@ export function VisualReviewRunScene(): JSX.Element {
                             snapshot={selectedSnapshot}
                             snapshotHistory={snapshotHistory}
                             snapshotHistoryLoading={snapshotHistoryLoading}
+                            toleratedHashes={toleratedHashes}
+                            toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
+                            onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
                             onPrevious={goToPrevious}
                             onNext={goToNext}
                             hasPrevious={hasPrevious}
