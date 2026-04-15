@@ -410,15 +410,10 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
 
     bootstrap_client_mock = Mock()
     call_count = 0
-
     def mock_execute(query, params):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
+        if params.get("name") == "posthog_migrations":
             return migrations_cluster_hosts
-        else:
-            return data_cluster_hosts
-
+        return data_cluster_hosts
     bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
 
     cluster = ClickhouseCluster(
