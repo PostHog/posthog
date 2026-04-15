@@ -15,6 +15,7 @@ import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
 import { buildSummary } from './rrule-helpers'
+import { StepViewInvocationStatus } from './StepViewInvocationStatus'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 import { StepViewMetrics } from './StepViewMetrics'
 
@@ -27,6 +28,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         selectedNodeCanBeCopiedOrMoved,
         animatingEdgePair,
         workflow,
+        invocationNodeStatuses,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
@@ -66,7 +68,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     } = useActions(stepViewLogic(stepViewLogicProps))
 
     const shouldShowMetricsSummary = mode === 'metrics' && workflow.trigger?.type !== 'batch'
-    const height = shouldShowMetricsSummary ? NODE_HEIGHT + 10 : NODE_HEIGHT
+    const shouldShowInvocationStatus = mode === 'invocation'
+    const height = shouldShowMetricsSummary || shouldShowInvocationStatus ? NODE_HEIGHT + 10 : NODE_HEIGHT
 
     const Step = useHogFlowStep(action)
     const { selectedColor, colorLight, color, icon } = useMemo(() => {
@@ -87,6 +90,24 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
 
+    const invocationStatus = invocationNodeStatuses[action.id]
+    const invocationBorderColor =
+        mode === 'invocation'
+            ? invocationStatus === 'succeeded' || invocationStatus === 'completed'
+                ? 'var(--success)'
+                : invocationStatus === 'failed'
+                  ? 'var(--danger)'
+                  : invocationStatus === 'waiting'
+                    ? 'var(--warning)'
+                    : invocationStatus === 'filtered'
+                      ? 'var(--border)'
+                      : undefined
+            : undefined
+
+    const borderColor = isAnimationTarget ? 'var(--success)' : (invocationBorderColor ?? selectedColor)
+
+    const nodeOpacity = mode === 'invocation' && !invocationStatus ? 0.4 : 1
+
     return (
         <div
             className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary transition-[border-color] duration-300"
@@ -94,9 +115,10 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 width: NODE_WIDTH,
                 height,
                 borderWidth: 1,
-                borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
+                borderColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
                 zIndex: 0,
+                opacity: nodeOpacity,
             }}
         >
             {/* Content layer */}
@@ -199,7 +221,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         </Tooltip>
                     )}
                 </div>
-                {isSelected && node?.deletable && (
+                {isSelected && node?.deletable && mode !== 'invocation' && (
                     <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
                         <LemonMenu
                             items={[
@@ -251,6 +273,16 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     }}
                 >
                     <StepViewMetrics action={action} />
+                </div>
+            )}
+            {shouldShowInvocationStatus && (
+                <div
+                    style={{
+                        borderTopColor: colorLight,
+                        borderTopWidth: 1,
+                    }}
+                >
+                    <StepViewInvocationStatus action={action} />
                 </div>
             )}
         </div>

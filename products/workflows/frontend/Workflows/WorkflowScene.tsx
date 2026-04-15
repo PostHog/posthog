@@ -108,7 +108,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         className={clsx({
-                            'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
+                            'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow':
+                                currentTab === 'workflow' || (currentTab === 'logs' && searchParams.instanceId),
                         })}
                     />
                 )}

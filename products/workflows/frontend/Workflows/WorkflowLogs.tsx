@@ -1,14 +1,16 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { type ReactNode, useMemo } from 'react'
 
-import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconClock, IconEye } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ListHog, SleepingHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
@@ -21,6 +23,7 @@ import {
 } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
+import { WorkflowInvocationView } from './WorkflowInvocationView'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 export type WorkflowLogsProps = {
@@ -29,6 +32,12 @@ export type WorkflowLogsProps = {
 
 function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
+    const { searchParams } = useValues(router)
+    const instanceId = searchParams.instanceId as string | undefined
+
+    if (instanceId) {
+        return <WorkflowInvocationView workflowId={props.id} instanceId={instanceId} />
+    }
 
     return (
         <LogsViewer
@@ -36,6 +45,29 @@ function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
             sourceId={props.id!}
             instanceLabel="workflow run"
             renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
+            renderColumns={(columns) => [
+                ...columns,
+                {
+                    title: '',
+                    key: 'actions',
+                    width: 0,
+                    render: (_, record) => {
+                        const recordInstanceId = 'instanceId' in record ? record.instanceId : undefined
+                        if (!recordInstanceId) {
+                            return null
+                        }
+                        return (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconEye />}
+                                to={urls.workflow(props.id, 'logs') + `?instanceId=${recordInstanceId}`}
+                                tooltip="View in workflow"
+                            />
+                        )
+                    },
+                },
+            ]}
         />
     )
 }
@@ -217,7 +249,7 @@ export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
     return (
-        <div data-attr="workflow-logs">
+        <div data-attr="workflow-logs" className="flex flex-col grow">
             {workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />}
         </div>
     )

@@ -25,6 +25,7 @@ import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { InvocationNodeStatus } from '../invocationViewLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
@@ -132,7 +133,7 @@ export function computeMoveEdges(
     return newEdges
 }
 
-export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
+export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs', 'invocation'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export type HogFlowEditorActionMetrics = {
     actionId: string
@@ -201,6 +202,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setInvocationState: (
+            nodeStatuses: Record<string, InvocationNodeStatus>,
+            traversedEdges: string[],
+            currentNodeId: string | null
+        ) => ({ nodeStatuses, traversedEdges, currentNodeId }),
+        clearInvocationState: true,
     }),
     reducers(() => ({
         mode: [
@@ -286,6 +293,27 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     `${from}->${to}`,
                 clearAnimatingEdgePair: () => null,
                 setMode: () => null,
+            },
+        ],
+        invocationNodeStatuses: [
+            {} as Record<string, InvocationNodeStatus>,
+            {
+                setInvocationState: (_, { nodeStatuses }) => nodeStatuses,
+                clearInvocationState: () => ({}),
+            },
+        ],
+        invocationTraversedEdges: [
+            [] as string[],
+            {
+                setInvocationState: (_, { traversedEdges }) => traversedEdges,
+                clearInvocationState: () => [],
+            },
+        ],
+        invocationCurrentNodeId: [
+            null as string | null,
+            {
+                setInvocationState: (_, { currentNodeId }) => currentNodeId,
+                clearInvocationState: () => null,
             },
         ],
     })),
