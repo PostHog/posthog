@@ -399,20 +399,6 @@ class TestLogoutRedirect(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("root", "/"),
-            ("login", "/login"),
-            ("login_with_next", "/login?next=/settings"),
-            ("logout", "/logout"),
-            ("logout_with_next", "/logout?next=/settings"),
-        ]
-    )
-    def test_logout_skips_self_round_tripping_next_param(self, _name, skipped):
-        response = self.client.post(f"/logout?next={skipped}")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], settings.LOGIN_URL, f"Round-tripping next was preserved: {skipped}")
-
-    @parameterized.expand(
-        [
             ("scheme_relative", "//evil.com/path"),
             ("absolute_url", "https://evil.com"),
             ("javascript_url", "javascript:alert(1)"),

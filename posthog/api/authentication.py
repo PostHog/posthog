@@ -2,7 +2,7 @@ import json
 import time
 import datetime
 from typing import Any, Optional, TypedDict, cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from django.conf import settings
@@ -112,26 +112,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
         check_and_cache_login_device(user.id, country, short_user_agent)
 
 
-def _get_post_logout_next(request: HttpRequest) -> str | None:
-    next_param = request.GET.get("next")
-    if not next_param:
-        return None
-
-    if not url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
-        return None
-
-    parsed = urlsplit(next_param)
-    path = parsed.path or "/"
-
-    if path == "/":
-        return None
-
-    if path.startswith("/login") or path.startswith("/logout"):
-        return None
-
-    return next_param
-
-
 @csrf_protect
 def logout(request):
     clear_two_factor_session_flags(request)
@@ -144,8 +124,8 @@ def logout(request):
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     # Preserve any safe `next` param
-    next_param = _get_post_logout_next(request)
-    if next_param:
+    next_param = request.GET.get("next")
+    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
         auth_logout(request)
         return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
 
