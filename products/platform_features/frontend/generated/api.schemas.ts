@@ -1,0 +1,790 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+export interface ApprovalPolicyApi {
+    readonly id: string
+    /** @maxLength 128 */
+    action_key: string
+    conditions?: unknown
+    approver_config: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedApprovalPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ApprovalPolicyApi[]
+}
+
+export interface PatchedApprovalPolicyApi {
+    readonly id?: string
+    /** @maxLength 128 */
+    action_key?: string
+    conditions?: unknown
+    approver_config?: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `valid` - Valid
+ * `invalid` - Invalid
+ * `expired` - Expired
+ * `stale` - Stale (resource changed)
+ */
+export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
+
+export const ValidationStatusEnumApi = {
+    Valid: 'valid',
+    Invalid: 'invalid',
+    Expired: 'expired',
+    Stale: 'stale',
+} as const
+
+/**
+ * * `pending` - Pending
+ * `approved` - Approved (awaiting application)
+ * `applied` - Applied
+ * `rejected` - Rejected
+ * `expired` - Expired
+ * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
+
+export interface ChangeRequestApi {
+    readonly id: string
+    readonly action_key: string
+    readonly action_version: number
+    readonly resource_type: string
+    /** @nullable */
+    readonly resource_id: string | null
+    readonly intent: unknown
+    readonly intent_display: unknown
+    readonly policy_snapshot: unknown
+    readonly validation_status: ValidationStatusEnumApi
+    readonly validation_errors: unknown | null
+    /** @nullable */
+    readonly validated_at: string | null
+    readonly state: ChangeRequestStateEnumApi
+    readonly created_by: UserBasicApi
+    readonly applied_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly expires_at: string
+    /** @nullable */
+    readonly applied_at: string | null
+    readonly apply_error: string
+    readonly result_data: unknown | null
+    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
+    /** Check if current user can approve this change request. */
+    readonly can_approve: boolean
+    readonly can_cancel: boolean
+    /** Check if current user is the requester. */
+    readonly is_requester: boolean
+    /**
+     * Get the current user's approval decision if they have voted.
+     * @nullable
+     */
+    readonly user_decision: string | null
+}
+
+export interface PaginatedChangeRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChangeRequestApi[]
+}
+
+/**
+ * * `1` - member
+ * `8` - administrator
+ * `15` - owner
+ */
+export type OrganizationMembershipLevelApi =
+    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+
+export const OrganizationMembershipLevelApi = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+export interface OrganizationMemberApi {
+    readonly id: string
+    readonly user: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    readonly joined_at: string
+    readonly updated_at: string
+    readonly is_2fa_enabled: boolean
+    readonly has_social_auth: boolean
+    readonly last_login: string
+}
+
+export interface PaginatedOrganizationMemberListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationMemberApi[]
+}
+
+export interface PatchedOrganizationMemberApi {
+    readonly id?: string
+    readonly user?: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    readonly joined_at?: string
+    readonly updated_at?: string
+    readonly is_2fa_enabled?: boolean
+    readonly has_social_auth?: boolean
+    readonly last_login?: string
+}
+
+export type RoleApiMembersItem = { [key: string]: unknown }
+
+export interface RoleApi {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** Members assigned to this role */
+    readonly members: readonly RoleApiMembersItem[]
+    readonly is_default: boolean
+}
+
+export interface PaginatedRoleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleApi[]
+}
+
+export type PatchedRoleApiMembersItem = { [key: string]: unknown }
+
+export interface PatchedRoleApi {
+    readonly id?: string
+    /** @maxLength 200 */
+    name?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** Members assigned to this role */
+    readonly members?: readonly PatchedRoleApiMembersItem[]
+    readonly is_default?: boolean
+}
+
+export interface RoleMembershipApi {
+    readonly id: string
+    readonly role_id: string
+    readonly organization_member: OrganizationMemberApi
+    readonly user: UserBasicApi
+    readonly joined_at: string
+    readonly updated_at: string
+    user_uuid: string
+}
+
+export interface PaginatedRoleMembershipListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleMembershipApi[]
+}
+
+export interface ActivityLogApi {
+    readonly id: string
+    user: UserBasicApi
+    /** is the date of this log item newer than the user's bookmark */
+    readonly unread: boolean
+    /** @nullable */
+    organization_id?: string | null
+    /** @nullable */
+    was_impersonated?: boolean | null
+    /** @nullable */
+    is_system?: boolean | null
+    /** @maxLength 79 */
+    activity: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    /** @maxLength 79 */
+    scope: string
+    detail?: unknown | null
+    created_at?: string
+}
+
+export type PaginatedActivityLogListApi = ActivityLogApi[]
+
+/**
+ * Discovered detail fields and their value distributions.
+ */
+export type AvailableFiltersResponseApiDetailFields = { [key: string]: unknown }
+
+export type StaticFiltersApiUsersItem = { [key: string]: unknown }
+
+export type StaticFiltersApiScopesItem = { [key: string]: unknown }
+
+export type StaticFiltersApiActivitiesItem = { [key: string]: unknown }
+
+export interface StaticFiltersApi {
+    /** Users who have logged activity. */
+    users: StaticFiltersApiUsersItem[]
+    /** Available activity scopes. */
+    scopes: StaticFiltersApiScopesItem[]
+    /** Available activity types. */
+    activities: StaticFiltersApiActivitiesItem[]
+}
+
+export interface AvailableFiltersResponseApi {
+    /** Pre-computed filter options for scopes, activities, and users. */
+    static_filters: StaticFiltersApi
+    /** Discovered detail fields and their value distributions. */
+    detail_fields: AvailableFiltersResponseApiDetailFields
+}
+
+export interface CommentApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    deleted?: boolean | null
+    mentions?: number[]
+    slug?: string
+    /** @nullable */
+    content?: string | null
+    rich_content?: unknown | null
+    readonly version: number
+    readonly created_at: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    item_context?: unknown | null
+    /** @maxLength 79 */
+    scope: string
+    /** @nullable */
+    source_comment?: string | null
+}
+
+export interface PaginatedCommentListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CommentApi[]
+}
+
+export interface PatchedCommentApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    deleted?: boolean | null
+    mentions?: number[]
+    slug?: string
+    /** @nullable */
+    content?: string | null
+    rich_content?: unknown | null
+    readonly version?: number
+    readonly created_at?: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    item_context?: unknown | null
+    /** @maxLength 79 */
+    scope?: string
+    /** @nullable */
+    source_comment?: string | null
+}
+
+export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ChangeRequestsListParams = {
+    action_key?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    requester?: number
+    resource_id?: string
+    resource_type?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[]
+}
+
+export type MembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RolesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RolesRoleMembershipsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ActivityLogListParams = {
+    /**
+     * Filter by the ID of the affected resource.
+     * @minLength 1
+     */
+    item_id?: string
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number
+    /**
+ * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
+
+* `Cohort` - Cohort
+* `FeatureFlag` - FeatureFlag
+* `Person` - Person
+* `Group` - Group
+* `Insight` - Insight
+* `Plugin` - Plugin
+* `PluginConfig` - PluginConfig
+* `HogFunction` - HogFunction
+* `HogFlow` - HogFlow
+* `DataManagement` - DataManagement
+* `EventDefinition` - EventDefinition
+* `PropertyDefinition` - PropertyDefinition
+* `Notebook` - Notebook
+* `Endpoint` - Endpoint
+* `EndpointVersion` - EndpointVersion
+* `Dashboard` - Dashboard
+* `Replay` - Replay
+* `Experiment` - Experiment
+* `ExperimentHoldout` - ExperimentHoldout
+* `ExperimentSavedMetric` - ExperimentSavedMetric
+* `Survey` - Survey
+* `EarlyAccessFeature` - EarlyAccessFeature
+* `SessionRecordingPlaylist` - SessionRecordingPlaylist
+* `Comment` - Comment
+* `Team` - Team
+* `Project` - Project
+* `ErrorTrackingIssue` - ErrorTrackingIssue
+* `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+* `Organization` - Organization
+* `OrganizationDomain` - OrganizationDomain
+* `OrganizationMembership` - OrganizationMembership
+* `Role` - Role
+* `UserGroup` - UserGroup
+* `BatchExport` - BatchExport
+* `BatchImport` - BatchImport
+* `Integration` - Integration
+* `Annotation` - Annotation
+* `Tag` - Tag
+* `TaggedItem` - TaggedItem
+* `Subscription` - Subscription
+* `PersonalAPIKey` - PersonalAPIKey
+* `ProjectSecretAPIKey` - ProjectSecretAPIKey
+* `User` - User
+* `Action` - Action
+* `AlertConfiguration` - AlertConfiguration
+* `Threshold` - Threshold
+* `AlertSubscription` - AlertSubscription
+* `ExternalDataSource` - ExternalDataSource
+* `ExternalDataSchema` - ExternalDataSchema
+* `LLMTrace` - LLMTrace
+* `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+* `CustomerProfileConfig` - CustomerProfileConfig
+* `Log` - Log
+* `LogsAlertConfiguration` - LogsAlertConfiguration
+* `ProductTour` - ProductTour
+* `Ticket` - Ticket
+ * @minLength 1
+ */
+    scope?: ActivityLogListScope
+    /**
+     * Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".
+     */
+    scopes?: ActivityLogListScopesItem[]
+    /**
+     * Filter by user UUID who performed the action.
+     */
+    user?: string
+}
+
+export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof ActivityLogListScope]
+
+export const ActivityLogListScope = {
+    Cohort: 'Cohort',
+    FeatureFlag: 'FeatureFlag',
+    Person: 'Person',
+    Group: 'Group',
+    Insight: 'Insight',
+    Plugin: 'Plugin',
+    PluginConfig: 'PluginConfig',
+    HogFunction: 'HogFunction',
+    HogFlow: 'HogFlow',
+    DataManagement: 'DataManagement',
+    EventDefinition: 'EventDefinition',
+    PropertyDefinition: 'PropertyDefinition',
+    Notebook: 'Notebook',
+    Endpoint: 'Endpoint',
+    EndpointVersion: 'EndpointVersion',
+    Dashboard: 'Dashboard',
+    Replay: 'Replay',
+    Experiment: 'Experiment',
+    ExperimentHoldout: 'ExperimentHoldout',
+    ExperimentSavedMetric: 'ExperimentSavedMetric',
+    Survey: 'Survey',
+    EarlyAccessFeature: 'EarlyAccessFeature',
+    SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    Comment: 'Comment',
+    Team: 'Team',
+    Project: 'Project',
+    ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    Organization: 'Organization',
+    OrganizationDomain: 'OrganizationDomain',
+    OrganizationMembership: 'OrganizationMembership',
+    Role: 'Role',
+    UserGroup: 'UserGroup',
+    BatchExport: 'BatchExport',
+    BatchImport: 'BatchImport',
+    Integration: 'Integration',
+    Annotation: 'Annotation',
+    Tag: 'Tag',
+    TaggedItem: 'TaggedItem',
+    Subscription: 'Subscription',
+    PersonalAPIKey: 'PersonalAPIKey',
+    ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    User: 'User',
+    Action: 'Action',
+    AlertConfiguration: 'AlertConfiguration',
+    Threshold: 'Threshold',
+    AlertSubscription: 'AlertSubscription',
+    ExternalDataSource: 'ExternalDataSource',
+    ExternalDataSchema: 'ExternalDataSchema',
+    LLMTrace: 'LLMTrace',
+    WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
+    CustomerProfileConfig: 'CustomerProfileConfig',
+    Log: 'Log',
+    LogsAlertConfiguration: 'LogsAlertConfiguration',
+    ProductTour: 'ProductTour',
+    Ticket: 'Ticket',
+} as const
+
+/**
+ * * `Cohort` - Cohort
+ * `FeatureFlag` - FeatureFlag
+ * `Person` - Person
+ * `Group` - Group
+ * `Insight` - Insight
+ * `Plugin` - Plugin
+ * `PluginConfig` - PluginConfig
+ * `HogFunction` - HogFunction
+ * `HogFlow` - HogFlow
+ * `DataManagement` - DataManagement
+ * `EventDefinition` - EventDefinition
+ * `PropertyDefinition` - PropertyDefinition
+ * `Notebook` - Notebook
+ * `Endpoint` - Endpoint
+ * `EndpointVersion` - EndpointVersion
+ * `Dashboard` - Dashboard
+ * `Replay` - Replay
+ * `Experiment` - Experiment
+ * `ExperimentHoldout` - ExperimentHoldout
+ * `ExperimentSavedMetric` - ExperimentSavedMetric
+ * `Survey` - Survey
+ * `EarlyAccessFeature` - EarlyAccessFeature
+ * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * `Comment` - Comment
+ * `Team` - Team
+ * `Project` - Project
+ * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+ * `Organization` - Organization
+ * `OrganizationDomain` - OrganizationDomain
+ * `OrganizationMembership` - OrganizationMembership
+ * `Role` - Role
+ * `UserGroup` - UserGroup
+ * `BatchExport` - BatchExport
+ * `BatchImport` - BatchImport
+ * `Integration` - Integration
+ * `Annotation` - Annotation
+ * `Tag` - Tag
+ * `TaggedItem` - TaggedItem
+ * `Subscription` - Subscription
+ * `PersonalAPIKey` - PersonalAPIKey
+ * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+ * `User` - User
+ * `Action` - Action
+ * `AlertConfiguration` - AlertConfiguration
+ * `Threshold` - Threshold
+ * `AlertSubscription` - AlertSubscription
+ * `ExternalDataSource` - ExternalDataSource
+ * `ExternalDataSchema` - ExternalDataSchema
+ * `LLMTrace` - LLMTrace
+ * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+ * `CustomerProfileConfig` - CustomerProfileConfig
+ * `Log` - Log
+ * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * `ProductTour` - ProductTour
+ * `Ticket` - Ticket
+ */
+export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
+
+export const ActivityLogListScopesItem = {
+    Cohort: 'Cohort',
+    FeatureFlag: 'FeatureFlag',
+    Person: 'Person',
+    Group: 'Group',
+    Insight: 'Insight',
+    Plugin: 'Plugin',
+    PluginConfig: 'PluginConfig',
+    HogFunction: 'HogFunction',
+    HogFlow: 'HogFlow',
+    DataManagement: 'DataManagement',
+    EventDefinition: 'EventDefinition',
+    PropertyDefinition: 'PropertyDefinition',
+    Notebook: 'Notebook',
+    Endpoint: 'Endpoint',
+    EndpointVersion: 'EndpointVersion',
+    Dashboard: 'Dashboard',
+    Replay: 'Replay',
+    Experiment: 'Experiment',
+    ExperimentHoldout: 'ExperimentHoldout',
+    ExperimentSavedMetric: 'ExperimentSavedMetric',
+    Survey: 'Survey',
+    EarlyAccessFeature: 'EarlyAccessFeature',
+    SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    Comment: 'Comment',
+    Team: 'Team',
+    Project: 'Project',
+    ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    Organization: 'Organization',
+    OrganizationDomain: 'OrganizationDomain',
+    OrganizationMembership: 'OrganizationMembership',
+    Role: 'Role',
+    UserGroup: 'UserGroup',
+    BatchExport: 'BatchExport',
+    BatchImport: 'BatchImport',
+    Integration: 'Integration',
+    Annotation: 'Annotation',
+    Tag: 'Tag',
+    TaggedItem: 'TaggedItem',
+    Subscription: 'Subscription',
+    PersonalAPIKey: 'PersonalAPIKey',
+    ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    User: 'User',
+    Action: 'Action',
+    AlertConfiguration: 'AlertConfiguration',
+    Threshold: 'Threshold',
+    AlertSubscription: 'AlertSubscription',
+    ExternalDataSource: 'ExternalDataSource',
+    ExternalDataSchema: 'ExternalDataSchema',
+    LLMTrace: 'LLMTrace',
+    WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
+    CustomerProfileConfig: 'CustomerProfileConfig',
+    Log: 'Log',
+    LogsAlertConfiguration: 'LogsAlertConfiguration',
+    ProductTour: 'ProductTour',
+    Ticket: 'Ticket',
+} as const
+
+export type AdvancedActivityLogsListParams = {
+    activities?: string[]
+    detail_filters?: string
+    end_date?: string
+    hogql_filter?: string
+    /**
+     * @nullable
+     */
+    is_system?: boolean | null
+    item_ids?: string[]
+    scopes?: string[]
+    search_text?: string
+    start_date?: string
+    users?: string[]
+    /**
+     * @nullable
+     */
+    was_impersonated?: boolean | null
+}
+
+export type CommentsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Filter by the ID of the resource being commented on.
+     * @minLength 1
+     */
+    item_id?: string
+    /**
+     * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
+     * @minLength 1
+     */
+    scope?: string
+    /**
+     * Full-text search within comment content.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Filter replies to a specific parent comment.
+     * @minLength 1
+     */
+    source_comment?: string
+}

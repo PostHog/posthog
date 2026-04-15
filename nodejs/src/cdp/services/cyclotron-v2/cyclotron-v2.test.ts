@@ -267,40 +267,41 @@ describe('Cyclotron V2', () => {
             expect(row.last_heartbeat).toBeNull()
         })
 
-        it('retry() returns job to available', async () => {
+        it('reschedule() returns job to available', async () => {
             const { id, job } = await seedAndDequeue()
-            await job.retry()
+            await job.reschedule()
 
             const row = await queryJob(id)
             expect(row.status).toBe('available')
             expect(row.lock_id).toBeNull()
-            expect(row.transition_count).toBe(2) // dequeue + retry
+            expect(row.transition_count).toBe(2) // dequeue + reschedule
         })
 
-        it('retry({ delayMs }) schedules into the future', async () => {
+        it('reschedule({ scheduledAt }) schedules into the future', async () => {
             const { id, job } = await seedAndDequeue()
 
-            const beforeRetry = Date.now()
-            await job.retry({ delayMs: 60_000 })
+            const futureDate = new Date(Date.now() + 60_000)
+            await job.reschedule({ scheduledAt: futureDate })
 
             const row = await queryJob(id)
             expect(row.status).toBe('available')
-            expect(new Date(row.scheduled).getTime()).toBeGreaterThan(beforeRetry + 50_000)
+            expect(new Date(row.scheduled).getTime()).toBeGreaterThanOrEqual(futureDate.getTime() - 1000)
+            expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(futureDate.getTime() + 1000)
         })
 
-        it('retry({ state }) updates state blob', async () => {
+        it('reschedule({ state }) updates state blob', async () => {
             const { id, job } = await seedAndDequeue({ state: Buffer.from('old') })
 
             const newState = Buffer.from('new-state')
-            await job.retry({ state: newState })
+            await job.reschedule({ state: newState })
 
             const row = await queryJob(id)
             expect(row.state).toEqual(newState)
         })
 
-        it('retry({ state: null }) clears state', async () => {
+        it('reschedule({ state: null }) clears state', async () => {
             const { id, job } = await seedAndDequeue({ state: Buffer.from('existing') })
-            await job.retry({ state: null })
+            await job.reschedule({ state: null })
 
             const row = await queryJob(id)
             expect(row.state).toBeNull()
@@ -325,7 +326,7 @@ describe('Cyclotron V2', () => {
 
             await job.ack()
             await expect(job.fail()).rejects.toThrow(/already released/)
-            await expect(job.retry()).rejects.toThrow(/already released/)
+            await expect(job.reschedule()).rejects.toThrow(/already released/)
             await expect(job.cancel()).rejects.toThrow(/already released/)
             await expect(job.heartbeat()).rejects.toThrow(/already released/)
         })

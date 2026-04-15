@@ -139,6 +139,8 @@ export function BatchExportsEditFields({
                                     { value: 'me-south-1', label: 'Middle East (Bahrain)' },
                                     { value: 'me-central-1', label: 'Middle East (Riyadh)' },
                                     { value: 'sa-east-1', label: 'South America (São Paulo)' },
+                                    // GCP
+                                    { value: 'us-central1', label: 'US Central (Iowa)' },
                                     // Cloudflare R2
                                     { value: 'auto', label: 'Automatic (AUTO)' },
                                     { value: 'apac', label: 'Asia Pacific (APAC)' },

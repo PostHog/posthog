@@ -40,7 +40,7 @@ def build_rasterization_input(exported_asset_id: int) -> RasterizationActivityIn
         end_timestamp=ctx.get("end_timestamp"),
         skip_inactivity=ctx.get("skip_inactivity", True),
         mouse_tail=ctx.get("mouse_tail", True),
-        capture_timeout=ctx.get("capture_timeout"),
+        max_virtual_time=ctx.get("max_virtual_time"),
     )
 
 

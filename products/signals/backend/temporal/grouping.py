@@ -21,21 +21,29 @@ from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
 
-from posthog.hogql import ast
-
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
-from products.signals.backend.temporal.summary import (
+from products.signals.backend.temporal.signal_queries import (
+    EMBEDDING_MODEL,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
-    SignalReportSummaryWorkflow,
+    FetchSignalTypeExamplesInput,
+    FetchSignalTypeExamplesOutput,
+    RunSignalSemanticSearchInput,
+    RunSignalSemanticSearchOutput,
+    WaitForClickHouseInput,
+    WaitForClickHouseSignal,
+    fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
+    run_signal_semantic_search_activity,
+    soft_delete_report_signals,
+    wait_for_signal_in_clickhouse_activity,
 )
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
@@ -51,7 +59,6 @@ from products.signals.backend.temporal.types import (
     SpecificityMetadata,
     TeamSignalGroupingInput,
 )
-from products.signals.backend.utils import EMBEDDING_MODEL, soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
@@ -85,92 +92,6 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
     except Exception as e:
         logger.exception(
             f"Failed to generate embedding for team {input.team_id}: {e}",
-            team_id=input.team_id,
-        )
-        raise
-
-
-@dataclass
-class FetchSignalTypeExamplesInput:
-    team_id: int
-
-
-@dataclass
-class FetchSignalTypeExamplesOutput:
-    examples: list[SignalTypeExample]
-
-
-@temporalio.activity.defn
-async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
-    """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT -- Grab the latest unique example of each signal type
-                source_product,
-                source_type,
-                argMax(content, timestamp) as example_content,
-                argMax(metadata, timestamp) as example_metadata,
-                toString(max(timestamp)) as latest_timestamp
-            FROM ( -- From the set of most recent versions where the signal appeared at most a month ago
-                SELECT
-                    JSONExtractString(metadata, 'source_product') as source_product,
-                    JSONExtractString(metadata, 'source_type') as source_type,
-                    content,
-                    metadata,
-                    timestamp
-                FROM ( -- From the most recent versions of all signals
-                    SELECT
-                        document_id,
-                        argMax(content, inserted_at) as content,
-                        argMax(metadata, inserted_at) as metadata,
-                        argMax(timestamp, inserted_at) as timestamp
-                    FROM document_embeddings
-                    WHERE model_name = {model_name}
-                      AND product = 'signals'
-                      AND document_type = 'signal'
-                    GROUP BY document_id
-                )
-                WHERE content != ''
-                  AND timestamp >= now() - INTERVAL 1 MONTH
-                  AND NOT JSONExtractBool(metadata, 'deleted')
-            )
-            GROUP BY source_product, source_type
-        """
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsFetchTypeExamples",
-            query=query,
-            team=team,
-            placeholders={
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            },
-        )
-
-        examples = []
-        for row in result.results or []:
-            source_product, source_type, content, metadata_str, timestamp = row
-            metadata = json.loads(metadata_str)
-            examples.append(
-                SignalTypeExample(
-                    source_product=source_product,
-                    source_type=source_type,
-                    content=content,
-                    timestamp=timestamp,
-                    extra=metadata.get("extra", {}),
-                )
-            )
-
-        logger.debug(
-            f"Fetched {len(examples)} signal type examples for team {input.team_id}",
-            team_id=input.team_id,
-            example_count=len(examples),
-        )
-        return FetchSignalTypeExamplesOutput(examples=examples)
-    except Exception as e:
-        logger.exception(
-            f"Failed to fetch signal type examples for team {input.team_id}: {e}",
             team_id=input.team_id,
         )
         raise
@@ -283,91 +204,6 @@ async def generate_search_queries_activity(input: GenerateSearchQueriesInput) ->
             f"Failed to generate search queries: {e}",
             source_product=input.source_product,
             source_type=input.source_type,
-        )
-        raise
-
-
-@dataclass
-class RunSignalSemanticSearchInput:
-    team_id: int
-    embedding: list[float]
-    limit: int = 10
-
-
-@dataclass
-class RunSignalSemanticSearchOutput:
-    candidates: list[SignalCandidate]
-
-
-@temporalio.activity.defn
-async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
-    """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
-    try:
-        team = await Team.objects.aget(pk=input.team_id)
-
-        query = """
-            SELECT
-                document_id,
-                content,
-                JSONExtractString(metadata, 'report_id') as report_id,
-                JSONExtractString(metadata, 'source_product') as source_product,
-                JSONExtractString(metadata, 'source_type') as source_type,
-                cosineDistance(embedding, {embedding}) as distance
-            FROM (
-                SELECT
-                    document_id,
-                    argMax(content, inserted_at) as content,
-                    argMax(metadata, inserted_at) as metadata,
-                    argMax(embedding, inserted_at) as embedding,
-                    argMax(timestamp, inserted_at) as timestamp
-                FROM document_embeddings
-                WHERE model_name = {model_name}
-                  AND product = 'signals'
-                  AND document_type = 'signal'
-                GROUP BY document_id
-            )
-            WHERE JSONExtractString(metadata, 'report_id') != ''
-              AND timestamp >= now() - INTERVAL 1 MONTH
-              AND NOT JSONExtractBool(metadata, 'deleted')
-            ORDER BY distance ASC
-            LIMIT {limit}
-        """
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsRunEmbeddingQuery",
-            query=query,
-            team=team,
-            placeholders={
-                "embedding": ast.Constant(value=input.embedding),
-                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "limit": ast.Constant(value=input.limit),
-            },
-        )
-
-        candidates = []
-        for row in result.results or []:
-            document_id, content, report_id, source_product, source_type, distance = row
-            candidates.append(
-                SignalCandidate(
-                    signal_id=document_id,
-                    report_id=report_id,
-                    content=content,
-                    source_product=source_product,
-                    source_type=source_type,
-                    distance=distance,
-                )
-            )
-
-        logger.debug(
-            f"Found {len(candidates)} candidate signals for team {input.team_id}",
-            team_id=input.team_id,
-            candidate_count=len(candidates),
-        )
-        return RunSignalSemanticSearchOutput(candidates=candidates)
-    except Exception as e:
-        logger.exception(
-            f"Failed to run embedding query for team {input.team_id}: {e}",
-            team_id=input.team_id,
         )
         raise
 
@@ -947,106 +783,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             signal_id=input.signal_id,
         )
         raise
-
-
-@dataclass
-class WaitForClickHouseSignal:
-    signal_id: str
-    timestamp: datetime
-
-
-@dataclass
-class WaitForClickHouseInput:
-    team_id: int
-    signals: list[WaitForClickHouseSignal]
-    max_wait_time_seconds: int = 3600
-
-
-WAIT_POLL_INTERVAL_SECONDS = 10
-
-
-@temporalio.activity.defn
-async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
-    """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
-
-    Filters on inserted_at >= (now - 30 minutes) to avoid matching stale rows from a
-    previous emission of the same document_id (e.g. deleted then reingested). The window
-    is generous because signals are emitted during the sequential phase before this
-    activity starts, so early signals may already be minutes old.
-    """
-    if not input.signals:
-        return
-
-    team = await Team.objects.aget(pk=input.team_id)
-    inserted_at_threshold = timezone.now() - timedelta(minutes=30)
-    max_attempts = max(1, input.max_wait_time_seconds // WAIT_POLL_INTERVAL_SECONDS)
-
-    signal_ids = [s.signal_id for s in input.signals]
-    timestamps = [s.timestamp for s in input.signals]
-    # Widen the timestamp range to account for precision loss (Python microseconds vs ClickHouse DateTime64(3) milliseconds)
-    min_timestamp = min(timestamps) - timedelta(minutes=2)
-    max_timestamp = max(timestamps) + timedelta(minutes=2)
-
-    query = """
-        SELECT count(DISTINCT document_id)
-        FROM document_embeddings
-        WHERE timestamp >= {min_timestamp}
-          AND timestamp <= {max_timestamp}
-          AND product = 'signals'
-          AND document_type = 'signal'
-          AND model_name = {model_name}
-          AND rendering = 'plain'
-          AND document_id IN {signal_ids}
-          AND inserted_at >= {inserted_at_threshold}
-    """
-
-    placeholders = {
-        "min_timestamp": ast.Constant(value=min_timestamp),
-        "max_timestamp": ast.Constant(value=max_timestamp),
-        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-        "signal_ids": ast.Constant(value=signal_ids),
-        "inserted_at_threshold": ast.Constant(value=inserted_at_threshold),
-    }
-
-    expected_count = len(signal_ids)
-
-    for attempt in range(max_attempts):
-        temporalio.activity.heartbeat(attempt)
-
-        result = await execute_hogql_query_with_retry(
-            query_type="SignalsWaitForClickHouse",
-            query=query,
-            team=team,
-            placeholders=placeholders,
-            heartbeat_fn=temporalio.activity.heartbeat,
-        )
-
-        # Heartbeat immediately after the query completes — the query itself runs in
-        # sync_to_async and can't heartbeat during execution, so this ensures we don't
-        # hit the heartbeat timeout when queries are slow.
-        temporalio.activity.heartbeat(attempt)
-
-        if result.results and result.results[0][0] >= expected_count:
-            logger.debug(
-                f"All {expected_count} signal(s) found in ClickHouse after {attempt + 1} attempt(s)",
-                signal_ids=signal_ids,
-                team_id=input.team_id,
-            )
-            return
-
-        # Sleep in chunks so we keep heartbeating during the poll interval
-        remaining = WAIT_POLL_INTERVAL_SECONDS
-        while remaining > 0:
-            chunk = min(remaining, 5)
-            await asyncio.sleep(chunk)
-            remaining -= chunk
-            temporalio.activity.heartbeat(attempt)
-
-    logger.warning(
-        f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
-        signal_ids=signal_ids,
-        team_id=input.team_id,
-    )
 
 
 CONTINUE_AS_NEW_THRESHOLD = 20

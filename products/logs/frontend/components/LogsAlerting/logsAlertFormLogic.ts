@@ -1,5 +1,6 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -8,9 +9,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { logsAlertsCreate, logsAlertsPartialUpdate } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsCreate,
+    logsAlertsPartialUpdate,
+    logsAlertsSimulateCreate,
+} from 'products/logs/frontend/generated/api'
 import {
     LogsAlertConfigurationApi,
+    LogsAlertSimulateResponseApi,
     PatchedLogsAlertConfigurationApi,
     ThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
@@ -112,6 +118,66 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
             logsAlertNotificationLogic({ alertId: alert?.id }),
             ['createPendingHogFunctions'],
         ],
+    })),
+
+    actions({
+        simulateAlert: true,
+        clearSimulation: true,
+        setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
+        openSimulationPanel: true,
+        closeSimulationPanel: true,
+    }),
+
+    reducers({
+        isSimulationPanelOpen: [
+            false,
+            {
+                openSimulationPanel: () => true,
+                closeSimulationPanel: () => false,
+            },
+        ],
+        simulationDateFrom: [
+            '-24h' as string,
+            {
+                setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+    }),
+
+    loaders(({ values }) => ({
+        simulationResult: [
+            null as LogsAlertSimulateResponseApi | null,
+            {
+                simulateAlert: async (): Promise<LogsAlertSimulateResponseApi | null> => {
+                    const form = values.alertForm
+                    if (!hasAnyFilter(form.severityLevels, form.serviceNames, form.filterGroup)) {
+                        lemonToast.error('At least one filter is required to simulate')
+                        return null
+                    }
+                    const projectId = String(values.currentTeamId)
+                    return await logsAlertsSimulateCreate(projectId, {
+                        filters: buildFilters(form.severityLevels, form.serviceNames, form.filterGroup),
+                        threshold_count: form.thresholdCount,
+                        threshold_operator: form.thresholdOperator,
+                        window_minutes: form.windowMinutes,
+                        evaluation_periods: form.evaluationPeriods,
+                        datapoints_to_alarm: form.datapointsToAlarm,
+                        cooldown_minutes: form.cooldownMinutes,
+                        date_from: values.simulationDateFrom,
+                    })
+                },
+                clearSimulation: () => null,
+            },
+        ],
+    })),
+
+    listeners(({ actions }) => ({
+        setAlertFormValue: () => {
+            actions.clearSimulation()
+        },
+        simulateAlertFailure: ({ error }) => {
+            lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
+        },
     })),
 
     selectors({

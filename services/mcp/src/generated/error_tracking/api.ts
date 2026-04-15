@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -92,9 +92,25 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'firebase',
                         'jira',
                         'pinterest-ads',
+                        'customerio-app',
+                        'customerio-webhook',
+                        'customerio-track',
                     ]),
                 }),
             })
         )
         .optional(),
+})
+
+export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod.array(zod.string()).describe('IDs of the issues to merge into the current issue.'),
 })

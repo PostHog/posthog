@@ -21,6 +21,8 @@ export const ToolConfigSchema = z
             .strict()
             .optional(),
         input_schema: z.string().optional(),
+        /** Optional TypeScript type expression used for the generated handler return type and request generic. */
+        response_type: z.string().optional(),
         enrich_url: z.string().optional(),
         list: z.boolean().optional(),
         title: z.string().optional(),
@@ -36,8 +38,15 @@ export const ToolConfigSchema = z
                     .object({
                         description: z.string().optional(),
                         input_schema: z.string().optional(),
+                        /** Reference to a schema.json definition. Generates a Zod schema from JSON Schema at build time. */
+                        schema_ref: z.string().optional(),
+                        /** Properties to exclude when generating from schema_ref. */
+                        exclude_properties: z.array(z.string()).optional(),
                     })
                     .strict()
+                    .refine((data) => !(data.input_schema && data.schema_ref), {
+                        message: 'input_schema and schema_ref are mutually exclusive',
+                    })
             )
             .optional(),
         mcp_version: z.number().int().positive().optional(),
@@ -62,6 +71,22 @@ export const ToolConfigSchema = z
          * the request body still sends the original field name.
          */
         rename_params: z.record(z.string(), z.string()).optional(),
+        /**
+         * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
+         * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
+         */
+        response: z
+            .object({
+                /** Dot-path patterns of response fields to keep. Only matched fields are preserved. */
+                include: z.array(z.string()).optional(),
+                /** Dot-path patterns of response fields to remove. */
+                exclude: z.array(z.string()).optional(),
+            })
+            .strict()
+            .refine((data) => !(data.include?.length && data.exclude?.length), {
+                message: 'response.include and response.exclude are mutually exclusive',
+            })
+            .optional(),
     })
     .strict()
     .refine(

@@ -6,12 +6,16 @@ from pydantic import BaseModel
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantPathsQuery,
     AssistantRetentionQuery,
     AssistantStickinessQuery,
     AssistantTrendsQuery,
+    DataTableNode,
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
+    InsightVizNode,
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
@@ -57,6 +61,12 @@ def format_query_results_for_llm(
     if utc_now is None:
         utc_now = datetime.now(UTC)
 
+    # Saved insights store their query wrapped in a presentation envelope (`InsightVizNode` for
+    # product-analytics insights, `DataVisualizationNode` / `DataTableNode` for SQL-backed ones).
+    # The dispatcher below matches on the underlying query type, so unwrap the `source` first.
+    if isinstance(query, InsightVizNode | DataVisualizationNode | DataTableNode):
+        query = query.source
+
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
         boxplot_data = response.get("boxplot_data")
         if boxplot_data is not None:
@@ -64,12 +74,12 @@ def format_query_results_for_llm(
         return TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
+    elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
+        return LifecycleResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
         return PathsResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
         return StickinessResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, LifecycleQuery):
-        return LifecycleResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):

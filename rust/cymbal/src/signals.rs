@@ -69,7 +69,10 @@ pub struct SignalClient {
 impl SignalClient {
     pub fn new(config: &Config) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .expect("Failed to build SignalClient HTTP client"),
             base_url: config.signals_api_base_url.clone(),
             secret: config.internal_api_secret.clone(),
         }

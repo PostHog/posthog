@@ -245,6 +245,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
     is_active: true,
     is_not_active_reason: null,
+    is_pending_deletion: false,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -268,6 +269,8 @@ export const MOCK_DEFAULT_USER: UserType = {
         error_tracking_issue_assigned: false,
         error_tracking_weekly_digest: true,
         discussions_mentioned: false,
+        web_analytics_weekly_digest: false,
+        organization_member_join_email_disabled: {},
     },
     anonymize_data: false,
     allow_impersonation: true,
@@ -295,6 +298,7 @@ export const MOCK_DEFAULT_USER: UserType = {
             allow_publicly_shared_resources,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         }) => ({
             id,
             name,
@@ -305,6 +309,7 @@ export const MOCK_DEFAULT_USER: UserType = {
             logo_media_id: null,
             is_active,
             is_not_active_reason,
+            is_pending_deletion,
         })
     ),
     events_column_config: {

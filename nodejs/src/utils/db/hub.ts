@@ -98,6 +98,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         personhogClient,
         postgresPersonRepository,
         serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+        serverConfig.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
         clientLabel
     )
 
@@ -105,6 +106,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         personhogClient,
         postgresGroupRepository,
         serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+        serverConfig.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
         clientLabel
     )
 
@@ -129,6 +131,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         posthogRedisPool,
         cookielessRedisPool,
         kafkaProducer,
+        monitoringProducer: kafkaProducer,
         groupTypeManager,
         teamManager,
         groupRepository,

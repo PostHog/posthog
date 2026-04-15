@@ -40,7 +40,7 @@ export const JourneyWithRequiredSteps: Story = {
     render: () => {
         useStorybookMocks({
             get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-            post: { 'api/environments/:team_id/query/': { result: allCompletedSteps() } },
+            post: { 'api/environments/:team_id/query/FunnelsQuery/': { result: allCompletedSteps() } },
         })
         return <App />
     },
@@ -54,7 +54,7 @@ export const JourneyWithEmptySteps: Story = {
     render: () => {
         useStorybookMocks({
             get: { 'api/environments/:team_id/insights/1/': makeInsight() },
-            post: { 'api/environments/:team_id/query/': { result: someCompletedSteps() } },
+            post: { 'api/environments/:team_id/query/FunnelsQuery/': { result: someCompletedSteps() } },
         })
         return <App />
     },
@@ -68,7 +68,7 @@ export const JourneyWithOptionalSteps: Story = {
     render: () => {
         useStorybookMocks({
             get: { 'api/environments/:team_id/insights/1/': makeInsight([1, 3]) },
-            post: { 'api/environments/:team_id/query/': { result: optionalStepResults() } },
+            post: { 'api/environments/:team_id/query/FunnelsQuery/': { result: optionalStepResults() } },
         })
         return <App />
     },

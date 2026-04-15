@@ -146,7 +146,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    {hasSnapshots && allowPreviewScrubbing ? (
+                    {hasSnapshots ? (
                         <PlayerSeekbarPreview
                             minMs={0}
                             maxMs={sessionPlayerData.durationMs}
@@ -158,6 +158,7 @@ export function Seekbar(): JSX.Element {
                             }
                             timestampFormat={timestampFormat}
                             startTime={sessionPlayerData.start}
+                            showPreviewFrame={!!allowPreviewScrubbing}
                         />
                     ) : null}
                 </div>

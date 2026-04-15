@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -65,6 +66,15 @@ export function WebhookSetupForm({
                     We'll automatically register the webhook on your {sourceName} account. No manual configuration is
                     needed.
                 </LemonBanner>
+                {sourceConfig?.docsUrl && (
+                    <p className="text-sm text-muted">
+                        For more details, see our{' '}
+                        <Link to={sourceConfig.docsUrl} target="_blank">
+                            {sourceName} source docs
+                        </Link>
+                        .
+                    </p>
+                )}
                 <LemonButton type="primary" onClick={onCreateWebhook}>
                     Create webhook
                 </LemonButton>
@@ -114,13 +124,22 @@ export function WebhookSetupForm({
             )}
             {webhookFields.length > 0 && sourceConfig && formLogic && formKey && (
                 <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
-                    <div className="space-y-3">
+                    <div className="space-y-3 ph-no-capture">
                         {webhookFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
                         <LemonButton type="primary" htmlType="submit">
                             Save
                         </LemonButton>
                     </div>
                 </Form>
+            )}
+            {sourceConfig?.docsUrl && (
+                <p className="text-sm text-muted">
+                    For more details, see our{' '}
+                    <Link to={sourceConfig.docsUrl} target="_blank">
+                        {sourceName} source docs
+                    </Link>
+                    .
+                </p>
             )}
         </WebhookSetupCard>
     )
@@ -131,7 +150,9 @@ export function WebhookUrlDisplay({ url }: { url: string }): JSX.Element {
         <div>
             <label className="font-semibold text-sm">Webhook URL</label>
             <div className="flex items-center gap-2 mt-1">
-                <code className="text-sm bg-bg-light rounded border px-2 py-1 break-all flex-1">{url}</code>
+                <code className="text-sm bg-bg-light rounded border px-2 py-1 break-all flex-1 ph-no-capture">
+                    {url}
+                </code>
                 <LemonButton
                     icon={<IconCopy />}
                     size="small"

@@ -11,22 +11,76 @@ export interface DrawContext {
 }
 
 export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
-    const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-
     if (data.length === 0) {
         return
     }
 
-    ctx.beginPath()
+    const { ctx } = drawCtx
     ctx.strokeStyle = series.color
     ctx.lineWidth = 2
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
-    ctx.setLineDash(series.dashPattern ?? [])
 
+    for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
+        ctx.beginPath()
+        ctx.setLineDash(pattern)
+        tracePath(drawCtx, data, start, end)
+        ctx.stroke()
+    }
+    ctx.setLineDash([])
+}
+
+/** One contiguous stroke: indices [start, end] inclusive, rendered with `pattern`. */
+interface Stroke {
+    start: number
+    end: number
+    pattern: number[]
+}
+
+/**
+ * Splits the line into strokes based on `dashedFromIndex`/`dashedToIndex`. Each entry is a
+ * contiguous index range drawn with a single dash pattern; adjacent strokes share their
+ * boundary index so the visual seam between them is invisible.
+ */
+function planLineStrokes(series: Series, length: number): Stroke[] {
+    const basePattern = series.dashPattern ?? []
+    const partialPattern = series.dashedPattern ?? [10, 10]
+    const from = resolveDashedFromIndex(series.dashedFromIndex, length)
+    const to = resolveDashedToIndex(series.dashedToIndex, length)
+
+    // No partial dashing — one stroke covering the whole line.
+    if (from === null && to === null) {
+        return [{ start: 0, end: length - 1, pattern: basePattern }]
+    }
+
+    // Dashed region(s) cover the whole line — from the start, through the end, or meeting in the middle.
+    const wholeLineDashed = from === 0 || to === length - 1 || (from !== null && to !== null && to >= from - 1)
+    if (wholeLineDashed) {
+        return [{ start: 0, end: length - 1, pattern: partialPattern }]
+    }
+
+    // Up to three strokes: dashed leading → solid middle → dashed trailing.
+    const strokes: Stroke[] = []
+    if (to !== null) {
+        strokes.push({ start: 0, end: to, pattern: partialPattern })
+    }
+    const solidStart = to ?? 0
+    const solidEnd = from !== null ? from - 1 : length - 1
+    if (solidStart < solidEnd) {
+        strokes.push({ start: solidStart, end: solidEnd, pattern: basePattern })
+    }
+    if (from !== null) {
+        strokes.push({ start: from - 1, end: length - 1, pattern: partialPattern })
+    }
+    return strokes
+}
+
+/** Walks data from [start, end] inclusive, emitting moveTo/lineTo. Caller owns beginPath/stroke. */
+function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
+    const { ctx, xScale, yScale, labels } = drawCtx
     let started = false
-    for (let i = 0; i < data.length; i++) {
+    for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
@@ -39,47 +93,75 @@ export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[
             ctx.lineTo(x, y)
         }
     }
-    ctx.stroke()
-    ctx.setLineDash([])
 }
 
-export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+/** Returns null when unset or past the end; otherwise rounds and clamps into [0, length-1]. */
+function resolveDashedFromIndex(idx: number | undefined, length: number): number | null {
+    if (idx == null) {
+        return null
+    }
+    const rounded = Math.round(idx)
+    if (rounded >= length) {
+        return null
+    }
+    return Math.max(0, rounded)
+}
+
+/** Returns null when unset or before the start; otherwise rounds and clamps into [0, length-1]. */
+function resolveDashedToIndex(idx: number | undefined, length: number): number | null {
+    if (idx == null) {
+        return null
+    }
+    const rounded = Math.round(idx)
+    if (rounded < 0) {
+        return null
+    }
+    return Math.min(length - 1, rounded)
+}
+
+export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fillOpacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
 
     // Split into contiguous segments to handle data gaps consistently with drawLine
-    const segments: { x: number; y: number }[][] = []
-    let current: { x: number; y: number }[] = []
+    const segments: { top: { x: number; y: number }[]; bottom: { x: number; y: number }[] }[] = []
+    let currentTop: { x: number; y: number }[] = []
+    let currentBottom: { x: number; y: number }[] = []
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
-        const y = yScale(data[i])
-        if (x != null && isFinite(y)) {
-            current.push({ x, y })
-        } else if (current.length > 0) {
-            segments.push(current)
-            current = []
+        const yTop = yScale(data[i])
+        if (x != null && isFinite(yTop)) {
+            currentTop.push({ x, y: yTop })
+            const yBot = bottomValues ? yScale(bottomValues[i]) : baseline
+            currentBottom.push({ x, y: isFinite(yBot) ? yBot : baseline })
+        } else if (currentTop.length > 0) {
+            segments.push({ top: currentTop, bottom: currentBottom })
+            currentTop = []
+            currentBottom = []
         }
     }
-    if (current.length > 0) {
-        segments.push(current)
+    if (currentTop.length > 0) {
+        segments.push({ top: currentTop, bottom: currentBottom })
     }
 
     ctx.globalAlpha = opacity
     ctx.fillStyle = series.color
 
-    for (const points of segments) {
-        if (points.length < 2) {
+    for (const { top, bottom } of segments) {
+        if (top.length < 2) {
             continue
         }
         ctx.beginPath()
-        ctx.moveTo(points[0].x, points[0].y)
-        for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y)
+        ctx.moveTo(top[0].x, top[0].y)
+        for (let i = 1; i < top.length; i++) {
+            ctx.lineTo(top[i].x, top[i].y)
         }
-        ctx.lineTo(points[points.length - 1].x, baseline)
-        ctx.lineTo(points[0].x, baseline)
+        // Close along bottom edge in reverse
+        for (let i = bottom.length - 1; i >= 0; i--) {
+            ctx.lineTo(bottom[i].x, bottom[i].y)
+        }
         ctx.closePath()
         ctx.fill()
     }
@@ -110,16 +192,9 @@ export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: numbe
     }
 }
 
-export function drawGrid(
-    drawCtx: DrawContext,
-    options: {
-        gridColor?: string
-        goalLineValues?: number[]
-    } = {}
-): void {
+export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } = {}): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
-    const goalValues = new Set(options.goalLineValues ?? [])
 
     const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.() ?? []
 
@@ -128,9 +203,6 @@ export function drawGrid(
     ctx.setLineDash([])
 
     for (const tick of yTicks) {
-        if (goalValues.has(tick)) {
-            continue
-        }
         const y = Math.round(yScale(tick)) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)

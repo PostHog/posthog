@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
@@ -308,6 +309,104 @@ class TestBillingManager(BaseTest):
             BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
 
         assert "404" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(
+                return_value={
+                    "success": False,
+                    "error_message": "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first.",
+                    "code": "open_invoices_error",
+                }
+            ),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_raises_open_invoices_error_on_409(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "unpaid invoice" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0)),
+            text="Not JSON",
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_no_json_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "some_other_error", "error_message": "Something else"}),
+            text='{"code": "some_other_error"}',
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_different_code_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "open_invoices_error"}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_open_invoices_missing_message_uses_default(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "Open invoices must be resolved first" in str(context.exception)
 
 
 class TestBuildBillingToken(BaseTest):

@@ -87,14 +87,30 @@ def validate_filters_and_compute_realtime_support(
     team: Team,
     current_cohort_type: str | None = None,
     cohort_count: int | None = None,
-) -> tuple[dict, str | None, list | None]:
+) -> tuple[dict, str | None, list[str] | None]:
     try:
         if not filters_dict:
             return filters_dict, current_cohort_type, None
 
-        validated_filters = CohortFilters.model_validate(
-            {"properties": filters_dict["properties"]}, context={"team": team}
-        )
+        # Defensive check: ensure properties exists and has required structure
+        if "properties" not in filters_dict:
+            error_msg = "Cohort filter missing properties key"
+            logger.warning(error_msg)
+            return filters_dict, current_cohort_type, [error_msg]
+
+        properties = filters_dict["properties"]
+        if not isinstance(properties, dict):
+            error_msg = "Cohort filter properties is not a dict"
+            logger.warning(error_msg)
+            return filters_dict, current_cohort_type, [error_msg]
+
+        # Check if properties is empty or missing required fields
+        if not properties or ("type" not in properties and "values" not in properties):
+            error_msg = "Cohort filter properties missing type or values"
+            logger.warning(error_msg)
+            return filters_dict, current_cohort_type, [error_msg]
+
+        validated_filters = CohortFilters.model_validate({"properties": properties}, context={"team": team})
 
         clean_filters = validated_filters.model_dump(exclude_none=True)
 
@@ -113,7 +129,7 @@ def validate_filters_and_compute_realtime_support(
 
     except Exception as e:
         logger.warning(f"Failed to validate cohort filters: {e}")
-        return filters_dict, current_cohort_type, None
+        return filters_dict, current_cohort_type, [str(e)]
 
 
 def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:

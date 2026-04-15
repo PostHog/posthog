@@ -43,7 +43,7 @@ const viewList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
                 ),
             },
             '/sql'
@@ -51,7 +51,14 @@ const viewList = (): ToolBase<
     },
 })
 
-const ViewCreateSchema = WarehouseSavedQueriesCreateBody
+const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
+    name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
+        'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+    ),
+    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
+        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+    ),
+})
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-create',
@@ -67,6 +74,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -95,9 +105,19 @@ const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWa
     },
 })
 
-const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true }).extend(
-    WarehouseSavedQueriesPartialUpdateBody.shape
-)
+const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project_id: true })
+    .extend(WarehouseSavedQueriesPartialUpdateBody.shape)
+    .extend({
+        name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
+            'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
+        ),
+        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
+            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+        ),
+        edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
+            'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
+        ),
+    })
 
 const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
     name: 'view-update',
@@ -116,6 +136,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
@@ -176,6 +199,9 @@ const viewMaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -219,6 +245,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
         }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
+        }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test
         }
@@ -258,6 +287,9 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
         }
         if (params.soft_update !== undefined) {
             body['soft_update'] = params.soft_update
+        }
+        if (params.dag_id !== undefined) {
+            body['dag_id'] = params.dag_id
         }
         if (params.is_test !== undefined) {
             body['is_test'] = params.is_test

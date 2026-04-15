@@ -109,6 +109,7 @@ mod tests {
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
     use crate::v1::analytics::types::{Event, Options};
+    use crate::v1::test_utils::events_map;
 
     fn test_config() -> Config {
         Config {
@@ -159,7 +160,6 @@ mod tests {
                 kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
                 kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
                 kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-                kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
                 kafka_error_tracking_topic: "error_tracking_events".to_string(),
                 kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
                 kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
@@ -176,6 +176,13 @@ mod tests {
                 kafka_producer_max_in_flight_requests: 1000000,
                 kafka_producer_sticky_partitioning_linger_ms: 10,
                 kafka_producer_enable_idempotence: false,
+                kafka_producer_partitioner: "murmur2_random".to_string(),
+                kafka_broker_address_family: String::new(),
+                kafka_log_connection_close: true,
+                kafka_producer_queue_buffering_max_messages: 100000,
+                kafka_retry_backoff_max_ms: 1000,
+                kafka_socket_send_buffer_bytes: 0,
+                kafka_socket_receive_buffer_bytes: 0,
             },
             otel_url: None,
             otel_sampling_rate: 0.0,
@@ -199,14 +206,13 @@ mod tests {
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
-            error_tracking_node_rollout_enabled: false,
-            error_tracking_node_rollout_rate: 0.0,
             continuous_profiling: ContinuousProfilingConfig {
                 continuous_profiling_enabled: false,
                 pyroscope_server_address: String::new(),
                 pyroscope_application_name: String::new(),
                 pyroscope_sample_rate: 100,
             },
+            capture_v1_sinks: String::new(),
         }
     }
 
@@ -277,13 +283,6 @@ mod tests {
             destination: Destination::AnalyticsMain,
             skip_person_processing: false,
         }
-    }
-
-    fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
-        events
-            .into_iter()
-            .map(|e| (Uuid::parse_str(&e.event.uuid).unwrap(), e))
-            .collect()
     }
 
     fn ok_event_names(events: &HashMap<Uuid, WrappedEvent>) -> Vec<&str> {

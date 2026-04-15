@@ -19,6 +19,7 @@ import {
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { filterSearchItems } from 'lib/components/Search/utils'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -299,23 +300,11 @@ function SearchRoot({
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
         if (searchValue.trim()) {
-            const searchLower = searchValue.toLowerCase()
-            items = allItems.filter((item) => {
-                // Filter recents and apps by name (client-side filtering)
-                if (['recents', 'apps', 'starred'].includes(item.category)) {
-                    const name = (item.displayName || item.name || '').toLowerCase()
-                    if (name.includes(searchLower)) {
-                        return true
-                    }
-                    return (
-                        item.searchKeywords?.some(
-                            (kw) => kw.toLowerCase().includes(searchLower) || searchLower.includes(kw.toLowerCase())
-                        ) ?? false
-                    )
-                }
-                // Other categories come from server search, keep all
-                return true
-            })
+            // Client-side fuzzy filter for recents/apps/starred; keep server results as-is
+            const clientItems = allItems.filter((item) => ['recents', 'apps', 'starred'].includes(item.category))
+            const serverItems = allItems.filter((item) => !['recents', 'apps', 'starred'].includes(item.category))
+            const filteredClientItems = filterSearchItems(clientItems, searchValue)
+            items = [...filteredClientItems, ...serverItems]
         } else {
             // When not searching, show recents, starred, and apps
             items = allItems.filter((item) => ['recents', 'starred', 'apps'].includes(item.category))

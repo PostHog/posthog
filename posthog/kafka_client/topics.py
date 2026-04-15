@@ -44,11 +44,12 @@ KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_repl
 KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = f"{KAFKA_PREFIX}clickhouse_session_recording_events{SUFFIX}"
 
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint{SUFFIX}"
+KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = (
+    f"{KAFKA_PREFIX}clickhouse_error_tracking_fingerprint_issue_state{SUFFIX}"
+)
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS = (
     f"{KAFKA_PREFIX}clickhouse_error_tracking_issue_fingerprint_embeddings{SUFFIX}"
 )
-KAFKA_ERROR_TRACKING_EVENTS_TEST = f"{KAFKA_PREFIX}clickhouse_error_tracking_events_test{SUFFIX}"
-
 KAFKA_DOCUMENT_EMBEDDINGS_TOPIC = f"{KAFKA_PREFIX}clickhouse_document_embeddings{SUFFIX}"
 KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_input{SUFFIX}"
 
@@ -56,6 +57,7 @@ KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
 KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
     f"{KAFKA_PREFIX}clickhouse_precalculated_person_properties{SUFFIX}"
 )
+KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS = f"{KAFKA_PREFIX}clickhouse_prefiltered_events{SUFFIX}"
 KAFKA_CDP_BACKFILL_EVENTS = f"{KAFKA_PREFIX}cdp_backfill_events{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED = f"{KAFKA_PREFIX}cohort_membership_changed{SUFFIX}"
 KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER = f"{KAFKA_PREFIX}cohort_membership_changed_trigger{SUFFIX}"

@@ -28,7 +28,7 @@ describe('playerMetaLogic', () => {
                     res(ctx.text(snapshotsAsJSONLines())),
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': recordingEventsJson,
             },
         })
         initKeaTests()

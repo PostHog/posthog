@@ -1,7 +1,10 @@
 import type { AxisFormat, ChartTheme } from 'lib/charts/types'
 export type { AxisFormat, ChartTheme }
 
-export interface Series {
+/** Default axis id used when a series doesn't specify one. */
+export const DEFAULT_Y_AXIS_ID = 'left'
+
+export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
     key: string
     /** Human-readable name shown in tooltips and legends. */
@@ -16,52 +19,62 @@ export interface Series {
     fillOpacity?: number
     /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit or [] for solid. */
     dashPattern?: number[]
+    /** Index from which the line becomes dashed (inclusive). Clamped to data bounds. */
+    dashedFromIndex?: number
+    /** Index up to which the line is dashed (inclusive). Clamped to data bounds. */
+    dashedToIndex?: number
+    /** Dash pattern for the `dashedFromIndex`/`dashedToIndex` portions. Defaults to [10, 10]. */
+    dashedPattern?: number[]
     /** When true, the series is excluded from rendering, scales, and tooltips. */
     hidden?: boolean
+    /** When true, the series still renders and participates in scales and hit-testing,
+     *  but is omitted from the tooltip's seriesData so it doesn't appear as a row. */
+    hideFromTooltip?: boolean
     /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
     pointRadius?: number
-}
-
-/** A horizontal reference line drawn across the chart at a fixed y-value. */
-export interface GoalLine {
-    /** The y-axis value where the line is drawn. */
-    value: number
-    /** Optional text label displayed alongside the line. */
-    label?: string
-    /** CSS color for the line. Falls back to theme default if omitted. */
-    borderColor?: string
-    /** Which end of the line to anchor the label. Defaults to 'end'. */
-    position?: 'start' | 'end'
+    /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
+     *  so custom tooltip components can access domain-specific information (e.g. breakdown
+     *  values, comparison labels, anomaly scores) without the library needing to know about them.
+     *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
+     *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
+    meta?: Meta
+    /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
+    yAxisId?: string
 }
 
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
-export interface PointClickData {
+export interface PointClickData<Meta = unknown> {
     /** Index of the clicked series within the original series array. */
     seriesIndex: number
     /** Index along the x-axis (into the labels array) that was clicked. */
     dataIndex: number
     /** The series that was clicked. */
-    series: Series
+    series: Series<Meta>
     /** The y-value at the clicked point. */
     value: number
     /** The x-axis label at the clicked point. */
     label: string
     /** Values from all visible series at this x-axis index, for cross-series comparisons. */
-    crossSeriesData: { series: Series; value: number }[]
+    crossSeriesData: { series: Series<Meta>; value: number }[]
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
-export interface TooltipContext {
+export interface TooltipContext<Meta = unknown> {
     /** Index along the x-axis that the tooltip represents. */
     dataIndex: number
     /** The x-axis label at this index. */
     label: string
     /** One entry per visible series with its value and color at this index. */
-    seriesData: { series: Series; value: number; color: string }[]
+    seriesData: { series: Series<Meta>; value: number; color: string }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
     canvasBounds: DOMRect
+    /** Whether the tooltip is pinned (clicked). When pinned, the tooltip stays visible
+     *  and becomes interactive (pointer-events enabled). */
+    isPinned: boolean
+    /** Callback to unpin (close) a pinned tooltip. Only present when the tooltip is pinned. */
+    onUnpin?: () => void
 }
 
 /** Computed layout dimensions of the chart, derived from container size and margins. */
@@ -111,10 +124,10 @@ export interface ChartConfig {
     showGrid?: boolean
     /** Show a tooltip on hover. Defaults to true. Use the `tooltip` prop to customize content. */
     showTooltip?: boolean
+    /** When true, clicking a data point with multiple series pins the tooltip in place. */
+    pinnableTooltip?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
-    /** Horizontal goal/reference lines to draw across the chart. */
-    goalLines?: GoalLine[]
 }
 
 export interface LineChartConfig extends ChartConfig {
@@ -145,12 +158,25 @@ export type ResolveValueFn = (series: Series, dataIndex: number) => number
 /** Factory function that chart types provide to create their scales from dimensions and data. */
 export type CreateScalesFn = (series: Series[], labels: string[], dimensions: ChartDimensions) => ChartScales
 
+/** Per-axis scale: a mapping function and its tick values. */
+export interface YAxisScale {
+    /** Maps a y value to a pixel coordinate on this axis. */
+    scale: (value: number) => number
+    /** Returns tick values for this axis. */
+    ticks: () => number[]
+    /** Visual position of this axis. */
+    position: 'left' | 'right'
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. */
     x: (label: string) => number | undefined
-    /** Maps a y value to a pixel coordinate. */
+    /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
-    /** Returns tick values for the y-axis. */
+    /** Returns tick values for the default (left) y-axis. */
     yTicks: () => number[]
+    /** Per-axis y scales keyed by axis id. Present when dual axes are active.
+     *  When absent, all series use `y` / `yTicks`. */
+    yAxes?: Record<string, YAxisScale>
 }

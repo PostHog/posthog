@@ -39,24 +39,26 @@ from .agentsh import (
     generate_policy_yaml,
 )
 from .sandbox import (
+    WORKING_DIR,
     AgentServerResult,
     ExecutionResult,
     ExecutionStream,
+    SandboxBase,
     SandboxConfig,
     SandboxStatus,
     SandboxTemplate,
+    parse_sandbox_repo_mount_map,
     wait_for_health_check,
 )
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
-class DockerSandbox:
+class DockerSandbox(SandboxBase):
     """
     Docker-based sandbox for local development and testing.
     Implements the same interface as the Modal-based Sandbox.
@@ -146,6 +148,11 @@ class DockerSandbox:
             return
 
         logger.info(f"Building {image_name} image (this may take a few minutes)...")
+
+        # The skills dist directory is populated by CI but won't exist in local
+        # dev checkouts.  The Dockerfile COPYs it unconditionally, so ensure it
+        # exists (install-skills.sh already handles the empty-dir case).
+        os.makedirs(os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"), exist_ok=True)
 
         DockerSandbox._run(
             [
@@ -272,6 +279,13 @@ class DockerSandbox:
             host_port = DockerSandbox._find_available_port()
             port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
 
+            mount_map = parse_sandbox_repo_mount_map()
+            volume_args: list[str] = []
+            for repo_key, local_path in mount_map.items():
+                org, repo = repo_key.split("/", 1)
+                container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+                volume_args.extend(["-v", f"{local_path}:{container_path}"])
+
             docker_args = [
                 "docker",
                 "run",
@@ -288,6 +302,7 @@ class DockerSandbox:
                 f"--cpus={config.cpu_cores}",
                 *env_args,
                 *port_args,
+                *volume_args,
                 image,
                 "tail",
                 "-f",
@@ -514,28 +529,12 @@ class DockerSandbox:
 
         return result
 
-    def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError("Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-        org_path = f"/tmp/workspace/repos/{org}"
-
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"  # No --depth to allow git blame
-        )
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
+    def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
+        mount_map = parse_sandbox_repo_mount_map()
+        if repository.lower() in mount_map:
+            logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
+            return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        return super().clone_repository(repository, github_token, shallow)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -581,6 +580,7 @@ class DockerSandbox:
         task_id: str,
         run_id: str,
         mode: str,
+        create_pr: bool,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_servers_arg: str = "",
@@ -589,13 +589,14 @@ class DockerSandbox:
         env_prefix = (
             f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
         )
+        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         server_cmd = (
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -625,6 +626,7 @@ class DockerSandbox:
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
@@ -646,8 +648,11 @@ class DockerSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
-            self._setup_agentsh(WORKING_DIR, allowed_domains)
+        # TODO: Re-enable agentsh egress enforcement in the Docker sandbox once
+        # agentsh works reliably inside local Docker containers.
+        # For now we skip setup and ignore allowed_domains so that callers
+        # (signals, tasks, etc.) don't need to hotfix around Docker failures.
+        allowed_domains = None
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -659,6 +664,7 @@ class DockerSandbox:
             task_id,
             run_id,
             mode,
+            create_pr,
             interaction_origin,
             branch,
             mcp_servers_arg,
@@ -686,6 +692,7 @@ class DockerSandbox:
                 task_id,
                 run_id,
                 mode,
+                create_pr,
                 interaction_origin,
                 branch=None,
                 mcp_servers_arg=mcp_servers_arg,
@@ -812,12 +819,6 @@ class DockerSandbox:
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

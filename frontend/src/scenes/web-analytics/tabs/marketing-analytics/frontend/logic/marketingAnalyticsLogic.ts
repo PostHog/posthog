@@ -45,6 +45,17 @@ import {
     validColumnsForTiles,
 } from './utils'
 
+export enum MarketingAnalyticsTab {
+    DASHBOARD = 'dashboard',
+    INTEGRATION_HEALTH = 'integration-health',
+}
+
+const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
+    MarketingAnalyticsDrillDownLevel.Medium,
+    MarketingAnalyticsDrillDownLevel.Content,
+    MarketingAnalyticsDrillDownLevel.Term,
+])
+
 export enum MarketingSourceStatus {
     Warning = 'Warning',
     Error = 'Error',
@@ -203,6 +214,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     })),
     actions({
+        setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
+
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
         setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
@@ -244,6 +257,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setInitialized: true,
     }),
     reducers({
+        activeTab: [
+            MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         initialized: [
             false,
             {
@@ -396,10 +415,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     selectors({
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
-            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) =>
-                featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]
-                    ? level
-                    : MarketingAnalyticsDrillDownLevel.Campaign,
+            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
+                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                if (
+                    EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
+                    !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
+                ) {
+                    return MarketingAnalyticsDrillDownLevel.Campaign
+                }
+                return level
+            },
         ],
         validSourcesMap: [
             (s) => [s.sources_map],
@@ -746,6 +773,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const buildUrl = (): [string, string] => {
             const searchParams = new URLSearchParams()
 
+            // Tab
+            if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
+                searchParams.set('tab', values.activeTab)
+            }
+
             // Date filters
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
@@ -789,6 +821,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         return {
+            setActiveTab: buildUrl,
             setDates: buildUrl,
             setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
@@ -903,6 +936,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         // Read URL params on initial mount (one-time sync from URL)
         const searchParams = new URLSearchParams(window.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
+
+        const tab = searchParams.get('tab') as MarketingAnalyticsTab | null
+        if (tab && Object.values(MarketingAnalyticsTab).includes(tab)) {
+            actions.setActiveTab(tab)
+        }
 
         const dateFrom = searchParams.get('date_from')
         if (dateFrom) {

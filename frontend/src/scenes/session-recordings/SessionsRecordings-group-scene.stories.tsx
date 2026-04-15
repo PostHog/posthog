@@ -158,7 +158,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/session_recordings/': () => [200, { results: threeRecordings }],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         }),
     ],
@@ -218,7 +218,7 @@ export const GroupRecordingTabMultipleAndFound: Story = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         })
 
@@ -271,7 +271,7 @@ export const GroupRecordingTabWide: Story = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         })
 
@@ -325,7 +325,7 @@ export const GroupRecordingTabNarrow: Story = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         })
 
@@ -378,7 +378,7 @@ export const GroupEventsTabWithModal: Story = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         })
 
@@ -413,7 +413,7 @@ export const GroupEventsTabWithModalNotFound: Story = {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': () => [404, { detail: 'Not found.' }],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }],
             },
         })
 

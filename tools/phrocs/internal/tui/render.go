@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
@@ -92,7 +93,15 @@ func (m Model) renderSidebar() string {
 		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, innerW, m.isDark))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.servicesCursor,
+			unread:    p.Unread(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	if canScrollDown {
@@ -224,17 +233,44 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
+	} else if m.filterMode {
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if count := m.viewport.TotalLineCount(); count == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d lines]", count)
+			}
+		}
+		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("| %s▌%s", m.searchQuery, matchInfo))
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.FilterModeHelp()))
 	} else if m.searchMode {
-		var matchInfo string
-		if m.searchQuery == "" {
-			matchInfo = ""
-		} else if len(m.searchMatches) == 0 {
-			matchInfo = "  [no matches]"
-		} else {
-			matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if len(m.searchMatches) == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+			}
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
-		return footerStyle.Width(m.width - 2).Render(prompt)
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.SearchModeHelp()))
+	} else if m.setupMode {
+		var hint string
+		if m.setupError != "" {
+			escAction := "cancel"
+			if m.setupStep == 2 {
+				escAction = "back"
+			}
+			hint = "-- SETUP --  " + m.setupError + "  esc: " + escAction
+		} else if m.setupStep == 1 {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
+		} else {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & apply  esc: back"
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
+		)
 	}
 
 	if m.searchQuery != "" {
@@ -258,6 +294,15 @@ func (m Model) renderFooter() string {
 		content = m.help.ShortHelpView(m.keys.ShortHelp())
 	}
 	return footerStyle.Width(m.width - 2).Render(content)
+}
+
+// Joins a prompt line with a help bar, or returns the prompt alone when help
+// is hidden — keeps search/filter footer height consistent with footerHeight().
+func (m Model) joinPromptWithHelp(prompt string, helpBindings []key.Binding) string {
+	if m.hideHelp {
+		return prompt
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, prompt, m.help.ShortHelpView(helpBindings))
 }
 
 // Rebuilds the info content and sets it on the viewport.

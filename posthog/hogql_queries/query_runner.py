@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
@@ -97,6 +98,11 @@ from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.validation.validation import (
+    QueryValidationContext,
+    QueryValidationRule,
+    run_validation_rules,
+)
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -115,6 +121,19 @@ QUERY_EXECUTION_DURATION = Histogram(
     "posthog_query_execution_duration_seconds",
     "Query execution duration in seconds",
     labelnames=["query_type"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
+
+SURVEY_QUERY_EXECUTION_TOTAL = Counter(
+    "posthog_survey_query_execution_total",
+    "Query executions by category",
+    labelnames=["query_type", "query_name", "category", "error_type"],
+)
+
+SURVEY_QUERY_EXECUTION_DURATION = Histogram(
+    "posthog_survey_query_execution_duration_seconds",
+    "Query execution duration in seconds",
+    labelnames=["query_type", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
@@ -148,6 +167,20 @@ _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
+
+UNKNOWN_QUERY_METRIC_LABEL = "unknown"
+SURVEYS_PRODUCT_KEY = "surveys"
+
+
+def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
+    tags = getattr(query, "tags", None)
+    if getattr(tags, "productKey", None) != SURVEYS_PRODUCT_KEY:
+        return None
+
+    return {
+        "query_type": getattr(query, "kind", "Other"),
+        "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
+    }
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -266,7 +299,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "RetentionQuery":
-        from .insights.retention_query_runner import RetentionQueryRunner
+        from .insights.retention.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -276,7 +309,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "PathsQuery":
-        from .insights.paths_query_runner import PathsQueryRunner
+        from .insights.paths.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -297,7 +330,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "StickinessQuery":
-        from .insights.stickiness_query_runner import StickinessQueryRunner
+        from .insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),
@@ -307,7 +340,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
@@ -368,7 +401,13 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind in ("InsightActorsQuery", "FunnelsActorsQuery", "FunnelCorrelationActorsQuery", "StickinessActorsQuery"):
+    if kind in (
+        "InsightActorsQuery",
+        "FunnelsActorsQuery",
+        "FunnelCorrelationActorsQuery",
+        "ExperimentActorsQuery",
+        "StickinessActorsQuery",
+    ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
@@ -874,6 +913,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RecordingsQuery":
+        from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
+
+        return RecordingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
@@ -1028,7 +1078,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.limit_context
 
     def calculate(self) -> R:
+        self.validate()
         return self._calculate()
+
+    def validate(self) -> None:
+        run_validation_rules(self.validators(), self.validation_context)
 
     @abstractmethod
     def _calculate(self) -> R:
@@ -1242,6 +1296,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
             if tags := getattr(self.query, "tags", None):
+                if tags.name:
+                    posthoganalytics.tag("query_name", tags.name)
+                    tag_queries(name=tags.name)
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
                     tag_queries(product=tags.productKey)
@@ -1389,19 +1446,33 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers.useMaterializedViews = True
 
         query_type = getattr(self.query, "kind", "Other")
+        survey_query_metric_labels = get_survey_query_metric_labels(self.query)
         query_start = perf_counter()
         try:
             query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
             QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                    **survey_query_metric_labels, category="success", error_type="none"
+                ).inc()
         except Exception as e:
             QUERY_EXECUTION_TOTAL.labels(
                 query_type=query_type,
                 category=classify_query_error(e),
                 error_type=clickhouse_error_type(e),
             ).inc()
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                    **survey_query_metric_labels,
+                    category=classify_query_error(e),
+                    error_type=clickhouse_error_type(e),
+                ).inc()
             raise
         finally:
-            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
+            query_duration_seconds = perf_counter() - query_start
+            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_seconds)
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
         fresh_response_dict = {
             **query_result.model_dump(),
@@ -1703,6 +1774,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    @property
+    def validation_context(self) -> QueryValidationContext[Q]:
+        return QueryValidationContext(query=self.query, team=self.team, user=self.user, runner=self)
+
+    def validators(self) -> Sequence[QueryValidationRule[Q]]:
+        """Overridden by subclasses to add validation rules."""
+        return ()
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # If a custom cache age was provided (e.g., from Endpoint), use our override logic
         target_age = None
@@ -1841,7 +1920,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
 
     def calculate(self) -> AR:
-        response = self._calculate()
+        response = super().calculate()
         if not self.modifiers.timings:
             response.timings = None
         return response

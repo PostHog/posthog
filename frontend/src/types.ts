@@ -55,14 +55,15 @@ import type {
     ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
+    EndpointQueryNode,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightQueryNode,
     InsightVizNode,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     QuerySchema,
     QueryStatus,
@@ -269,9 +270,11 @@ export enum AccessControlResourceType {
     Project = 'project',
     Organization = 'organization',
     Action = 'action',
+    CustomerAnalytics = 'customer_analytics',
     FeatureFlag = 'feature_flag',
     Insight = 'insight',
     Dashboard = 'dashboard',
+    DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
@@ -387,6 +390,9 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    web_analytics_weekly_digest: boolean
+    web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
+    organization_member_join_email_disabled?: Record<string, boolean>
 }
 
 export interface InAppNotification {
@@ -437,6 +443,7 @@ export interface OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     is_active: boolean | null
     is_not_active_reason: string | null
+    is_pending_deletion: boolean
 }
 
 interface OrganizationMetadata {
@@ -734,9 +741,6 @@ export interface TeamType extends TeamBasicType {
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
-    experiment_recalculation_time?: string | null
-    default_experiment_confidence_level?: number | null
-    default_experiment_stats_method?: ExperimentStatsMethod | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -774,6 +778,7 @@ export interface ActionType extends WithAccessControl {
     bytecode_error?: string
     pinned_at: string | null
     _create_in_folder?: string | null
+    reference_count?: number
 }
 
 /** Sync with nodejs/src/types.ts */
@@ -1098,6 +1103,11 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
+export interface WorkflowVariablePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.WorkflowVariable
+    operator: PropertyOperator
+}
+
 export interface EmptyPropertyFilter {
     type?: PropertyFilterType.Empty
     value?: never
@@ -1125,6 +1135,7 @@ export type AnyPropertyFilter =
     | LogPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | WorkflowVariablePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1176,8 +1187,8 @@ export type RecordingConsoleLogV2 = {
 }
 
 import type {
-    RecordingSegment as _RecordingSegment,
     EncodedRecordingSnapshot as _EncodedRecordingSnapshot,
+    RecordingSegment as _RecordingSegment,
     RecordingSnapshot as _RecordingSnapshot,
     SessionRecordingSnapshotSource as _SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse as _SessionRecordingSnapshotSourceResponse,
@@ -1566,7 +1577,7 @@ export interface CohortCriteriaType {
     seq_time_value?: number | string | null
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
-    value_property?: string | null // Transformed into 'value' for api calls
+    value_property?: PropertyFilterValue // Transformed into 'value' for api calls
     event_filters?: AnyPropertyFilter[] | null
     sort_key?: string // Client-side only stable id for sorting.
 }
@@ -1825,6 +1836,7 @@ export interface SessionRecordingType {
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
     has_summary?: boolean
+    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
 }
@@ -2328,7 +2340,7 @@ export interface EndpointType extends WithAccessControl {
     name: string
     description: string
     derived_from_insight?: string | null
-    query: HogQLQuery | InsightQueryNode
+    query: HogQLQuery | EndpointQueryNode
     is_active: boolean
     endpoint_path: string
     created_at: string
@@ -2362,7 +2374,7 @@ export interface EndpointVersionMaterializationType {
     status?: string
     error?: string
     last_materialized_at?: string
-    sync_frequency?: DataWarehouseSyncInterval
+    sync_frequency?: DataModelingSyncInterval
 }
 
 export interface DashboardBasicType extends WithAccessControl {
@@ -2391,8 +2403,8 @@ export interface DashboardTemplateListParams {
     scope?: DashboardTemplateScope
     // matches on template name, description, and tags
     search?: string
-    /** When set, sort by template name (not searching). Omit for server default order. Ignored when `search` is set. */
-    ordering?: 'template_name' | '-template_name'
+    /** When set, sort (not searching). Omit for server default order. Ignored when `search` is set. */
+    ordering?: 'template_name' | '-template_name' | 'created_at' | '-created_at'
     /** When true, only curated featured templates. When false, only non-featured. */
     is_featured?: boolean
 }
@@ -2415,14 +2427,53 @@ export enum TemplateAvailabilityContext {
     ONBOARDING = 'onboarding',
 }
 
-export interface DashboardTemplateType<T = InsightModel> {
+/**
+ * One row in `DashboardTemplate.tiles` / save-as-template JSON — matches `dashboardToSaveableTemplate` and backend seed templates,
+ * not the live dashboard `DashboardTile` shape (nested `insight` / `text` / `id`).
+ */
+export type DashboardTemplateStoredInsightTile = {
+    type: 'INSIGHT'
+    name?: string
+    description?: string
+    /** Serialized HogQL / insight node tree from the API; often plain JSON with string `kind` literals, not only `Node`/`NodeKind`. */
+    query?: Node | Record<string, unknown> | null
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+    filters?: Record<string, unknown>
+}
+
+export type DashboardTemplateStoredTextTile = {
+    type: 'TEXT'
+    body: string
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredButtonTile = {
+    button_tile: {
+        url: string
+        text: string
+        placement: 'left' | 'right'
+        style: 'primary' | 'secondary'
+    }
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
+export type DashboardTemplateStoredTile =
+    | DashboardTemplateStoredInsightTile
+    | DashboardTemplateStoredTextTile
+    | DashboardTemplateStoredButtonTile
+
+export interface DashboardTemplateType {
     id: string
     team_id?: number
     created_at?: string
+    created_by?: UserBasicType | null
     template_name: string
     dashboard_description?: string
     dashboard_filters?: DashboardFilter
-    tiles: DashboardTile<T>[]
+    tiles: DashboardTemplateStoredTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
@@ -2430,15 +2481,17 @@ export interface DashboardTemplateType<T = InsightModel> {
     availability_contexts?: TemplateAvailabilityContext[]
     /** Manually curated highlight flag. */
     is_featured?: boolean
+    /** Soft delete; API allows PATCH for staff undo (restore). */
+    deleted?: boolean
 }
 
 export interface MonacoMarker {
     message: string
 }
 
-// makes the DashboardTemplateType properties optional and the tiles properties optional
+// makes the DashboardTemplateType properties optional; tiles stay API/wire JSON shape
 export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
-    tiles: Partial<DashboardTile>[]
+    tiles: DashboardTemplateStoredTile[]
 }
 
 export interface DashboardTemplateVariableType {
@@ -3032,6 +3085,8 @@ export type InsightEditorFilterGroup = {
     show?: boolean
     /** Summary shown next to the title when the section is collapsed (e.g. "3 filters", "$browser, $os") */
     collapsedSummary?: string | null
+    /** Extra content rendered in the tile header next to the title */
+    headerExtra?: ReactNode
 }
 
 export interface SystemStatusSubrows {
@@ -4057,8 +4112,8 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
 }
 
 export interface UserBlastRadiusType {
-    users_affected: number
-    total_users: number
+    affected: number
+    total: number
 }
 
 export enum ScheduledChangeModels {
@@ -4475,7 +4530,6 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
-    exposure_preaggregation_enabled?: boolean
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -4904,6 +4958,8 @@ export interface SubscriptionType {
     id: number
     insight?: number
     dashboard?: number
+    insight_short_id?: string | null
+    resource_name?: string | null
     dashboard_export_insights?: number[]
     integration_id?: number | null
     target_type: string
@@ -4916,9 +4972,9 @@ export interface SubscriptionType {
     until_date?: string
     title: string
     summary: string
+    next_delivery_date: string | null
     created_by?: UserBasicType | null
     created_at: string
-    updated_at: string
     deleted?: boolean
 }
 
@@ -4965,6 +5021,9 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'customerio-app',
+    'customerio-webhook',
+    'customerio-track',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5081,6 +5140,7 @@ export interface HeatmapExportContext {
     heatmap_color_palette?: string | null
     heatmap_fixed_position_mode?: HeatmapFixedPositionMode
     common_filters?: CommonFilters
+    width?: number
 }
 
 export type ExportContext = (
@@ -5092,6 +5152,7 @@ export type ExportContext = (
 ) & {
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
+    variables_override?: Record<string, any>
 }
 
 export interface ExportedAssetType {
@@ -5145,8 +5206,12 @@ export type APIScopeObject =
     | 'activity_log'
     | 'alert'
     | 'annotation'
+    | 'approvals'
     | 'batch_export'
     | 'cohort'
+    | 'comment'
+    | 'customer_analytics'
+    | 'customer_journey'
     | 'customer_profile_config'
     | 'dashboard'
     | 'dashboard_template'
@@ -5447,7 +5512,10 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
-    dag_id: string
+    /** UUID of the DAG this node belongs to */
+    dag: string
+    /** Human-readable DAG name */
+    dag_name?: string
     saved_query_id?: string
     created_at: string
     updated_at: string
@@ -5456,7 +5524,7 @@ export interface DataModelingNode {
     user_tag?: string
     last_run_at?: string
     last_run_status?: DataModelingJobStatus
-    sync_interval?: DataWarehouseSyncInterval
+    sync_interval?: DataModelingSyncInterval
 }
 
 export interface DataModelingEdge {
@@ -5464,8 +5532,23 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    dag_id: string
+    /** UUID of the DAG this edge belongs to */
+    dag: string
+    /** Human-readable DAG name */
+    dag_name?: string
     properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
+export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+
+export interface DataModelingDAG {
+    id: string
+    name: string
+    description: string
+    sync_frequency: DataModelingSyncInterval | null
+    node_count: number
     created_at: string
     updated_at: string
 }
@@ -5636,6 +5719,14 @@ export interface SimpleExternalDataSourceSchema {
     label: string | null
     should_sync: boolean
     last_synced_at?: Dayjs
+    sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
+}
+
+export interface AvailableColumn {
+    label: string
+    field: string
+    type: string
+    nullable: boolean
 }
 
 export type SchemaIncrementalFieldsResponse = {
@@ -5644,6 +5735,9 @@ export type SchemaIncrementalFieldsResponse = {
     append_available: boolean
     full_refresh_available: boolean
     supports_webhooks: boolean
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
+    cdc_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -5664,19 +5758,24 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
-    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | null
+    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    cdc_available?: boolean
+    cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     description?: string | null
     should_sync_default: boolean
+    primary_key_columns: string[] | null
+    available_columns: AvailableColumn[]
+    detected_primary_keys: string[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
-    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | null
+    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | null
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
@@ -5685,6 +5784,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
+    primary_key_columns: string[] | null
+    cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
 }
 
 export enum ExternalDataSchemaStatus {
@@ -5889,6 +5990,7 @@ export type BatchExportService =
 export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes' | 'every 15 minutes'
 
 export type DataWarehouseSyncInterval =
+    | '1min'
     | '5min'
     | '15min'
     | '30min'
@@ -5954,6 +6056,7 @@ export type RawBatchExportRun = {
     data_interval_end: string
     last_updated_at?: string
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
 }
 
@@ -5974,6 +6077,7 @@ export type BatchExportRun = {
     data_interval_end: Dayjs
     last_updated_at?: Dayjs
     records_completed?: number
+    records_failed?: number
     bytes_exported?: number
 }
 
@@ -6397,6 +6501,7 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
+    | 'feature-flag-change'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
     | 'error-tracking-issue-spiking'
@@ -6404,6 +6509,7 @@ export type HogFunctionSubTemplateIdType =
     | 'insight-alert-firing'
     | 'experiment-significant'
     | 'logs-alert-firing'
+    | 'logs-alert-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -6683,7 +6789,8 @@ export interface Conversation {
 }
 
 export interface ConversationDetail extends Conversation {
-    messages: RootAssistantMessage[]
+    /** undefined = not yet fetched, [] = fetched but empty, [...] = fetched with content */
+    messages?: RootAssistantMessage[]
 }
 
 export enum UserRole {
@@ -6726,7 +6833,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }
@@ -6835,6 +6942,28 @@ export interface DataWarehouseActivityRecord {
     latest_error: string | null
     workflow_run_id?: string
     origin?: DataWarehouseSavedQueryOrigin | null
+}
+
+export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
+
+export interface DataWarehouseProvisioningConnection {
+    host: string
+    port: number
+    database: string
+    username: string
+}
+
+export interface DataWarehouseProvisioningStatus {
+    org_id: string
+    state: DataWarehouseProvisioningState
+    status_message: string
+    s3_state: DataWarehouseProvisioningState
+    metadata_store_state: DataWarehouseProvisioningState
+    identity_state: DataWarehouseProvisioningState
+    secrets_state: DataWarehouseProvisioningState
+    ready_at: string | null
+    failed_at: string | null
+    connection: DataWarehouseProvisioningConnection | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

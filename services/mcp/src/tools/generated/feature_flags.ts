@@ -23,10 +23,14 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams
+const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
+    search: FeatureFlagsListQueryParams.shape['search'].describe(
+        'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+    ),
+})
 
 const featureFlagGetAll = (): ToolBase<
     typeof FeatureFlagGetAllSchema,
@@ -52,12 +56,18 @@ const featureFlagGetAll = (): ToolBase<
                 type: params.type,
             },
         })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+            ),
+        } as typeof result
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...filtered,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
                 ),
             },
             '/feature_flags'
@@ -311,7 +321,14 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
     },
 })
 
-const ScheduledChangesListSchema = ScheduledChangesListQueryParams
+const ScheduledChangesListSchema = ScheduledChangesListQueryParams.extend({
+    model_name: ScheduledChangesListQueryParams.shape['model_name'].describe(
+        'Filter by model type. Use "FeatureFlag" to see feature flag schedules.'
+    ),
+    record_id: ScheduledChangesListQueryParams.shape['record_id'].describe(
+        'Filter by the ID of a specific feature flag.'
+    ),
+})
 
 const scheduledChangesList = (): ToolBase<
     typeof ScheduledChangesListSchema,
