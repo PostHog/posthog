@@ -38,6 +38,7 @@ export class FunnelsInsight {
 
     private async expandFunnelSettings(): Promise<void> {
         const toggle = this.page.getByTestId('editor-filter-group-collapse-funnel-settings')
+        await toggle.waitFor({ state: 'visible' })
         if ((await toggle.getAttribute('title')) === 'Show more') {
             await toggle.click()
         }

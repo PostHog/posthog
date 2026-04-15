@@ -76,6 +76,7 @@ export class TrendsInsight extends ChartInsightBase {
 
     private async expandBreakdownPanel(): Promise<void> {
         const toggle = this.page.getByTestId('editor-filter-group-collapse-breakdown')
+        await toggle.waitFor({ state: 'visible' })
         if ((await toggle.getAttribute('title')) === 'Show more') {
             await toggle.click()
         }
