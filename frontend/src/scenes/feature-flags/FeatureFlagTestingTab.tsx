@@ -298,7 +298,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     </div>
                                 </div>
 
-                                {result.payload && (
+                                {result.payload != null && (
                                     <div className="space-y-2">
                                         <LemonLabel>Payload</LemonLabel>
                                         <div className="px-3 py-2 rounded text-sm font-mono bg-bg-light">
