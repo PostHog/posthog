@@ -76,6 +76,7 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         ):
             runner = WebStatsTableQueryRunner(team=self.team, query=query)
             runner.calculate()
+            assert runner.paginator.response is not None
             sql = runner.paginator.response.clickhouse or ""
 
         assert "toDate(events.timestamp)" in sql
@@ -93,6 +94,7 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         ):
             runner = WebStatsTableQueryRunner(team=self.team, query=query)
             runner.calculate()
+            assert runner.paginator.response is not None
             sql = runner.paginator.response.clickhouse or ""
 
         assert "toDate(events.timestamp)" not in sql
@@ -109,6 +111,7 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         ):
             runner = WebStatsTableQueryRunner(team=self.team, query=query)
             runner.calculate()
+            assert runner.paginator.response is not None
             sql = runner.paginator.response.clickhouse or ""
 
         # Non-bounce queries also get wrapped since they go through the same _calculate path
