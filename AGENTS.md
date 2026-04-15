@@ -29,7 +29,7 @@
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
-- ClickHouse schema management: `python manage.py ch_migrate <reconcile|drift|schema>`. See `posthog/clickhouse/migrations/README.md`.
+- ClickHouse schema management: `python manage.py ch_migrate <lint|plan|reconcile|drift|schema>`. See `posthog/clickhouse/migrations/README.md`.
 
 ## Commits and Pull Requests
 
