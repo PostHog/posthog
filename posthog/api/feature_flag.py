@@ -3347,11 +3347,9 @@ class FeatureFlagViewSet(
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                properties_result = build_person_properties_at_time(
+                person_properties = build_person_properties_at_time(
                     team_id=self.team_id, timestamp=timestamp, distinct_ids=distinct_ids, include_set_once=True
                 )
-                # build_person_properties_at_time returns dict[str, Any] when return_debug_info=False (default)
-                person_properties = properties_result if isinstance(properties_result, dict) else properties_result[0]
             except Exception as e:
                 logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
                 return Response(

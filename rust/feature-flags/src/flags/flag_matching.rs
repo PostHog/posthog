@@ -1001,8 +1001,9 @@ impl FeatureFlagMatcher {
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
                 let flag_details = if self.detailed_analysis {
                     // Use merged person properties (DB + overrides) for condition analysis
-                    let merged_person_props =
-                        self.get_person_properties(person_property_overrides.as_ref()).ok();
+                    let merged_person_props = self
+                        .get_person_properties(person_property_overrides.as_ref())
+                        .ok();
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,

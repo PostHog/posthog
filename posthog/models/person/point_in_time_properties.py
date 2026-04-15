@@ -8,7 +8,7 @@ chronologically.
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.clickhouse.client import sync_execute
 
@@ -102,8 +102,7 @@ def build_person_properties_at_time(
     distinct_ids: list[str],
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
-    return_debug_info: bool = False,
-) -> Union[dict[str, Any], tuple[dict[str, Any], list, str, dict[str, Any]]]:
+) -> dict[str, Any]:
     """
     Build person properties as they existed at a specific point in time.
 
