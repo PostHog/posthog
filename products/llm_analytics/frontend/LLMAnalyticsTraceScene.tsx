@@ -58,6 +58,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { ClustersTabContent } from './components/ClustersTabContent'
+import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
@@ -1530,24 +1531,29 @@ const EventContent = React.memo(
                                 />
                             )}
                             {isLLMEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                            {aggregation && (
-                                <div className="flex flex-row flex-wrap items-center gap-2">
-                                    {aggregation.totalCost > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            Total Cost: {formatLLMCost(aggregation.totalCost)}
-                                        </LemonTag>
+                            {(aggregation || showEvalsTab) && (
+                                <div className="flex flex-col gap-1">
+                                    {aggregation && (
+                                        <div className="flex flex-row flex-wrap items-center gap-2">
+                                            {aggregation.totalCost > 0 && (
+                                                <LemonTag type="muted" size="small">
+                                                    Total Cost: {formatLLMCost(aggregation.totalCost)}
+                                                </LemonTag>
+                                            )}
+                                            {aggregation.totalLatency > 0 && (
+                                                <LemonTag type="muted" size="small">
+                                                    Total Latency: {formatLLMLatency(aggregation.totalLatency)}
+                                                </LemonTag>
+                                            )}
+                                            {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
+                                                <LemonTag type="muted" size="small">
+                                                    Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
+                                                    {aggregation.inputTokens + aggregation.outputTokens})
+                                                </LemonTag>
+                                            )}
+                                        </div>
                                     )}
-                                    {aggregation.totalLatency > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            Total Latency: {formatLLMLatency(aggregation.totalLatency)}
-                                        </LemonTag>
-                                    )}
-                                    {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
-                                        <LemonTag type="muted" size="small">
-                                            Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
-                                            {aggregation.inputTokens + aggregation.outputTokens})
-                                        </LemonTag>
-                                    )}
+                                    {showEvalsTab && <EvalResultBadges generationEventId={event.id} />}
                                 </div>
                             )}
                             {(showPromptButton ||
