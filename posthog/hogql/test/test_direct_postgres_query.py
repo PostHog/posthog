@@ -1056,9 +1056,65 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(str(error.exception), "boom")
 
+    _SSH_TUNNEL_CONFIG = {
+        "ssh_tunnel": {
+            "enabled": True,
+            "host": "bastion.example.com",
+            "port": 22,
+            "auth_type": {
+                "selection": "password",
+                "username": "user",
+                "password": "pass",
+                "private_key": "",
+                "passphrase": "",
+            },
+        },
+    }
+
+    _SSH_TUNNEL_TLS_OFF = {
+        "ssh_tunnel": {
+            **_SSH_TUNNEL_CONFIG["ssh_tunnel"],
+            "require_tls": {"enabled": False},
+        },
+    }
+
+    _SSH_TUNNEL_DISABLED_TLS_OFF = {
+        "ssh_tunnel": {
+            **_SSH_TUNNEL_CONFIG["ssh_tunnel"],
+            "enabled": False,
+            "require_tls": {"enabled": False},
+        },
+    }
+
+    @parameterized.expand(
+        [
+            ("no_tunnel", {}, "require"),
+            ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
+            ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
+            ("disabled_tunnel_tls_off_ignored", _SSH_TUNNEL_DISABLED_TLS_OFF, "require"),
+        ]
+    )
     @override_settings(DEBUG=False, TEST=False)
+    @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
-    def test_execute_direct_postgres_query_uses_required_sslmode_for_new_sources(self, mock_connect):
+    def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
+        mock_tunnel = MagicMock()
+        mock_tunnel.local_bind_host = "127.0.0.1"
+        mock_tunnel.local_bind_port = 15432
+        mock_tunnel.__enter__ = MagicMock(return_value=mock_tunnel)
+        mock_tunnel.__exit__ = MagicMock(return_value=False)
+        mock_tunnel_cls.return_value = mock_tunnel
+
+        base_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "ph3",
+        }
+        base_inputs.update(job_inputs)
+
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1067,14 +1123,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             source_type="Postgres",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="ph3",
-            job_inputs={
-                "host": "localhost",
-                "port": 5432,
-                "database": "postgres",
-                "user": "postgres",
-                "password": "postgres",
-                "schema": "ph3",
-            },
+            job_inputs=base_inputs,
         )
         source.created_at = SSL_REQUIRED_AFTER_DATE + timedelta(days=1)
         source.save(update_fields=["created_at"])
@@ -1107,7 +1156,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "require")
+        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.query.psycopg.connect")
