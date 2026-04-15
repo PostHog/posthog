@@ -201,10 +201,7 @@ async def SandboxedEval(
                             experiment_id=experiment_id,
                             experiment_name=experiment_name,
                             case_name=eval_case.name,
-                            prompt=eval_case.prompt,
                             parsed=parsed,
-                            duration=result.artifacts.duration_seconds,
-                            artifacts_summary=result.artifacts.model_dump(),
                         )
                         # Store metadata for emit_trace_root (called after scoring)
                         case_trace_meta[eval_case.name] = {

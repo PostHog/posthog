@@ -46,6 +46,15 @@ class GenerationDescriptor:
     output_content: list[dict[str, Any]] = field(default_factory=list)
     token_usage: dict[str, int] = field(default_factory=dict)
     timestamp: str = ""
+    """Timestamp of the first output block in this generation (for chronological ordering)."""
+
+    start_ts: str = ""
+    """When this model call was invoked — session prompt time for the first gen,
+    the last tool_result completion time for subsequent gens."""
+
+    end_ts: str = ""
+    """Timestamp of the last output block added to this generation — approximates
+    when the model's streaming response finished."""
 
 
 @dataclass
@@ -123,10 +132,13 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
     pending_tool_results: list[dict[str, Any]] = []
     last_token_usage: dict[str, int] = {}
     gen_timestamp: str = ""
+    gen_start_ts: str = ""  # When the model call was invoked
+    gen_last_output_ts: str = ""  # Timestamp of most recent block in current_output
+    last_tool_result_ts: str = ""  # Most recent tool_result completion, drives next gen's start_ts
 
     def _flush_generation(token_usage: dict[str, int] | None = None) -> None:
         """Flush accumulated output into a GenerationDescriptor with full history as input."""
-        nonlocal current_output, gen_timestamp
+        nonlocal current_output, gen_timestamp, gen_start_ts, gen_last_output_ts
         if not current_output:
             return
         result.generations.append(
@@ -135,12 +147,16 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
                 output_content=list(current_output),
                 token_usage=token_usage or {},
                 timestamp=gen_timestamp,
+                start_ts=gen_start_ts,
+                end_ts=gen_last_output_ts or gen_timestamp,
             )
         )
         # Add the assistant response to history for the next generation
         history.append({"role": "assistant", "content": list(current_output)})
         current_output = []
         gen_timestamp = ""
+        gen_start_ts = ""
+        gen_last_output_ts = ""
 
     for line in raw_log.strip().split("\n"):
         line = line.strip()
@@ -161,6 +177,11 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
         if not isinstance(notification, dict):
             continue
 
+        # Capture the session/prompt timestamp as the start of the first model call
+        # (orchestrator sends the prompt; the model starts processing it).
+        if notification.get("method") == "session/prompt" and ts and not gen_start_ts:
+            gen_start_ts = ts
+
         # Token usage from turn completion
         entry_result = notification.get("result")
         if isinstance(entry_result, dict):
@@ -170,6 +191,7 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
                     "inputTokens": usage.get("inputTokens", 0),
                     "outputTokens": usage.get("outputTokens", 0),
                     "cachedReadTokens": usage.get("cachedReadTokens", 0),
+                    "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
                     "totalTokens": usage.get("totalTokens", 0),
                 }
             if entry_result.get("stopReason") == "end_turn":
@@ -238,15 +260,26 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
                 _flush_generation()
                 history.append({"role": "user", "content": list(pending_tool_results)})
                 pending_tool_results = []
+                gen_start_ts = last_tool_result_ts
 
             if not gen_timestamp:
                 gen_timestamp = ts
             text = _extract_text(update)
             if text:
                 current_output.append({"type": "text", "text": text})
+                gen_last_output_ts = ts
 
         # --- Tool call start ---
         elif session_update == "tool_call":
+            # A new tool_call with pending tool_results means the previous model call
+            # finished (with just its tool_use output, no text), tools ran, and now a
+            # new model call has produced this next tool_use. Flush the previous gen.
+            if pending_tool_results:
+                _flush_generation()
+                history.append({"role": "user", "content": list(pending_tool_results)})
+                pending_tool_results = []
+                gen_start_ts = last_tool_result_ts
+
             if not gen_timestamp:
                 gen_timestamp = ts
             meta = update.get("_meta", {})
@@ -263,6 +296,7 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
                     "input": raw_input if isinstance(raw_input, dict) else {},
                 }
             )
+            gen_last_output_ts = ts
 
         # --- Tool call update (may contain result or late-arriving input) ---
         elif session_update == "tool_call_update":
@@ -294,6 +328,8 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
                 if is_error:
                     tool_result["is_error"] = True
                 pending_tool_results.append(tool_result)
+                if ts:
+                    last_tool_result_ts = ts
 
         # Skip agent_message_chunk, agent_thought_chunk, usage_update, available_commands_update
 
@@ -592,10 +628,7 @@ def emit_trace_events(
     experiment_id: str,
     experiment_name: str,
     case_name: str,
-    prompt: str,
     parsed: ParsedLog,
-    duration: float,
-    artifacts_summary: dict[str, Any] | None = None,
 ) -> None:
     """Emit one ``$ai_generation`` per turn, plus ``$ai_span`` and ``$ai_trace`` events.
 
@@ -610,9 +643,16 @@ def emit_trace_events(
         "$ai_experiment_name": formatted_exp_name,
     }
 
+    # Error spans from the ACP log get attached to whichever generation covers their timestamp.
+    error_spans = [s for s in parsed.spans if s.span_name == "error"]
+
     # $ai_generation — one per model turn, with accumulated history as input
     for gen in parsed.generations:
         generation_id = str(uuid.uuid4())
+        # Prefer the real "model call invoked" time; fall back to first-output time.
+        gen_start = _parse_iso_timestamp(gen.start_ts) or _parse_iso_timestamp(gen.timestamp)
+        gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
+
         gen_properties: dict[str, Any] = {
             "$ai_trace_id": trace_id,
             "$ai_span_id": generation_id,
@@ -627,10 +667,37 @@ def emit_trace_events(
                 {"role": "assistant", "content": gen.output_content},
             ]
 
+        # Token usage. The ACP agent-server emits one ``usage`` block per session
+        # (at end_turn), so only the final generation carries non-empty counts when
+        # a session spans multiple model calls.
+        if gen.token_usage:
+            if "inputTokens" in gen.token_usage:
+                gen_properties["$ai_input_tokens"] = gen.token_usage["inputTokens"]
+            if "outputTokens" in gen.token_usage:
+                gen_properties["$ai_output_tokens"] = gen.token_usage["outputTokens"]
+            if gen.token_usage.get("cachedReadTokens"):
+                gen_properties["$ai_cache_read_input_tokens"] = gen.token_usage["cachedReadTokens"]
+            if gen.token_usage.get("cachedWriteTokens"):
+                gen_properties["$ai_cache_creation_input_tokens"] = gen.token_usage["cachedWriteTokens"]
+
+        if gen_start and gen_end and gen_end >= gen_start:
+            gen_properties["$ai_latency"] = (gen_end - gen_start).total_seconds()
+
+        # Attribute errors that fired within this generation's time window.
+        matching_errors: list[str] = []
+        for span in error_spans:
+            span_ts = _parse_iso_timestamp(span.timestamp)
+            if not span_ts or not gen_start:
+                continue
+            if span_ts >= gen_start and (gen_end is None or span_ts <= gen_end):
+                matching_errors.append(span.content or "unknown error")
+        if matching_errors:
+            gen_properties["$ai_is_error"] = True
+            gen_properties["$ai_error"] = "; ".join(matching_errors)[:2000]
+
         capture_kwargs: dict[str, Any] = {}
-        gen_ts = _parse_iso_timestamp(gen.timestamp)
-        if gen_ts:
-            capture_kwargs["timestamp"] = gen_ts
+        if gen_start:
+            capture_kwargs["timestamp"] = gen_start
 
         client.capture(distinct_id=DISTINCT_ID, event="$ai_generation", properties=gen_properties, **capture_kwargs)
 
