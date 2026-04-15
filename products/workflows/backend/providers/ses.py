@@ -4,6 +4,7 @@ import logging
 from django.conf import settings
 
 import boto3
+import dns.name
 import dns.resolver
 from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import exceptions
@@ -237,9 +238,10 @@ class SESProvider:
                     continue
                 try:
                     answers = resolver.resolve(r["recordHostname"], "CNAME")
-                    expected = r["recordValue"].rstrip(".") + "."
+                    expected = dns.name.from_text(r["recordValue"])
                     for rdata in answers:
-                        if str(rdata.target) == expected:
+                        # Use dnspython Name comparison, case-insensitive per RFC 1035
+                        if rdata.target == expected:
                             r["status"] = "success"
                             break
                 except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
