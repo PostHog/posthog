@@ -5,7 +5,7 @@ import datetime as dt
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -292,6 +292,14 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             final_status = DeliveryStatus.COMPLETED
 
         except Exception as e:
+            # Preserve recipient outcomes carried in non-retryable delivery errors
+            # (e.g. Slack missing integration) so history isn't empty on failure.
+            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
+                details = e.cause.details
+                if details and isinstance(details[0], dict):
+                    recipient_results = details[0].get("recipient_results")
+                    if isinstance(recipient_results, list):
+                        delivery_recipient_results = recipient_results
             caught_error = e
             final_status = DeliveryStatus.FAILED
             # Defer the re-raise until after the finally block — see note below.

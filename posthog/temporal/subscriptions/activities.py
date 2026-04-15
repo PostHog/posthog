@@ -307,8 +307,21 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     "deliver_subscription.no_slack_integration",
                     subscription_id=inputs.subscription_id,
                 )
+                missing_integration_error = {
+                    "message": "No Slack integration configured",
+                    "type": "missing_integration",
+                }
                 raise ApplicationError(
                     "No Slack integration configured for this team",
+                    {
+                        "recipient_results": [
+                            {
+                                "recipient": subscription.target_value,
+                                "status": "failed",
+                                "error": missing_integration_error,
+                            }
+                        ]
+                    },
                     non_retryable=True,
                 )
 
