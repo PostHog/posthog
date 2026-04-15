@@ -312,7 +312,9 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
     threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
     threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
 
-    deadline = time.monotonic() + 30
+    # 90s is comfortably above cold-runner uvicorn + DB warmup; local runs
+    # hit the hot path in 2-3s and break out of the loop immediately.
+    deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         try:
             sock = socket.create_connection(("localhost", LLM_GATEWAY_PORT), timeout=1)
@@ -323,7 +325,7 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
     else:
         proc.terminate()
         proc.wait(timeout=5)
-        pytest.fail(f"LLM gateway failed to start on port {LLM_GATEWAY_PORT} within 30s.")
+        pytest.fail(f"LLM gateway failed to start on port {LLM_GATEWAY_PORT} within 90s.")
 
     logger.info("LLM gateway ready on port %d", LLM_GATEWAY_PORT)
     yield
@@ -394,7 +396,11 @@ def _mcp_server(_django_live_server, _sandbox_settings):
     threading.Thread(target=_pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
     threading.Thread(target=_pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
 
-    deadline = time.monotonic() + 30
+    # wrangler dev cold-starts workerd, compiles the TS entry, and runs the
+    # copy-instructions build hook on first launch — easily 45s+ on a fresh
+    # GH runner even though a warm local run binds in 3-5s. 120s gives
+    # generous headroom without masking a genuinely stuck process.
+    deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         try:
             sock = socket.create_connection(("localhost", MCP_PORT), timeout=1)
@@ -405,7 +411,12 @@ def _mcp_server(_django_live_server, _sandbox_settings):
     else:
         proc.terminate()
         proc.wait(timeout=5)
-        pytest.fail(f"MCP server failed to start on port {MCP_PORT} within 30s.")
+        # Give the daemon pipe threads a brief moment to flush whatever
+        # wrangler did emit to stderr so pytest.fail's trace isn't the only
+        # thing in the log. (They're daemon=True so they'll exit on their
+        # own anyway.)
+        time.sleep(0.5)
+        pytest.fail(f"MCP server failed to start on port {MCP_PORT} within 120s.")
 
     logger.info("MCP server ready on port %d", MCP_PORT)
     yield
