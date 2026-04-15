@@ -264,10 +264,19 @@ def parse_log(raw_log: str, initial_prompt: str = "") -> ParsedLog:
                 }
             )
 
-        # --- Tool call update (may contain result) ---
+        # --- Tool call update (may contain result or late-arriving input) ---
         elif session_update == "tool_call_update":
             status = update.get("status", "")
             tool_call_id = update.get("toolCallId", "")
+
+            # ACP streams the tool input in a follow-up update, not the initial tool_call.
+            # Patch the matching tool_use block so $ai_output_choices carries real arguments.
+            late_input = update.get("rawInput")
+            if isinstance(late_input, dict) and late_input and tool_call_id:
+                for block in current_output:
+                    if block.get("type") == "tool_use" and block.get("id") == tool_call_id:
+                        block["input"] = late_input
+                        break
 
             if status in ("completed", "failed", "error") and tool_call_id:
                 raw_output = update.get("rawOutput", "")
@@ -614,7 +623,9 @@ def emit_trace_events(
             **eval_metadata,
         }
         if gen.output_content:
-            gen_properties["$ai_output_choices"] = gen.output_content
+            gen_properties["$ai_output_choices"] = [
+                {"role": "assistant", "content": gen.output_content},
+            ]
 
         capture_kwargs: dict[str, Any] = {}
         gen_ts = _parse_iso_timestamp(gen.timestamp)
