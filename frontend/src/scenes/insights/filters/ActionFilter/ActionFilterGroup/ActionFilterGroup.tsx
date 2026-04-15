@@ -275,6 +275,7 @@ export function ActionFilterGroup({
                                         items: [
                                             {
                                                 label: 'Split events',
+                                                size: 'medium',
                                                 icon: <IconUndo />,
                                                 onClick: () => {
                                                     splitLocalFilter(index)
@@ -291,6 +292,7 @@ export function ActionFilterGroup({
                                         items: [
                                             {
                                                 label: 'Rename',
+                                                size: 'medium',
                                                 icon: <IconPencil />,
                                                 onClick: () => {
                                                     selectFilter(groupFilter ?? null)
@@ -300,6 +302,7 @@ export function ActionFilterGroup({
                                             },
                                             {
                                                 label: 'Delete',
+                                                size: 'medium',
                                                 status: 'danger',
                                                 icon: <IconTrash />,
                                                 onClick: () => removeLocalFilter({ index }),
