@@ -221,6 +221,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         if self._heartbeat_received and not self._task_completed:
                             self._heartbeat_received = False
                             continue
+                    case _:
+                        raise ValueError(f"Unknown event type: {event}")
 
             # Stop the relay now that the main loop is done
             await self._cancel_relay(relay_task)
