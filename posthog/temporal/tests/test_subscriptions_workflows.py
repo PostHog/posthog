@@ -384,6 +384,68 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
+@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_process_subscription_records_missing_slack_integration_failure(
+    mock_get_slack: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slk001", name="Slack fail")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/slack-fail.png",
+    )
+
+    with pytest.raises(Exception):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                workflows=[ProcessSubscriptionWorkflow],
+                activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+                interceptors=[SloInterceptor()],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=10),
+                debug_mode=True,
+            ):
+                await env.client.execute_workflow(
+                    ProcessSubscriptionWorkflow.run,
+                    TrackedSubscriptionInputs(
+                        subscription_id=subscription.id,
+                        team_id=subscription.team_id,
+                        distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
+    assert row.status == SubscriptionDelivery.Status.FAILED
+    assert row.recipient_results == [
+        {
+            "recipient": "C12345|#test-channel",
+            "status": "failed",
+            "error": {
+                "message": "No Slack integration configured",
+                "type": "missing_integration",
+            },
+        }
+    ]
+    mock_get_slack.assert_called_once_with(subscription.team_id)
+
+
 @patch("posthog.slo.events.posthoganalytics")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
