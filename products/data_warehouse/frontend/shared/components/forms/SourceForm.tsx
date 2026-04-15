@@ -360,7 +360,7 @@ function CDCPrerequisitesCheck(): JSX.Element {
                         <>
                             <p className="font-semibold mb-1">Some prerequisites are not met:</p>
                             <ul className="list-disc ml-5 mb-0 text-sm">
-                                {result.errors.map((err, i) => (
+                                {cdcPrereqsCheckResult.errors.map((err: string, i: number) => (
                                     <li key={i}>{err}</li>
                                 ))}
                             </ul>
