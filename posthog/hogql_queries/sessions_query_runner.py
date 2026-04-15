@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, SessionsQuery, SessionsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
@@ -498,6 +499,11 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 return stmt
 
     def _calculate(self) -> SessionsQueryResponse:
+        # Sessions tables are Distributed across a ClickHouse cluster that doesn't
+        # host events/persons. prefer_global_in_and_join=1 tells ClickHouse to
+        # evaluate any IN/JOIN subqueries on the initiator and broadcast the set,
+        # avoiding UNKNOWN_TABLE on sessions shards when the subquery references
+        # a table that only lives on the main cluster.
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,
@@ -505,6 +511,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            settings=HogQLGlobalSettings(prefer_global_in_and_join=True),
         )
 
         # Convert star field from tuple to dict in each result

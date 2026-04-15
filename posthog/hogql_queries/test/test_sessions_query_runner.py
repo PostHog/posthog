@@ -1123,3 +1123,13 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             assert isinstance(response, CachedSessionsQueryResponse)
             assert len(response.results) == 3
+
+    def test_query_uses_prefer_global_in_and_join(self):
+        # Sessions tables are Distributed across a cluster that doesn't have
+        # events/persons. prefer_global_in_and_join avoids UNKNOWN_TABLE when
+        # the user filters sessions by an events subquery.
+        query = SessionsQuery(after="2024-01-01", kind="SessionsQuery", select=["*"])
+        runner = SessionsQueryRunner(query=query, team=self.team)
+        runner.run()
+        assert runner.paginator.response.clickhouse is not None
+        assert "prefer_global_in_and_join=1" in runner.paginator.response.clickhouse

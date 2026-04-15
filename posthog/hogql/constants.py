@@ -147,6 +147,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
+    # Rewrites IN/JOIN to GLOBAL IN/GLOBAL JOIN on Distributed tables. Needed when
+    # a subquery references a table that isn't present on every shard of the outer
+    # Distributed table (e.g. events subquery inside a sessions-cluster query).
+    prefer_global_in_and_join: Optional[bool] = None
     use_hive_partitioning: Optional[int] = 0
 
 
