@@ -84,8 +84,6 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
-        hasChanges,
-        unapprovedChangesCount,
         changedSnapshots,
         snapshotHistory,
         snapshotHistoryLoading,
@@ -147,9 +145,9 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    hasChanges && unapprovedChangesCount > 0 ? (
+                    !run.approved && (changedCount > 0 || newCount > 0 || removedCount > 0) ? (
                         <LemonButton type="primary" onClick={approveChanges}>
-                            Approve {unapprovedChangesCount} change{unapprovedChangesCount !== 1 ? 's' : ''}
+                            Approve all changes
                         </LemonButton>
                     ) : undefined
                 }
