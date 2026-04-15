@@ -161,6 +161,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
+    cdpHogflowSubscriptionMatcher?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean

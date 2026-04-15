@@ -17,7 +17,6 @@ import { counterParseError } from './metrics'
 export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     protected name = 'CdpPersonUpdatesConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
-    protected enableEventSubscriptionMatching = false
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, KAFKA_PERSON, 'cdp-person-updates-consumer')
