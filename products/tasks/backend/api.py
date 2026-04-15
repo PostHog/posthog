@@ -64,7 +64,12 @@ from .serializers import (
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
-from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
+from .stream.redis_stream import (
+    TaskRunRedisStream,
+    TaskRunStreamError,
+    get_task_run_stream_key,
+    publish_task_run_stream_event,
+)
 from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
 from .temporal.process_task.utils import PrAuthorshipMode, cache_github_user_token, parse_run_state
 
@@ -871,6 +876,35 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+
+        # Build the JSON-RPC envelope once - used by both local and cloud paths.
+        command_payload: dict = {
+            "jsonrpc": request.validated_data["jsonrpc"],
+            "method": request.validated_data["method"],
+        }
+        if request.validated_data.get("params"):
+            command_payload["params"] = request.validated_data["params"]
+        if "id" in request.validated_data and request.validated_data["id"] is not None:
+            command_payload["id"] = request.validated_data["id"]
+
+        # Local runs have no sandbox. Publish the command to the task-run
+        # Redis Stream so the desktop's SSE subscriber can pick it up and
+        # deliver it to the in-process ACP session.
+        if task_run.environment == TaskRun.Environment.LOCAL:
+            stream_id = publish_task_run_stream_event(
+                str(task_run.id),
+                {"type": "incoming_command", "payload": command_payload},
+            )
+            if stream_id is None:
+                return Response(
+                    ErrorResponseSerializer({"error": "Failed to publish command to local run"}).data,
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            return Response(
+                {"status": "delivered", "stream_id": stream_id},
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         run_state = parse_run_state(task_run.state)
 
         if not run_state.sandbox_url:
@@ -891,15 +925,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=request.user.id,
             distinct_id=request.user.distinct_id,
         )
-
-        command_payload: dict = {
-            "jsonrpc": request.validated_data["jsonrpc"],
-            "method": request.validated_data["method"],
-        }
-        if request.validated_data.get("params"):
-            command_payload["params"] = request.validated_data["params"]
-        if "id" in request.validated_data and request.validated_data["id"] is not None:
-            command_payload["id"] = request.validated_data["id"]
 
         try:
             agent_response = self._proxy_command_to_agent_server(
