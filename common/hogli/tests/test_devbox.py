@@ -806,6 +806,7 @@ class TestDevboxList:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: "api" if "api" in name else None)
         monkeypatch.setattr(devbox_cli, "list_shared_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "get_shared_users", lambda name: [])
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
