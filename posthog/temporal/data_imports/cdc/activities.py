@@ -217,7 +217,7 @@ class CDCExtractActivity:
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
-            pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            pipeline_version=ExternalDataJob.PipelineVersion.V3,
         )
         self.created_jobs.append(job)
 
