@@ -511,7 +511,7 @@ The agent has encountered an unknown error while creating an insight.
 {{{system_reminder}}}
 """.strip()
 
-InsightType = Literal["trends", "funnel", "retention"]
+InsightType = Literal["trends", "funnel", "retention", "sql"]
 
 
 class CreateInsightToolArgs(BaseModel):
@@ -569,6 +569,8 @@ class CreateInsightTool(MaxTool):
                 graph_builder.add_retention_generator().add_edge(
                     AssistantNodeName.START, AssistantNodeName.RETENTION_GENERATOR
                 )
+            case "sql":
+                graph_builder.add_sql_generator().add_edge(AssistantNodeName.START, AssistantNodeName.SQL_GENERATOR)
 
         graph = graph_builder.add_query_executor().compile()
         new_state = self._state.model_copy(

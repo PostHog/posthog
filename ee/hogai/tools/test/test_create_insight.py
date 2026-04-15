@@ -186,6 +186,47 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_graph_builder.add_retention_generator.assert_called_once()
         mock_graph_builder.add_edge.assert_called_with(AssistantNodeName.START, AssistantNodeName.RETENTION_GENERATOR)
 
+    async def test_successful_sql_insight_creation_returns_messages(self):
+        """Test successful SQL insight creation uses correct generator node."""
+        tool = await self._create_tool()
+
+        query = AssistantTrendsQuery(series=[])
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
+        tool_call_message = AssistantToolCallMessage(content="Results", tool_call_id=self.tool_call_id)
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
+
+        with patch("ee.hogai.tools.create_insight.InsightsGraph") as mock_graph_class:
+            mock_graph_builder = mock_graph_class.return_value
+            mock_graph_builder.add_sql_generator.return_value = mock_graph_builder
+            mock_graph_builder.add_edge.return_value = mock_graph_builder
+            mock_graph_builder.add_query_executor.return_value = mock_graph_builder
+
+            mock_compiled_graph = AsyncMock()
+            mock_compiled_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
+            mock_graph_builder.compile.return_value = mock_compiled_graph
+
+            await tool._arun_impl(
+                viz_title="Test SQL",
+                viz_description="Test description",
+                query_description="test sql",
+                insight_type="sql",
+            )
+
+        mock_graph_builder.add_sql_generator.assert_called_once()
+        mock_graph_builder.add_edge.assert_called_with(AssistantNodeName.START, AssistantNodeName.SQL_GENERATOR)
+
     async def test_schema_generation_exception_returns_formatted_error(self):
         """Test SchemaGenerationException is caught and returns formatted error message."""
         tool = await self._create_tool()
