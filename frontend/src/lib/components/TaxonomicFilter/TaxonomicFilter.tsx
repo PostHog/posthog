@@ -2,7 +2,7 @@ import './TaxonomicFilter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, forwardRef, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -16,13 +16,20 @@ import {
 import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
-import { CohortCreateModal } from 'scenes/cohorts/CohortCreateModal'
 import { urls } from 'scenes/urls'
 
 import { CohortType } from '~/types'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
+
+// Lazy-load the cohort creation modal so the cohort editor subtree
+// (cohortEditLogic, CohortCriteriaGroups, kea-forms, etc.) is not in the
+// TaxonomicFilter's initial bundle — TaxonomicFilter renders on almost every
+// analytics page.
+const CohortCreateModal = lazy(() =>
+    import('scenes/cohorts/CohortCreateModal').then((m) => ({ default: m.CohortCreateModal }))
+)
 
 let uniqueMemoizedIndex = 0
 
@@ -96,8 +103,10 @@ export function TaxonomicFilter({
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
-    const { activeTab, taxonomicGroups } = useValues(logic)
-    const { selectItem } = useActions(logic)
+    // Only subscribe to `activeTab`. `taxonomicGroups` is a heavy selector with
+    // many upstream deps — reading it via `logic.findMounted()` inside the
+    // save callback avoids re-rendering TaxonomicFilter on every group change.
+    const { activeTab } = useValues(logic)
     const [refReady, setRefReady] = useState(false)
 
     const cohortCreationEnabled =
@@ -105,7 +114,28 @@ export function TaxonomicFilter({
         (taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Cohorts) ||
             taxonomicGroupTypes.includes(TaxonomicFilterGroupType.CohortsWithAllUsers))
 
-    const openCohortCreateModal = useMemo(() => () => setIsCohortCreateModalOpen(true), [])
+    const openCohortCreateModal = useCallback(() => setIsCohortCreateModalOpen(true), [])
+    const closeCohortCreateModal = useCallback(() => setIsCohortCreateModalOpen(false), [])
+    const onCohortSaved = useCallback(
+        (cohort: CohortType) => {
+            const mounted = taxonomicFilterLogic.findMounted(taxonomicFilterLogicProps)
+            if (!mounted) {
+                return
+            }
+            const groups: TaxonomicFilterGroup[] = mounted.values.taxonomicGroups
+            // Prefer the breakdown-friendly CohortsWithAllUsers group if present,
+            // otherwise fall back to the plain Cohorts group — both use `cohort.id`
+            // as the selected value.
+            const cohortGroup =
+                groups.find((g) => g.type === TaxonomicFilterGroupType.Cohorts) ??
+                groups.find((g) => g.type === TaxonomicFilterGroupType.CohortsWithAllUsers)
+            if (cohortGroup) {
+                mounted.actions.selectItem(cohortGroup, cohort.id, cohort)
+            }
+            // oxlint-disable-next-line react-hooks/exhaustive-deps
+        },
+        [taxonomicFilterLogicKey]
+    )
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -153,27 +183,15 @@ export function TaxonomicFilter({
                     />
                 )}
             </div>
-            {cohortCreationEnabled && (
-                <CohortCreateModal
-                    isOpen={isCohortCreateModalOpen}
-                    onClose={() => setIsCohortCreateModalOpen(false)}
-                    onSaved={(cohort: CohortType) => {
-                        // Prefer the breakdown-friendly "CohortsWithAllUsers" group if present,
-                        // otherwise use the plain Cohorts group. Both groups share `getValue`
-                        // returning the cohort id, so either works with downstream consumers.
-                        const cohortGroup =
-                            taxonomicGroups.find(
-                                (g: TaxonomicFilterGroup) => g.type === TaxonomicFilterGroupType.Cohorts
-                            ) ??
-                            taxonomicGroups.find(
-                                (g: TaxonomicFilterGroup) => g.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                            )
-                        if (cohortGroup) {
-                            selectItem(cohortGroup, cohort.id, cohort)
-                        }
-                    }}
-                    modalKey={taxonomicFilterLogicKey}
-                />
+            {cohortCreationEnabled && isCohortCreateModalOpen && (
+                <Suspense fallback={null}>
+                    <CohortCreateModal
+                        isOpen={isCohortCreateModalOpen}
+                        onClose={closeCohortCreateModal}
+                        onSaved={onCohortSaved}
+                        modalKey={taxonomicFilterLogicKey}
+                    />
+                </Suspense>
             )}
         </BindLogic>
     )

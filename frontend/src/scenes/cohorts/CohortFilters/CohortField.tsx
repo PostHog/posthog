@@ -167,6 +167,9 @@ export function CohortTaxonomicField({
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}
+            // Avoid offering inline cohort creation inside the cohort criteria
+            // picker itself — would trigger a recursive create-cohort modal.
+            enableInlineCohortCreation={false}
             renderValue={(value) =>
                 value ? (
                     <PropertyKeyInfo value={value as string} type={groupType} />

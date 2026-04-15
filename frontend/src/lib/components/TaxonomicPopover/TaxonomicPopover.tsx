@@ -50,6 +50,8 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     sideIcon?: React.ReactElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     suggestedFiltersLabel?: string
+    /** Forwarded to the inner TaxonomicFilter — disable to hide the inline "+ New cohort" button. */
+    enableInlineCohortCreation?: boolean
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -90,6 +92,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         allowNonCapturedEvents,
         definitionPopoverRenderer,
         suggestedFiltersLabel,
+        enableInlineCohortCreation,
         width,
         placement,
         sideIcon,
@@ -147,6 +150,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     allowNonCapturedEvents={allowNonCapturedEvents}
                     definitionPopoverRenderer={definitionPopoverRenderer}
                     suggestedFiltersLabel={suggestedFiltersLabel}
+                    enableInlineCohortCreation={enableInlineCohortCreation}
                     width={width}
                 />
             }

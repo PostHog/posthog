@@ -23,15 +23,19 @@ const COHORT_GROUP_TYPES: readonly TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.CohortsWithAllUsers,
 ]
 
+// Stable element for the "+ New cohort" button icon so each TaxonomicFilter
+// render doesn't allocate a fresh ReactElement.
+const PLUS_ICON = <IconPlusSmall />
+
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     /**
-     * When provided, a "+ Create new cohort" button is rendered above the list
-     * for cohort-typed groups. Firing this callback typically opens a modal
-     * hosted by the parent TaxonomicFilter.
+     * When provided, a "+ New cohort" button is rendered above the list for
+     * the active cohort-typed tab. Firing this callback typically opens a
+     * modal hosted by the parent TaxonomicFilter.
      */
     openCohortCreateModal?: () => void
 }
@@ -214,7 +218,11 @@ export function InfiniteSelectResults({
 
             <div className={cn('flex-1 overflow-hidden min-h-0')}>
                 {taxonomicGroupTypes.map((groupType) => {
-                    const showCohortCreateButton = !!openCohortCreateModal && COHORT_GROUP_TYPES.includes(groupType)
+                    // Only render the create button on the active tab — otherwise
+                    // the button sits in a `hidden` subtree but is still in the
+                    // DOM and reachable via keyboard tab navigation.
+                    const showCohortCreateButton =
+                        !!openCohortCreateModal && groupType === openTab && COHORT_GROUP_TYPES.includes(groupType)
                     return (
                         <div key={groupType} className={cn(groupType === openTab ? 'flex flex-col h-full' : 'hidden')}>
                             <BindLogic
@@ -227,11 +235,11 @@ export function InfiniteSelectResults({
                                             type="tertiary"
                                             size="small"
                                             fullWidth
-                                            icon={<IconPlusSmall />}
+                                            icon={PLUS_ICON}
                                             onClick={openCohortCreateModal}
                                             data-attr={`taxonomic-create-cohort-${groupType}`}
                                         >
-                                            Create new cohort
+                                            New cohort
                                         </LemonButton>
                                     </div>
                                 )}
