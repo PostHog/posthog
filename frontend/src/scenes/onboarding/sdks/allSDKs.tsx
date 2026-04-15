@@ -239,6 +239,20 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/installation/openrouter',
     },
     {
+        name: 'Cloudflare AI Gateway',
+        key: SDKKey.CLOUDFLARE_AI_GATEWAY,
+        tags: [SDKTag.GATEWAY],
+        image: <Logomark />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/cloudflare-ai-gateway',
+    },
+    {
+        name: 'Dedalus Labs',
+        key: SDKKey.DEDALUS,
+        tags: [SDKTag.GATEWAY],
+        image: <Logomark />,
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/dedalus',
+    },
+    {
         name: 'DeepSeek',
         key: SDKKey.DEEPSEEK,
         tags: [SDKTag.MODEL_PROVIDER],
