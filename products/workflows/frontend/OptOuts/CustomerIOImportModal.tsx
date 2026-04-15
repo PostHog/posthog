@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
-    LemonDivider,
     LemonInput,
     LemonModal,
     LemonTag,
@@ -13,77 +13,323 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { CSVImportProgress, customerIOImportLogic } from './customerIOImportLogic'
 
-export function CustomerIOImportModal(): JSX.Element {
-    const {
-        isImportModalOpen,
-        isImporting,
-        importProgress,
-        importError,
-        importForm,
-        csvFile,
-        csvProgress,
-        showCSVPhase,
-        isUploadingCSV,
-    } = useValues(customerIOImportLogic)
-    const { closeImportModal, submitImportForm, setCSVFile, uploadCSV } = useActions(customerIOImportLogic)
+function StepBadge({ status }: { status: 'completed' | 'failed' | false }): JSX.Element | null {
+    if (status === 'completed') {
+        return <LemonTag type="success">Completed</LemonTag>
+    }
+    if (status === 'failed') {
+        return <LemonTag type="warning">Failed</LemonTag>
+    }
+    return null
+}
 
-    const renderAPIImportPhase = (): JSX.Element => {
-        if (isImporting) {
-            // Show simple loading spinner
-            return (
-                <div className="space-y-4">
-                    <div className="text-center py-8">
-                        <Spinner className="text-3xl mb-4" />
-                        <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
-                        <div className="text-sm text-muted-alt">
-                            This may take a moment. Processing categories and unsubscribed users.
-                        </div>
-                    </div>
+function Step1Content(): JSX.Element {
+    const { isImporting, importProgress, importError, importForm, syncConfig, isRemovingAppConfig } =
+        useValues(customerIOImportLogic)
+    const { submitImportForm, rerunImport, removeAppConfig } = useActions(customerIOImportLogic)
+
+    const hasStoredKey = syncConfig?.app_integration_id != null || importProgress?.status === 'completed'
+    const result = syncConfig?.app_import_result
+    // Prefer local reducer state, fall back to DB-persisted result
+    const displayResult = importProgress?.status === 'completed' ? importProgress : null
+    const persistedResult = !displayResult && result?.status === 'completed' ? result : null
+
+    if (isImporting) {
+        return (
+            <div className="text-center py-8">
+                <Spinner className="text-3xl mb-4" />
+                <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
+                <div className="text-sm text-muted-alt">
+                    This may take a moment. Please don't navigate away from this page.
                 </div>
-            )
-        }
+            </div>
+        )
+    }
 
-        if (importProgress?.status === 'failed') {
-            return (
+    return (
+        <div className="space-y-4">
+            {/* Error banner */}
+            {importProgress?.status === 'failed' && (
                 <LemonBanner type="error">
-                    <div>
-                        <div className="font-semibold mb-2">Import Failed</div>
-                        <div className="text-sm">
-                            {importProgress.errors?.join(', ') || 'An unknown error occurred'}
-                        </div>
-                    </div>
+                    Import failed: {importProgress.errors?.join(', ') || 'An unknown error occurred'}
                 </LemonBanner>
-            )
-        }
+            )}
+            {!importProgress && result?.status === 'failed' && (
+                <LemonBanner type="error">Last import failed: {result.error || 'Unknown error'}</LemonBanner>
+            )}
 
-        if (importProgress?.status === 'completed') {
-            return (
-                <div className="space-y-4">
+            {/* Success banner */}
+            {(displayResult || persistedResult) && (
+                <>
                     <LemonBanner type="success">
-                        <span className="font-semibold">API Import Complete!</span>
+                        <span className="font-semibold">API import complete</span>
                     </LemonBanner>
                     <div className="space-y-2 text-sm">
+                        {(persistedResult?.imported_at || displayResult) && (
+                            <div className="flex items-center justify-between">
+                                <span>Last imported:</span>
+                                <TZLabel time={persistedResult?.imported_at || new Date().toISOString()} />
+                            </div>
+                        )}
                         <div className="flex items-center justify-between">
                             <span>Categories imported:</span>
-                            <LemonTag>{importProgress.categories_created || 0}</LemonTag>
+                            <LemonTag>
+                                {displayResult?.categories_created ?? persistedResult?.categories_created ?? 0}
+                            </LemonTag>
                         </div>
                         <div className="flex items-center justify-between">
                             <span>Globally unsubscribed users:</span>
-                            <LemonTag>{(importProgress.globally_unsubscribed_count || 0).toLocaleString()}</LemonTag>
+                            <LemonTag>
+                                {(
+                                    displayResult?.globally_unsubscribed_count ??
+                                    persistedResult?.globally_unsubscribed_count ??
+                                    0
+                                ).toLocaleString()}
+                            </LemonTag>
                         </div>
                     </div>
-                </div>
-            )
-        }
+                </>
+            )}
 
-        // Initial form
+            {/* API key */}
+            {hasStoredKey ? (
+                <>
+                    <div className="space-y-2">
+                        <label className="LemonLabel">Customer.io App API Key</label>
+                        <LemonInput
+                            value="••••••••••••••••"
+                            disabledReason="Can't be changed"
+                            suffix={
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    status="danger"
+                                    tooltip="Remove stored API key"
+                                    onClick={removeAppConfig}
+                                    loading={isRemovingAppConfig}
+                                    icon={<IconTrash className="text-danger" />}
+                                />
+                            }
+                        />
+                    </div>
+                    <p className="text-sm text-muted">Safe to rerun, existing categories and users will be updated.</p>
+                </>
+            ) : (
+                <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
+                    <div className="space-y-4">
+                        <LemonField name="app_api_key" label="Customer.io App API Key">
+                            <LemonInput
+                                placeholder="Enter your App API key"
+                                type="password"
+                                data-attr="customerio-api-key"
+                                autoComplete="off"
+                            />
+                        </LemonField>
+                        {importError && (
+                            <LemonBanner type="error" className="text-sm">
+                                {importError}
+                            </LemonBanner>
+                        )}
+                        <div className="text-xs text-muted-alt">
+                            You can generate an App API key in Customer.io under Settings → Account Settings → API
+                            Credentials.
+                        </div>
+                    </div>
+                </Form>
+            )}
+
+            {/* Action button */}
+            <div className="flex justify-end">
+                {hasStoredKey ? (
+                    <LemonButton type="primary" onClick={rerunImport}>
+                        Run again
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        onClick={submitImportForm}
+                        disabledReason={!importForm.app_api_key ? 'Enter your API key' : undefined}
+                    >
+                        Start import
+                    </LemonButton>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function Step2Content(): JSX.Element {
+    const { csvFile, csvProgress, isUploadingCSV, syncConfig } = useValues(customerIOImportLogic)
+    const { setCSVFile, uploadCSV } = useActions(customerIOImportLogic)
+    const persistedCSVResult = !csvProgress ? syncConfig?.csv_import_result : null
+
+    const renderFailedImports = (failed: CSVImportProgress['failed_imports']): JSX.Element | null => {
+        if (!failed || failed.length === 0) {
+            return null
+        }
         return (
-            <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
+            <LemonCollapse
+                className="mt-4"
+                panels={[
+                    {
+                        key: 'failed-imports',
+                        header: <div className="font-semibold text-sm">Failed imports ({failed.length})</div>,
+                        content: (
+                            <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
+                                {failed.slice(0, 100).map((item, idx) => (
+                                    <div key={idx} className="py-0.5">
+                                        {item.email}: {item.error}
+                                    </div>
+                                ))}
+                                {failed.length > 100 && (
+                                    <div className="text-muted-alt mt-2">... and {failed.length - 100} more</div>
+                                )}
+                            </div>
+                        ),
+                    },
+                ]}
+                defaultActiveKeys={[]}
+            />
+        )
+    }
+
+    if (isUploadingCSV && !csvProgress) {
+        return (
+            <div className="text-center py-8">
+                <Spinner className="text-3xl mb-4" />
+                <div className="text-lg font-semibold mb-2">Processing CSV...</div>
+                <div className="text-sm text-muted-alt">This may take a moment for large files.</div>
+            </div>
+        )
+    }
+
+    if (csvProgress?.status === 'completed') {
+        return (
+            <div className="space-y-4">
+                <LemonBanner type="success">
+                    <span className="font-semibold">CSV import complete</span>
+                </LemonBanner>
+                <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                        <span>Total rows processed:</span>
+                        <LemonTag>{csvProgress.total_rows.toLocaleString()}</LemonTag>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span>Users with opt-outs:</span>
+                        <LemonTag>{csvProgress.users_with_optouts.toLocaleString()}</LemonTag>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span>Users skipped (no opt-outs):</span>
+                        <LemonTag>{csvProgress.users_skipped.toLocaleString()}</LemonTag>
+                    </div>
+                    {csvProgress.parse_errors > 0 && (
+                        <div className="flex items-center justify-between text-warning">
+                            <span>Parse errors:</span>
+                            <LemonTag type="warning">{csvProgress.parse_errors}</LemonTag>
+                        </div>
+                    )}
+                </div>
+                {renderFailedImports(csvProgress.failed_imports)}
+            </div>
+        )
+    }
+
+    const csvFailed = csvProgress?.status === 'failed' || persistedCSVResult?.status === 'failed'
+    const csvFailureDetail = csvProgress?.details || persistedCSVResult?.error
+
+    if (csvFailed) {
+        return (
+            <LemonBanner type="error">CSV import failed{csvFailureDetail ? `: ${csvFailureDetail}` : ''}</LemonBanner>
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted">
+                Export a CSV from Customer.io containing users with subscription preferences. This is not supported via
+                the API. You can upload multiple times to update existing users.
+                <br />
+                <Link
+                    to="https://posthog.com/docs/workflows/import-customerio-optouts"
+                    target="_blank"
+                    className="text-primary"
+                >
+                    View instructions
+                </Link>
+            </p>
+            <div>
+                {!csvFile ? (
+                    <LemonFileInput
+                        accept=".csv"
+                        multiple={false}
+                        value={[]}
+                        onChange={(files) => setCSVFile(files[0] || null)}
+                        showUploadedFiles={false}
+                        callToAction={
+                            <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary-light transition-colors cursor-pointer w-full">
+                                <div className="text-sm text-muted">Drop your CSV file here or click to browse</div>
+                                <div className="text-xs text-muted-alt mt-1">Accepts .csv files only</div>
+                            </div>
+                        }
+                    />
+                ) : (
+                    <div className="border-2 border-dashed border-border rounded-lg p-3 w-full">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <div className="font-medium text-sm">{csvFile.name}</div>
+                                <div className="text-xs text-muted mt-1">
+                                    Size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
+                                </div>
+                            </div>
+                            <LemonButton size="small" type="secondary" onClick={() => setCSVFile(null)}>
+                                Remove
+                            </LemonButton>
+                        </div>
+                    </div>
+                )}
+            </div>
+            <div className="flex justify-end">
+                <LemonButton
+                    type="primary"
+                    onClick={uploadCSV}
+                    loading={isUploadingCSV}
+                    disabledReason={!csvFile ? 'Please select a CSV file' : undefined}
+                >
+                    Upload & process CSV
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export function CustomerIOImportModal(): JSX.Element {
+    const { isImportModalOpen, stepCompletion, syncConfigLoading } = useValues(customerIOImportLogic)
+    const { closeImportModal } = useActions(customerIOImportLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
+
+    return (
+        <LemonModal
+            title="Customer.io integration"
+            description="Import categories and unsubscribed users from Customer.io."
+            isOpen={isImportModalOpen}
+            onClose={closeImportModal}
+            width={640}
+        >
+            {isAdminOrOwner === false ? (
+                <AccessDenied object="Customer.io integration" inline />
+            ) : syncConfigLoading ? (
+                <div className="flex justify-center py-8">
+                    <Spinner className="text-3xl" />
+                </div>
+            ) : (
                 <div className="space-y-4">
                     <LemonBanner type="info">
                         <span>
@@ -94,274 +340,33 @@ export function CustomerIOImportModal(): JSX.Element {
                             for detailed instructions.
                         </span>
                     </LemonBanner>
-                    <div>
-                        <p className="text-sm text-muted mb-4">
-                            Step 1: Import categories and globally unsubscribed users from Customer.io API.
-                        </p>
-                    </div>
-
-                    <LemonField name="app_api_key" label="Customer.io App API Key">
-                        <LemonInput
-                            placeholder="Enter your App API key"
-                            type="password"
-                            data-attr="customerio-api-key"
-                            autoComplete="off"
-                        />
-                    </LemonField>
-
-                    {importError && (
-                        <LemonBanner type="error" className="text-sm">
-                            {importError}
-                        </LemonBanner>
-                    )}
-
-                    <div className="text-xs text-muted-alt">
-                        You can generate an App API key in Customer.io under Settings → Account Settings → API
-                        Credentials.
-                    </div>
-                </div>
-            </Form>
-        )
-    }
-
-    const renderCSVImportPhase = (): JSX.Element => {
-        const renderFailedImports = (failed: CSVImportProgress['failed_imports']): JSX.Element | null => {
-            if (!failed || failed.length === 0) {
-                return null
-            }
-
-            return (
-                <LemonCollapse
-                    className="mt-4"
-                    panels={[
-                        {
-                            key: 'failed-imports',
-                            header: <div className="font-semibold text-sm">Failed imports ({failed.length})</div>,
-                            content: (
-                                <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
-                                    {failed.slice(0, 100).map((item, idx) => (
-                                        <div key={idx} className="py-0.5">
-                                            {item.email}: {item.error}
-                                        </div>
-                                    ))}
-                                    {failed.length > 100 && (
-                                        <div className="text-muted-alt mt-2">... and {failed.length - 100} more</div>
-                                    )}
-                                </div>
-                            ),
-                        },
-                    ]}
-                    defaultActiveKeys={[]} // Start collapsed
-                />
-            )
-        }
-
-        // Show loading state while processing
-        if (isUploadingCSV && !csvProgress) {
-            return (
-                <div className="space-y-4">
-                    <LemonDivider />
-                    <div className="text-center py-8">
-                        <Spinner className="text-3xl mb-4" />
-                        <div className="text-lg font-semibold mb-2">Processing CSV...</div>
-                        <div className="text-sm text-muted-alt">
-                            This may take a moment for large files. Please don't close this window.
-                        </div>
-                        <div className="text-xs text-muted-alt mt-2">
-                            Processing thousands of rows and updating the database...
-                        </div>
-                    </div>
-                </div>
-            )
-        }
-
-        if (csvProgress) {
-            if (csvProgress.status === 'completed') {
-                return (
-                    <div className="space-y-4">
-                        <LemonDivider />
-                        <LemonBanner type="success">
-                            <span className="font-semibold">CSV Import Complete!</span>
-                        </LemonBanner>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex items-center justify-between">
-                                <span>Total rows processed:</span>
-                                <LemonTag>{csvProgress.total_rows.toLocaleString()}</LemonTag>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Users with opt-outs:</span>
-                                <LemonTag>{csvProgress.users_with_optouts.toLocaleString()}</LemonTag>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span>Users skipped (no opt-outs):</span>
-                                <LemonTag>{csvProgress.users_skipped.toLocaleString()}</LemonTag>
-                            </div>
-                            {csvProgress.parse_errors > 0 && (
-                                <div className="flex items-center justify-between text-warning">
-                                    <span>Parse errors:</span>
-                                    <LemonTag type="warning">{csvProgress.parse_errors}</LemonTag>
-                                </div>
-                            )}
-                        </div>
-                        {renderFailedImports(csvProgress.failed_imports)}
-                    </div>
-                )
-            } else if (csvProgress.status === 'failed') {
-                return (
-                    <div className="space-y-4">
-                        <LemonDivider />
-                        <LemonBanner type="error">
-                            <div>
-                                <div className="font-semibold mb-2">CSV Import Failed</div>
-                                <div className="text-sm">{csvProgress.details}</div>
-                            </div>
-                        </LemonBanner>
-                    </div>
-                )
-            }
-        }
-
-        return (
-            <div className="space-y-3">
-                <LemonDivider />
-                <div>
-                    <h3 className="font-semibold mb-2">Step 2: Import User Preferences (Optional)</h3>
-                    <p className="text-sm text-muted mb-3">
-                        Export a CSV from Customer.io with users who have subscription preferences set.{' '}
-                        <Link
-                            to="https://posthog.com/docs/workflows/import-customerio-optouts"
-                            target="_blank"
-                            className="text-primary"
-                        >
-                            View instructions
-                        </Link>
-                    </p>
-
-                    <div className="flex justify-center">
-                        {!csvFile ? (
-                            <LemonFileInput
-                                accept=".csv"
-                                multiple={false}
-                                value={[]}
-                                onChange={(files) => setCSVFile(files[0] || null)}
-                                showUploadedFiles={false}
-                                callToAction={
-                                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center hover:border-primary-light transition-colors cursor-pointer w-full">
-                                        <div className="text-sm text-muted">
-                                            Drop your CSV file here or click to browse
-                                        </div>
-                                        <div className="text-xs text-muted-alt mt-1">Accepts .csv files only</div>
+                    <LemonCollapse
+                        defaultActiveKey={!stepCompletion.step1 ? 'step1' : !stepCompletion.step2 ? 'step2' : undefined}
+                        panels={[
+                            {
+                                key: 'step1',
+                                header: (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>1. Import categories & global opt-outs</span>
+                                        <StepBadge status={stepCompletion.step1} />
                                     </div>
-                                }
-                            />
-                        ) : (
-                            <div className="border-2 border-dashed border-border rounded-lg p-3 w-full">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="font-medium text-sm">{csvFile.name}</div>
-                                        <div className="text-xs text-muted mt-1">
-                                            Size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
-                                        </div>
+                                ),
+                                content: <Step1Content />,
+                            },
+                            {
+                                key: 'step2',
+                                header: (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>2. Upload opt-out preferences CSV</span>
+                                        <StepBadge status={stepCompletion.step2} />
                                     </div>
-                                    <LemonButton size="small" type="secondary" onClick={() => setCSVFile(null)}>
-                                        Remove
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                                ),
+                                content: <Step2Content />,
+                            },
+                        ]}
+                    />
                 </div>
-            </div>
-        )
-    }
-
-    const renderContent = (): JSX.Element => {
-        if (!showCSVPhase) {
-            return renderAPIImportPhase()
-        }
-
-        return (
-            <div className="space-y-4">
-                {renderAPIImportPhase()}
-                {renderCSVImportPhase()}
-            </div>
-        )
-    }
-
-    const getModalFooter = (): JSX.Element | null => {
-        // During API import
-        if (isImporting) {
-            return null // No buttons during import
-        }
-
-        // During CSV upload/processing
-        if (isUploadingCSV && !csvProgress) {
-            return null // No buttons while processing
-        }
-
-        // API import failed
-        if (importProgress?.status === 'failed') {
-            return (
-                <LemonButton type="primary" onClick={closeImportModal}>
-                    Close
-                </LemonButton>
-            )
-        }
-
-        // CSV phase
-        if (showCSVPhase) {
-            if (csvProgress?.status === 'completed' || csvProgress?.status === 'failed') {
-                return (
-                    <LemonButton type="primary" onClick={closeImportModal}>
-                        Close
-                    </LemonButton>
-                )
-            }
-
-            return (
-                <>
-                    <LemonButton type="secondary" onClick={closeImportModal}>
-                        Skip CSV Import
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={uploadCSV}
-                        loading={isUploadingCSV}
-                        disabledReason={!csvFile ? 'Please select a CSV file' : undefined}
-                    >
-                        Upload & Process CSV
-                    </LemonButton>
-                </>
-            )
-        }
-
-        // Initial API import form
-        return (
-            <>
-                <LemonButton type="secondary" onClick={closeImportModal}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={submitImportForm}
-                    loading={isImporting}
-                    disabledReason={!importForm.app_api_key ? 'Please enter your API key' : undefined}
-                >
-                    Start Import
-                </LemonButton>
-            </>
-        )
-    }
-
-    return (
-        <LemonModal
-            title="Import from Customer.io"
-            isOpen={isImportModalOpen}
-            onClose={closeImportModal}
-            footer={getModalFooter()}
-            width="medium"
-        >
-            {renderContent()}
+            )}
         </LemonModal>
     )
 }

@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -28,6 +28,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
+import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -177,6 +178,8 @@ export function FeatureFlagReleaseConditions({
         )
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
+        const rolloutValue = group.rollout_percentage ?? 100
+
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
@@ -420,7 +423,7 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex flex-wrap items-center gap-1">
                                 Roll out to{' '}
                                 <LemonSlider
-                                    value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
+                                    value={rolloutValue}
                                     onChange={(value) => {
                                         updateConditionSet(index, value)
                                     }}
@@ -430,18 +433,11 @@ export function FeatureFlagReleaseConditions({
                                     className="ml-1.5 w-20"
                                 />
                                 <LemonField.Pure error={propertySelectErrors?.[index]?.rollout_percentage} inline>
-                                    <LemonInput
+                                    <PercentageInput
                                         data-attr="rollout-percentage"
-                                        type="number"
                                         className="ml-2 mr-1.5 max-w-30"
-                                        onChange={(value): void => {
-                                            updateConditionSet(index, value === undefined ? 0 : value)
-                                        }}
-                                        value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
-                                        min={0}
-                                        max={100}
-                                        step="any"
-                                        suffix={<span>%</span>}
+                                        value={rolloutValue}
+                                        onChange={(value) => updateConditionSet(index, value)}
                                     />
                                 </LemonField.Pure>{' '}
                                 <div

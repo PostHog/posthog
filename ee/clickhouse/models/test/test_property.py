@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Union, cast
+from typing import Any, Literal, Union, cast
 from uuid import UUID
 
 import pytest
@@ -1026,7 +1026,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
         materialize("events", "some_mat_prop2", table_column="person_properties")
-        materialize("events", "some_mat_prop3", table_column="group2_properties")
+        materialize("events", "some_mat_prop3", table_column=cast(Any, "group2_properties"))
         string_expr = get_property_string_expr(
             "events",
             "some_mat_prop2",
@@ -1227,7 +1227,7 @@ def test_breakdown_query_expression(
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
     column: str,
-    expected: str,
+    expected: tuple[str, dict[str, Any]],
 ):
     actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
 
@@ -1262,8 +1262,8 @@ def test_breakdown_query_expression_materialised(
     query_alias: Literal["prop", "value"],
     column: str,
     materialise_column: str,
-    expected_with: str,
-    expected_without: str,
+    expected_with: tuple[str, dict[str, Any]],
+    expected_without: tuple[str, dict[str, Any]],
 ):
     from posthog.models.team import util
 
@@ -1279,7 +1279,7 @@ def test_breakdown_query_expression_materialised(
     )
     assert actual == expected_with
 
-    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
     actual = get_single_or_multi_property_string_expr(
         breakdown,
         table,
@@ -1799,7 +1799,7 @@ def test_prop_filter_json_extract_person_on_events_materialized(
         return
 
     # simulates a group property being materialised
-    materialize("events", property.key, table_column="group2_properties")
+    materialize("events", property.key, table_column=cast(Any, "group2_properties"))
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
     # this query uses the `properties` column, thus the materialized column is different.

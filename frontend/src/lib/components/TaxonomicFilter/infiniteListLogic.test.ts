@@ -4,13 +4,14 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -383,9 +384,9 @@ describe('infiniteListLogic', () => {
             joins: [],
         } as any)
 
-        const joinsLogic = dataWarehouseJoinsLogic()
-        joinsLogic.mount()
-        joinsLogic.actions.loadJoinsSuccess([
+        const joinsLogicInstance = joinsLogic()
+        joinsLogicInstance.mount()
+        joinsLogicInstance.actions.loadJoinsSuccess([
             {
                 id: 'join-1',
                 source_table_name: 'persons',

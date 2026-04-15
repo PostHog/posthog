@@ -48,6 +48,23 @@ RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
 
+# Characters that can trigger formula execution in spreadsheet applications
+_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_formula_injection(value: Any) -> Any:
+    """Prefix dangerous cell values with a single quote to prevent formula injection.
+
+    Spreadsheet applications like Excel and Google Sheets interpret cells
+    starting with =, +, -, @, tab, or carriage return as formulas. Prefixing
+    with a single quote forces them to be treated as plain text.
+    """
+    if not isinstance(value, str):
+        return value
+    if value and value[0] in _FORMULA_TRIGGER_CHARS:
+        return f"'{value}"
+    return value
+
 
 def sanitize_value_for_excel(value: Any) -> Any:
     if not isinstance(value, str):
@@ -68,11 +85,12 @@ class CsvWriter(TabularWriter):
 
     def write_header(self, columns: list[str]) -> None:
         self._writer = csv.DictWriter(self._tmp, fieldnames=columns, extrasaction="ignore")
-        self._writer.writeheader()
+        # Write sanitized header manually — fieldnames must stay raw for dict key lookup
+        self._writer.writer.writerow([_sanitize_formula_injection(c) for c in columns])
 
     def write_row(self, row: dict) -> None:
         assert self._writer is not None
-        self._writer.writerow(row)
+        self._writer.writerow({k: _sanitize_formula_injection(v) for k, v in row.items()})
 
     def finish(self) -> str:
         self._tmp.close()
@@ -91,7 +109,7 @@ class ExcelWriter(TabularWriter):
     def write_header(self, columns: list[str]) -> None:
         self._columns = columns
         try:
-            self._worksheet.append(columns)
+            self._worksheet.append([_sanitize_formula_injection(c) for c in columns])
         except ValueError as e:
             if "Invalid column index" in str(e):
                 raise ExcelColumnLimitExceeded() from e
@@ -103,7 +121,10 @@ class ExcelWriter(TabularWriter):
             value = row.get(col)
             if value is not None and not isinstance(value, str | int | float | bool):
                 value = str(value)
-            values.append(sanitize_value_for_excel(value))
+            # Strip illegal Excel chars first so formula check sees the final string
+            value = sanitize_value_for_excel(value)
+            value = _sanitize_formula_injection(value)
+            values.append(value)
         try:
             self._worksheet.append(values)
         except ValueError as e:
