@@ -7,12 +7,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
+import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
@@ -21,6 +23,22 @@ import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+
+function regionFromUrl(url?: string): Region | undefined {
+    if (url) {
+        try {
+            const hostname = new URL(url).hostname
+            for (const [region, domain] of Object.entries(CLOUD_HOSTNAMES)) {
+                if (hostname === domain || hostname.endsWith(`.${domain}`)) {
+                    return region as Region
+                }
+            }
+        } catch {
+            // ignore malformed URLs
+        }
+    }
+    return undefined
+}
 
 function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt?: string): DataTableNode {
     // Show events around ticket creation time (5 min before/after) or last 24h if no timestamp
@@ -411,6 +429,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
+                impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
+                    ticketId: ticket.id,
+                    email: ticket.anonymous_traits?.email || '',
+                    region: regionFromUrl(ticket.session_context?.current_url),
+                })
+
                 // Load session context data
                 actions.loadPerson()
 
@@ -574,6 +598,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     beforeUnmount(({ cache }) => {
         cache.disposables.disposeAll()
+        impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
     beforeUnload(({ values }) => ({
         enabled: () => values.hasPendingWork,

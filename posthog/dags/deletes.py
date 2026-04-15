@@ -21,6 +21,7 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     NodeRole,
     Query,
+    Workload,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
@@ -434,7 +435,7 @@ def load_pending_deletions(
                         "group_type_index": deletion.group_type_index,
                         "created_at": deletion.created_at,
                         "delete_verified_at": deletion.delete_verified_at,
-                        "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
+                        "created_by_id": str(deletion.created_by_id) if deletion.created_by_id else None,
                         "team_id": deletion.team_id,
                     }
                     for deletion in chunk
@@ -758,7 +759,9 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
     cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
-    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
+    cluster.any_host_by_role(
+        resources.adhoc_event_deletes_dictionary.source.optimize, NodeRole.DATA, Workload.ONLINE
+    ).result()
 
     return True
 

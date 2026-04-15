@@ -33,9 +33,19 @@ import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/lo
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'configuration']
+export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
+
+const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
+    if (typeof params.alertId === 'string' && params.alertId.length > 0) {
+        return 'alerts'
+    }
+    if (typeof params.activeTab === 'string' && VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab)) {
+        return params.activeTab as LogsSceneActiveTab
+    }
+    return null
+}
 
 export interface LogsLogicProps {
     tabId: string
@@ -76,12 +86,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (cache.isSyncingUrl) {
                 return
             }
-            if (
-                typeof params.activeTab === 'string' &&
-                VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab) &&
-                params.activeTab !== values.activeTab
-            ) {
-                actions.setActiveTab(params.activeTab as LogsSceneActiveTab)
+            const requestedTab = resolveActiveTabFromParams(params)
+            if (requestedTab && requestedTab !== values.activeTab) {
+                actions.setActiveTab(requestedTab)
             }
 
             const filtersFromUrl: Partial<LogsViewerFilters> = {}

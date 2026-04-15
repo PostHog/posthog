@@ -1,5 +1,3 @@
-from django.conf import settings
-
 from posthog.settings import get_from_env
 from posthog.utils import str_to_bool
 
@@ -26,10 +24,6 @@ SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMP
 # an AI model to use for session recording filters
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4.1-mini")
 
-PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
-    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", default=60 if settings.DEBUG else 3600, type_cast=int
-)
-
 PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS", 3600, type_cast=int
 )
@@ -37,6 +31,7 @@ PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
 PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT", 2500, type_cast=int
 )
+
 
 SNAPSHOT_RATE_FREE_BURST = get_from_env("SNAPSHOT_RATE_FREE_BURST", "12/minute")
 SNAPSHOT_RATE_FREE_SUSTAINED = get_from_env("SNAPSHOT_RATE_FREE_SUSTAINED", "60/hour")

@@ -14,6 +14,7 @@ import { PersonRepository } from '~/worker/ingestion/persons/repositories/person
 
 import { TophogOutput } from '../common/outputs'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { TopHog } from '../tophog'
 import { CymbalClient } from './cymbal/client'
@@ -281,13 +282,16 @@ describe('ErrorTrackingPipeline', () => {
 
         pipelineConfig = {
             outputs: new IngestionOutputs({
-                events: [{ topic: 'clickhouse_events_json_test', producer: mockKafkaProducer, producerName: 'test' }],
-                ingestion_warnings: [
-                    { topic: 'clickhouse_ingestion_warnings_test', producer: mockKafkaProducer, producerName: 'test' },
-                ],
-                dlq: [{ topic: 'error_tracking_dlq', producer: mockKafkaProducer, producerName: 'test' }],
-                overflow: [{ topic: 'error_tracking_overflow', producer: mockKafkaProducer, producerName: 'test' }],
-                tophog: [{ topic: 'clickhouse_tophog_test', producer: mockKafkaProducer, producerName: 'test' }],
+                events: new SingleIngestionOutput('events', 'clickhouse_events_json_test', mockKafkaProducer, 'test'),
+                ingestion_warnings: new SingleIngestionOutput(
+                    'ingestion_warnings',
+                    'clickhouse_ingestion_warnings_test',
+                    mockKafkaProducer,
+                    'test'
+                ),
+                dlq: new SingleIngestionOutput('dlq', 'error_tracking_dlq', mockKafkaProducer, 'test'),
+                overflow: new SingleIngestionOutput('overflow', 'error_tracking_overflow', mockKafkaProducer, 'test'),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockKafkaProducer, 'test'),
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,
