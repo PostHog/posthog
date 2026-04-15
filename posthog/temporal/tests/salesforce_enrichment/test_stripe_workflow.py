@@ -118,8 +118,8 @@ class TestWorkflowParseInputs(SimpleTestCase):
                     "total_skipped_no_account": 10,
                     "error_count": 0,
                     "errors": [],
-                    "resolved_since": "2026-04-10T12:00:00+00:00",
-                    "pending_watermark": "2026-04-11T12:00:00+00:00",
+                    "pending_watermark_ts": "2026-04-11T12:00:00+00:00",
+                    "pending_watermark_org_id": "org-99",
                     "cursor_last_changed_at": "2026-04-11T00:00:00+00:00",
                     "cursor_org_id": "org-99",
                 },
@@ -130,7 +130,8 @@ class TestWorkflowParseInputs(SimpleTestCase):
         assert inputs.max_rows == 500
         assert inputs.state is not None
         assert inputs.state.total_rows_fetched == 100
-        assert inputs.state.resolved_since == "2026-04-10T12:00:00+00:00"
+        assert inputs.state.pending_watermark_ts == "2026-04-11T12:00:00+00:00"
+        assert inputs.state.pending_watermark_org_id == "org-99"
         assert inputs.state.cursor_last_changed_at == "2026-04-11T00:00:00+00:00"
         assert inputs.state.cursor_org_id == "org-99"
 
@@ -165,13 +166,14 @@ class TestEnrichStripePageActivity(SimpleTestCase):
         mock_sf_client.return_value = mock_sf
 
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
         assert result.rows_fetched == 2
         assert result.updated == 2
         assert result.skipped_no_account == 0
         assert result.errors == []
-        assert result.max_last_changed_at == "2026-04-11T00:00:00+00:00"
+        assert result.next_cursor_last_changed_at == "2026-04-11T00:00:00+00:00"
+        assert result.next_cursor_org_id == "org-2"
         mock_bulk.assert_called_once()
         sent_records = mock_bulk.call_args[0][1]
         assert len(sent_records) == 2
@@ -201,7 +203,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
         mock_sf_client.return_value = mock_sf
 
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
         assert result.rows_fetched == 2
         assert result.updated == 1
@@ -215,11 +217,12 @@ class TestEnrichStripePageActivity(SimpleTestCase):
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals", return_value=[])
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_empty_page_returns_zero(self, _mock_close, _mock_fetch, _mock_heartbeat):
-        result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+        result = await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
         assert result.rows_fetched == 0
         assert result.updated == 0
-        assert result.max_last_changed_at is None
+        assert result.next_cursor_last_changed_at is None
+        assert result.next_cursor_org_id is None
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
@@ -227,21 +230,26 @@ class TestEnrichStripePageActivity(SimpleTestCase):
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_sfdc_exception_captured_as_error(
-        self, _mock_close, mock_fetch, mock_sf_client, _mock_bulk, _mock_heartbeat
+    async def test_sfdc_transport_exception_propagates_for_retry(
+        self, _mock_close, mock_fetch, mock_sf_client, mock_bulk, _mock_heartbeat
     ):
+        """Transport failures must bubble up so Temporal retries the whole page.
+
+        Previously the activity caught the exception and returned a soft error,
+        which meant the activity's retry policy was never exercised and transient
+        429/5xx/network failures left rows stale until the next daily run.
+        """
         mock_fetch.return_value = [_signals(org_id="org-1")]
         mock_sf = MagicMock()
         mock_sf.query_all.return_value = {"records": [{"Id": "001ABC", "Posthog_Org_ID__c": "org-1"}]}
         mock_sf_client.return_value = mock_sf
 
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+            with pytest.raises(Exception, match="sfdc down"):
+                await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
-        assert result.rows_fetched == 1
-        assert result.updated == 0
-        assert len(result.errors) == 1
-        assert "sfdc down" in result.errors[0]
+        _, kwargs = mock_bulk.call_args
+        assert kwargs.get("raise_on_batch_error") is True
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
@@ -271,7 +279,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
         mock_sf_client.return_value = mock_sf
 
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
-            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
         # Partial failure: 1 row succeeded, 1 row was rejected by Salesforce.
         # We still count the success in ``updated`` but surface the failure via errors
@@ -306,7 +314,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
             patch(f"{WORKFLOW_MODULE}._SFDC_LOOKUP_CHUNK_SIZE", 100),
             patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread),
         ):
-            result = await enrich_stripe_page_activity(EnrichStripePageInputs(since=None, page_size=5000))
+            result = await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
         # 250 org ids at chunk size 100 → 3 lookup calls (100 + 100 + 50).
         assert mock_sf.query_all.call_count == 3
@@ -320,13 +328,12 @@ class TestWorkflowRun(SimpleTestCase):
     async def test_resolves_watermark_on_first_iteration(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
-                "2026-04-10T00:00:00+00:00",  # get_stripe_watermark_activity
+                ("2026-04-10T00:00:00+00:00", "org-0"),  # get_stripe_watermark_activity
                 EnrichStripePageResult(
                     rows_fetched=100,
                     updated=90,
                     skipped_no_account=10,
                     errors=[],
-                    max_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_org_id="org-99",
                 ),
@@ -342,7 +349,15 @@ class TestWorkflowRun(SimpleTestCase):
         assert mock_workflow.execute_activity.await_count == 3
         assert result["total_rows_fetched"] == 100
         assert result["total_updated"] == 90
-        assert result["committed_watermark"] == "2026-04-12T00:00:00+00:00"
+        assert result["committed_watermark_ts"] == "2026-04-12T00:00:00+00:00"
+        assert result["committed_watermark_org_id"] == "org-99"
+
+        # The first-page activity must receive the prior-run watermark as its
+        # starting cursor so the run resumes strictly after that keyset row.
+        page_call_args = mock_workflow.execute_activity.await_args_list[1]
+        page_inputs = page_call_args.args[1]
+        assert page_inputs.cursor_last_changed_at == "2026-04-10T00:00:00+00:00"
+        assert page_inputs.cursor_org_id == "org-0"
         mock_workflow.continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
@@ -356,7 +371,6 @@ class TestWorkflowRun(SimpleTestCase):
                     updated=500,
                     skipped_no_account=0,
                     errors=[],
-                    max_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_org_id="org-499",
                 ),
@@ -372,8 +386,8 @@ class TestWorkflowRun(SimpleTestCase):
         call_args = mock_workflow.continue_as_new.call_args[0][0]
         assert call_args.state.cursor_last_changed_at == "2026-04-12T00:00:00+00:00"
         assert call_args.state.cursor_org_id == "org-499"
-        assert call_args.state.pending_watermark == "2026-04-12T00:00:00+00:00"
-        assert call_args.state.resolved_since is None
+        assert call_args.state.pending_watermark_ts == "2026-04-12T00:00:00+00:00"
+        assert call_args.state.pending_watermark_org_id == "org-499"
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
@@ -385,7 +399,6 @@ class TestWorkflowRun(SimpleTestCase):
                     updated=10,
                     skipped_no_account=0,
                     errors=[],
-                    max_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_org_id="org-9",
                 ),
@@ -403,12 +416,15 @@ class TestWorkflowRun(SimpleTestCase):
         # where the full refresh finished instead of replaying history.
         assert mock_workflow.execute_activity.await_count == 2
         commit_call = mock_workflow.execute_activity.await_args_list[1]
-        assert commit_call.args[1] == "2026-04-12T00:00:00+00:00"
-        assert result["committed_watermark"] == "2026-04-12T00:00:00+00:00"
+        commit_inputs = commit_call.args[1]
+        assert commit_inputs.last_changed_at == "2026-04-12T00:00:00+00:00"
+        assert commit_inputs.posthog_organization_id == "org-9"
+        assert result["committed_watermark_ts"] == "2026-04-12T00:00:00+00:00"
+        assert result["committed_watermark_org_id"] == "org-9"
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
-    async def test_continuation_does_not_refetch_since(self, mock_workflow):
+    async def test_continuation_uses_stored_cursor(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
                 EnrichStripePageResult(
@@ -416,7 +432,6 @@ class TestWorkflowRun(SimpleTestCase):
                     updated=10,
                     skipped_no_account=0,
                     errors=[],
-                    max_last_changed_at="2026-04-13T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-13T00:00:00+00:00",
                     next_cursor_org_id="org-509",
                 ),
@@ -428,8 +443,8 @@ class TestWorkflowRun(SimpleTestCase):
         state = StripeEnrichmentState(
             total_rows_fetched=500,
             total_updated=500,
-            resolved_since="2026-04-10T00:00:00+00:00",
-            pending_watermark="2026-04-12T00:00:00+00:00",
+            pending_watermark_ts="2026-04-12T00:00:00+00:00",
+            pending_watermark_org_id="org-499",
             cursor_last_changed_at="2026-04-12T00:00:00+00:00",
             cursor_org_id="org-499",
         )
@@ -437,8 +452,9 @@ class TestWorkflowRun(SimpleTestCase):
         inputs = StripeEnrichmentInputs(page_size=500, state=state)
         result = await wf.run(inputs)
 
-        # The continuation must pass the stored cursor to the activity, not
-        # restart from the watermark.
+        # The continuation must pass the stored cursor to the activity and
+        # must NOT re-read the prior-run watermark — that only happens on the
+        # very first iteration.
         page_call_args = mock_workflow.execute_activity.await_args_list[0]
         page_inputs = page_call_args.args[1]
         assert page_inputs.cursor_last_changed_at == "2026-04-12T00:00:00+00:00"
@@ -446,7 +462,8 @@ class TestWorkflowRun(SimpleTestCase):
 
         # Page size 10 < inputs.page_size 500 — this is the final iteration.
         assert result["total_rows_fetched"] == 510
-        assert result["committed_watermark"] == "2026-04-13T00:00:00+00:00"
+        assert result["committed_watermark_ts"] == "2026-04-13T00:00:00+00:00"
+        assert result["committed_watermark_org_id"] == "org-509"
         mock_workflow.continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
@@ -460,11 +477,9 @@ class TestWorkflowRun(SimpleTestCase):
                     updated=5,
                     skipped_no_account=0,
                     errors=[f"err-{i}" for i in range(15)],
-                    max_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_org_id="org-9",
                 ),
-                None,  # commit watermark
             ]
         )
         mock_workflow.continue_as_new = MagicMock()
@@ -479,17 +494,17 @@ class TestWorkflowRun(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_page_failure_holds_back_committed_watermark(self, mock_workflow):
-        """C1 regression: once a page reports any error, the run must not
-        advance the Redis watermark — next run has to rescan the failed rows."""
+        """Once a page reports any error, the run must not advance the Redis
+        watermark — the next run has to rescan the failed rows, including any
+        that tie on ``last_changed_at`` with successfully processed rows."""
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
-                "2026-04-01T00:00:00+00:00",  # prior watermark
+                ("2026-04-01T00:00:00+00:00", "org-a"),  # prior watermark
                 EnrichStripePageResult(
                     rows_fetched=3,
                     updated=2,
                     skipped_no_account=0,
                     errors=["sfdc_bulk_update_failed_count=1"],
-                    max_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-12T00:00:00+00:00",
                     next_cursor_org_id="org-2",
                 ),
@@ -504,25 +519,23 @@ class TestWorkflowRun(SimpleTestCase):
         # commit_stripe_watermark_activity must NOT run — only the watermark
         # read is counted against the 2 expected awaits.
         assert mock_workflow.execute_activity.await_count == 2
-        assert result["committed_watermark"] is None
+        assert result["committed_watermark_ts"] is None
+        assert result["committed_watermark_org_id"] is None
         assert result["error_count"] == 1
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_failure_after_successful_page_freezes_watermark(self, mock_workflow):
-        """C1 regression: a later successful page cannot jump the watermark
-        past an earlier failing page. The state-carried ``run_has_failures``
-        flag simulates the continue-as-new chain in a single iteration."""
+        """A later successful page cannot jump the watermark past an earlier
+        failing page. The state-carried ``run_has_failures`` flag simulates the
+        continue-as-new chain in a single iteration."""
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
-                # Final successful page after a prior failure was latched on an
-                # earlier continue-as-new iteration.
                 EnrichStripePageResult(
                     rows_fetched=2,
                     updated=2,
                     skipped_no_account=0,
                     errors=[],
-                    max_last_changed_at="2026-04-20T00:00:00+00:00",
                     next_cursor_last_changed_at="2026-04-20T00:00:00+00:00",
                     next_cursor_org_id="org-z",
                 ),
@@ -536,8 +549,8 @@ class TestWorkflowRun(SimpleTestCase):
             total_updated=998,
             error_count=2,
             errors=["earlier page failure"],
-            resolved_since="2026-04-01T00:00:00+00:00",
-            pending_watermark="2026-04-10T00:00:00+00:00",  # last fully-successful page's max
+            pending_watermark_ts="2026-04-10T00:00:00+00:00",  # last fully-successful page's keyset
+            pending_watermark_org_id="org-last-good",
             run_has_failures=True,
             cursor_last_changed_at="2026-04-15T00:00:00+00:00",
             cursor_org_id="org-prev",
@@ -548,9 +561,12 @@ class TestWorkflowRun(SimpleTestCase):
 
         # Two awaits: the page activity, then commit_stripe_watermark_activity.
         assert mock_workflow.execute_activity.await_count == 2
-        # Watermark was committed, but at the earlier successful page's max,
-        # NOT this page's max — otherwise next run would skip the failed rows
-        # whose last_changed_at sits between the two.
+        # Watermark was committed, but at the earlier successful page's keyset
+        # position, NOT this page's — otherwise the next run would skip the
+        # failed rows whose (last_changed_at, org_id) sits between the two.
         commit_call = mock_workflow.execute_activity.await_args_list[1]
-        assert commit_call.args[1] == "2026-04-10T00:00:00+00:00"
-        assert result["committed_watermark"] == "2026-04-10T00:00:00+00:00"
+        commit_inputs = commit_call.args[1]
+        assert commit_inputs.last_changed_at == "2026-04-10T00:00:00+00:00"
+        assert commit_inputs.posthog_organization_id == "org-last-good"
+        assert result["committed_watermark_ts"] == "2026-04-10T00:00:00+00:00"
+        assert result["committed_watermark_org_id"] == "org-last-good"

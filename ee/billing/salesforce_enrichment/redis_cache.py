@@ -175,29 +175,35 @@ async def get_cached_org_mappings_count() -> int | None:
         return None
 
 
-async def get_stripe_enrichment_watermark() -> dt.datetime | None:
+async def get_stripe_enrichment_watermark() -> tuple[dt.datetime, str] | None:
     """Read the high-water mark from the last successful stripe-enrichment run.
 
-    Returns ``None`` on first run, cache miss, or read error — the caller should
-    treat a missing watermark as "perform a full backfill".
+    Returns the keyset position ``(last_changed_at, posthog_organization_id)``
+    of the last successfully processed row
     """
-    try:
-        redis_client = get_async_client()
-        raw = await redis_client.get(SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY)
-        if not raw:
-            return None
-        value = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        return dt.datetime.fromisoformat(value)
-    except Exception as e:
-        capture_exception(e)
+    redis_client = get_async_client()
+    raw = await redis_client.get(SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY)
+    if raw is None:
         return None
+    value = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    parsed = json.loads(value)
+    return (
+        dt.datetime.fromisoformat(parsed["last_changed_at"]),
+        str(parsed["posthog_organization_id"]),
+    )
 
 
-async def set_stripe_enrichment_watermark(watermark: dt.datetime) -> None:
-    """Persist the high-water mark for the next incremental run.
+async def set_stripe_enrichment_watermark(last_changed_at: dt.datetime, posthog_organization_id: str) -> None:
+    """Persist the keyset high-water mark for the next incremental run.
 
     The key is intentionally not TTL'd so a missed run never silently degrades
     into a full resync — if the watermark is gone, it's gone on purpose.
     """
+    payload = json.dumps(
+        {
+            "last_changed_at": last_changed_at.isoformat(),
+            "posthog_organization_id": posthog_organization_id,
+        }
+    )
     redis_client = get_async_client()
-    await redis_client.set(SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY, watermark.isoformat())
+    await redis_client.set(SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY, payload)

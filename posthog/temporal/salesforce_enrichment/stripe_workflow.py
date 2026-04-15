@@ -79,14 +79,16 @@ class StripeEnrichmentState:
     total_skipped_no_account: int = 0
     error_count: int = 0
     errors: list[str] = dataclasses.field(default_factory=list)
-    # ISO-8601 watermark resolved on the first iteration and held constant across
-    resolved_since: str | None = None
-    # ISO-8601 max ``last_changed_at`` seen across fully successful pages so far.
-    pending_watermark: str | None = None
-    run_has_failures: bool = False
-    committed_watermark: str | None = None
+    # Intra-run keyset cursor for the next page to fetch.
     cursor_last_changed_at: str | None = None
     cursor_org_id: str | None = None
+    # Keyset position of the last successfully processed row, advanced only on
+    # fully successful pages and committed to Redis at end-of-run.
+    pending_watermark_ts: str | None = None
+    pending_watermark_org_id: str | None = None
+    run_has_failures: bool = False
+    committed_watermark_ts: str | None = None
+    committed_watermark_org_id: str | None = None
 
 
 @dataclasses.dataclass
@@ -108,12 +110,12 @@ class StripeEnrichmentResult:
     total_skipped_no_account: int
     error_count: int
     errors: list[str]
-    committed_watermark: str | None
+    committed_watermark_ts: str | None
+    committed_watermark_org_id: str | None
 
 
 @dataclasses.dataclass
 class EnrichStripePageInputs:
-    since: str | None  # ISO-8601 watermark, or None for full scan
     page_size: int
     cursor_last_changed_at: str | None = None  # ISO-8601 keyset cursor timestamp
     cursor_org_id: str | None = None  # Keyset cursor tiebreaker
@@ -125,24 +127,39 @@ class EnrichStripePageResult:
     updated: int
     skipped_no_account: int
     errors: list[str]
-    max_last_changed_at: str | None  # ISO-8601 of the latest row in this page
     next_cursor_last_changed_at: str | None  # ISO-8601 cursor for the next page
     next_cursor_org_id: str | None  # Org-id tiebreaker for the next page
 
 
+@dataclasses.dataclass
+class CommitStripeWatermarkInputs:
+    last_changed_at: str  # ISO-8601
+    posthog_organization_id: str
+
+
 @activity.defn
-async def get_stripe_watermark_activity() -> str | None:
-    """Read the current stripe-enrichment watermark from Redis as an ISO string."""
+async def get_stripe_watermark_activity() -> tuple[str, str] | None:
+    """Read the current stripe-enrichment watermark as a keyset position.
+
+    Returns ``(last_changed_at_iso, posthog_organization_id)`` or ``None`` when
+    no watermark is set.
+    """
     close_old_connections()
     watermark = await get_stripe_enrichment_watermark()
-    return watermark.isoformat() if watermark else None
+    if watermark is None:
+        return None
+    last_changed_at, org_id = watermark
+    return (last_changed_at.isoformat(), org_id)
 
 
 @activity.defn
-async def commit_stripe_watermark_activity(watermark_iso: str) -> None:
-    """Persist a new watermark after a fully successful run."""
+async def commit_stripe_watermark_activity(inputs: CommitStripeWatermarkInputs) -> None:
+    """Persist the keyset watermark after a fully successful run."""
     close_old_connections()
-    await set_stripe_enrichment_watermark(dt.datetime.fromisoformat(watermark_iso))
+    await set_stripe_enrichment_watermark(
+        dt.datetime.fromisoformat(inputs.last_changed_at),
+        inputs.posthog_organization_id,
+    )
 
 
 @activity.defn
@@ -158,16 +175,15 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
         logger = LOGGER.bind(
             page_size=inputs.page_size,
             cursor_ts=inputs.cursor_last_changed_at,
+            cursor_org_id=inputs.cursor_org_id,
         )
 
-        since = dt.datetime.fromisoformat(inputs.since) if inputs.since else None
         cursor: tuple[dt.datetime, str] | None = None
         if inputs.cursor_last_changed_at and inputs.cursor_org_id is not None:
             cursor = (dt.datetime.fromisoformat(inputs.cursor_last_changed_at), inputs.cursor_org_id)
 
         signals_rows = await asyncio.to_thread(
             fetch_stripe_signals,
-            since,
             inputs.page_size,
             cursor,
         )
@@ -179,17 +195,16 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
                 updated=0,
                 skipped_no_account=0,
                 errors=[],
-                max_last_changed_at=None,
                 next_cursor_last_changed_at=None,
                 next_cursor_org_id=None,
             )
 
         # The SQL orders by (last_changed_at, posthog_organization_id) ASC so the
-        # last row is both the max timestamp and the keyset cursor for the next page.
+        # last row's keyset position is both this page's high-water mark and the
+        # starting cursor for the next page.
         signals_by_org: dict[str, StripeSignals] = {s.posthog_organization_id: s for s in signals_rows}
         all_org_ids = list(signals_by_org.keys())
         last_row = signals_rows[-1]
-        max_last_changed_at = last_row.last_changed_at
         next_cursor_last_changed_at = last_row.last_changed_at.isoformat()
         next_cursor_org_id = last_row.posthog_organization_id
 
@@ -219,15 +234,15 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
         errors: list[str] = []
         updated = 0
         if update_records:
-            try:
-                success, failed = await asyncio.to_thread(bulk_update_salesforce_accounts, sf, update_records)
-                updated = success
-                if failed:
-                    errors.append(f"sfdc_bulk_update_failed_count={failed}")
-            except Exception as e:
-                msg = f"Failed to bulk-update Salesforce at cursor {inputs.cursor_last_changed_at}: {e!s}"
-                logger.exception(msg)
-                errors.append(msg)
+            success, failed = await asyncio.to_thread(
+                bulk_update_salesforce_accounts,
+                sf,
+                update_records,
+                raise_on_batch_error=True,
+            )
+            updated = success
+            if failed:
+                errors.append(f"sfdc_bulk_update_failed_count={failed}")
 
         heartbeater.details = (len(signals_rows), updated, skipped_no_account)
 
@@ -244,7 +259,6 @@ async def enrich_stripe_page_activity(inputs: EnrichStripePageInputs) -> EnrichS
             updated=updated,
             skipped_no_account=skipped_no_account,
             errors=errors,
-            max_last_changed_at=max_last_changed_at.isoformat(),
             next_cursor_last_changed_at=next_cursor_last_changed_at,
             next_cursor_org_id=next_cursor_org_id,
         )
@@ -274,30 +288,29 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
                 return self._build_result(state)
             page_size = min(page_size, remaining)
 
-        # Resolve the since watermark exactly once, on the first iteration, and
-        # carry it through continue-as-new via state so every page scans from an
-        # identical cursor.
+        # Resolve the prior-run watermark exactly once, on the first iteration,
+        # and seed the intra-run cursor from it so every page resumes from that exact keyset position.
         if is_first_iteration and not inputs.force_full_refresh:
-            state.resolved_since = await workflow.execute_activity(
+            prior_watermark = await workflow.execute_activity(
                 get_stripe_watermark_activity,
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-        since = None if inputs.force_full_refresh else state.resolved_since
+            if prior_watermark is not None:
+                state.cursor_last_changed_at, state.cursor_org_id = prior_watermark
 
         logger.info(
             "stripe_enrichment_iteration_started",
             total_rows_fetched=state.total_rows_fetched,
             page_size=page_size,
-            since=since,
             cursor_ts=state.cursor_last_changed_at,
+            cursor_org_id=state.cursor_org_id,
             force_full_refresh=inputs.force_full_refresh,
         )
 
         page_result = await workflow.execute_activity(
             enrich_stripe_page_activity,
             EnrichStripePageInputs(
-                since=since,
                 page_size=page_size,
                 cursor_last_changed_at=state.cursor_last_changed_at,
                 cursor_org_id=state.cursor_org_id,
@@ -318,12 +331,9 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
         if page_result.errors:
             state.run_has_failures = True
 
-        if (
-            not state.run_has_failures
-            and page_result.max_last_changed_at
-            and (state.pending_watermark is None or page_result.max_last_changed_at > state.pending_watermark)
-        ):
-            state.pending_watermark = page_result.max_last_changed_at
+        if not state.run_has_failures and page_result.next_cursor_last_changed_at and page_result.next_cursor_org_id:
+            state.pending_watermark_ts = page_result.next_cursor_last_changed_at
+            state.pending_watermark_org_id = page_result.next_cursor_org_id
 
         reached_max = inputs.max_rows is not None and state.total_rows_fetched >= inputs.max_rows
         is_last_page = page_result.rows_fetched < page_size
@@ -333,14 +343,18 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
             # A full refresh still commits at the end so the next incremental
             # run resumes where this one finished instead of replaying the
             # entire history from a stale or missing watermark.
-            if state.pending_watermark:
+            if state.pending_watermark_ts and state.pending_watermark_org_id:
                 await workflow.execute_activity(
                     commit_stripe_watermark_activity,
-                    state.pending_watermark,
+                    CommitStripeWatermarkInputs(
+                        last_changed_at=state.pending_watermark_ts,
+                        posthog_organization_id=state.pending_watermark_org_id,
+                    ),
                     start_to_close_timeout=dt.timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                state.committed_watermark = state.pending_watermark
+                state.committed_watermark_ts = state.pending_watermark_ts
+                state.committed_watermark_org_id = state.pending_watermark_org_id
             return self._build_result(state)
 
         state.cursor_last_changed_at = page_result.next_cursor_last_changed_at
@@ -373,6 +387,7 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
                 total_skipped_no_account=state.total_skipped_no_account,
                 error_count=state.error_count,
                 errors=state.errors[:10],
-                committed_watermark=state.committed_watermark,
+                committed_watermark_ts=state.committed_watermark_ts,
+                committed_watermark_org_id=state.committed_watermark_org_id,
             )
         )

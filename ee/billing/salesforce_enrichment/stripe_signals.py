@@ -28,20 +28,24 @@ class StripeSignals:
 
 
 # The query walks three tables, in order:
-#   1. posthog_customer — link each PostHog organization to its active Stripe customer.
+#   1. posthog_customer — link each PostHog organization to its active Stripe
+#                         customer via the billing_customertostripecustomer
+#                         mapping table.
 #   2. enriched         — join in the Stripe customer row and compute a single
-#                         last_changed_at watermark.
-# Pagination uses a keyset cursor on ``(last_changed_at, posthog_organization_id)``
-# watermark; each subsequent page passes the last row seen.
+#                         last_changed_at watermark
+# Pagination uses a keyset cursor on ``(last_changed_at, posthog_organization_id)``.
+# The same cursor is used to resume the next incremental run — the caller seeds
+# it from the stored high-water mark.
 
 _FETCH_QUERY = """
 WITH posthog_customer AS (
     SELECT
         cts.stripe_customer_id,
-        bc.id               AS billing_customer_id,
-        bc.organization_id  AS posthog_organization_id,
-        bc.name             AS billing_customer_name,
-        bc._fivetran_synced AS billing_customer_synced_at
+        cts._fivetran_synced AS mapping_synced_at,
+        bc.id                AS billing_customer_id,
+        bc.organization_id   AS posthog_organization_id,
+        bc.name              AS billing_customer_name,
+        bc._fivetran_synced  AS billing_customer_synced_at
     FROM ducklake.billing_public.billing_customertostripecustomer cts
     JOIN ducklake.billing_public.billing_customer bc
       ON bc.id = cts.customer_id
@@ -61,8 +65,9 @@ enriched AS (
         sc.address_postal_code,
         sc.address_country,
         GREATEST(
-            COALESCE(sc._fivetran_synced,          'epoch'::timestamptz),
-            COALESCE(pc.billing_customer_synced_at, 'epoch'::timestamptz)
+            COALESCE(sc._fivetran_synced,           'epoch'::timestamptz),
+            COALESCE(pc.billing_customer_synced_at, 'epoch'::timestamptz),
+            COALESCE(pc.mapping_synced_at,          'epoch'::timestamptz)
         ) AS last_changed_at
     FROM posthog_customer pc
     LEFT JOIN ducklake.stripe.customer sc
@@ -71,45 +76,38 @@ enriched AS (
 )
 SELECT *
 FROM enriched
-WHERE (%(since)s::timestamptz IS NULL OR last_changed_at > %(since)s::timestamptz)
-  AND (
+WHERE (
         %(cursor_ts)s::timestamptz IS NULL
      OR last_changed_at > %(cursor_ts)s::timestamptz
      OR (last_changed_at = %(cursor_ts)s::timestamptz AND posthog_organization_id > %(cursor_org_id)s)
-  )
+)
 ORDER BY last_changed_at ASC, posthog_organization_id ASC
 LIMIT %(limit)s
 """
 
 
 def fetch_stripe_signals(
-    since: dt.datetime | None,
     limit: int,
     cursor: tuple[dt.datetime, str] | None = None,
 ) -> list[StripeSignals]:
     """Fetch a page of stripe signals from duckgres.
 
     Args:
-        since: Only return rows with last_changed_at strictly greater than this
-            timestamp. ``None`` performs a full backfill.
         limit: Maximum rows to return in this page.
-        cursor: Keyset cursor from the previous page as
-            ``(last_changed_at, posthog_organization_id)``. ``None`` on the
-            first page of a run.
+        cursor: Keyset position ``(last_changed_at, posthog_organization_id)``
     """
     cursor_ts, cursor_org_id = cursor if cursor is not None else (None, None)
     LOGGER.info(
         "fetching_stripe_signals",
-        since=since.isoformat() if since else None,
         limit=limit,
         cursor_ts=cursor_ts.isoformat() if cursor_ts else None,
+        cursor_org_id=cursor_org_id,
     )
 
     with duckgres_cursor() as cur:
         cur.execute(
             _FETCH_QUERY,
             {
-                "since": since,
                 "cursor_ts": cursor_ts,
                 "cursor_org_id": cursor_org_id,
                 "limit": limit,
