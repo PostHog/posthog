@@ -54,7 +54,6 @@ jobs:
         if: vars.BLACKSMITH_SHADOW_ENABLED == 'true'
         outputs:
             backend: ${{ steps.filter.outputs.backend }}
-            playwright: ${{ steps.filter.outputs.playwright }}
         steps:
             - uses: actions/checkout@v6
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
@@ -62,17 +61,57 @@ jobs:
               with:
                   filters: |
                       backend:
-                        - 'ee/**/*.py'
-                        - 'posthog/**/*.py'
-                        - 'products/**/*.py'
-                        - 'pyproject.toml'
-                        - 'uv.lock'
-                        - 'docker-compose*.yml'
-                      playwright:
-                        - 'frontend/**'
-                        - 'playwright/**'
-                        - 'products/**/frontend/**'
-                        - 'posthog/**'
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        # really we should ignore ee/frontend/** but dorny doesn't support that
+                        # - '!ee/frontend/**'
+                        # including the negated rule appears to work
+                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
+                        - 'ee/**/*'
+                        - 'common/__init__.py'
+                        - 'common/hogli/**'
+                        - 'common/hogql_parser/**'
+                        - 'common/hogvm/**'
+                        - 'common/ingestion/**'
+                        - 'common/migration_utils/**'
+                        - 'common/plugin_transpiler/**'
+                        - 'posthog/**/*'
+                        - 'products/**/backend/**/*'
+                        - bin/build-schema-latest-versions.py
+                        - bin/build-taxonomy-json.py
+                        - bin/check_uv_python_compatibility.py
+                        - bin/find_python_dependencies.py
+                        - bin/granian_metrics.py
+                        - bin/ty.py
+                        - bin/unit_metrics.py
+                        - pyproject.toml
+                        - uv.lock
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        - .test_durations # Used for pytest-split sharding
+                        # generates posthog/schema.py
+                        - frontend/src/queries/schema.json
+                        # Operator parity check
+                        - rust/feature-flags/src/properties/property_models.rs
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
+                        # Make sure we run if someone is explicitly changing the workflow
+                        - .github/workflows/ci-backend.yml
+                        - .github/clickhouse-versions.json
+                        # We use docker compose for tests, make sure we rerun on
+                        # changes to docker-compose.dev.yml e.g. dependency
+                        # version changes
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        - docker-compose.base.yml
+                        - bin/wait-for-docker
+                        - bin/ci-wait-for-docker
+                        - frontend/public/email/*
+                        - 'docker/clickhouse/**'
 
     # --- turbo-discover-shadow ---
     # Original: ci-backend.yml turbo-discover (depot-ubuntu-latest). Has outputs.
@@ -171,7 +210,7 @@ jobs:
             - name: Run a representative product test
               env:
                   PYTEST_ADDOPTS: --reuse-db
-              run: pnpm turbo run backend:test --concurrency=1 --output-logs=full --force --log-order=stream --filter='@posthog/data_warehouse' || true
+              run: pnpm turbo run backend:test --concurrency=1 --output-logs=full --force --log-order=stream --filter='@posthog/data_warehouse'
 
     # --- check-migrations-shadow ---
     # Original: ci-backend.yml check-migrations — complex single-shot with many PR side effects.

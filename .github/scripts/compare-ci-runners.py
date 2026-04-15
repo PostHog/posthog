@@ -135,8 +135,8 @@ def classify_runner(job_name: str) -> tuple[str, str]:
     if job_name.endswith("-blacksmith"):
         return job_name[: -len("-blacksmith")], "blacksmith"
 
-    # Assume depot (original, non-shadow) if the workflow is on our list
-    return job_name, "depot"
+    # Unrecognized job naming should not be attributed to either provider.
+    return job_name, "unknown"
 
 
 def duration_seconds(started: str, completed: str) -> float | None:
