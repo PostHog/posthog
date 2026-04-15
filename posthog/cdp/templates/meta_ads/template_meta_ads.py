@@ -1,4 +1,55 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
+
+
+def build_mapping_inputs() -> list[dict]:
+    return [
+        {
+            "key": "eventName",
+            "type": "string",
+            "label": "Event name",
+            "description": "A standard event or custom event name.",
+            "default": "{event.event}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventId",
+            "type": "string",
+            "label": "Event ID",
+            "description": "The ID of the event.",
+            "default": "{event.uuid}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventSourceUrl",
+            "type": "string",
+            "label": "Event source URL",
+            "description": "The URL of the page where the event occurred.",
+            "default": "{event.properties.$current_url}",
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "eventTime",
+            "type": "string",
+            "label": "Event time",
+            "description": "A Unix timestamp in seconds indicating when the actual event occurred. You must send this date in GMT time zone.",
+            "default": "{toInt(toUnixTimestamp(event.timestamp))}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "customData",
+            "type": "dictionary",
+            "label": "Custom data",
+            "description": "A map that contains custom data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/custom-data",
+            "default": {"currency": "USD", "price": "{event.properties.price}"},
+            "secret": False,
+            "required": True,
+        },
+    ]
+
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="alpha",
@@ -89,42 +140,6 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "eventName",
-            "type": "string",
-            "label": "Event name",
-            "description": "A standard event or custom event name.",
-            "default": "{event.event}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "eventId",
-            "type": "string",
-            "label": "Event ID",
-            "description": "The ID of the event.",
-            "default": "{event.uuid}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "eventSourceUrl",
-            "type": "string",
-            "label": "Event source URL",
-            "description": "The URL of the page where the event occurred.",
-            "default": "{event.properties.$current_url}",
-            "secret": False,
-            "required": False,
-        },
-        {
-            "key": "eventTime",
-            "type": "string",
-            "label": "Event time",
-            "description": "A Unix timestamp in seconds indicating when the actual event occurred. You must send this date in GMT time zone.",
-            "default": "{toInt(toUnixTimestamp(event.timestamp))}",
-            "secret": False,
-            "required": True,
-        },
-        {
             "key": "actionSource",
             "label": "Action source",
             "type": "choice",
@@ -187,15 +202,6 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "customData",
-            "type": "dictionary",
-            "label": "Custom data",
-            "description": "A map that contains custom data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/custom-data",
-            "default": {"currency": "USD", "price": "{event.properties.price}"},
-            "secret": False,
-            "required": True,
-        },
-        {
             "key": "testEventCode",
             "type": "string",
             "label": "Test Event Code",
@@ -205,9 +211,12 @@ if (res.status >= 400) {
             "required": False,
         },
     ],
-    filters={
-        "events": [],
-        "actions": [],
-        "filter_test_accounts": True,
-    },
+    mapping_templates=[
+        HogFunctionMappingTemplate(
+            name="Conversion",
+            include_by_default=True,
+            filters={"events": []},
+            inputs_schema=build_mapping_inputs(),
+        ),
+    ],
 )
