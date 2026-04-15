@@ -1,4 +1,4 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -32,6 +32,19 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     const response = await api.errorTracking.listRecommendations()
                     return response.results
                 },
+            },
+        ],
+    }),
+
+    actions({
+        toggleDismissedExpanded: true,
+    }),
+
+    reducers({
+        dismissedExpanded: [
+            false,
+            {
+                toggleDismissedExpanded: (state) => !state,
             },
         ],
     }),

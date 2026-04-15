@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -8,9 +7,14 @@ import { CrossSellRecommendationCard } from './CrossSellRecommendationCard'
 import { isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
 
 export function RecommendationsTab(): JSX.Element {
-    const { recommendations, recommendationsLoading, activeRecommendations, ignoredRecommendations } =
-        useValues(recommendationsTabLogic)
-    const [ignoredExpanded, setIgnoredExpanded] = useState(false)
+    const {
+        recommendations,
+        recommendationsLoading,
+        activeRecommendations,
+        ignoredRecommendations,
+        dismissedExpanded,
+    } = useValues(recommendationsTabLogic)
+    const { toggleDismissedExpanded } = useActions(recommendationsTabLogic)
 
     if (recommendationsLoading && recommendations.length === 0) {
         return (
@@ -55,12 +59,12 @@ export function RecommendationsTab(): JSX.Element {
                 <div>
                     <button
                         className="flex items-center gap-1 text-xs text-muted hover:text-primary cursor-pointer bg-transparent border-0 p-0"
-                        onClick={() => setIgnoredExpanded(!ignoredExpanded)}
+                        onClick={toggleDismissedExpanded}
                     >
-                        <IconChevronRight className={`text-sm ${ignoredExpanded ? 'rotate-90' : ''}`} />
+                        <IconChevronRight className={`text-sm ${dismissedExpanded ? 'rotate-90' : ''}`} />
                         {ignoredRecommendations.length} dismissed
                     </button>
-                    {ignoredExpanded && (
+                    {dismissedExpanded && (
                         <div className="columns-1 md:columns-2 xl:columns-3 gap-4 mt-2 opacity-60">
                             {ignoredRecommendations.map((recommendation) => {
                                 if (isCrossSellRecommendation(recommendation)) {
