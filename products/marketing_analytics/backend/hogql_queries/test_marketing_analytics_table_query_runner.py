@@ -360,6 +360,9 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             (MarketingAnalyticsDrillDownLevel.CHANNEL, "Channel"),
             (MarketingAnalyticsDrillDownLevel.SOURCE, MarketingAnalyticsBaseColumns.SOURCE),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN, MarketingAnalyticsBaseColumns.CAMPAIGN),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM, "Medium"),
+            (MarketingAnalyticsDrillDownLevel.CONTENT, "Content"),
+            (MarketingAnalyticsDrillDownLevel.TERM, "Term"),
         ]
     )
     def test_drill_down_column_alias(self, level, expected_alias):
@@ -379,6 +382,9 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             (MarketingAnalyticsDrillDownLevel.CHANNEL,),
             (MarketingAnalyticsDrillDownLevel.SOURCE,),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN,),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM,),
+            (MarketingAnalyticsDrillDownLevel.CONTENT,),
+            (MarketingAnalyticsDrillDownLevel.TERM,),
         ]
     )
     def test_drill_down_to_query_produces_correct_columns(self, level):
@@ -408,6 +414,9 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             (MarketingAnalyticsDrillDownLevel.CHANNEL,),
             (MarketingAnalyticsDrillDownLevel.SOURCE,),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN,),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM,),
+            (MarketingAnalyticsDrillDownLevel.CONTENT,),
+            (MarketingAnalyticsDrillDownLevel.TERM,),
         ]
     )
     def test_drill_down_calculate_returns_valid_response(self, level):

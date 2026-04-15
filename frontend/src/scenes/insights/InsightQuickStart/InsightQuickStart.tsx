@@ -1,4 +1,4 @@
-import './InsightOptions.scss'
+import './InsightQuickStart.scss'
 
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -64,7 +64,7 @@ const AI_PREVIEW = {
 }
 
 export const scene: SceneExport = {
-    component: InsightOptions,
+    component: InsightQuickStart,
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
@@ -95,7 +95,7 @@ function InsightOptionCard({
 
     return (
         <div
-            className="InsightOptions__card"
+            className="InsightQuickStart__card"
             style={{ animationDelay: `${index * 0.05}s` }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -146,7 +146,7 @@ function InsightOptionCard({
     )
 }
 
-export function InsightOptions(): JSX.Element {
+export function InsightQuickStart(): JSX.Element {
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType, metadata]) =>
             metadata.inMenu &&
@@ -164,7 +164,7 @@ export function InsightOptions(): JSX.Element {
             />
             <div
                 className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 pb-16"
-                data-attr="insight-options-page"
+                data-attr="insight-quick-start-page"
             >
                 <InsightOptionCard
                     name="AI"

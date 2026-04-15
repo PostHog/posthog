@@ -608,6 +608,11 @@ export interface TaskRunRelayMessageResponseApi {
     relay_id?: string
 }
 
+export interface PatchedTaskRunSetOutputRequestApi {
+    /** Output data from the run. Validated against the task's json_schema if one is set. */
+    output?: unknown
+}
+
 /**
  * * `needs_setup` - needs_setup
  * `detected` - detected
