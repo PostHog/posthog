@@ -359,7 +359,7 @@ ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSI
 # =========================
 
 ALTER_SESSION_REPLAY_ADD_AI_COLUMNS = """
-    ALTER TABLE IF EXISTS {table_name}
+    ALTER TABLE {table_name}
         ADD COLUMN IF NOT EXISTS ai_tags SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
         ADD COLUMN IF NOT EXISTS ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0
 """

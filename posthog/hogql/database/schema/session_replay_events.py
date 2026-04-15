@@ -209,6 +209,8 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "snapshot_library": StringDatabaseField(name="snapshot_library", nullable=True),
     "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
     "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+    "ai_tags": DatabaseField(name="ai_tags", nullable=True),
+    "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -278,6 +280,8 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
         "event_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "event_count"])]),
         "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
         "is_deleted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "is_deleted"])]),
+        "ai_tags": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags"])]),
+        "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
     }
 
     select_fields: list[ast.Expr] = []
