@@ -80,6 +80,7 @@ class BackfillPrecalculatedEventsCoordinatorInputs:
     condition_hashes: list[str]
     days_to_backfill: int
     concurrent_workflows: int = 5
+    force_reprocess: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -91,6 +92,7 @@ class BackfillPrecalculatedEventsCoordinatorInputs:
             "days_to_backfill": self.days_to_backfill,
             "concurrent_workflows": self.concurrent_workflows,
             "condition_count": len(self.condition_hashes),
+            "force_reprocess": self.force_reprocess,
         }
 
 
@@ -195,22 +197,23 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
         for day_start, day_end in day_ranges:
             date_str = day_start.strftime("%Y-%m-%d")
 
-            # Check if this day is already backfilled
-            check_result = await temporalio.workflow.execute_activity(
-                check_day_already_backfilled_activity,
-                EventDateCheckInputs(
-                    team_id=inputs.team_id,
-                    condition_hashes=inputs.condition_hashes,
-                    date=date_str,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-            )
+            # Check if this day is already backfilled (skippable unless force_reprocess is set)
+            if not inputs.force_reprocess:
+                check_result = await temporalio.workflow.execute_activity(
+                    check_day_already_backfilled_activity,
+                    EventDateCheckInputs(
+                        team_id=inputs.team_id,
+                        condition_hashes=inputs.condition_hashes,
+                        date=date_str,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
 
-            if check_result.already_backfilled:
-                workflow_logger.info(f"Skipping {date_str}: already backfilled")
-                days_skipped += 1
-                continue
+                if check_result.already_backfilled:
+                    workflow_logger.info(f"Skipping {date_str}: already backfilled")
+                    days_skipped += 1
+                    continue
 
             # Respect concurrency limit
             if len(child_workflow_handles) >= inputs.concurrent_workflows:

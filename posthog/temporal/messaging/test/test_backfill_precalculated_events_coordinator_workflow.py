@@ -47,6 +47,28 @@ class TestBackfillPrecalculatedEventsCoordinatorInputs:
         )
         assert inputs.concurrent_workflows == 5
 
+    def test_default_force_reprocess(self):
+        inputs = BackfillPrecalculatedEventsCoordinatorInputs(
+            team_id=1,
+            filter_storage_key="key",
+            cohort_ids=[1],
+            condition_hashes=["hash1"],
+            days_to_backfill=7,
+        )
+        assert inputs.force_reprocess is False
+
+    def test_force_reprocess_in_properties_to_log(self):
+        inputs = BackfillPrecalculatedEventsCoordinatorInputs(
+            team_id=1,
+            filter_storage_key="key",
+            cohort_ids=[1],
+            condition_hashes=["hash1"],
+            days_to_backfill=7,
+            force_reprocess=True,
+        )
+        props = inputs.properties_to_log
+        assert props["force_reprocess"] is True
+
 
 class TestCheckDayAlreadyBackfilledActivity:
     @pytest.mark.asyncio
