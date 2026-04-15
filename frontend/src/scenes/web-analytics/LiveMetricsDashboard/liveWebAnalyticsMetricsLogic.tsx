@@ -545,6 +545,7 @@ const loadQueryData = async (
         HogQLQueryResponse,
         TrendsQueryResponse,
         HogQLQueryResponse,
+        HogQLQueryResponse,
         HogQLQueryResponse | null,
     ]
 > => {
