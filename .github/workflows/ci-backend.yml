@@ -117,6 +117,8 @@ jobs:
                         - pytest.ini
                         - .test_durations # Used for pytest-split sharding
                         - frontend/src/queries/schema.json # Used for generating schema.py
+                        - frontend/src/products.json # Loaded at runtime by posthog/products.py
+                        - 'products/*/manifest.tsx' # Generates products.json
                         - rust/feature-flags/src/properties/property_models.rs # Operator parity check
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
@@ -160,6 +162,8 @@ jobs:
                         - pytest.ini
                         - .test_durations
                         - frontend/src/queries/schema.json
+                        - frontend/src/products.json
+                        - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
