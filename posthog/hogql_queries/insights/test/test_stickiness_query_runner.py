@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -793,20 +795,50 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 2
         assert response.results[0]["data"] == [0, 1, 1, 0, 0, 0, 0, 0, 0, 0]
 
-    def test_stickiness_criteria_null_value_defaults_to_one(self):
+    @parameterized.expand(
+        [
+            # (criteria_value, operator, expected_value, seed_value_to_not_appear)
+            # null value falls back to 1 — seed with 5 so we can assert it was replaced
+            ("null_gte", None, "gte", 1, 5),
+            ("null_lte", None, "lte", 1, 5),
+            ("null_exact", None, "exact", 1, 5),
+            # non-null values pass through unchanged
+            ("valid_gte", 3, "gte", 3, None),
+            ("valid_exact", 7, "exact", 7, None),
+        ]
+    )
+    def test_stickiness_criteria_value_handling(self, _name, criteria_value, operator, expected_value, seed_value):
+        # Seed with a distinct value so we can confirm the null guard actually replaced it.
+        initial_value = seed_value if seed_value is not None else expected_value
         query = self._get_query(
             date_from="2020-01-12",
             date_to="2020-01-20",
-            filters=StickinessFilter(**{"stickinessCriteria": {"operator": "gte", "value": 1}}),
+            filters=StickinessFilter(**{"stickinessCriteria": {"operator": operator, "value": initial_value}}),
+        )
+        runner = StickinessQueryRunner(team=self.team, query=query)
+        runner.query.stickinessFilter.stickinessCriteria.value = criteria_value  # type: ignore
+
+        having_sql = str(runner._having_clause())
+
+        # Rendered form: "sql(equals(count(), 7))" / "sql(greaterOrEquals(count(), 1))" etc.
+        assert f"count(), {expected_value})" in having_sql, having_sql
+        if seed_value is not None:
+            assert f"count(), {seed_value})" not in having_sql, having_sql
+
+    def test_stickiness_missing_criteria_uses_default_clause(self):
+        # When stickinessCriteria is absent entirely, _having_clause takes a different branch
+        # and renders `count() > 0`, not `count() >= 1`. Locking this in so the null-guard
+        # doesn't accidentally collapse the two paths.
+        query = self._get_query(
+            date_from="2020-01-12",
+            date_to="2020-01-20",
+            filters=StickinessFilter(),
         )
         runner = StickinessQueryRunner(team=self.team, query=query)
 
-        # Simulate a null value reaching the backend (e.g. from a malformed API request)
-        runner.query.stickinessFilter.stickinessCriteria.value = None  # type: ignore
+        having_sql = str(runner._having_clause())
 
-        having = runner._having_clause()
-        # Should default to 1 instead of crashing
-        assert "1" in str(having)
+        assert "> 0" in having_sql or "0" in having_sql, having_sql
 
     def test_filter_test_accounts(self):
         self._create_test_events()
