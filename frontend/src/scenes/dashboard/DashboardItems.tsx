@@ -312,7 +312,7 @@ export function DashboardItems(): JSX.Element {
     const resizeConfig = useMemo(
         () => ({
             enabled: isDragEnabled && !isLayoutZoomToggled,
-            handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as string[],
+            handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
         [isDragEnabled, isLayoutZoomToggled]
     )
