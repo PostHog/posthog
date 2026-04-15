@@ -208,7 +208,7 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://selfhosted.example.com', false],
             ['http://us.posthog.com', false], // http scheme is not trusted
             ['https://us.posthog.com.evil.com', false],
-        ])('isTrustedUiHost is %s for %s', (uiHost, expected) => {
+        ])('isTrustedUiHost("%s") === %s', (uiHost, expected) => {
             const logic = toolbarConfigLogic.build({ uiHost } as any)
             logic.mount()
             expect(logic.values.isTrustedUiHost).toBe(expected)
@@ -239,16 +239,17 @@ describe('toolbar toolbarConfigLogic', () => {
     })
 
     describe('OAuth localStorage restoration', () => {
-        it('restores OAuth from localStorage when no tokens in props', () => {
+        it('restores OAuth from localStorage when no tokens in props (trusted host)', () => {
             localStorage.setItem(
                 OAUTH_LOCALSTORAGE_KEY,
                 JSON.stringify({
                     accessToken: 'stored-access',
                     refreshToken: 'stored-refresh',
                     clientId: 'stored-client',
+                    uiHost: 'https://us.posthog.com',
                 })
             )
-            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
             logic.mount()
 
             expectLogic(logic).toMatchValues({
@@ -298,7 +299,7 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         })
 
-        it('restores tokens without stored uiHost for backwards compatibility', () => {
+        it('restores legacy tokens (no stored uiHost) on trusted PostHog Cloud hosts', () => {
             // Tokens stored before the uiHost binding was added
             localStorage.setItem(
                 OAUTH_LOCALSTORAGE_KEY,
@@ -308,13 +309,35 @@ describe('toolbar toolbarConfigLogic', () => {
                     clientId: 'legacy-client',
                 })
             )
-            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
             logic.mount()
 
             expectLogic(logic).toMatchValues({
                 accessToken: 'legacy-access',
                 isAuthenticated: true,
             })
+        })
+
+        it('discards legacy tokens (no stored uiHost) on untrusted hosts', () => {
+            // Prevents an attacker from loading a victim's legacy token into a
+            // maliciously-injected uiHost and exfiltrating it via subsequent API calls.
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.setItem(
+                OAUTH_LOCALSTORAGE_KEY,
+                JSON.stringify({
+                    accessToken: 'legacy-access',
+                    refreshToken: 'legacy-refresh',
+                    clientId: 'legacy-client',
+                })
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://evil.example.com' } as any)
+            logic.mount()
+
+            expectLogic(logic).toMatchValues({
+                accessToken: null,
+                isAuthenticated: false,
+            })
+            warnSpy.mockRestore()
         })
 
         it('does not overwrite when accessToken already exists in props', () => {
@@ -352,6 +375,7 @@ describe('toolbar toolbarConfigLogic', () => {
                     accessToken: 'stored-access',
                     refreshToken: 'stored-refresh',
                     clientId: 'stored-client',
+                    uiHost: 'http://localhost',
                 })
             )
             const logic = toolbarConfigLogic.build({
@@ -421,6 +445,7 @@ describe('toolbar toolbarConfigLogic', () => {
                     accessToken: 'stored-access',
                     refreshToken: 'stored-refresh',
                     clientId: 'stored-client',
+                    uiHost: 'http://localhost',
                 })
             )
             // PKCE verifier expired
@@ -451,6 +476,7 @@ describe('toolbar toolbarConfigLogic', () => {
                     accessToken: 'stored-access',
                     refreshToken: 'stored-refresh',
                     clientId: 'stored-client',
+                    uiHost: 'http://localhost',
                 })
             )
             localStorage.removeItem(PKCE_STORAGE_KEY)
@@ -474,6 +500,7 @@ describe('toolbar toolbarConfigLogic', () => {
                     accessToken: 'stored-access',
                     refreshToken: 'stored-refresh',
                     clientId: 'stored-client',
+                    uiHost: 'http://localhost',
                 })
             )
             localStorage.removeItem(PKCE_STORAGE_KEY)

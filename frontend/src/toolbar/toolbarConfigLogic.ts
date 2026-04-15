@@ -339,10 +339,20 @@ function restoreOAuthTokens(
                 // If the stored tokens were bound to a different uiHost, discard them.
                 // This prevents an attacker from injecting a malicious uiHost via crafted
                 // hash params and having the toolbar send stored tokens to their domain.
-                // Tokens stored before this check (without uiHost) are still accepted.
                 if (storedUiHost && storedUiHost !== values.uiHost) {
                     toolbarLogger.warn('auth', 'Stored OAuth tokens are for a different uiHost, discarding', {
                         stored: storedUiHost,
+                        current: values.uiHost,
+                    })
+                    return
+                }
+                // Legacy tokens (stored before uiHost binding was added) have no
+                // storedUiHost. Accept them only when the current uiHost is a trusted
+                // PostHog Cloud host — otherwise an attacker-injected uiHost would receive
+                // the token on the next API call. Self-hosted users with legacy tokens
+                // will need to re-authenticate once, which is the intended trade-off.
+                if (!storedUiHost && !isPostHogCloudHost(values.uiHost)) {
+                    toolbarLogger.warn('auth', 'Rejecting legacy OAuth tokens for untrusted uiHost', {
                         current: values.uiHost,
                     })
                     return
@@ -494,7 +504,7 @@ function startCodeExchange(
             // Code exchange failed (stale code, expired PKCE, network error).
             // Fall back to stored OAuth tokens so users don't have to
             // re-authenticate when the hash wasn't cleaned properly.
-            restoreOAuthTokens(false, { accessToken: null }, actions)
+            restoreOAuthTokens(false, { accessToken: null, uiHost }, actions)
         }
     })
 }
