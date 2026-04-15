@@ -1902,14 +1902,10 @@ class Resolver(CloningVisitor):
             else:
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
-        # Sessions tables live on a separate ClickHouse cluster from events/persons.
-        # An IN/NotIn against a sessions field with a subquery on the right must use
-        # globalIn — otherwise ClickHouse pushes the subquery into each sessions shard,
-        # which doesn't have events/persons → UNKNOWN_TABLE.
-        if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
-            and isinstance(node.right, ast.SelectQuery)
-            and self._is_sessions_table(node.left)
+        if (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn) and (
+            (isinstance(node.right, ast.SelectQuery) and self._is_sessions_table(node.left))
+            or (self._is_sessions_table(node.right) and isinstance(node.left, ast.SelectQuery))
+            or (isinstance(node.right, ast.SelectQuery) and self._select_reads_sessions(node.right))
         ):
             if node.op == ast.CompareOperationOp.In:
                 node.op = ast.CompareOperationOp.GlobalIn
@@ -1957,15 +1953,16 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.field_type.table_type.table, EventsTable)
         return False
 
+    _sessions_table_types = (
+        SessionsTableV1,
+        SessionsTableV2,
+        SessionsTableV3,
+        RawSessionsTableV1,
+        RawSessionsTableV2,
+        RawSessionsTableV3,
+    )
+
     def _is_sessions_table(self, node: ast.Expr) -> bool:
-        sessions_tables = (
-            SessionsTableV1,
-            SessionsTableV2,
-            SessionsTableV3,
-            RawSessionsTableV1,
-            RawSessionsTableV2,
-            RawSessionsTableV3,
-        )
         while isinstance(node, ast.Alias):
             node = node.expr
         if not isinstance(node, ast.Field):
@@ -1979,9 +1976,31 @@ class Resolver(CloningVisitor):
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             table_type = table_type.table_type
         if isinstance(table_type, ast.LazyTableType):
-            return isinstance(table_type.table, sessions_tables)
+            return isinstance(table_type.table, self._sessions_table_types)
         if isinstance(table_type, ast.TableType):
-            return isinstance(table_type.table, sessions_tables)
+            return isinstance(table_type.table, self._sessions_table_types)
+        if isinstance(table_type, ast.LazyJoinType):
+            join_table = table_type.lazy_join.join_table
+            return isinstance(join_table, self._sessions_table_types)
+        return False
+
+    def _select_reads_sessions(self, node: ast.SelectQuery) -> bool:
+        join = node.select_from
+        while join is not None:
+            table = join.table
+            while isinstance(table, ast.Alias):
+                table = table.expr
+            if isinstance(table, ast.Field) and isinstance(table.type, ast.BaseTableType):
+                table_type = table.type
+                while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+                    table_type = table_type.table_type
+                if isinstance(table_type, ast.LazyTableType) and isinstance(
+                    table_type.table, self._sessions_table_types
+                ):
+                    return True
+                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, self._sessions_table_types):
+                    return True
+            join = join.next_join
         return False
 
     def _is_s3_cluster(self, node: ast.Expr) -> bool:
