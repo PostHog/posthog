@@ -37,8 +37,8 @@ def test_is_excluded_matches_excluded_executables(args: str) -> None:
             id="python-with-code-in-path",
         ),
         pytest.param(
-            "granian asgi 127.0.0.1:8000 posthog.asgi:application",
-            id="granian",
+            "daphne posthog.asgi:application",
+            id="daphne",
         ),
         pytest.param(
             "celery -A posthog worker",

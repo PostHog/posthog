@@ -30,7 +30,6 @@ else
     echo "🐧 Linux detected, binding to Docker bridge gateway: $HOST_BIND"
 fi
 
-python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m daphne \
-    --bind "$HOST_BIND" \
-    --port 8000 \
-    posthog.asgi:application
+# Daphne is registered in INSTALLED_APPS (DEBUG only), so manage.py runserver
+# automatically uses the Daphne ASGI server with Django's built-in autoreload.
+python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} manage.py runserver "$HOST_BIND:8000"
