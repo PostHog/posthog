@@ -11,8 +11,10 @@ import {
     DashboardsReorderTilesCreateBody,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRunInsightsRetrieveParams,
+    DashboardsRunInsightsRetrieveQueryParams,
 } from '@/generated/dashboards/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardsGetAllSchema = DashboardsListQueryParams.omit({ format: true })
@@ -92,7 +94,46 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
             path: `/api/projects/${projectId}/dashboards/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        const filtered = omitResponseFields(result, [
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'access_control_version',
+            'restriction_level',
+            'creation_mode',
+            'deleted',
+            'breakdown_colors',
+            'data_color_theme_id',
+            'quick_filter_ids',
+            'tiles.*.color',
+            'tiles.*.transparent_background',
+            'tiles.*.show_description',
+            'tiles.*.button_tile',
+            'tiles.*.insight.result',
+            'tiles.*.insight.hasMore',
+            'tiles.*.insight.columns',
+            'tiles.*.insight.hogql',
+            'tiles.*.insight.types',
+            'tiles.*.insight.query_status',
+            'tiles.*.insight.cache_target_age',
+            'tiles.*.insight.next_allowed_client_refresh',
+            'tiles.*.insight.filters_hash',
+            'tiles.*.insight.dashboards',
+            'tiles.*.insight.dashboard_tiles',
+            'tiles.*.insight.effective_restriction_level',
+            'tiles.*.insight.effective_privilege_level',
+            'tiles.*.insight.user_access_level',
+            'tiles.*.insight.filters',
+            'tiles.*.insight.is_sample',
+            'tiles.*.insight.saved',
+            'tiles.*.insight.order',
+            'tiles.*.insight.deleted',
+            'tiles.*.insight.alerts',
+            'tiles.*.insight.last_viewed_at',
+            'tiles.*.insight.timezone',
+            'tiles.*.insight.resolved_date_range',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
     },
 })
 
@@ -107,7 +148,44 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${projectId}/dashboards/${params.id}/`,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        const filtered = omitResponseFields(result, [
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'access_control_version',
+            'restriction_level',
+            'creation_mode',
+            'deleted',
+            'breakdown_colors',
+            'data_color_theme_id',
+            'quick_filter_ids',
+            'tiles.*.color',
+            'tiles.*.transparent_background',
+            'tiles.*.show_description',
+            'tiles.*.button_tile',
+            'tiles.*.insight.result',
+            'tiles.*.insight.hasMore',
+            'tiles.*.insight.columns',
+            'tiles.*.insight.hogql',
+            'tiles.*.insight.types',
+            'tiles.*.insight.query_status',
+            'tiles.*.insight.cache_target_age',
+            'tiles.*.insight.next_allowed_client_refresh',
+            'tiles.*.insight.filters_hash',
+            'tiles.*.insight.dashboards',
+            'tiles.*.insight.dashboard_tiles',
+            'tiles.*.insight.effective_restriction_level',
+            'tiles.*.insight.effective_privilege_level',
+            'tiles.*.insight.user_access_level',
+            'tiles.*.insight.filters',
+            'tiles.*.insight.is_sample',
+            'tiles.*.insight.order',
+            'tiles.*.insight.deleted',
+            'tiles.*.insight.alerts',
+            'tiles.*.insight.timezone',
+            'tiles.*.insight.resolved_date_range',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
     },
 })
 
@@ -159,7 +237,44 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
             path: `/api/projects/${projectId}/dashboards/${params.id}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        const filtered = omitResponseFields(result, [
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'access_control_version',
+            'restriction_level',
+            'creation_mode',
+            'deleted',
+            'breakdown_colors',
+            'data_color_theme_id',
+            'quick_filter_ids',
+            'tiles.*.color',
+            'tiles.*.transparent_background',
+            'tiles.*.show_description',
+            'tiles.*.button_tile',
+            'tiles.*.insight.result',
+            'tiles.*.insight.hasMore',
+            'tiles.*.insight.columns',
+            'tiles.*.insight.hogql',
+            'tiles.*.insight.types',
+            'tiles.*.insight.query_status',
+            'tiles.*.insight.cache_target_age',
+            'tiles.*.insight.next_allowed_client_refresh',
+            'tiles.*.insight.filters_hash',
+            'tiles.*.insight.dashboards',
+            'tiles.*.insight.dashboard_tiles',
+            'tiles.*.insight.effective_restriction_level',
+            'tiles.*.insight.effective_privilege_level',
+            'tiles.*.insight.user_access_level',
+            'tiles.*.insight.filters',
+            'tiles.*.insight.is_sample',
+            'tiles.*.insight.order',
+            'tiles.*.insight.deleted',
+            'tiles.*.insight.alerts',
+            'tiles.*.insight.timezone',
+            'tiles.*.insight.resolved_date_range',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
     },
 })
 
@@ -176,6 +291,30 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
             body: { deleted: true },
         })
         return result
+    },
+})
+
+const DashboardInsightsRunSchema = DashboardsRunInsightsRetrieveParams.omit({ project_id: true }).extend(
+    DashboardsRunInsightsRetrieveQueryParams.omit({ format: true }).shape
+)
+
+const dashboardInsightsRun = (): ToolBase<
+    typeof DashboardInsightsRunSchema,
+    WithPostHogUrl<Schemas.RunInsightsResponse>
+> => ({
+    name: 'dashboard-insights-run',
+    schema: DashboardInsightsRunSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardInsightsRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RunInsightsResponse>({
+            method: 'GET',
+            path: `/api/projects/${projectId}/dashboards/${params.id}/run_insights/`,
+            query: {
+                output_format: params.output_format,
+                refresh: params.refresh,
+            },
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 
@@ -207,5 +346,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-update': dashboardUpdate,
     'dashboard-delete': dashboardDelete,
+    'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
 }

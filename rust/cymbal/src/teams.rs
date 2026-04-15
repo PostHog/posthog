@@ -1,21 +1,13 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use common_types::{GroupType, Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
 use tracing::warn;
 
 use crate::{
-    app_context::AppContext,
-    assignment_rules::AssignmentRule,
-    config::Config,
-    error::{PipelineFailure, UnhandledError},
-    fingerprinting::grouping_rules::GroupingRule,
-    metric_consts::ANCILLARY_CACHE,
-    pipeline::IncomingEvent,
-    sanitize_string,
-    spike_config::SpikeDetectionConfig,
-    suppression_rules::SuppressionRule,
-    WithIndices,
+    assignment_rules::AssignmentRule, config::Config, error::UnhandledError,
+    fingerprinting::grouping_rules::GroupingRule, metric_consts::ANCILLARY_CACHE,
+    spike_config::SpikeDetectionConfig, suppression_rules::SuppressionRule,
 };
 
 #[derive(Clone)]
@@ -239,57 +231,4 @@ impl TeamManager {
         self.group_type_indices.insert(team_id, indices.clone());
         Ok(indices)
     }
-}
-
-pub async fn do_team_lookups(
-    context: Arc<AppContext>,
-    events: &[IncomingEvent],
-) -> Result<HashMap<String, Option<Team>>, PipelineFailure> {
-    let mut team_lookups: HashMap<_, WithIndices<_>> = HashMap::new();
-    for (index, event) in events.iter().enumerate() {
-        let IncomingEvent::Captured(event) = event else {
-            continue; // We don't need to look up teams that already have a team_id
-        };
-
-        if team_lookups.contains_key(&event.token) {
-            team_lookups
-                .get_mut(&event.token)
-                .unwrap()
-                .indices
-                .push(index);
-            continue;
-        }
-
-        let token = sanitize_string(event.token.clone());
-
-        let m_ctx = context.clone();
-        let m_token = token.clone();
-        let fut = async move {
-            m_ctx
-                .team_manager
-                .get_team(&m_ctx.posthog_pool, &m_token)
-                .await
-        };
-        let lookup = WithIndices {
-            indices: vec![index],
-            inner: tokio::spawn(fut),
-        };
-        team_lookups.insert(token, lookup);
-    }
-
-    let mut results = HashMap::new();
-    for (token, lookup) in team_lookups {
-        let (indices, task) = (lookup.indices, lookup.inner);
-        match task.await.expect("Task was not cancelled") {
-            Ok(maybe_team) => {
-                if maybe_team.is_none() {
-                    warn!("Received event for unknown team token: {}", token);
-                }
-                results.insert(token, maybe_team);
-            }
-            Err(err) => return Err((indices[0], err).into()),
-        };
-    }
-
-    Ok(results)
 }

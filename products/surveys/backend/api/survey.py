@@ -77,6 +77,8 @@ from products.surveys.backend.util import (
     SurveyEventName,
     SurveyEventProperties,
     get_archived_response_uuids,
+    get_survey_property_bool_expr,
+    get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
 
@@ -1598,6 +1600,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             return Response({})
 
         params = {"team_id": self.team_id, "timestamp": earliest_survey_start_date}
+        survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
 
         partial_responses_filter = self._get_partial_responses_filter(
             base_conditions_sql=[
@@ -1617,14 +1620,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if survey_ids_param:
             survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
             if survey_ids:
-                survey_ids_filter = (
-                    f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
-                )
+                survey_ids_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
                 params["survey_ids"] = survey_ids
 
         query = f"""
             SELECT
-                JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
+                {survey_id_expr} as survey_id,
                 count()
             FROM events
             WHERE
@@ -1794,13 +1795,36 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         # Build query parameters
         params: dict[str, Any] = {"team_id": str(self.team_id)}
         date_filter = ""
+        survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+        survey_partially_completed_expr = get_survey_property_bool_expr(
+            SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED
+        )
+        effective_from = parsed_from
+        effective_to = parsed_to
 
-        if parsed_from:
+        if survey_id:
+            survey_dates = (
+                Survey.objects.filter(team_id=self.team_id, id=survey_id)
+                .values("start_date", "created_at", "end_date")
+                .first()
+            )
+
+            if survey_dates:
+                survey_start = survey_dates["start_date"] or survey_dates["created_at"]
+                survey_end = survey_dates["end_date"]
+
+                if survey_start:
+                    effective_from = max(filter(None, [parsed_from, survey_start]), default=survey_start)
+
+                if survey_end:
+                    effective_to = min(filter(None, [parsed_to, survey_end]), default=survey_end)
+
+        if effective_from:
             date_filter += " AND timestamp >= %(date_from)s"
-            params["date_from"] = parsed_from
-        if parsed_to:
+            params["date_from"] = effective_from
+        if effective_to:
             date_filter += " AND timestamp <= %(date_to)s"
-            params["date_to"] = parsed_to
+            params["date_to"] = effective_to
 
         # Add archive filter if needed
         archive_filter = ""
@@ -1813,7 +1837,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         # Add survey filter if specific survey
         survey_filter = ""
         if survey_id:
-            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = %(survey_id)s"
+            survey_filter = f"AND {survey_id_expr} = %(survey_id)s"
             params["survey_id"] = str(survey_id)
         else:
             # For global stats, only include non-archived surveys
@@ -1830,13 +1854,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         "unique_users_dismissal_rate": 0.0,
                     },
                 }
-            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
+            survey_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
+        partial_responses_base_conditions = ["team_id = %(team_id)s"]
+        if effective_from:
+            partial_responses_base_conditions.append("timestamp >= %(date_from)s")
+        if effective_to:
+            partial_responses_base_conditions.append("timestamp <= %(date_to)s")
+
         partial_responses_filter = self._get_partial_responses_filter(
-            base_conditions_sql=[
-                "team_id = %(team_id)s",
-            ],
+            base_conditions_sql=partial_responses_base_conditions,
         )
 
         # Query 1: Base Stats (Similar to original query)
@@ -1852,14 +1880,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
-            {archive_filter}
-            AND (
-                event != %(dismissed)s
-                OR
-                COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
-            )
-            AND (
-                event != %(sent)s
+                {archive_filter}
+                AND (
+                    event != %(dismissed)s
+                    OR
+                    COALESCE({survey_partially_completed_expr}, False) = False
+                )
+                AND (
+                    event != %(sent)s
                 OR
                 {partial_responses_filter}
             )
@@ -1888,7 +1916,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND (
                     event != %(dismissed)s
                     OR
-                    COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                    COALESCE({survey_partially_completed_expr}, False) = False
                 )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0

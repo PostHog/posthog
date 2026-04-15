@@ -67,7 +67,7 @@ dependencies = [
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
     "granian[uvloop,reload,pname]==2.5.5",
-    "grimp==3.13",
+    "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
     "hogql-parser==1.3.38",
@@ -202,6 +202,7 @@ dev = [
     "dagster-dg-cli~=1.10.18",
     "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
+    "import-linter~=2.11",
     "deepdiff~=8.6.1",
     "django-linear-migrations~=2.17.0",
     "django-stubs~=5.2.0",
@@ -244,7 +245,7 @@ dev = [
     "ruff~=0.14.11",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
-    "tach~=0.20.0",
+    "tach~=0.34",
     "types-aioboto3[s3]~=14.3.0",
     "types-aiobotocore~=2.22.0",
     "types-boto3[essential]==1.37.6",
@@ -430,6 +431,44 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
+]
+
+# ---------------------------------------------------------------------------
+# import-linter: enforce internal product architecture
+# ---------------------------------------------------------------------------
+# Ensures products follow the facade pattern internally:
+# presentation → facade → logic/models (not shortcuts).
+# Complements tach (inter-module boundaries) with intra-product enforcement.
+
+[tool.importlinter]
+root_packages = ["products"]
+
+# Presentation must only reach product internals through the facade.
+# Forbid all backend imports, then allowlist facade + self-imports.
+# This catches any new internal modules (cache.py, helpers.py, etc.)
+# automatically — no blocklist to maintain.
+[[tool.importlinter.contracts]]
+name = "presentation must use facade"
+type = "forbidden"
+source_modules = ["products.*.backend.presentation"]
+forbidden_modules = [
+    "products.*.backend",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    # Allowed: presentation can import facade and itself
+    "products.**.backend.presentation.** -> products.**.backend.facade.**",
+    "products.**.backend.presentation.** -> products.**.backend.presentation.**",
+    # TODO: existing violations — fix by routing through facade
+    "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
+    "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
+    "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.models",
+    "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.oauth",
+    "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.proxy",
+    "products.notifications.backend.presentation.views -> products.notifications.backend.cache",
+    "products.notifications.backend.presentation.views -> products.notifications.backend.models",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
 ]
 
 [tool.ty.rules]

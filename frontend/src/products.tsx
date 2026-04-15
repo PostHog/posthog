@@ -20,6 +20,7 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
@@ -1186,7 +1187,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_clusters',
         iconType: 'llm_clusters' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-clusters-light)'] as FileSystemIconColor,
@@ -1212,7 +1213,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         iconType: 'cohort',
         href: urls.customerAnalytics(),
         tags: ['beta'],
@@ -1223,7 +1224,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Dashboards',
         intents: [ProductKey.PRODUCT_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         type: 'dashboard',
         iconType: 'dashboard',
         iconColor: ['var(--color-product-dashboards-light)'],
@@ -1232,25 +1233,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Dashboard', 'Dashboards'],
     },
     {
-        path: `Data pipelines`,
-        intents: [
-            ProductKey.PIPELINE_BATCH_EXPORTS,
-            ProductKey.PIPELINE_DESTINATIONS,
-            ProductKey.PIPELINE_TRANSFORMATIONS,
-            ProductKey.SITE_APPS,
-        ],
-        category: 'Tools',
-        type: 'hog_function',
-        iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-pipeline-light)'],
-        flag: FEATURE_FLAGS.SHOW_DATA_PIPELINES_NAV_ITEM,
-        sceneKeys: ['Transformations'],
-    },
-    {
         path: 'Data warehouse',
         displayLabel: 'Data ops',
         intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         href: urls.dataOps(),
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         iconType: 'data_warehouse',
@@ -1261,7 +1247,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Datasets',
         intents: [ProductKey.LLM_DATASETS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_datasets',
         iconType: 'llm_datasets' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-datasets-light)'] as FileSystemIconColor,
@@ -1289,7 +1275,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Early access features',
         intents: [ProductKey.EARLY_ACCESS_FEATURES],
-        category: 'Features',
+        category: ProductItemCategory.FEATURES,
         type: 'early_access_feature',
         href: urls.earlyAccessFeatures(),
         iconType: 'early_access_feature' as FileSystemIconType,
@@ -1303,7 +1289,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Endpoints',
         intents: [ProductKey.ENDPOINTS],
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
@@ -1316,7 +1302,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Error tracking',
         intents: [ProductKey.ERROR_TRACKING],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         type: 'error_tracking',
         iconType: 'error_tracking' as FileSystemIconType,
         iconColor: [
@@ -1335,7 +1321,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Evaluations',
         intents: [ProductKey.LLM_EVALUATIONS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_evaluations',
         iconType: 'llm_evaluations' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
@@ -1362,7 +1348,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: `Experiments`,
         intents: [ProductKey.EXPERIMENTS],
-        category: 'Features',
+        category: ProductItemCategory.FEATURES,
         type: 'experiment',
         href: urls.experiments(),
         iconType: 'experiment',
@@ -1373,7 +1359,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: `Feature flags`,
         intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
-        category: 'Features',
+        category: ProductItemCategory.FEATURES,
         type: 'feature_flag',
         href: urls.featureFlags(),
         sceneKey: 'FeatureFlags',
@@ -1382,7 +1368,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Heatmaps',
         intents: [ProductKey.HEATMAPS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         iconType: 'heatmap',
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
         href: urls.heatmaps(),
@@ -1399,7 +1385,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             ProductKey.LLM_PROMPTS,
             ProductKey.LLM_CLUSTERS,
         ],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         visualOrder: 1,
         type: 'llm_analytics',
         iconType: 'llm_analytics' as FileSystemIconType,
@@ -1426,7 +1412,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Links',
         intents: [ProductKey.LINKS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         type: 'link',
         href: urls.links(),
         flag: FEATURE_FLAGS.LINKS,
@@ -1437,7 +1423,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Live Debugger',
         intents: [ProductKey.LIVE_DEBUGGER],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         type: 'live_debugger',
         href: urls.liveDebugger(),
         flag: FEATURE_FLAGS.LIVE_DEBUGGER,
@@ -1449,7 +1435,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
@@ -1459,7 +1445,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         href: urls.marketingAnalyticsApp(),
         iconType: 'marketing_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
@@ -1471,7 +1457,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Metrics',
         intents: [ProductKey.METRICS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         iconType: 'metrics',
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
@@ -1483,7 +1469,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Notebooks',
         intents: [ProductKey.NOTEBOOKS],
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         type: 'notebook',
         iconType: 'notebook',
         href: urls.notebooks(),
@@ -1493,7 +1479,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Playground',
         intents: [ProductKey.LLM_ANALYTICS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_playground',
         iconType: 'llm_playground' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
@@ -1519,7 +1505,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Product analytics',
         intents: [ProductKey.PRODUCT_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         type: 'insight',
         href: urls.insights(),
         iconType: 'product_analytics',
@@ -1530,7 +1516,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Product tours',
         intents: [ProductKey.PRODUCT_TOURS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         type: 'product_tour',
         href: urls.productTours(),
         iconType: 'product_tour',
@@ -1542,7 +1528,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Prompts',
         intents: [ProductKey.LLM_PROMPTS],
-        category: 'AI engineering',
+        category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_prompts',
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
@@ -1570,7 +1556,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Revenue analytics',
         intents: [ProductKey.REVENUE_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         href: urls.revenueAnalytics(),
         type: 'revenue',
         flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
@@ -1581,7 +1567,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'SQL editor',
         intents: [ProductKey.DATA_WAREHOUSE_SAVED_QUERY, ProductKey.DATA_WAREHOUSE],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         type: 'sql',
         iconType: 'sql_editor',
         iconColor: ['var(--color-product-data-warehouse-light)'],
@@ -1592,7 +1578,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Session replay',
         intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         href: urls.replay(ReplayTabs.Home),
         type: 'session_recording_playlist',
         iconType: 'session_replay',
@@ -1603,7 +1589,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Support',
         intents: [ProductKey.CONVERSATIONS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         href: urls.supportTickets(),
         type: 'conversations',
         flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
@@ -1616,7 +1602,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Surveys',
         intents: [ProductKey.SURVEYS],
-        category: 'Behavior',
+        category: ProductItemCategory.BEHAVIOR,
         type: 'survey',
         href: urls.surveys(),
         iconType: 'survey',
@@ -1627,7 +1613,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tasks',
         intents: [ProductKey.TASKS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         type: 'task',
         href: urls.taskTracker(),
         flag: FEATURE_FLAGS.TASKS,
@@ -1642,7 +1628,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.TOOLBAR],
         href: urls.toolbarLaunch(),
         type: 'toolbar',
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         iconType: 'toolbar',
         sceneKey: 'Toolbar',
         sceneKeys: ['Toolbar'],
@@ -1650,7 +1636,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Tracing',
         intents: [ProductKey.TRACING],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
@@ -1662,7 +1648,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'User interviews',
         intents: [ProductKey.USER_INTERVIEWS],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         href: urls.userInterviews(),
         type: 'user_interview',
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
@@ -1675,7 +1661,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Visual review',
         intents: [ProductKey.VISUAL_REVIEW],
-        category: 'Unreleased',
+        category: ProductItemCategory.UNRELEASED,
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
         flag: FEATURE_FLAGS.VISUAL_REVIEW,
@@ -1686,7 +1672,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Web analytics',
         intents: [ProductKey.WEB_ANALYTICS],
-        category: 'Analytics',
+        category: ProductItemCategory.ANALYTICS,
         iconType: 'web_analytics',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
         href: urls.webAnalytics(),
@@ -1696,7 +1682,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Web scripts',
         intents: [ProductKey.SITE_APPS],
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         type: 'hog_function',
         iconType: 'data_pipeline',
         iconColor: ['var(--color-product-data-pipeline-light)'],
@@ -1709,7 +1695,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
         type: 'workflows',
-        category: 'Tools',
+        category: ProductItemCategory.TOOLS,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
