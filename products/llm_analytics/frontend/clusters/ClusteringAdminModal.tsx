@@ -57,6 +57,7 @@ export function ClusteringAdminModal(): JSX.Element {
                         options={[
                             { value: 'trace', label: 'Traces' },
                             { value: 'generation', label: 'Generations' },
+                            { value: 'evaluation', label: 'Evaluations' },
                         ]}
                         fullWidth
                         data-attr="clusters-admin-level"

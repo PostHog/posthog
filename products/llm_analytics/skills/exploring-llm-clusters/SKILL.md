@@ -65,11 +65,11 @@ Each cluster event contains:
 
 ## Clustering jobs
 
-Each team can have up to 5 clustering jobs. A job defines:
+Each team can have up to 10 clustering jobs. A job defines:
 
 - **name** — human-readable label
-- **analysis_level** — `"trace"` or `"generation"`
-- **event_filters** — property filters scoping which traces are included
+- **analysis_level** — `"trace"`, `"generation"`, or `"evaluation"`
+- **event_filters** — property filters scoping which traces / generations / evaluations are included
 - **enabled** — whether the job runs on schedule
 
 Default jobs named `"Default - trace"` and `"Default - generation"` are auto-created

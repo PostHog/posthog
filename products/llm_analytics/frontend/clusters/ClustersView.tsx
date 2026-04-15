@@ -81,6 +81,7 @@ export function ClustersView(): JSX.Element {
                                     options={[
                                         { value: 'trace', label: 'Traces' },
                                         { value: 'generation', label: 'Generations' },
+                                        { value: 'evaluation', label: 'Evaluations' },
                                     ]}
                                     size="small"
                                     data-attr="clusters-level-toggle"
@@ -156,6 +157,7 @@ export function ClustersView(): JSX.Element {
                                 options={[
                                     { value: 'trace', label: 'Traces' },
                                     { value: 'generation', label: 'Generations' },
+                                    { value: 'evaluation', label: 'Evaluations' },
                                 ]}
                                 size="small"
                                 data-attr="clusters-level-toggle"
