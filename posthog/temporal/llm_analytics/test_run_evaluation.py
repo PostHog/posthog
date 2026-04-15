@@ -386,12 +386,12 @@ class TestRunEvaluationWorkflow:
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
-        assert evaluation.enabled is True
+        assert evaluation.enabled
 
         await disable_evaluation_activity(str(evaluation.id), team.id, "trial_limit_reached")
 
         await sync_to_async(evaluation.refresh_from_db)()
-        assert evaluation.enabled is False
+        assert not evaluation.enabled
         assert evaluation.status == "error"
         assert evaluation.status_reason == "trial_limit_reached"
 
