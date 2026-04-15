@@ -847,6 +847,32 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert results[0]["id"] == str(d2.id)
         assert results[1]["id"] == str(d1.id)
 
+    @parameterized.expand(
+        [(s,) for s in SubscriptionDelivery.Status],
+        name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0].value}",
+    )
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
+    def test_deliveries_filter_by_status(self, filter_status, _mock_feature):
+        other_status = next(s for s in SubscriptionDelivery.Status if s != filter_status)
+        self._create_delivery(idempotency_key=f"other-{other_status.value}", status=other_status)
+        self._create_delivery(idempotency_key=f"match-{filter_status.value}", status=filter_status)
+
+        base = f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        response = self.client.get(base, {"status": filter_status})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["status"] == filter_status
+
+    @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
+    def test_deliveries_invalid_status_filter_returns_400(self, _mock_feature):
+        self._create_delivery(idempotency_key="any")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/",
+            {"status": "not-a-status"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.subscription.hackathon_subscription_feature", return_value=True)
     def test_deliveries_require_premium_feature(self, _mock_feature):

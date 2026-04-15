@@ -6,7 +6,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 
 import { TargetTypeEnumApi, type SubscriptionsListTargetType } from '~/generated/core/api.schemas'
 
-import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
+import { SubscriptionsTab, subscriptionsSceneLogic } from '../subscriptionsSceneLogic'
 
 const CHANNEL_FILTER_OPTIONS: { label: string; value: SubscriptionsListTargetType | null }[] = [
     { label: 'All channels', value: null },
