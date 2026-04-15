@@ -93,6 +93,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 query=view.query,
                 columns=view.columns,
             )
+            try:
+                external_tables_by_view[view.name] = temp_sq.get_s3_tables(database=database)
             except Exception as e:
                 capture_exception(e, {"view_name": view.name, "team_id": self.team.pk})
                 logger.warning(
@@ -117,7 +119,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             # Serialize concurrent sync_views calls for the same team+kind to prevent
             # deadlocks when multiple data source schemas complete simultaneously and
             # each tries to update the same set of saved queries.
-            with connection.cursor() as cursor:
             with connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
