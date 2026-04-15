@@ -112,7 +112,6 @@ class Subscription(models.Model):
 
     # AI change summary
     summary_enabled = models.BooleanField(default=False)
-    summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
         indexes = [
