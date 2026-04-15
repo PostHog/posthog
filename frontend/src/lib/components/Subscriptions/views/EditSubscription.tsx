@@ -438,6 +438,19 @@ export function EditSubscription({
                             </LemonField>
                         </PayGateMini>
 
+                        {subscription.summary_enabled && (
+                            <LemonField
+                                name="summary_prompt_guide"
+                                label="Context for the AI summary"
+                                showOptional
+                            >
+                                <LemonTextArea
+                                    placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                    maxLength={500}
+                                />
+                            </LemonField>
+                        )}
+
                         {insightShortId && (
                             <div>
                                 <LemonLabel className="mb-2">Preview</LemonLabel>
