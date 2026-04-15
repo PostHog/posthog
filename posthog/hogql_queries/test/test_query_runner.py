@@ -894,7 +894,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
-        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         query = LifecycleQuery(
             series=[

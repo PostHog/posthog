@@ -18,7 +18,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
 
 if TYPE_CHECKING:
-    from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+    from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
     from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
     from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 

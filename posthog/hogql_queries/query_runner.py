@@ -340,7 +340,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
