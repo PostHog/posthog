@@ -15,9 +15,6 @@ from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQue
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
-from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
-from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
@@ -1953,16 +1950,23 @@ class Resolver(CloningVisitor):
                 return isinstance(node.type.field_type.table_type.table, EventsTable)
         return False
 
-    _sessions_table_types = (
-        SessionsTableV1,
-        SessionsTableV2,
-        SessionsTableV3,
-        RawSessionsTableV1,
-        RawSessionsTableV2,
-        RawSessionsTableV3,
-    )
+    # The set of "sessions-cluster" tables is whatever the current database resolves
+    # for these names — adding a new sessions version means wiring it up in
+    # database.py, and this helper picks it up automatically.
+    _SESSIONS_TABLE_NAMES = ("sessions", "raw_sessions", "raw_sessions_v3")
+
+    def _sessions_table_classes(self) -> tuple[type, ...]:
+        database = self.context.database
+        if database is None:
+            return ()
+        return tuple(
+            {type(database.get_table(name)) for name in self._SESSIONS_TABLE_NAMES if database.has_table(name)}
+        )
 
     def _is_sessions_table(self, node: ast.Expr) -> bool:
+        classes = self._sessions_table_classes()
+        if not classes:
+            return False
         while isinstance(node, ast.Alias):
             node = node.expr
         if not isinstance(node, ast.Field):
@@ -1975,16 +1979,16 @@ class Resolver(CloningVisitor):
         table_type = field_type.table_type
         while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             table_type = table_type.table_type
-        if isinstance(table_type, ast.LazyTableType):
-            return isinstance(table_type.table, self._sessions_table_types)
-        if isinstance(table_type, ast.TableType):
-            return isinstance(table_type.table, self._sessions_table_types)
+        if isinstance(table_type, (ast.LazyTableType, ast.TableType)):
+            return isinstance(table_type.table, classes)
         if isinstance(table_type, ast.LazyJoinType):
-            join_table = table_type.lazy_join.join_table
-            return isinstance(join_table, self._sessions_table_types)
+            return isinstance(table_type.lazy_join.join_table, classes)
         return False
 
     def _select_reads_sessions(self, node: ast.SelectQuery) -> bool:
+        classes = self._sessions_table_classes()
+        if not classes:
+            return False
         join = node.select_from
         while join is not None:
             table = join.table
@@ -1994,11 +1998,7 @@ class Resolver(CloningVisitor):
                 table_type = table.type
                 while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     table_type = table_type.table_type
-                if isinstance(table_type, ast.LazyTableType) and isinstance(
-                    table_type.table, self._sessions_table_types
-                ):
-                    return True
-                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, self._sessions_table_types):
+                if isinstance(table_type, (ast.LazyTableType, ast.TableType)) and isinstance(table_type.table, classes):
                     return True
             join = join.next_join
         return False
