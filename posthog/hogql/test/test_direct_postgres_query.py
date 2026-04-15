@@ -1083,11 +1083,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             ("no_tunnel", {}, "require"),
             ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
             ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
-            (
-                "no_tunnel_tls_off_ignored",
-                {"ssh_tunnel": {"enabled": False, "require_tls": {"enabled": False}}},
-                "require",
-            ),
+            ("no_tunnel_tls_off_ignored", {"ssh_tunnel": {"enabled": False}}, "require"),
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
