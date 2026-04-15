@@ -322,12 +322,11 @@ class DebugCHQueries(viewsets.ViewSet):
                     AND JSONExtractString(log_comment, 'product') = 'experiments'
                     AND is_initial_query
                     AND query NOT LIKE %(not_query)s
-                ORDER BY query_start_time DESC
-                LIMIT 100
                 SETTINGS skip_unavailable_shards=1
             )
             GROUP BY query_id
             ORDER BY query_duration_ms DESC
+            LIMIT 100
             """,
             {
                 "cluster": CLICKHOUSE_CLUSTER,
