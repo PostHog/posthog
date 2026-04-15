@@ -275,8 +275,8 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                 },
             }),
             ...(service == 'Snowflake' && {
-                snowflake_ingested_at: {
-                    name: 'snowflake_ingested_at',
+                snowflake_ingested_timestamp: {
+                    name: 'snowflake_ingested_timestamp',
                     hogql_value: 'NOW64()',
                     type: 'datetime',
                     schema_valid: true,

@@ -463,6 +463,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
     activity_environment.on_heartbeat = capture_heartbeat_details
 
     table_name = f"test_insert_activity_table_{ateam.pk}"
+    min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     insert_inputs = SnowflakeInsertInputs(
         team_id=ateam.pk,
         table_name=table_name,
@@ -504,6 +505,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         sort_key="event",
+        min_ingested_timestamp=min_ingested_timestamp,
     )
 
 
