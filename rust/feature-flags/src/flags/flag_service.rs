@@ -119,9 +119,9 @@ impl FlagService {
         let (data, source) = self
             .team_hypercache_reader
             .get_with_source_or_fallback(&key, || async move {
-                // This closure only runs on a genuine CacheMiss (key not found
-                // in Redis and S3). Transient errors (timeouts, parse failures)
-                // are propagated directly by HyperCache and never reach here.
+                // This closure runs on cache miss (key not found in Redis and
+                // S3) or infrastructure errors (timeouts, connection failures)
+                // as a resilience fallback.
                 if skip_pg {
                     inc(PG_TEAM_FALLBACK_SKIPPED_COUNTER, &[], 1);
                     return Err(FlagError::TokenValidationError);

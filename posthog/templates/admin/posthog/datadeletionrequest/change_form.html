@@ -35,23 +35,18 @@
     </div>
     {% endif %}
 
+    {# NOTE: These submit buttons use formaction= to bypass the surrounding admin <form>, since browsers collapse nested <form> elements. #}
     {% if can_approve %}
     <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #5cb85c; display: flex; align-items: center; gap: 10px;">
         <div class="info">This request is <strong>pending</strong> and awaiting approval.</div>
-        <form method="post" action="{{ approve_url }}" style="margin: 0;">
-            {% csrf_token %}
-            <input type="submit" value="Approve" class="button" style="padding: 10px 15px; background: #5cb85c; color: white;" />
-        </form>
+        <button type="submit" formaction="{{ approve_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #5cb85c; color: white;">Approve</button>
     </div>
     {% endif %}
 
     {% if can_revert_to_draft %}
     <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f0ad4e; display: flex; align-items: center; gap: 10px;">
         <div class="info">This request is <strong>{{ original.get_status_display|lower }}</strong>. Moving it back to draft will clear the approval.</div>
-        <form method="post" action="{{ revert_to_draft_url }}" style="margin: 0;">
-            {% csrf_token %}
-            <input type="submit" value="Move to draft" class="button" style="padding: 10px 15px;" />
-        </form>
+        <button type="submit" formaction="{{ revert_to_draft_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px;">Move to draft</button>
     </div>
     {% endif %}
 {% endblock %}

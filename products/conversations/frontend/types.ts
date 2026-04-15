@@ -93,6 +93,7 @@ export interface Ticket {
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null
+    cc_participants?: string[]
     person?: TicketPerson | null
     tags?: string[]
 }

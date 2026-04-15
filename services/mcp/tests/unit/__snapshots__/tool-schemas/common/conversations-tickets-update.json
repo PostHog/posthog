@@ -1,0 +1,58 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this ticket.",
+            "type": "string"
+        },
+        "priority": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High",
+                            "enum": ["low", "medium", "high"],
+                            "type": "string"
+                        },
+                        {
+                            "enum": [""],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High"
+        },
+        "sla_due_at": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "SLA deadline set via workflows. Null means no SLA."
+        },
+        "status": {
+            "description": "Ticket status: new, open, pending, on_hold, or resolved\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
+            "enum": ["new", "open", "pending", "on_hold", "resolved"],
+            "type": "string"
+        },
+        "tags": {
+            "items": {},
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

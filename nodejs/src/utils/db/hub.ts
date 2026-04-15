@@ -131,6 +131,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         posthogRedisPool,
         cookielessRedisPool,
         kafkaProducer,
+        monitoringProducer: kafkaProducer,
         groupTypeManager,
         teamManager,
         groupRepository,

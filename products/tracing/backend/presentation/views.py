@@ -151,6 +151,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             dateRange=date_range,
             traceId=trace_id,
             limit=1000,
+            prefetchSpans=2000,
             rootSpans=False,
         )
 
