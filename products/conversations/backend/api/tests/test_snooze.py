@@ -107,16 +107,17 @@ class TestTicketSnoozeAPI(APIBaseTest):
             item_id=str(self.ticket.id),
             activity="updated",
         ).first()
-        self.assertIsNotNone(activity)
+        assert activity is not None
+        assert activity.detail is not None
         changes = activity.detail.get("changes", [])
 
         snooze_change = next((c for c in changes if c["field"] == "snoozed_until"), None)
-        self.assertIsNotNone(snooze_change)
+        assert snooze_change is not None
         self.assertIsNone(snooze_change["before"])
         self.assertIsNotNone(snooze_change["after"])
 
         status_change = next((c for c in changes if c["field"] == "status"), None)
-        self.assertIsNotNone(status_change)
+        assert status_change is not None
         self.assertEqual(status_change["after"], Status.ON_HOLD)
 
     def test_retrieve_includes_snoozed_until(self, _):
@@ -255,14 +256,15 @@ class TestExternalTicketSnoozeAPI(BaseTest):
             item_id=str(self.ticket.id),
             activity="updated",
         ).first()
-        self.assertIsNotNone(activity)
+        assert activity is not None
+        assert activity.detail is not None
         changes = activity.detail.get("changes", [])
 
         snooze_change = next((c for c in changes if c["field"] == "snoozed_until"), None)
-        self.assertIsNotNone(snooze_change)
+        assert snooze_change is not None
 
         status_change = next((c for c in changes if c["field"] == "status"), None)
-        self.assertIsNotNone(status_change)
+        assert status_change is not None
         self.assertEqual(status_change["after"], "on_hold")
 
     def test_patch_invalid_snoozed_until(self):
