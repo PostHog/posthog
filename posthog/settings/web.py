@@ -70,7 +70,6 @@ PRODUCTS_APPS = [
 ]
 
 INSTALLED_APPS = [
-    *(["daphne"] if DEBUG else []),  # ASGI dev server — replaces runserver with Daphne-backed ASGI variant
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
     "django.contrib.auth",
@@ -193,7 +192,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "posthog.wsgi.application"
-ASGI_APPLICATION = "posthog.asgi.application"
 
 ####
 # Authentication
