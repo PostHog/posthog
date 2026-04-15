@@ -1,23 +1,66 @@
 name: AI sandboxed harness smoke test
+# Two-tier trigger model:
+#   1. pull_request / push-to-master on a curated path list — fast feedback
+#      on the files that directly reach into the harness (fixtures, runner,
+#      docker sandbox provider, task backend, direct transport deps). We
+#      deliberately DO NOT gate on blanket posthog/** or products/*/backend/**
+#      because this job runs the full docker-compose stack for ~15 minutes
+#      and almost all changes under those trees have no bearing on whether
+#      the sandboxed eval harness boots.
+#   2. schedule: a daily cron catches drift from anything the path filter
+#      misses — dep bumps, upstream docker image changes, distant refactors
+#      that transitively break braintrust / temporalio / posthoganalytics
+#      etc. so the harness doesn't silently rot between PRs that happen to
+#      touch the curated list.
 on:
     pull_request:
         paths:
+            # The harness itself + its parent eval conftest.
             - 'ee/hogai/eval/sandboxed/**'
-            - 'products/tasks/backend/services/custom_prompt_runner.py'
-            - 'products/tasks/backend/services/docker_sandbox.py'
+            - 'ee/hogai/eval/conftest.py'
+            - 'ee/hogai/eval/data_setup.py'
+            # Everything the task sandbox and custom prompt runner touch.
+            - 'products/tasks/backend/**'
+            # Direct transport deps the fixtures boot as subprocesses.
             - 'services/llm-gateway/**'
             - 'services/mcp/**'
+            # Django bits the autouse fixtures reach into directly:
+            # temporal worker, sandbox/task settings, S3 log polling.
+            - 'posthog/temporal/**'
+            - 'posthog/settings/**'
+            - 'posthog/storage/**'
+            # Dep / infra churn that silently rewires what the fixtures
+            # import at runtime.
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'docker-compose.dev.yml'
+            - 'docker-compose.profiles.yml'
+            # The workflow itself.
             - '.github/workflows/ci-ai-sandboxed-harness.yml'
     push:
         branches:
             - master
         paths:
             - 'ee/hogai/eval/sandboxed/**'
-            - 'products/tasks/backend/services/custom_prompt_runner.py'
-            - 'products/tasks/backend/services/docker_sandbox.py'
+            - 'ee/hogai/eval/conftest.py'
+            - 'ee/hogai/eval/data_setup.py'
+            - 'products/tasks/backend/**'
             - 'services/llm-gateway/**'
             - 'services/mcp/**'
+            - 'posthog/temporal/**'
+            - 'posthog/settings/**'
+            - 'posthog/storage/**'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'docker-compose.dev.yml'
+            - 'docker-compose.profiles.yml'
             - '.github/workflows/ci-ai-sandboxed-harness.yml'
+    schedule:
+        # Daily at 06:17 UTC — offset from the top of the hour to avoid
+        # contention with other PostHog cron jobs. Picks up drift from
+        # anything the path filter above doesn't cover.
+        - cron: '17 6 * * *'
+    workflow_dispatch: {}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
