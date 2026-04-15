@@ -4,6 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import type { SubscriptionApi } from '~/generated/core/api.schemas'
+import type { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
@@ -59,7 +60,10 @@ export function SubscriptionSummary({ sub }: { sub: SubscriptionApi }): JSX.Elem
                                 email: sub.created_by.email,
                                 first_name: sub.created_by.first_name,
                                 last_name: sub.created_by.last_name,
-                                hedgehog_config: sub.created_by.hedgehog_config ?? undefined,
+                                hedgehog_config: (sub.created_by.hedgehog_config ?? undefined) as
+                                    | MinimalHedgehogConfig
+                                    | HedgehogConfig
+                                    | undefined,
                             }}
                             size="md"
                             showName
