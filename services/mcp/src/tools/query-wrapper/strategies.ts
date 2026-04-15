@@ -76,7 +76,7 @@ const baseActorsStrategy: QueryStrategy = {
         kind: 'ActorsQuery',
         source: query,
         select: ['actor', 'event_count'],
-        orderBy: ['event_count DESC, actor_id DESC'],
+        orderBy: ['event_count DESC', 'actor_id DESC'],
         limit: ACTORS_DEFAULT_LIMIT,
     }),
     formatResponse: (response, query) => {
@@ -95,7 +95,7 @@ const baseActorsStrategy: QueryStrategy = {
 }
 
 // Per-kind strategy overrides. Add entries here as new actors kinds land. Each kind
-// can override any subset of QueryStrategy; missing fields fall back to baseActorsStrategy.
+// can override any subset of QueryStrategy; missing fields fall back to insightStrategy.
 const strategiesByKind: Record<string, QueryStrategy> = {
     InsightActorsQuery: baseActorsStrategy,
 }
