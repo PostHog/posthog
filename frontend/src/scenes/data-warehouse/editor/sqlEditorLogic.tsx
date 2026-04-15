@@ -36,7 +36,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -69,6 +68,7 @@ import {
 } from '~/types'
 
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -280,7 +280,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['drafts'],
             featureFlagLogic,
             ['featureFlags'],
-            externalDataSourcesLogic,
+            sourcesDataLogic,
             ['dataWarehouseSources'],
             databaseTableListLogic,
             ['database', 'databaseLoading'],

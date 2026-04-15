@@ -455,6 +455,32 @@ export interface ReorderTilesRequestApi {
     tile_order: number[]
 }
 
+/**
+ * InsightSerializer restricted to identifiers + result only.
+ */
+export interface InsightResultApi {
+    readonly id: number
+    readonly short_id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly derived_name: string | null
+    readonly result: unknown
+}
+
+/**
+ * DashboardTileSerializer restricted to tile id + insight result fields.
+ */
+export interface DashboardTileResultApi {
+    id?: number
+    insight: InsightResultApi
+}
+
+export interface RunInsightsResponseApi {
+    /** Results for each insight tile on the dashboard. */
+    results: DashboardTileResultApi[]
+}
+
 export interface DataColorThemeApi {
     readonly id: number
     /** @maxLength 100 */
@@ -650,6 +676,43 @@ export type DashboardsReorderTilesCreateFormat =
 export const DashboardsReorderTilesCreateFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsRunInsightsRetrieveParams = {
+    format?: DashboardsRunInsightsRetrieveFormat
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh
+}
+
+export type DashboardsRunInsightsRetrieveFormat =
+    (typeof DashboardsRunInsightsRetrieveFormat)[keyof typeof DashboardsRunInsightsRetrieveFormat]
+
+export const DashboardsRunInsightsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRunInsightsRetrieveOutputFormat =
+    (typeof DashboardsRunInsightsRetrieveOutputFormat)[keyof typeof DashboardsRunInsightsRetrieveOutputFormat]
+
+export const DashboardsRunInsightsRetrieveOutputFormat = {
+    Json: 'json',
+    Optimized: 'optimized',
+} as const
+
+export type DashboardsRunInsightsRetrieveRefresh =
+    (typeof DashboardsRunInsightsRetrieveRefresh)[keyof typeof DashboardsRunInsightsRetrieveRefresh]
+
+export const DashboardsRunInsightsRetrieveRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
 } as const
 
 export type DashboardsSnapshotCreateParams = {

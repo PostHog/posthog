@@ -125,6 +125,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'session_recording_playlist:write',
     'survey:read',
     'survey:write',
+    'ticket:read',
+    'ticket:write',
     'user:read',
     'warehouse_table:read',
     'warehouse_view:read',

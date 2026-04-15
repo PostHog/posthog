@@ -374,6 +374,41 @@ class TestTaskAPI(BaseTaskAPITest):
         assert get_cached_github_user_token(str(task_run.id)) == github_user_token
         mock_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_runtime_metadata(self, reasoning_effort, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["runtime_adapter"] == "codex"
+        assert task_run.state["provider"] == "openai"
+        assert task_run.state["model"] == "gpt-5.3-codex"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        assert latest_run["runtime_adapter"] == "codex"
+        assert latest_run["provider"] == "openai"
+        assert latest_run["model"] == "gpt-5.3-codex"
+        assert latest_run["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
         task = self.create_task()
@@ -393,6 +428,103 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "github_user_token is required for user-authored cloud runs"
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_runtime_adapter", {"model": "gpt-5.3-codex"}, "runtime_adapter"),
+            ("missing_model", {"runtime_adapter": "codex"}, "model"),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_incomplete_runtime_selection(self, _case_name, payload, expected_attr, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            payload,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This field is required when selecting a cloud runtime.",
+            "attr": expected_attr,
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "max",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
+                "and model 'gpt-5.4'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "reasoning_effort": "high",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
+                "and model 'claude-sonnet-4-5'. Supported values: none."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["provider"] == "openai"
+        assert latest_run["provider"] == "openai"
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_allows_user_authorship_without_token_when_no_repo(self, mock_workflow):
@@ -424,6 +556,9 @@ class TestTaskAPI(BaseTaskAPITest):
                 "run_source": "signal_report",
                 "signal_report_id": "report-123",
                 "pr_base_branch": "main",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.3-codex",
+                "reasoning_effort": "medium",
                 "snapshot_external_id": "snap-1",
             },
         )
@@ -446,8 +581,47 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["signal_report_id"] == "report-123"
         assert task_run.state["snapshot_external_id"] == "snap-1"
         assert task_run.state["pr_base_branch"] == "main"
+        assert task_run.state["runtime_adapter"] == "codex"
+        assert task_run.state["provider"] == "openai"
+        assert task_run.state["model"] == "gpt-5.3-codex"
+        assert task_run.state["reasoning_effort"] == "medium"
         # Token not cached for bot-authored runs even if the client sends one
         assert get_cached_github_user_token(str(task_run.id)) is None
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "max",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "resume_from_run_id": str(previous_run.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
+                "and model 'gpt-5.4'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
         task = self.create_task()
