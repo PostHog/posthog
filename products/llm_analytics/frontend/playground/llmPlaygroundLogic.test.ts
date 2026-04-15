@@ -888,77 +888,45 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
         })
 
-        it('should handle Anthropic-style content arrays with mixed text and tool_use blocks', () => {
-            const input = [
-                { role: 'user', content: 'Search for cats' },
-                {
-                    role: 'assistant',
-                    content: [
-                        { type: 'text', text: 'Let me search for that.' },
-                        { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
-                    ],
-                },
-            ]
+        it.each([
+            {
+                name: 'Anthropic mixed text + tool_use',
+                content: [
+                    { type: 'text', text: 'Let me search for that.' },
+                    { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
+                ],
+                expectedSubstrings: ['Let me search for that.', '[Tool call: search]', 'cats'],
+            },
+            {
+                name: 'Anthropic tool_use only',
+                content: [{ type: 'tool_use', id: 'tu_1', name: 'do_thing', input: { param: 'value' } }],
+                expectedSubstrings: ['[Tool call: do_thing]'],
+            },
+            {
+                name: 'Anthropic tool_result',
+                content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Result data here' }],
+                expectedSubstrings: ['[Tool result for tu_1]', 'Result data here'],
+            },
+            {
+                name: 'OpenAI Responses API function_call',
+                content: [{ type: 'function_call', name: 'my_func', call_id: 'fc_1', arguments: '{"x": 1}' }],
+                expectedSubstrings: ['[Function call: my_func]', '{"x": 1}'],
+            },
+            {
+                name: 'OpenAI Responses API function_call_output',
+                content: [{ type: 'function_call_output', call_id: 'fc_1', output: 'result: 42' }],
+                expectedSubstrings: ['[Function output for fc_1]', 'result: 42'],
+            },
+        ])('should format $name content blocks', ({ content, expectedSubstrings }) => {
+            const input = [{ role: 'assistant', content }]
 
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
 
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Let me search for that.')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: search]')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('cats')
-        })
-
-        it('should handle content arrays with only tool_use blocks', () => {
-            const input = [
-                { role: 'user', content: 'Do the thing' },
-                {
-                    role: 'assistant',
-                    content: [{ type: 'tool_use', id: 'tu_1', name: 'do_thing', input: { param: 'value' } }],
-                },
-            ]
-
-            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
-
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: do_thing]')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).not.toBe('')
-        })
-
-        it('should handle tool_result content blocks with correct prefix', () => {
-            const input = [
-                {
-                    role: 'user',
-                    content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Result data here' }],
-                },
-            ]
-
-            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
-
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
-            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('[Tool result for tu_1]')
-            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('Result data here')
-        })
-
-        it('should handle OpenAI Responses API function_call and function_call_output blocks', () => {
-            const input = [
-                { role: 'user', content: 'Call the function' },
-                {
-                    role: 'assistant',
-                    content: [{ type: 'function_call', name: 'my_func', call_id: 'fc_1', arguments: '{"x": 1}' }],
-                },
-                {
-                    role: 'user',
-                    content: [{ type: 'function_call_output', call_id: 'fc_1', output: 'result: 42' }],
-                },
-            ]
-
-            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
-
-            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(3)
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Function call: my_func]')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('{"x": 1}')
-            expect(llmPlaygroundPromptsLogic.values.messages[2].content).toContain('[Function output for fc_1]')
-            expect(llmPlaygroundPromptsLogic.values.messages[2].content).toContain('result: 42')
+            const result = llmPlaygroundPromptsLogic.values.messages[0].content
+            expect(result).not.toBe('')
+            for (const substring of expectedSubstrings) {
+                expect(result).toContain(substring)
+            }
         })
 
         it('should not produce "null" string for messages with null content', () => {

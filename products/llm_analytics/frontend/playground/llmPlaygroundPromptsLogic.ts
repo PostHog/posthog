@@ -838,7 +838,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     try {
                         if (
                             Array.isArray(input) &&
-                            input.every((msg) => msg.role && (msg.content !== undefined || msg.tool_calls))
+                            input.every((msg) => msg.role && (msg.content != null || msg.tool_calls))
                         ) {
                             const systemContents = input
                                 .filter((msg) => msg.role === 'system')
