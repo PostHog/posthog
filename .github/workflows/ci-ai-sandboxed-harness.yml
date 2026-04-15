@@ -1,0 +1,134 @@
+name: AI sandboxed harness smoke test
+on:
+    pull_request:
+        paths:
+            - 'ee/hogai/eval/sandboxed/**'
+            - 'products/tasks/backend/services/custom_prompt_runner.py'
+            - 'products/tasks/backend/services/docker_sandbox.py'
+            - 'services/llm-gateway/**'
+            - 'services/mcp/**'
+            - '.github/workflows/ci-ai-sandboxed-harness.yml'
+    push:
+        branches:
+            - master
+        paths:
+            - 'ee/hogai/eval/sandboxed/**'
+            - 'products/tasks/backend/services/custom_prompt_runner.py'
+            - 'products/tasks/backend/services/docker_sandbox.py'
+            - 'services/llm-gateway/**'
+            - 'services/mcp/**'
+            - '.github/workflows/ci-ai-sandboxed-harness.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    smoke:
+        timeout-minutes: 30
+        name: sandboxed harness smoke test
+        runs-on: ubuntu-latest
+        # The smoke test uses session-scoped fixtures from
+        # ee/hogai/eval/sandboxed/conftest.py that need the full PostHog
+        # docker-compose stack (Postgres/Redis/Kafka/ClickHouse/Temporal/
+        # object storage) to come up. It does NOT call Anthropic, so no LLM
+        # API keys or Braintrust creds are needed.
+        if: github.repository == 'PostHog/posthog'
+
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1
+                  filter: blob:none
+
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: |
+                  bin/ci-wait-for-docker launch --down
+
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
+
+            - name: Pre-pull curl probe image
+              # Pinned tag matches _CURL_IMAGE in test_harness_smoke.py.
+              # Pulling here keeps the in-test `docker run` off the critical path.
+              run: docker pull curlimages/curl:8.10.1
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              shell: bash
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install LLM gateway venv
+              # Mirrors `bin/start-llm-gateway`. The _llm_gateway fixture
+              # execs `services/llm-gateway/.venv/bin/uvicorn` directly.
+              shell: bash
+              working-directory: services/llm-gateway
+              run: |
+                  uv venv .venv
+                  uv pip install -e .
+
+            - name: Set up Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+
+            - name: Set up pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  run_install: false
+
+            - name: Install MCP server dependencies
+              # The _mcp_server fixture will also attempt this, but doing it
+              # here keeps any dependency-resolution noise out of the test
+              # log and lets the cached node_modules short-circuit the fixture.
+              shell: bash
+              working-directory: services/mcp
+              run: pnpm install --frozen-lockfile
+
+            - name: Add service hostnames to /etc/hosts
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+
+            - name: Run sandboxed harness smoke test
+              run: |
+                  pytest ee/hogai/eval/sandboxed/ci/test_harness_smoke.py -vv --junitxml=junit.xml
+              env:
+                  # The LLM gateway reads its Anthropic key from the parent env.
+                  # The smoke test never triggers an LLM call, so a stub is fine
+                  # — it just prevents pydantic BaseSettings from raising at
+                  # subprocess startup if the gateway requires the variable.
+                  LLM_GATEWAY_ANTHROPIC_API_KEY: sk-ant-smoke-test-not-a-real-key
+
+            - name: Upload harness logs
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: sandboxed-harness-smoke-logs
+                  path: |
+                      ee/hogai/eval/sandboxed/logs/
+                      junit.xml
+                  if-no-files-found: ignore
