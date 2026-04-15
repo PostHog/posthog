@@ -69,7 +69,12 @@ class Heartbeater:
             if not self.details:
                 return
 
-            activity.heartbeat(*self.details)
+            try:
+                activity.heartbeat(*self.details)
+            except Exception:
+                await self.logger.adebug("Shutdown heartbeat failed")
+                return
+
             if heartbeat_timeout:
                 heartbeat_timeout_seconds = heartbeat_timeout.total_seconds()
                 await self.logger.adebug(
@@ -95,7 +100,10 @@ class Heartbeater:
         if tasks_to_wait:
             await asyncio.wait(tasks_to_wait)
 
-        activity.heartbeat(*self.details)
+        try:
+            activity.heartbeat(*self.details)
+        except Exception:
+            self.logger.warning("Final heartbeat on exit failed")
 
         self.heartbeat_task = None
         self.heartbeat_on_shutdown_task = None
@@ -104,8 +112,11 @@ class Heartbeater:
         """Heartbeat forever every delay seconds."""
         while True:
             await asyncio.sleep(delay)
-            activity.heartbeat(*self.details)
-            self.logger.debug("Heartbeat")
+            try:
+                activity.heartbeat(*self.details)
+                self.logger.debug("Heartbeat")
+            except Exception:
+                self.logger.exception("Heartbeat failed")
 
 
 class LivenessHeartbeater(Heartbeater):
