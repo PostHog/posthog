@@ -292,40 +292,43 @@ class TestSESProvider(TestCase):
             assert dmarc_records[0]["recordValue"] == expected_record_value
             assert result["status"] == "pending"  # SES statuses are Pending, so overall stays pending
 
-    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
-    def test_verify_dkim_partial_shows_per_record_status(self, mock_resolver_cls):
+    @parameterized.expand(
+        [
+            ("all_missing", set()),
+            ("partial_present", {"token2", "token3"}),
+            ("all_present", {"token1", "token2", "token3"}),
+        ]
+    )
+    def test_verify_dkim_partial_shows_per_record_status(self, _name, present_tokens):
         """When DKIM is not fully verified, individual CNAME lookups show which records are present."""
         provider = SESProvider()
 
         def resolve_side_effect(hostname, rdtype=None):
-            # token2 and token3 are present, token1 is missing
-            if rdtype == "CNAME" and "token2._domainkey" in hostname:
-                rdata = MagicMock()
-                rdata.target = dns.name.from_text("token2.dkim.amazonses.com.")
-                return [rdata]
-            if rdtype == "CNAME" and "token3._domainkey" in hostname:
-                rdata = MagicMock()
-                rdata.target = dns.name.from_text("token3.dkim.amazonses.com.")
-                return [rdata]
-            # token1 CNAME and DMARC TXT both missing
+            for token in present_tokens:
+                if rdtype == "CNAME" and f"{token}._domainkey" in hostname:
+                    rdata = MagicMock()
+                    rdata.target = dns.name.from_text(f"{token}.dkim.amazonses.com.")
+                    return [rdata]
             raise dns.resolver.NXDOMAIN()
-
-        mock_resolver_cls.return_value.resolve.side_effect = resolve_side_effect
 
         with (
             patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif,
             patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim,
             patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail,
+            patch("products.workflows.backend.providers.ses.dns.resolver.Resolver") as mock_resolver_cls,
         ):
+            mock_resolver_cls.return_value.resolve.side_effect = resolve_side_effect
             mock_verif.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Success"}}}
             mock_dkim.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Failed"}}}
             mock_mail.return_value = {"MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}}
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
+        # DkimVerificationStatus=Failed always produces overall "failed", regardless of per-record DNS state
+        assert result["status"] == "failed"
         dkim_records = [r for r in result["dnsRecords"] if r["type"] == "dkim"]
         assert len(dkim_records) == 3
         statuses = {r["recordHostname"].split(".")[0]: r["status"] for r in dkim_records}
-        assert statuses["token1"] == "pending"
-        assert statuses["token2"] == "success"
-        assert statuses["token3"] == "success"
+        for token in ("token1", "token2", "token3"):
+            expected = "success" if token in present_tokens else "pending"
+            assert statuses[token] == expected, f"{token}: expected {expected}, got {statuses[token]}"
