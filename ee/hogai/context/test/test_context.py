@@ -485,6 +485,84 @@ class TestAssistantContextManager(BaseTest):
 
         self.assertIsNone(result)
 
+    def test_get_toolbar_context_prompt_with_full_payload(self):
+        config = RunnableConfig(
+            configurable={
+                "contextual_tools": {
+                    "toolbar_context": {
+                        "page_url": "https://example.com/pricing",
+                        "page_title": "Pricing - Example",
+                        "viewport": {"width": 1440, "height": 900},
+                        "dom_snapshot": "<body>\n  <header .nav-header>...</header>\n</body>",
+                        "screenshot_media_id": "media_abc123",
+                    }
+                }
+            }
+        )
+        context_manager = AssistantContextManager(self.team, self.user, config)
+
+        result = context_manager._get_toolbar_context_prompt()
+
+        assert result is not None
+        self.assertIn("Pricing - Example", result)
+        self.assertIn("https://example.com/pricing", result)
+        self.assertIn("1440", result)
+        self.assertIn("900", result)
+        self.assertIn("<dom_snapshot>", result)
+        self.assertIn("<header .nav-header>", result)
+        self.assertIn("media_abc123", result)
+
+    def test_get_toolbar_context_prompt_without_screenshot(self):
+        config = RunnableConfig(
+            configurable={
+                "contextual_tools": {
+                    "toolbar_context": {
+                        "page_url": "https://example.com",
+                        "page_title": "Example",
+                        "viewport": {"width": 800, "height": 600},
+                        "dom_snapshot": "<body><p>x</p></body>",
+                    }
+                }
+            }
+        )
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        result = context_manager._get_toolbar_context_prompt()
+        assert result is not None
+        self.assertIn("<dom_snapshot>", result)
+        self.assertNotIn("media id", result)
+
+    def test_get_toolbar_context_prompt_returns_none_without_dom_snapshot(self):
+        config = RunnableConfig(
+            configurable={
+                "contextual_tools": {
+                    "toolbar_context": {
+                        "page_url": "https://example.com",
+                        "page_title": "Example",
+                    }
+                }
+            }
+        )
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        self.assertIsNone(context_manager._get_toolbar_context_prompt())
+
+    def test_get_toolbar_context_prompt_returns_none_when_absent(self):
+        config = RunnableConfig(configurable={"contextual_tools": {}})
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        self.assertIsNone(context_manager._get_toolbar_context_prompt())
+
+    async def test_contextual_tools_prompt_skips_toolbar_context_key(self):
+        """toolbar_context is not a real tool — it must not appear in the contextual tools prompt."""
+        config = RunnableConfig(
+            configurable={
+                "contextual_tools": {
+                    "toolbar_context": {"dom_snapshot": "<body></body>"},
+                }
+            }
+        )
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        result = await context_manager._get_contextual_tools_prompt()
+        self.assertIsNone(result)
+
     def test_inject_context_messages(self):
         """Test injection of context messages into state"""
         state = AssistantState(

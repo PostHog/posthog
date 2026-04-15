@@ -622,6 +622,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "element:read",
     "uploaded_media:write",
     "survey:read",
+    # Allows the toolbar to chat with Max AI from inside the customer's site.
+    "conversation:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

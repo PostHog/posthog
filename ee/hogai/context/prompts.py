@@ -45,6 +45,38 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 </system_reminder>
 """.strip()
 
+TOOLBAR_CONTEXT_PROMPT = """
+<toolbar_context>
+The user is asking from inside the PostHog Toolbar, which runs on their own website.
+They are currently viewing: {page_title} ({page_url})
+Viewport: {viewport_width}x{viewport_height}
+
+A simplified DOM snapshot of the page is provided below. Use it to identify specific UI
+elements (buttons, links, forms, sections) the user is asking about, and to ground your
+answers in what the user is actually looking at right now. The DOM has been compacted
+(only key tags, ids, classes, roles, aria labels, and data-ph-* attributes are kept;
+hidden and toolbar-internal elements are stripped).
+
+If the user asks "this button" / "this page" / "the section above", treat the DOM
+snapshot as the answer to "what is this".
+
+When relevant, combine page context with the user's PostHog data — for example,
+search heatmaps for the element they pointed at, or look up event/insight data for
+the page URL.
+
+{screenshot_note}
+
+<dom_snapshot>
+{dom_snapshot}
+</dom_snapshot>
+</toolbar_context>
+""".strip()
+
+TOOLBAR_CONTEXT_SCREENSHOT_NOTE = (
+    "A screenshot of the page has been uploaded as media id `{screenshot_media_id}` — "
+    "fetch it via the media tools if you need to look at the visual layout."
+)
+
 HOG_EVALUATION_REFERENCE = """
 Hog language reference for writing evaluations:
 

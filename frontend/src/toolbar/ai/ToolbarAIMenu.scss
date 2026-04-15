@@ -1,0 +1,94 @@
+.ToolbarAIMenu {
+    width: 360px;
+
+    &__body {
+        padding-top: 0;
+    }
+
+    &__scroll {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+
+    &__empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1.5rem 0.5rem;
+        color: var(--text-secondary);
+        text-align: center;
+    }
+
+    &__message {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        padding: 0.5rem 0.625rem;
+        font-size: 0.8125rem;
+        line-height: 1.4;
+        word-break: break-word;
+        white-space: pre-wrap;
+        background: var(--bg-fill-tertiary);
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius);
+
+        &--user {
+            align-self: flex-end;
+            max-width: 90%;
+            background: var(--bg-fill-info-tertiary, var(--bg-fill-tertiary));
+        }
+    }
+
+    &__message-role {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    &__message-content {
+        white-space: pre-wrap;
+    }
+
+    &__status {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        padding: 0.25rem 0;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    &__footer {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+
+    &__input {
+        flex: 1;
+        min-height: 32px;
+        max-height: 120px;
+        padding: 0.375rem 0.5rem;
+        font-family: inherit;
+        font-size: 0.8125rem;
+        line-height: 1.4;
+        color: var(--text-primary);
+        resize: vertical;
+        background: var(--bg-fill-primary);
+        border: 1px solid var(--border-primary);
+        border-radius: var(--radius);
+
+        &:focus {
+            border-color: var(--accent-primary);
+            outline: none;
+        }
+
+        &:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+    }
+}

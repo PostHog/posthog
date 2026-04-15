@@ -6,6 +6,7 @@ import { PostHog } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import {
+    IconAI,
     IconBolt,
     IconCamera,
     IconCheck,
@@ -37,6 +38,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { ToolbarAIMenu } from '~/toolbar/ai/ToolbarAIMenu'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
@@ -325,6 +327,9 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
+    const aiFlag = useToolbarFeatureFlag('toolbar-ai')
+    const showAI = inStorybook() || inStorybookTestRunner() || aiFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -341,6 +346,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <ProductToursToolbarMenu />
     ) : visibleMenu === 'surveys' && showSurveys ? (
         <SurveysToolbarMenu />
+    ) : visibleMenu === 'ai' && showAI ? (
+        <ToolbarAIMenu />
     ) : null
 
     useEffect(() => {
@@ -399,6 +406,9 @@ export function Toolbar(): JSX.Element | null {
     const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
     const showSurveys = surveysFlag
 
+    const aiFlag = useToolbarFeatureFlag('toolbar-ai')
+    const showAI = inStorybook() || inStorybookTestRunner() || aiFlag
+
     useEffect(() => {
         setElement(ref.current)
         return () => setElement(null)
@@ -446,11 +456,29 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
                     'Toolbar--extra-buttons-1':
-                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                        (showExperiments ? 1 : 0) +
+                            (showProductTours ? 1 : 0) +
+                            (showSurveys ? 1 : 0) +
+                            (showAI ? 1 : 0) ===
+                        1,
                     'Toolbar--extra-buttons-2':
-                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                        (showExperiments ? 1 : 0) +
+                            (showProductTours ? 1 : 0) +
+                            (showSurveys ? 1 : 0) +
+                            (showAI ? 1 : 0) ===
+                        2,
                     'Toolbar--extra-buttons-3':
-                        (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
+                        (showExperiments ? 1 : 0) +
+                            (showProductTours ? 1 : 0) +
+                            (showSurveys ? 1 : 0) +
+                            (showAI ? 1 : 0) ===
+                        3,
+                    'Toolbar--extra-buttons-4':
+                        (showExperiments ? 1 : 0) +
+                            (showProductTours ? 1 : 0) +
+                            (showSurveys ? 1 : 0) +
+                            (showAI ? 1 : 0) ===
+                        4,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -507,6 +535,11 @@ export function Toolbar(): JSX.Element | null {
                         {showSurveys && (
                             <ToolbarButton menuId="surveys" title="Surveys">
                                 <IconMessage />
+                            </ToolbarButton>
+                        )}
+                        {showAI && (
+                            <ToolbarButton menuId="ai" title="Ask Max AI">
+                                <IconAI />
                             </ToolbarButton>
                         )}
                     </>

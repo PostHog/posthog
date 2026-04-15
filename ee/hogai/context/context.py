@@ -49,7 +49,14 @@ from .prompts import (
     ROOT_INSIGHT_CONTEXT_PROMPT,
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
+    TOOLBAR_CONTEXT_PROMPT,
+    TOOLBAR_CONTEXT_SCREENSHOT_NOTE,
 )
+
+# Reserved key in `contextual_tools` that the PostHog Toolbar uses to send the
+# current-page DOM snapshot, screenshot, and metadata. This is not a real tool —
+# it's pure context, surfaced to the agent via a ContextMessage.
+TOOLBAR_CONTEXT_KEY = "toolbar_context"
 
 
 class AssistantContextManager(AssistantContextMixin):
@@ -448,6 +455,8 @@ class AssistantContextManager(AssistantContextMixin):
         prompts: list[ContextMessage] = []
         if mode_prompt := self._get_mode_context_messages(state):
             prompts.append(mode_prompt)
+        if toolbar_prompt := self._get_toolbar_context_prompt():
+            prompts.append(ContextMessage(content=toolbar_prompt, id=str(uuid4())))
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
@@ -459,6 +468,9 @@ class AssistantContextManager(AssistantContextMixin):
 
         contextual_tools_prompt: list[str] = []
         for tool_name, tool_context in self.get_contextual_tools().items():
+            # toolbar_context is reserved page context, not a tool — handled separately.
+            if tool_name == TOOLBAR_CONTEXT_KEY:
+                continue
             tool_class = get_contextual_tool_class(tool_name)
             if tool_class is None:
                 continue
@@ -470,6 +482,38 @@ class AssistantContextManager(AssistantContextMixin):
             tools = "\n".join(contextual_tools_prompt)
             return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
         return None
+
+    def _get_toolbar_context_prompt(self) -> str | None:
+        """
+        Build a context prompt segment from `contextual_tools.toolbar_context` payload
+        sent by the PostHog Toolbar. Returns None if no toolbar context is present
+        or it's malformed.
+        """
+        toolbar_context = self.get_contextual_tools().get(TOOLBAR_CONTEXT_KEY)
+        if not isinstance(toolbar_context, dict):
+            return None
+        dom_snapshot = toolbar_context.get("dom_snapshot")
+        if not isinstance(dom_snapshot, str) or not dom_snapshot.strip():
+            return None
+        page_url = str(toolbar_context.get("page_url") or "unknown URL")
+        page_title = str(toolbar_context.get("page_title") or "(untitled)")
+        viewport = toolbar_context.get("viewport") or {}
+        viewport_width = viewport.get("width") if isinstance(viewport, dict) else None
+        viewport_height = viewport.get("height") if isinstance(viewport, dict) else None
+        screenshot_media_id = toolbar_context.get("screenshot_media_id")
+        screenshot_note = (
+            TOOLBAR_CONTEXT_SCREENSHOT_NOTE.format(screenshot_media_id=screenshot_media_id)
+            if isinstance(screenshot_media_id, str) and screenshot_media_id
+            else ""
+        )
+        return TOOLBAR_CONTEXT_PROMPT.format(
+            page_title=page_title,
+            page_url=page_url,
+            viewport_width=viewport_width or "unknown",
+            viewport_height=viewport_height or "unknown",
+            dom_snapshot=dom_snapshot,
+            screenshot_note=screenshot_note,
+        )
 
     def _deduplicate_context_messages(
         self, state: BaseStateWithMessages, context_messages: list[ContextMessage]

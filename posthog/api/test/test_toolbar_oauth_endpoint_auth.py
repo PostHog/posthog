@@ -82,6 +82,7 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         ("web_vitals_list", "/api/environments/{team_id}/web_vitals/?pathname=/", "get", "query"),
         ("heatmaps_list", "/api/environments/{team_id}/heatmaps/", "get", "heatmap"),
         ("elements_stats", "/api/environments/{team_id}/elements/stats/", "get", "element"),
+        ("conversations_list", "/api/environments/{team_id}/conversations/", "get", "conversation"),
     ]
 
     def _url(self, template: str) -> str:
@@ -357,6 +358,7 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
         "element:read",
         "uploaded_media:write",
         "user:read",
+        "conversation:write",
     ]
 
     @parameterized.expand([(s,) for s in EXPECTED_SCOPES])

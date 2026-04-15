@@ -41,6 +41,7 @@ export type MenuState =
     | 'web-vitals'
     | 'product-tours'
     | 'surveys'
+    | 'ai'
 
 export type ToolbarPositionType =
     | 'top-left'
