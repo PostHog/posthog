@@ -75,7 +75,7 @@ const SortableCard = ({
                 isEditing && 'rounded border-2 border-dashed border-primary p-1',
                 isDragging && 'z-[999999] opacity-80'
             )}
-            {...attributes}
+            {...(isEditing ? attributes : {})}
         >
             {isEditing && (
                 <button

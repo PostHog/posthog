@@ -6,35 +6,43 @@ import { DEFAULT_CONTENT_ORDER, DEFAULT_STAT_ORDER, LiveContentCardId, LiveStatC
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
 
 describe('mergeOrder', () => {
-    it('returns defaults when persisted is empty', () => {
-        expect(mergeOrder<LiveStatCardId>([], DEFAULT_STAT_ORDER)).toEqual([...DEFAULT_STAT_ORDER])
-    })
-
-    it('preserves a persisted order that covers all defaults', () => {
-        const reordered: LiveStatCardId[] = ['pageviews', 'users_online', 'unique_visitors']
-        expect(mergeOrder(reordered, DEFAULT_STAT_ORDER)).toEqual(reordered)
-    })
-
-    it('drops unknown ids', () => {
-        const persisted = ['pageviews', 'not_a_card', 'users_online'] as LiveStatCardId[]
-        expect(mergeOrder(persisted, DEFAULT_STAT_ORDER)).toEqual(['pageviews', 'users_online', 'unique_visitors'])
+    it.each<{
+        name: string
+        persisted: LiveStatCardId[]
+        expected: LiveStatCardId[]
+    }>([
+        {
+            name: 'returns defaults when persisted is empty',
+            persisted: [],
+            expected: [...DEFAULT_STAT_ORDER],
+        },
+        {
+            name: 'preserves a persisted order that covers all defaults',
+            persisted: ['pageviews', 'users_online', 'unique_visitors'],
+            expected: ['pageviews', 'users_online', 'unique_visitors'],
+        },
+        {
+            name: 'drops unknown ids',
+            persisted: ['pageviews', 'not_a_card' as LiveStatCardId, 'users_online'],
+            expected: ['pageviews', 'users_online', 'unique_visitors'],
+        },
+        {
+            name: 'de-duplicates repeated ids in persisted',
+            persisted: ['pageviews', 'pageviews', 'users_online'],
+            expected: ['pageviews', 'users_online', 'unique_visitors'],
+        },
+    ])('$name', ({ persisted, expected }) => {
+        expect(mergeOrder(persisted, DEFAULT_STAT_ORDER)).toEqual(expected)
     })
 
     it('appends missing default ids at the end', () => {
         const persisted: LiveContentCardId[] = ['devices', 'browsers']
         const result = mergeOrder(persisted, DEFAULT_CONTENT_ORDER)
         expect(result.slice(0, 2)).toEqual(['devices', 'browsers'])
-        // Every default id should be present
         for (const id of DEFAULT_CONTENT_ORDER) {
             expect(result).toContain(id)
         }
-        // No duplicates
         expect(new Set(result).size).toBe(result.length)
-    })
-
-    it('de-duplicates repeated ids in persisted', () => {
-        const persisted: LiveStatCardId[] = ['pageviews', 'pageviews', 'users_online']
-        expect(mergeOrder(persisted, DEFAULT_STAT_ORDER)).toEqual(['pageviews', 'users_online', 'unique_visitors'])
     })
 })
 
