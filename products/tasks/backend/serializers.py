@@ -10,7 +10,16 @@ from posthog.storage import object_storage
 
 from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
-from .temporal.process_task.utils import PrAuthorshipMode, RunSource
+from .temporal.process_task.utils import (
+    PUBLIC_REASONING_EFFORTS,
+    LLMProvider,
+    PrAuthorshipMode,
+    RunSource,
+    RunState,
+    RuntimeAdapter,
+    get_reasoning_effort_error,
+    parse_run_state,
+)
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 
@@ -150,8 +159,20 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
 
 
 class TaskRunDetailSerializer(serializers.ModelSerializer):
+    _run_state_cache: dict[str, RunState]
+
     log_url = serializers.SerializerMethodField(help_text="Presigned S3 URL for log access (valid for 1 hour).")
     artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
+    runtime_adapter = serializers.SerializerMethodField(
+        help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'."
+    )
+    provider = serializers.SerializerMethodField(
+        help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'."
+    )
+    model = serializers.SerializerMethodField(help_text="Configured LLM model identifier for this run.")
+    reasoning_effort = serializers.SerializerMethodField(
+        help_text="Configured reasoning effort for this run when the selected model supports it."
+    )
 
     class Meta:
         model = TaskRun
@@ -162,6 +183,10 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "branch",
             "status",
             "environment",
+            "runtime_adapter",
+            "provider",
+            "model",
+            "reasoning_effort",
             "log_url",
             "error_message",
             "output",
@@ -197,6 +222,58 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             cache.set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
 
         return presigned_url
+
+    def _get_run_state(self, obj: TaskRun) -> RunState:
+        if not hasattr(self, "_run_state_cache"):
+            self._run_state_cache = {}
+
+        cache_key = str(obj.id)
+        cached_state = self._run_state_cache.get(cache_key)
+        if cached_state is not None:
+            return cached_state
+
+        parsed_state = parse_run_state(obj.state)
+        self._run_state_cache[cache_key] = parsed_state
+        return parsed_state
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[adapter.value for adapter in RuntimeAdapter],
+            allow_null=True,
+            help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'.",
+        )
+    )
+    def get_runtime_adapter(self, obj: TaskRun) -> str | None:
+        state = self._get_run_state(obj)
+        return state.runtime_adapter.value if state.runtime_adapter is not None else None
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[provider.value for provider in LLMProvider],
+            allow_null=True,
+            help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'.",
+        )
+    )
+    def get_provider(self, obj: TaskRun) -> str | None:
+        state = self._get_run_state(obj)
+        return state.provider.value if state.provider is not None else None
+
+    @extend_schema_field(
+        serializers.CharField(allow_null=True, help_text="Configured LLM model identifier for this run.")
+    )
+    def get_model(self, obj: TaskRun) -> str | None:
+        return self._get_run_state(obj).model
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+            allow_null=True,
+            help_text="Configured reasoning effort for this run when the selected model supports it.",
+        )
+    )
+    def get_reasoning_effort(self, obj: TaskRun) -> str | None:
+        state = self._get_run_state(obj)
+        return state.reasoning_effort.value if state.reasoning_effort is not None else None
 
     def validate_task(self, value):
         team = self.context.get("team")
@@ -366,6 +443,8 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
+    RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
+    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
 
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
@@ -414,6 +493,24 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         allow_blank=False,
         help_text="Optional signal report identifier when this run was started from Inbox.",
     )
+    runtime_adapter = serializers.ChoiceField(
+        choices=RUNTIME_ADAPTER_CHOICES,
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model identifier to run in the selected runtime.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=REASONING_EFFORT_CHOICES,
+        required=False,
+        default=None,
+        help_text="Reasoning effort to request for models that expose an effort control.",
+    )
     github_user_token = serializers.CharField(
         required=False,
         default=None,
@@ -427,6 +524,31 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text="Initial permission mode for the agent session (e.g., 'plan' to start in plan mode).",
     )
+
+    def validate(self, attrs):
+        runtime_fields = ("runtime_adapter", "model")
+        has_runtime_selection = any(attrs.get(field) is not None for field in (*runtime_fields, "reasoning_effort"))
+
+        if not has_runtime_selection:
+            return attrs
+
+        errors: dict[str, str] = {}
+        for field in runtime_fields:
+            if attrs.get(field) is None:
+                errors[field] = "This field is required when selecting a cloud runtime."
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=attrs.get("runtime_adapter"),
+            model=attrs.get("model"),
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return attrs
 
 
 class TaskRunCommandRequestSerializer(serializers.Serializer):
