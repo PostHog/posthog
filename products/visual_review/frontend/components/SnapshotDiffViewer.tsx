@@ -62,27 +62,8 @@ export function SnapshotDiffViewer({
         <div className="flex gap-4">
             {/* Main content area */}
             <div className="flex-1 min-w-0 overflow-hidden">
-                {/* Header */}
-                <div className="flex items-center gap-2 mb-4">
-                    <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
-                    {variant && (
-                        <span className="text-sm text-muted">
-                            @ {variant}
-                            {width && height && ` · ${width}×${height}`}
-                        </span>
-                    )}
-                </div>
-
-                <VisualImageDiffViewer
-                    baselineUrl={baselineUrl || null}
-                    currentUrl={currentUrl || null}
-                    diffUrl={snapshot.diff_artifact?.download_url || null}
-                    diffPercentage={snapshot.diff_percentage ?? null}
-                    result={(snapshot.result || 'unchanged') as VisualDiffResult}
-                />
-
                 {/* Navigation and actions */}
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                         <LemonButton
                             size="small"
@@ -128,6 +109,25 @@ export function SnapshotDiffViewer({
                         )}
                     </div>
                 </div>
+
+                {/* Snapshot title */}
+                <div className="flex items-center gap-2 mb-4">
+                    <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
+                    {variant && (
+                        <span className="text-sm text-muted">
+                            @ {variant}
+                            {width && height && ` · ${width}×${height}`}
+                        </span>
+                    )}
+                </div>
+
+                <VisualImageDiffViewer
+                    baselineUrl={baselineUrl || null}
+                    currentUrl={currentUrl || null}
+                    diffUrl={snapshot.diff_artifact?.download_url || null}
+                    diffPercentage={snapshot.diff_percentage ?? null}
+                    result={(snapshot.result || 'unchanged') as VisualDiffResult}
+                />
             </div>
 
             {/* Right sidebar — flat, no nested cards */}
