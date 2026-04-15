@@ -157,7 +157,8 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             # This may match old static cohorts with stale filter data that
             # predate criteria-based creation; those are caught and skipped
             # by static_cohort_has_supported_population_source in the loop body.
-            Q(query__isnull=False) | (Q(filters__isnull=False) & ~Q(filters={}) & ~Q(filters={"properties": {}}))
+            Q(query__isnull=False)
+            | (Q(filters__has_key="properties") & ~Q(filters__properties={}) & ~Q(filters__properties__values=[]))
         )
     )
 

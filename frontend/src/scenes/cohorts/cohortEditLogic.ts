@@ -335,6 +335,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         lemonToast.error('You need to upload a csv file or add a person manually.')
                         return
                     }
+                    if (
+                        cohort.is_static &&
+                        values.staticCohortMode === 'criteria' &&
+                        !((cohort.filters?.properties as Record<string, any>)?.values?.length > 0)
+                    ) {
+                        lemonToast.error('You need to add at least one filter criterion.')
+                        return
+                    }
                     actions.saveCohort({
                         ...cohort,
                         _create_in_folder: 'Unfiled/Cohorts',
