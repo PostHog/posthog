@@ -20,27 +20,27 @@ operations = [
     run_sql_with_exceptions(
         DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
     ),
-    # Add ai_tags and ai_highlighted columns to the target tables
-    # Writable table - Distributed engine (not replicated MergeTree)
+    # Add columns to the target tables — source (sharded) table first, then distributed
+    # Sharded table - ReplicatedAggregatingMergeTree (source of truth)
     run_sql_with_exceptions(
-        ADD_AI_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        sharded=False,
-        is_alter_on_replicated_table=False,
-        node_roles=[NodeRole.INGESTION_SMALL],
+        ADD_AI_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        node_roles=[NodeRole.DATA],
+        sharded=True,
+        is_alter_on_replicated_table=True,
     ),
-    # Distributed table for reads - Distributed engine
+    # Distributed table for reads
     run_sql_with_exceptions(
         ADD_AI_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    # Sharded table - ReplicatedAggregatingMergeTree
+    # Writable table - Distributed engine
     run_sql_with_exceptions(
-        ADD_AI_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-        sharded=True,
-        is_alter_on_replicated_table=True,
+        ADD_AI_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        sharded=False,
+        is_alter_on_replicated_table=False,
+        node_roles=[NodeRole.INGESTION_SMALL],
     ),
     # Recreate the Kafka table and MV (these live on ingestion nodes)
     run_sql_with_exceptions(
