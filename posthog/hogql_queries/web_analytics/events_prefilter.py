@@ -154,6 +154,7 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
     ) -> HogQLQueryResponse:
         from posthog.schema import HogQLQueryResponse
 
+        from posthog.hogql.constants import get_default_hogql_global_settings
         from posthog.hogql.printer.utils import print_prepared_ast
         from posthog.hogql.query import HogQLQueryExecutor
 
@@ -173,10 +174,12 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
             transformer.visit(executor.clickhouse_prepared_ast)
 
             assert executor.clickhouse_context is not None
+            settings = get_default_hogql_global_settings(executor.team.pk, executor.settings)
             executor.clickhouse_sql = print_prepared_ast(
                 node=executor.clickhouse_prepared_ast,
                 context=executor.clickhouse_context,
                 dialect="clickhouse",
+                settings=settings,
                 pretty=True,
             )
 
