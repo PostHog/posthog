@@ -722,6 +722,15 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverViewTab />,
                     },
+                    ...(showProjectsTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.PROJECTS,
+                                  label: 'Projects',
+                                  content: <ProjectsGrid />,
+                              },
+                          ]
+                        : []),
                     {
                         key: FeatureFlagsTab.HISTORY,
                         label: 'History',
@@ -733,15 +742,6 @@ export function FeatureFlags(): JSX.Element {
                                   key: FeatureFlagsTab.NOTIFICATIONS,
                                   label: 'Notifications',
                                   content: <FeatureFlagNotificationsTab />,
-                              },
-                          ]
-                        : []),
-                    ...(showProjectsTab
-                        ? [
-                              {
-                                  key: FeatureFlagsTab.PROJECTS,
-                                  label: 'Projects',
-                                  content: <ProjectsGrid />,
                               },
                           ]
                         : []),
