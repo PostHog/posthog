@@ -25,20 +25,8 @@ const conversationsTicketsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${projectId}/conversations/tickets/`,
             query: {
-                assignee: params.assignee,
-                channel_detail: params.channel_detail,
-                channel_source: params.channel_source,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                distinct_ids: params.distinct_ids,
                 limit: params.limit,
                 offset: params.offset,
-                order_by: params.order_by,
-                priority: params.priority,
-                search: params.search,
-                sla: params.sla,
-                status: params.status,
-                tags: params.tags,
             },
         })
         const filtered = {

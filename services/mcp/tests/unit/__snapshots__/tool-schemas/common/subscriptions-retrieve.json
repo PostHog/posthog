@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A UUID string identifying this ticket.",
-            "type": "string"
+            "description": "A unique integer value identifying this subscription.",
+            "type": "number"
         }
     },
     "required": ["id"],
