@@ -443,25 +443,32 @@ exclude = [
 [tool.importlinter]
 root_packages = ["products"]
 
-# Presentation must not bypass the facade to reach internals directly.
-# This is the key isolation rule: if presentation only imports facade,
-# changes to logic/models are invisible to external consumers.
+# Presentation must only reach product internals through the facade.
+# Forbid all backend imports, then allowlist facade + self-imports.
+# This catches any new internal modules (cache.py, helpers.py, etc.)
+# automatically — no blocklist to maintain.
 [[tool.importlinter.contracts]]
 name = "presentation must use facade"
 type = "forbidden"
 source_modules = ["products.*.backend.presentation"]
 forbidden_modules = [
-    "products.*.backend.models",
-    "products.*.backend.logic",
+    "products.*.backend",
 ]
 allow_indirect_imports = true
-# TODO: existing violations — fix by routing through facade
 ignore_imports = [
+    # Allowed: presentation can import facade and itself
+    "products.**.backend.presentation.** -> products.**.backend.facade.**",
+    "products.**.backend.presentation.** -> products.**.backend.presentation.**",
+    # TODO: existing violations — fix by routing through facade
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.models",
+    "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.oauth",
+    "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.proxy",
+    "products.notifications.backend.presentation.views -> products.notifications.backend.cache",
     "products.notifications.backend.presentation.views -> products.notifications.backend.models",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
 ]
 
 [tool.ty.rules]

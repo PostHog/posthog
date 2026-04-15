@@ -298,7 +298,7 @@ Products with legacy interface leaks (where core still imports internals directl
 
 ### What import-linter enforces
 
-[import-linter](https://github.com/seddonym/import-linter) enforces internal product architecture: presentation layers must not import models or logic directly — they must go through the facade. This is configured as a single wildcard-based forbidden contract in `pyproject.toml` that applies to all products automatically.
+[import-linter](https://github.com/seddonym/import-linter) enforces internal product architecture: presentation layers must not import any backend internals directly — they can only reach `facade` and other `presentation` modules. This is configured as a single forbidden contract in `pyproject.toml` that blocks `products.*.backend` from presentation, with allowlist ignores for facade and self-imports. Any new internal module (cache, helpers, etc.) is blocked automatically.
 
 tach handles _inter_-module boundaries (what can cross a product boundary). import-linter handles _intra_-product architecture (how code is structured within a product). Both run in CI.
 
