@@ -136,21 +136,9 @@ export class CdpEventsConsumer<
             return
         }
 
-        // Evaluate bytecode filters for each candidate against its event.
-        // Build match records with the event data so wakeJobs can store it
-        // on the subscription for the handler to read.
-        const matches: {
-            jobId: string
-            subscriptionId: string
-            type: (typeof candidates)[0]['type']
-            event: {
-                event: string
-                properties: Record<string, any>
-                distinct_id?: string
-                uuid?: string
-                timestamp?: string
-            }
-        }[] = []
+        // Evaluate bytecode filters for each candidate against its event and
+        // collect the (job, type) pairs to wake.
+        const matches: { jobId: string; type: (typeof candidates)[0]['type'] }[] = []
 
         for (const candidate of candidates) {
             const key = `${candidate.teamId}:${candidate.eventName}:${candidate.personId}`
@@ -161,18 +149,7 @@ export class CdpEventsConsumer<
             const filterGlobals = convertToHogFunctionFilterGlobal(globals)
             const matched = await this.evaluateSubscriptionFilters(candidate, filterGlobals)
             if (matched) {
-                matches.push({
-                    jobId: candidate.jobId,
-                    subscriptionId: candidate.id,
-                    type: candidate.type,
-                    event: {
-                        event: globals.event.event,
-                        properties: globals.event.properties ?? {},
-                        distinct_id: globals.event.distinct_id,
-                        uuid: globals.event.uuid,
-                        timestamp: globals.event.timestamp,
-                    },
-                })
+                matches.push({ jobId: candidate.jobId, type: candidate.type })
             }
         }
 

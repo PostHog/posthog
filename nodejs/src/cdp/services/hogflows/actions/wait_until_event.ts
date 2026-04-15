@@ -14,17 +14,17 @@ type WaitUntilEventAction = Extract<HogFlowAction, { type: 'wait_until_event' }>
  * Handler for `wait_until_event`. Push-based: when the workflow reaches this
  * step the handler creates one subscription row per configured event in
  * `cyclotron_event_subscriptions` and parks the job until either:
- *   1. The cdp-events consumer wakes it because a matching event arrived, or
+ *   1. The subscription matcher consumer wakes it because a matching event arrived, or
  *   2. The `max_wait_duration` timeout fires.
  *
- * On the second invocation (after wake or timeout), the handler distinguishes
- * the two paths by checking whether the subscriptions for this job still exist:
- *   - No subscriptions left -> consumer wiped them on a match -> branch edge.
- *   - Subscriptions still present -> timeout fired -> continue edge.
+ * On re-entry (after wake or timeout), the handler distinguishes the two paths
+ * by the presence of wait_step subscriptions for this job:
+ *   - No subs left -> the consumer deleted them on a match -> matched branch.
+ *   - Subs still present -> scheduled timeout fired -> continue edge.
  *
- * The `waitingForEvent` flag on `currentAction` distinguishes the first visit
- * (subscriptions don't exist yet because we haven't created them) from a
- * post-match re-entry (subscriptions don't exist because the consumer deleted them).
+ * A `waitingForEvent` flag on `currentAction` distinguishes the first visit
+ * (no subs yet because we have not created them) from a post-match re-entry
+ * (no subs because the consumer deleted them).
  */
 export class WaitUntilEventHandler implements ActionHandler {
     constructor(private subscriptions: EventSubscriptionsService | null) {}
@@ -53,55 +53,25 @@ export class WaitUntilEventHandler implements ActionHandler {
 
         const isReentry = invocation.state?.currentAction?.waitingForEvent === true
 
-        // First visit: create subscriptions, mark as waiting, schedule the timeout.
         if (!isReentry) {
             return this.createAndPark(invocation, action, String(personId), result)
         }
 
-        // Re-entry: figure out which path was taken by checking only wait_step
-        // subscriptions (not conversion subscriptions, which are managed by the executor).
         const remaining = await this.subscriptions.getForJob(invocation.id, 'wait_step')
 
-        // Clear the waiting flag so the next action sees a clean state.
         if (invocation.state?.currentAction) {
             invocation.state.currentAction.waitingForEvent = false
         }
 
-        // Find the matched subscription (has matched_event data set by the consumer).
-        const matchedSub = remaining.find((s) => s.matchedEvent != null)
-
-        if (matchedSub?.matchedEvent) {
-            const eventName = matchedSub.matchedEvent.event
-            result.logs.push({
-                level: 'info',
-                timestamp: DateTime.now(),
-                message: `Event '${eventName}' matched - taking the matched path`,
-            })
-
-            // Clean up all wait_step subscriptions (matched + unmatched OR siblings).
-            await this.subscriptions.deleteForJob(invocation.id, 'wait_step')
-
-            // Return the matched event as the action result so the executor can
-            // store it in a workflow variable via the output_variable mechanism.
-            return {
-                nextAction: findNextAction(invocation.hogFlow, action.id, 0),
-                result: matchedSub.matchedEvent,
-            }
-        }
-
-        // No matched subscription found. Check if there are any remaining at all.
         if (remaining.length === 0) {
-            // All subscriptions gone without matched_event - shouldn't happen normally
-            // but handle gracefully by taking the matched path.
             result.logs.push({
                 level: 'info',
                 timestamp: DateTime.now(),
-                message: `Event matched - taking the matched path`,
+                message: `Matching event arrived - taking the matched path`,
             })
             return { nextAction: findNextAction(invocation.hogFlow, action.id, 0) }
         }
 
-        // Subscriptions still present without matched_event -> timeout fired.
         const eventNames = remaining.map((s) => s.eventName).join(', ')
         result.logs.push({
             level: 'info',
