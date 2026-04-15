@@ -2,6 +2,9 @@ from django.db import models
 
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 
+# Trigger types that use HogFlowSchedule for recurring execution
+SCHEDULED_TRIGGER_TYPES = ("batch", "schedule")
+
 
 class HogFlowSchedule(RootTeamMixin, UUIDTModel):
     """

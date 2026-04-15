@@ -151,6 +151,43 @@ export function DashboardAdvancedOptions(): JSX.Element | null {
     return <DashboardEditBar showDateFilter={false} className="flex gap-2 items-end flex-wrap border rounded p-2" />
 }
 
+function DashboardApplyFiltersInline(): JSX.Element | null {
+    const { showApplyFiltersBanner, loadingPreview, cancellingPreview, hasUrlFilters, dashboardMode } =
+        useValues(dashboardLogic)
+    const { applyFilters, setDashboardMode } = useActions(dashboardLogic)
+
+    if (!showApplyFiltersBanner) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-wrap gap-2 shrink-0 items-center ml-4">
+            <LemonButton
+                onClick={() =>
+                    setDashboardMode(
+                        hasUrlFilters ? dashboardMode : null,
+                        DashboardEventSource.DashboardHeaderDiscardChanges
+                    )
+                }
+                loading={cancellingPreview}
+                type="secondary"
+                size="small"
+            >
+                Cancel
+            </LemonButton>
+            <LemonButton
+                onClick={applyFilters}
+                loading={loadingPreview}
+                type="primary"
+                size="small"
+                tooltip="Filters are not automatically applied on large dashboards."
+            >
+                Apply filters
+            </LemonButton>
+        </div>
+    )
+}
+
 interface DashboardFilterBarProps {
     backTo?: { url: string; name: string }
 }
@@ -162,16 +199,19 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
         <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
                 <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:justify-between items-start lg:items-center">
-                    {![
-                        DashboardPlacement.Public,
-                        DashboardPlacement.Export,
-                        DashboardPlacement.FeatureFlag,
-                        DashboardPlacement.Group,
-                        DashboardPlacement.DataOps,
-                        DashboardPlacement.Builtin,
-                    ].includes(placement) &&
-                        dashboard &&
-                        (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
+                    <div className="flex min-w-0 flex-1 flex-wrap gap-x-2 gap-y-2 items-center">
+                        {![
+                            DashboardPlacement.Public,
+                            DashboardPlacement.Export,
+                            DashboardPlacement.FeatureFlag,
+                            DashboardPlacement.Group,
+                            DashboardPlacement.DataOps,
+                            DashboardPlacement.Builtin,
+                        ].includes(placement) &&
+                            dashboard &&
+                            (dashboardFiltersEnabled ? <DashboardPrimaryFilters /> : <DashboardEditBar />)}
+                        <DashboardApplyFiltersInline />
+                    </div>
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div

@@ -27,8 +27,9 @@ from products.conversations.backend.formatting import (
 )
 from products.conversations.backend.mailgun import get_smtp_connection
 from products.conversations.backend.models import EmailMessageMapping
+from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
-from products.conversations.backend.slack import get_slack_client
+from products.conversations.backend.slack import get_slack_client, resolve_slack_avatar_by_email
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
 
@@ -101,6 +102,7 @@ def post_reply_to_slack(
     author_name: str,
     slack_channel_id: str,
     slack_thread_ts: str,
+    author_email: str = "",
 ) -> None:
     """Post a support agent's reply to the corresponding Slack thread."""
 
@@ -134,14 +136,20 @@ def post_reply_to_slack(
     bot_display_name = support_settings.get("slack_bot_display_name")
     bot_icon_url = support_settings.get("slack_bot_icon_url")
 
+    # Resolve the replying user's Slack profile picture
+    author_icon_url: str | None = None
+    if author_email:
+        author_icon_url = resolve_slack_avatar_by_email(client, author_email)
+
+    icon_url = author_icon_url or bot_icon_url
     message_kwargs: dict = {
         "channel": slack_channel_id,
         "thread_ts": slack_thread_ts,
         "text": slack_text,
         "username": author_name or bot_display_name or "Support",
     }
-    if not author_name and bot_icon_url:
-        message_kwargs["icon_url"] = bot_icon_url
+    if icon_url:
+        message_kwargs["icon_url"] = icon_url
     if slack_blocks:
         message_kwargs["blocks"] = slack_blocks
 
@@ -214,8 +222,8 @@ def post_reply_to_slack(
                     "text": fallback_text,
                     "username": author_name or bot_display_name or "Support",
                 }
-                if not author_name and bot_icon_url:
-                    fallback_kwargs["icon_url"] = bot_icon_url
+                if icon_url:
+                    fallback_kwargs["icon_url"] = icon_url
                 client.chat_postMessage(**fallback_kwargs)
                 logger.warning(
                     "🖼️ slack_reply_image_upload_fallback_links_posted",
@@ -444,6 +452,7 @@ def send_email_reply(
         body=txt_body,
         from_email=from_email,
         to=[ticket.email_from],
+        cc=ticket.cc_participants or [],
         headers=headers,
     )
     email_message.attach_alternative(html_body, "text/html")
@@ -482,3 +491,49 @@ def send_email_reply(
         to=ticket.email_from,
         message_id=outbound_message_id,
     )
+
+
+WAKE_SNOOZE_BATCH_SIZE = 100
+
+
+@shared_task(ignore_result=True)
+def wake_snoozed_tickets() -> None:
+    """Reopen tickets whose snooze period has expired, in batches."""
+    from django.db import transaction
+    from django.utils import timezone
+
+    from products.conversations.backend.events import capture_ticket_status_changed
+
+    now = timezone.now()
+    total = 0
+
+    while True:
+        with transaction.atomic():
+            batch = list(
+                Ticket.objects.select_for_update(skip_locked=True)
+                .filter(snoozed_until__isnull=False, snoozed_until__lte=now)
+                .order_by("snoozed_until")[:WAKE_SNOOZE_BATCH_SIZE]
+            )
+            if not batch:
+                break
+
+            for ticket in batch:
+                old_status = ticket.status
+                ticket.snoozed_until = None
+
+                if old_status == Status.ON_HOLD:
+                    ticket.status = Status.OPEN
+                    ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
+                    try:
+                        capture_ticket_status_changed(ticket, old_status, Status.OPEN)
+                    except Exception:
+                        logger.exception("wake_snoozed_ticket_event_failed", ticket_id=str(ticket.id))
+                else:
+                    ticket.save(update_fields=["snoozed_until", "updated_at"])
+
+            total += len(batch)
+            if len(batch) < WAKE_SNOOZE_BATCH_SIZE:
+                break
+
+    if total:
+        logger.info("wake_snoozed_tickets_completed", count=total)

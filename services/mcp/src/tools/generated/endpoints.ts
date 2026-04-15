@@ -7,6 +7,8 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
+    EndpointsOpenapiJsonRetrieveParams,
+    EndpointsOpenapiJsonRetrieveQueryParams,
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
@@ -43,7 +45,7 @@ const endpointsGetAll = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
             '/endpoints'
@@ -164,9 +166,15 @@ const endpointDelete = (): ToolBase<typeof EndpointDeleteSchema, Schemas.Endpoin
     },
 })
 
-const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true }).extend(
-    EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
-)
+const EndpointRunSchema = EndpointsRunCreateParams.omit({ project_id: true })
+    .extend(
+        EndpointsRunCreateBody.omit({ client_query_id: true, debug: true, filters_override: true, version: true }).shape
+    )
+    .extend({
+        variables: EndpointsRunCreateBody.shape['variables'].describe(
+            'Key-value pairs to parameterize the query. For HogQL endpoints, keys match variable code_name (e.g. {"event_name": "$pageview"}). For insight endpoints with breakdowns, use the breakdown property name as key.'
+        ),
+    })
 
 const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schemas.EndpointRunResponse>> => ({
     name: 'endpoint-run',
@@ -222,7 +230,7 @@ const endpointVersions = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    result.results.map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/endpoints/${item.name}`))
                 ),
             },
             '/endpoints'
@@ -248,6 +256,26 @@ const endpointMaterializationStatus = (): ToolBase<
     },
 })
 
+const EndpointOpenapiSpecSchema = EndpointsOpenapiJsonRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsOpenapiJsonRetrieveQueryParams.shape
+)
+
+const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({
+    name: 'endpoint-openapi-spec',
+    schema: EndpointOpenapiSpecSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointOpenapiSpecSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${projectId}/endpoints/${params.name}/openapi.json/`,
+            query: {
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoints-get-all': endpointsGetAll,
     'endpoint-get': endpointGet,
@@ -257,4 +285,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-run': endpointRun,
     'endpoint-versions': endpointVersions,
     'endpoint-materialization-status': endpointMaterializationStatus,
+    'endpoint-openapi-spec': endpointOpenapiSpec,
 }

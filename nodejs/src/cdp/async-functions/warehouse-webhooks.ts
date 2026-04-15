@@ -29,6 +29,12 @@ registerAsyncFunction('produceToWarehouseWebhooks', {
             schema_id: schemaId,
             payload,
         })
+
+        // Async handlers must leave a return value on the resumed VM stack so the trailing
+        // POP from the expression statement has something to pop. fetch / sendEmail defer this
+        // push to executeFetch / executeSendEmail once the real I/O completes; we finish our
+        // work synchronously here, so we push immediately.
+        result.invocation.state.vmState?.stack.push(null)
     },
 
     mock: (args, logs) => {

@@ -3,7 +3,7 @@ import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
-import { CheckboxIndicator } from './checkbox'
+import { Checkbox } from './checkbox'
 import { cn } from './lib/utils'
 import { MenuLabel } from './menuLabel'
 import { RadioIndicator } from './radio-group'
@@ -180,9 +180,9 @@ function DropdownMenuCheckboxItem({
                 className="pointer-events-none absolute start-2 flex items-center justify-center"
                 data-slot="dropdown-menu-checkbox-item-indicator"
             >
-                <CheckboxIndicator />
+                <Checkbox size="sm" tabIndex={-1} />
                 <MenuPrimitive.CheckboxItemIndicator className="absolute">
-                    <CheckboxIndicator checked />
+                    <Checkbox size="sm" checked tabIndex={-1} />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
@@ -217,9 +217,9 @@ function DropdownMenuRadioItem({
                 className="pointer-events-none absolute start-2 flex items-center justify-center"
                 data-slot="dropdown-menu-radio-item-indicator"
             >
-                <RadioIndicator />
+                <RadioIndicator size="sm" />
                 <MenuPrimitive.RadioItemIndicator className="absolute">
-                    <RadioIndicator checked />
+                    <RadioIndicator size="sm" checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
             {children}
