@@ -6,19 +6,23 @@ import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi } from '~/generated/core/api.schemas'
-import { TargetTypeEnumApi } from '~/generated/core/api.schemas'
 import type { InsightShortId } from '~/types'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
-
-const TARGET_TYPE_LABEL: Record<SubscriptionApi['target_type'], string> = {
-    [TargetTypeEnumApi.Email]: 'Email',
-    [TargetTypeEnumApi.Slack]: 'Slack',
-    [TargetTypeEnumApi.Webhook]: 'Webhook',
-}
+import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
 export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
+}
+
+export function subscriptionEditHref(sub: SubscriptionApi): string | null {
+    if (sub.insight && sub.insight_short_id) {
+        return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
+    }
+    if (sub.dashboard) {
+        return urls.dashboardSubscription(sub.dashboard, String(sub.id))
+    }
+    return null
 }
 
 /** URL to view the insight or dashboard this subscription is attached to (not the subscription edit UI). */
@@ -32,7 +36,7 @@ export function subscriptionResourceViewUrl(sub: SubscriptionApi): string | null
     return null
 }
 
-function subscriptionResourceLinkLabel(sub: SubscriptionApi): string {
+export function subscriptionResourceLinkLabel(sub: SubscriptionApi): string {
     const name = sub.resource_name?.trim()
     if (name) {
         return name
@@ -44,6 +48,22 @@ function subscriptionResourceLinkLabel(sub: SubscriptionApi): string {
         return 'Dashboard'
     }
     return 'View'
+}
+
+/** Name of the attached insight or dashboard (prefers `resource_name`, then subscription `title`). */
+export function subscriptionResourceDisplayName(sub: SubscriptionApi): string {
+    const resourceName = sub.resource_name?.trim()
+    if (resourceName) {
+        return resourceName
+    }
+    const title = sub.title?.trim()
+    if (title) {
+        return title
+    }
+    if (sub.insight || sub.dashboard) {
+        return 'Untitled'
+    }
+    return '—'
 }
 
 function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): LemonTableColumns<SubscriptionApi> {
@@ -62,7 +82,13 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 return (
                     <Tooltip title={name}>
                         <div className="min-w-0 w-full overflow-hidden">
-                            <span className="font-medium block truncate">{name}</span>
+                            <Link
+                                to={urls.subscription(sub.id)}
+                                className="font-medium block truncate"
+                                data-attr="subscription-name-link"
+                            >
+                                {name}
+                            </Link>
                         </div>
                     </Tooltip>
                 )

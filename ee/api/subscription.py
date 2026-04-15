@@ -471,6 +471,16 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
             "Requires premium subscriptions. Listing is gated by the `hackathons_subscriptions` feature flag; "
             "single-delivery retrieve is not."
         ),
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                enum=[m.value for m in SubscriptionDelivery.Status],
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return only deliveries in this run status (starting, completed, failed, or skipped).",
+            ),
+        ],
         responses={200: OpenApiResponse(response=SubscriptionDeliverySerializer(many=True))},
     ),
     retrieve=extend_schema(
@@ -498,6 +508,15 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")
         if subscription_id:
             queryset = queryset.filter(subscription_id=subscription_id)
+        if self.action == "list":
+            status_param = self.request.query_params.get("status")
+            if status_param:
+                valid = {c.value for c in SubscriptionDelivery.Status}
+                if status_param not in valid:
+                    raise ValidationError(
+                        {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
+                    )
+                queryset = queryset.filter(status=status_param)
         return queryset
 
 

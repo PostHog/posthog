@@ -1646,7 +1646,21 @@ export type SubscriptionsDeliveriesListParams = {
      * The pagination cursor value.
      */
     cursor?: string
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus
 }
+
+export type SubscriptionsDeliveriesListStatus =
+    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
+
+export const SubscriptionsDeliveriesListStatus = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Starting: 'starting',
+} as const
 
 export type DomainsListParams = {
     /**
