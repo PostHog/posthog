@@ -14,6 +14,20 @@ def mock_activity_info():
     return info
 
 
+async def _block_forever():
+    """Awaitable that blocks until cancelled, standing in for activity.wait_for_worker_shutdown()."""
+    await asyncio.get_event_loop().create_future()
+
+
+@pytest.fixture(autouse=True)
+def _patch_wait_for_worker_shutdown():
+    with patch(
+        "posthog.temporal.common.heartbeat.activity.wait_for_worker_shutdown",
+        side_effect=_block_forever,
+    ):
+        yield
+
+
 class TestHeartbeater:
     @pytest.mark.asyncio
     async def test_heartbeat_loop_survives_exceptions(self, mock_activity_info):
@@ -54,7 +68,7 @@ class TestHeartbeater:
             async with heartbeater:
                 await asyncio.sleep(0.02)
 
-        heartbeater.logger.exception.assert_called_with("Heartbeat failed")
+        heartbeater.logger.exception.assert_any_call("Heartbeat failed")
 
     @pytest.mark.asyncio
     async def test_exit_heartbeat_survives_exception(self, mock_activity_info):
@@ -73,4 +87,4 @@ class TestHeartbeater:
             async with heartbeater:
                 pass
 
-            heartbeater.logger.warning.assert_called_with("Final heartbeat on exit failed")
+            heartbeater.logger.exception.assert_called_with("Final heartbeat on exit failed")

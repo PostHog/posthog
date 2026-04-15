@@ -103,7 +103,7 @@ class Heartbeater:
         try:
             activity.heartbeat(*self.details)
         except Exception:
-            self.logger.warning("Final heartbeat on exit failed")
+            self.logger.exception("Final heartbeat on exit failed")
 
         self.heartbeat_task = None
         self.heartbeat_on_shutdown_task = None
@@ -114,9 +114,10 @@ class Heartbeater:
             await asyncio.sleep(delay)
             try:
                 activity.heartbeat(*self.details)
-                self.logger.debug("Heartbeat")
             except Exception:
                 self.logger.exception("Heartbeat failed")
+            else:
+                self.logger.debug("Heartbeat")
 
 
 class LivenessHeartbeater(Heartbeater):
