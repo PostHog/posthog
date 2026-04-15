@@ -1,5 +1,6 @@
 """Tests for state_diff convergence — verifying idempotent apply (second run = 0 diffs)."""
 
+import pytest
 from unittest.mock import patch
 
 from posthog.clickhouse.migration_tools.desired_state import ColumnDef, DesiredState, DesiredTable
@@ -22,26 +23,20 @@ from posthog.clickhouse.migration_tools.state_diff import (
 
 
 class TestNormalizeIntervalFuncs:
-    def test_toIntervalDay(self):
-        assert _normalize_interval_funcs("today() + toIntervalDay(7)") == "today() + INTERVAL 7 DAY"
-
-    def test_toIntervalHour(self):
-        assert _normalize_interval_funcs("now() + toIntervalHour(24)") == "now() + INTERVAL 24 HOUR"
-
-    def test_toIntervalMinute(self):
-        assert _normalize_interval_funcs("toIntervalMinute(30)") == "INTERVAL 30 MINUTE"
-
-    def test_toIntervalSecond(self):
-        assert _normalize_interval_funcs("toIntervalSecond(60)") == "INTERVAL 60 SECOND"
-
-    def test_toIntervalWeek(self):
-        assert _normalize_interval_funcs("toIntervalWeek(2)") == "INTERVAL 2 WEEK"
-
-    def test_toIntervalMonth(self):
-        assert _normalize_interval_funcs("toIntervalMonth(1)") == "INTERVAL 1 MONTH"
-
-    def test_toIntervalYear(self):
-        assert _normalize_interval_funcs("toIntervalYear(1)") == "INTERVAL 1 YEAR"
+    @pytest.mark.parametrize(
+        "input_expr,expected",
+        [
+            ("today() + toIntervalDay(7)", "today() + INTERVAL 7 DAY"),
+            ("now() + toIntervalHour(24)", "now() + INTERVAL 24 HOUR"),
+            ("toIntervalMinute(30)", "INTERVAL 30 MINUTE"),
+            ("toIntervalSecond(60)", "INTERVAL 60 SECOND"),
+            ("toIntervalWeek(2)", "INTERVAL 2 WEEK"),
+            ("toIntervalMonth(1)", "INTERVAL 1 MONTH"),
+            ("toIntervalYear(1)", "INTERVAL 1 YEAR"),
+        ],
+    )
+    def test_to_interval_functions(self, input_expr: str, expected: str):
+        assert _normalize_interval_funcs(input_expr) == expected
 
     def test_no_change_for_interval_literal(self):
         s = "INTERVAL 7 DAY"
@@ -371,31 +366,31 @@ class TestNormalizeQuoteEscaping:
 
 
 class TestNormalizeDateTime64:
-    def test_datetime64_default_precision(self):
-        assert _normalize_type("DateTime64") == "DateTime64(3)"
-
-    def test_datetime64_explicit_3(self):
-        assert _normalize_type("DateTime64(3)") == "DateTime64(3)"
-
-    def test_datetime64_explicit_6(self):
-        assert _normalize_type("DateTime64(6)") == "DateTime64(6)"
-
-    def test_nullable_datetime64(self):
-        assert _normalize_type("Nullable(DateTime64)") == "Nullable(DateTime64(3))"
+    @pytest.mark.parametrize(
+        "input_type,expected",
+        [
+            ("DateTime64", "DateTime64(3)"),
+            ("DateTime64(3)", "DateTime64(3)"),
+            ("DateTime64(6)", "DateTime64(6)"),
+            ("Nullable(DateTime64)", "Nullable(DateTime64(3))"),
+        ],
+    )
+    def test_datetime64_variants(self, input_type: str, expected: str):
+        assert _normalize_type(input_type) == expected
 
 
 class TestNormalizeDecimal:
-    def test_decimal_18_10_to_decimal64(self):
-        assert _normalize_type("Decimal(18, 10)") == "Decimal64(10)"
-
-    def test_decimal_9_2_to_decimal32(self):
-        assert _normalize_type("Decimal(9, 2)") == "Decimal32(2)"
-
-    def test_decimal_38_10_to_decimal128(self):
-        assert _normalize_type("Decimal(38, 10)") == "Decimal128(10)"
-
-    def test_decimal64_unchanged(self):
-        assert _normalize_type("Decimal64(10)") == "Decimal64(10)"
+    @pytest.mark.parametrize(
+        "input_type,expected",
+        [
+            ("Decimal(18, 10)", "Decimal64(10)"),
+            ("Decimal(9, 2)", "Decimal32(2)"),
+            ("Decimal(38, 10)", "Decimal128(10)"),
+            ("Decimal64(10)", "Decimal64(10)"),
+        ],
+    )
+    def test_decimal_variants(self, input_type: str, expected: str):
+        assert _normalize_type(input_type) == expected
 
 
 class TestDiffConvergenceDateTime64:
