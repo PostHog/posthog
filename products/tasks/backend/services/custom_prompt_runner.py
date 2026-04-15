@@ -9,7 +9,14 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
+
+from products.tasks.backend.models import Task, TaskRun
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -22,6 +29,7 @@ OutputFn = Callable[[str], object] | None
 # Sandbox logs polling from S3
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
+MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 
 
 @dataclass(frozen=True)
@@ -35,25 +43,27 @@ class CustomPromptSandboxContext:
     posthog_mcp_scopes: PosthogMcpScopes | None = None
 
 
+class EmptyAgentTurnError(RuntimeError):
+    """Raised when the agent emitted end_turn but no agent_message (Claude Agent SDK short-circuits)."""
+
+    def __init__(self, message: str, *, total_lines: int, printed_lines: int):
+        super().__init__(message)
+        self.total_lines = total_lines
+        self.printed_lines = printed_lines
+
+
 def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:
-    """Build a CustomPromptSandboxContext from the first team/user in the local database.
-
-    Requires a GitHub integration to exist for the team (Task.create_and_run
-    resolves it automatically).
     """
-    from posthog.models.integration import Integration
-    from posthog.models.organization import OrganizationMembership
-    from posthog.models.team.team import Team
-
+    Build a CustomPromptSandboxContext from the first team/user in the local database.
+    Requires a GitHub integration to exist for the team (Task.create_and_run resolves it automatically).
+    """
     team = Team.objects.select_related("organization").first()
     if not team:
         raise RuntimeError("No team found in local database")
-
     membership = OrganizationMembership.objects.filter(organization=team.organization).order_by("id").first()
     if not membership:
         raise RuntimeError(f"No users in organization '{team.organization.name}' (team {team.id})")
     user = membership.user
-
     # Validate the integration exists upfront so we fail early with a clear message.
     gh = Integration.objects.filter(team=team, kind="github").first()
     if not gh:
@@ -62,7 +72,6 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandbo
             "Set up a GitHub App installation first: "
             "go to /settings/integrations in your local PostHog."
         )
-
     return CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user.id,
@@ -97,10 +106,6 @@ async def _create_task_and_trigger(
     origin_product: str | None = None,
     signal_report_id: str | None = None,
 ):
-    from posthog.models.team.team import Team
-
-    from products.tasks.backend.models import Task
-
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
     task = await sync_to_async(Task.create_and_run)(
@@ -115,22 +120,11 @@ async def _create_task_and_trigger(
         branch=branch if branch and branch != "master" else None,
         signal_report_id=signal_report_id,
     )
+    # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run
-
-
-MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-
-
-class EmptyAgentTurnError(RuntimeError):
-    """Raised when the agent emitted end_turn but no agent_message (Claude Agent SDK short-circuits)."""
-
-    def __init__(self, message: str, *, total_lines: int, printed_lines: int):
-        super().__init__(message)
-        self.total_lines = total_lines
-        self.printed_lines = printed_lines
 
 
 async def _poll_for_turn(
@@ -143,13 +137,13 @@ async def _poll_for_turn(
     workflow_handle: WorkflowHandle | None = None,
 ) -> tuple[str, str | None, int, int]:
     """Poll S3 logs until the agent finishes a turn."""
-    from posthog.storage.object_storage import ObjectStorageError
-
-    from products.tasks.backend.models import TaskRun
-
+    # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
-    last_new_lines_at = 0  # elapsed time when we last saw new log lines
+    # Elapsed time when we last saw new log lines
+    last_new_lines_at = 0
+    # Remember assistant text, as the agent message and end_message could arrive in different poll slices
+    latest_assistant_text: str | None = None
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -161,6 +155,7 @@ async def _poll_for_turn(
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
+            # Poll the logs
             finished, last_message, full_log, total_lines, empty_end_turn = await sync_to_async(_check_logs)(
                 task_run, skip_lines
             )
@@ -176,10 +171,11 @@ async def _poll_for_turn(
                 raise
             continue
         consecutive_storage_errors = 0
-
+        # Track the timings
         if total_lines > skip_lines:
             last_new_lines_at = elapsed
         stale_seconds = elapsed - last_new_lines_at
+        # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
         if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:
             logger.warning(
                 "custom_prompt - poll_for_turn: no new S3 log lines for %ds, run=%s, total_lines=%d",
@@ -187,18 +183,26 @@ async def _poll_for_turn(
                 task_run.id,
                 total_lines,
             )
-
+        # Detect how many lines were printed in this poll
         printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+        if last_message:
+            latest_assistant_text = last_message
+        # If success
         if finished and last_message:
             return last_message, full_log, total_lines, printed_lines
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
         if empty_end_turn:
+            # If the agent emitted text in an earlier poll of this same turn, the turn
+            # is genuinely complete — end_turn just landed in a later slice.
+            if latest_assistant_text is not None:
+                return latest_assistant_text, full_log, total_lines, printed_lines
             logger.warning(
                 "custom_prompt - poll_for_turn: empty end_turn detected (no agent_message), run=%s total_lines=%d",
                 task_run.id,
                 total_lines,
             )
+            # Actual end_turn with no message, need to retry the step
             raise EmptyAgentTurnError(
                 f"Agent emitted end_turn with no agent_message for run={task_run.id}",
                 total_lines=total_lines,
@@ -223,7 +227,8 @@ async def _poll_for_turn(
                 elapsed - last_new_lines_at,
                 total_lines,
             )
-            # Terminal status — one final log read with retries.
+            # Terminal status: drain one last S3 read (S3 may not have flushed the final
+            # agent_message before Temporal marked the run done), with storage retries.
             final_message = None
             final_log = None
             final_lines = skip_lines
@@ -251,7 +256,6 @@ async def _poll_for_turn(
             raise RuntimeError(
                 f"custom_prompt - poll_for_turn: TaskRun reached terminal status={refreshed.status} — {reason}"
             )
-
     raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
 
 
@@ -290,22 +294,18 @@ def _stream_new_lines(
 
 
 def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool]:
-    """Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
+    """
+    Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
     """
-    from posthog.storage import object_storage
-
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
         return False, None, None, 0, False
-
     all_lines = log_content.strip().split("\n")
     total_lines = len(all_lines)
-
     # Eventual consistency: if S3 returns fewer lines than expected, no new data
     if total_lines <= skip_lines:
         return False, None, log_content, total_lines, False
-
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
     # Collect all parsed session updates so we can walk backwards at the end.

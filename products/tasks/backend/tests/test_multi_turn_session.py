@@ -48,6 +48,41 @@ class TestPollForTurnEmptyEndTurn:
         assert exc_info.value.total_lines == len(turn_1) + len(turn_2_empty)
         assert exc_info.value.printed_lines >= 0
 
+    @pytest.mark.asyncio
+    async def test_text_before_end_turn_across_polls_is_not_empty(self):
+        """When agent_message arrives in one poll and end_turn in the next, _poll_for_turn
+        must recognize the turn as complete — not raise EmptyAgentTurnError and cause a
+        spurious retry."""
+        turn_1 = [_agent_message_line("prev"), _end_turn_line()]
+        # Current turn: prompt, then text (poll 1 sees this), then end_turn (poll 2 sees this).
+        turn_2_with_text = [_user_message_line("next"), _agent_message_line("current-turn-text")]
+        turn_2_end_turn = [_end_turn_line()]
+        skip = len(turn_1)
+        # Log grows monotonically across polls — first poll has no end_turn yet,
+        # second poll appends it after the agent_message of poll 1 has already advanced
+        # the cursor past it.
+        logs = [
+            "\n".join(turn_1 + turn_2_with_text),
+            "\n".join(turn_1 + turn_2_with_text + turn_2_end_turn),
+        ]
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter)
+
+        # Poll 1 returns (False, text, ...) — falls through to the TaskRun refresh
+        # to check for terminal status. Patch it to a running status so the loop continues.
+        fake_task_run = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            last_message, _, total_lines, _ = await _poll_for_turn(fake_task_run, skip_lines=skip)
+        assert last_message == "current-turn-text"
+        assert total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
+
 
 class TestMultiTurnSessionRetry:
     """send_followup must retry once on EmptyAgentTurnError and propagate if the retry
