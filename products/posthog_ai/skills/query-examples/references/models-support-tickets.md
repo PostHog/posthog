@@ -16,8 +16,6 @@ Column | Type | Nullable | Description
 `status` | varchar(20) | NOT NULL | `new`, `open`, `pending`, `on_hold`, or `resolved`
 `priority` | varchar(20) | NULL | `low`, `medium`, or `high`
 `anonymous_traits` | jsonb | NOT NULL | Customer-provided traits (name, email, etc.)
-`ai_resolved` | boolean | NOT NULL | Whether the ticket was resolved by AI (exposed as integer 0/1)
-`escalation_reason` | text | NULL | Reason the ticket was escalated from AI to human
 `message_count` | integer | NOT NULL | Total number of messages in the ticket
 `unread_customer_count` | integer | NOT NULL | Messages the customer hasn't seen (from team/AI)
 `unread_team_count` | integer | NOT NULL | Messages the team hasn't seen (from customer)
@@ -40,7 +38,6 @@ Column | Type | Nullable | Description
 ### Important Notes
 
 - The `status` field follows a lifecycle: `new` -> `open` -> `pending`/`on_hold` -> `resolved`
-- The `ai_resolved` field is exposed as an integer (0/1) in HogQL due to ClickHouse boolean handling
 - The `anonymous_traits` field contains customer-provided key-value pairs, commonly including `name` and `email`
 - The `session_context` field may contain `session_replay_url`, `current_url`, and other session metadata
 - Tickets are never deleted; filter by `status` to exclude resolved tickets

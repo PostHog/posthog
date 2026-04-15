@@ -135,7 +135,6 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
-        escalation_reason: zod.string().nullish().describe('Reason the ticket was escalated from AI to human'),
         sla_due_at: zod.iso.datetime({}).nullish().describe('SLA deadline set via workflows. Null means no SLA.'),
         tags: zod.array(zod.unknown()).optional(),
     })

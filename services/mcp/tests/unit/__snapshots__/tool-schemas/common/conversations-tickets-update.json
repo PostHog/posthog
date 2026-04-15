@@ -1,17 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "escalation_reason": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Reason the ticket was escalated from AI to human"
-        },
         "id": {
             "description": "A UUID string identifying this ticket.",
             "type": "string"

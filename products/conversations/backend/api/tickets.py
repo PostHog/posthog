@@ -156,8 +156,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
-            "ai_resolved": {"help_text": "Whether the ticket was resolved by AI"},
-            "escalation_reason": {"help_text": "Reason the ticket was escalated from AI to human"},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
         }

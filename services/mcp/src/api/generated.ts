@@ -22123,12 +22123,8 @@ export namespace Schemas {
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
-      /** Whether the ticket was resolved by AI */
       ai_resolved?: boolean;
-      /**
-       * Reason the ticket was escalated from AI to human
-       * @nullable
-       */
+      /** @nullable */
       escalation_reason?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -26339,12 +26335,8 @@ export namespace Schemas {
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
-      /** Whether the ticket was resolved by AI */
       ai_resolved?: boolean;
-      /**
-       * Reason the ticket was escalated from AI to human
-       * @nullable
-       */
+      /** @nullable */
       escalation_reason?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;

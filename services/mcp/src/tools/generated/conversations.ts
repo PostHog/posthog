@@ -89,9 +89,7 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'message_count',
             'unread_team_count',
             'tags',
-            'escalation_reason',
             'sla_due_at',
-            'ai_resolved',
             'anonymous_traits',
             'session_context',
             'session_id',
@@ -125,9 +123,6 @@ const conversationsTicketsUpdate = (): ToolBase<
         }
         if (params.priority !== undefined) {
             body['priority'] = params.priority
-        }
-        if (params.escalation_reason !== undefined) {
-            body['escalation_reason'] = params.escalation_reason
         }
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at

@@ -65,9 +65,7 @@ tools:
                 - message_count
                 - unread_team_count
                 - tags
-                - escalation_reason
                 - sla_due_at
-                - ai_resolved
                 - anonymous_traits
                 - session_context
                 - session_id
@@ -96,6 +94,7 @@ tools:
         exclude_params:
             - anonymous_traits
             - ai_resolved
+            - escalation_reason
     conversations-tickets-suggest-reply-create:
         operation: conversations_tickets_suggest_reply_create
         enabled: false
