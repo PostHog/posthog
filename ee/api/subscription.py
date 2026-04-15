@@ -57,10 +57,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
-    summary = serializers.CharField(read_only=True)
-    invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    integration_id = serializers.IntegerField(required=False, allow_null=True)
-    dashboard_export_insights = DashboardExportInsightsField(required=False)
+    summary = serializers.CharField(read_only=True, help_text="Human-readable schedule summary, e.g. 'sent daily'.")
+    invite_message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional message included in the invitation email when adding new recipients.",
+    )
+    integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of a connected Slack integration. Required when target_type is slack.",
+    )
+    dashboard_export_insights = DashboardExportInsightsField(
+        required=False,
+        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
 
@@ -100,6 +112,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight_short_id",
             "resource_name",
         ]
+        extra_kwargs = {
+            "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
+            "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
+            "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
+            "target_value": {
+                "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
+            },
+            "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
+            "interval": {
+                "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
+            },
+            "byweekday": {
+                "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+            },
+            "bysetpos": {
+                "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
+            },
+            "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
+            "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
+            "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
+            "title": {"help_text": "Human-readable name for this subscription."},
+            "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
+        }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
         if obj.insight_id and obj.insight is not None:
@@ -288,6 +323,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by delivery channel (email, Slack, or webhook).",
+            ),
+            OpenApiParameter(
+                name="insight",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by insight ID.",
+            ),
+            OpenApiParameter(
+                name="dashboard",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by dashboard ID.",
             ),
         ],
     ),

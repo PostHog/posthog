@@ -988,13 +988,13 @@
             "readOnlyHint": false
         }
     },
-    "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
-        "category": "Conversations",
-        "feature": "conversations",
-        "summary": "List support tickets",
-        "title": "List support tickets",
-        "required_scopes": ["ticket:read"],
+    "subscriptions-list": {
+        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Supports filtering by insight ID (query param insight=<id>), dashboard ID (query param dashboard=<id>), target_type (email/slack/webhook), and resource_type (insight/dashboard). Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List subscriptions",
+        "title": "List subscriptions",
+        "required_scopes": ["subscription:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -1003,13 +1003,28 @@
             "readOnlyHint": true
         }
     },
-    "conversations-tickets-retrieve": {
-        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
-        "category": "Conversations",
-        "feature": "conversations",
-        "summary": "Get support ticket",
-        "title": "Get support ticket",
-        "required_scopes": ["ticket:read"],
+    "subscriptions-create": {
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create subscription",
+        "title": "Create subscription",
+        "required_scopes": ["subscription:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-retrieve": {
+        "description": "Get a specific subscription by ID. Returns the full subscription configuration including target type and value, schedule details, next delivery date, and associated insight or dashboard.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get subscription",
+        "title": "Get subscription",
+        "required_scopes": ["subscription:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -1018,13 +1033,13 @@
             "readOnlyHint": true
         }
     },
-    "conversations-tickets-update": {
-        "description": "Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium, high), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type ('user' or 'role') and id, or null to unassign.",
-        "category": "Conversations",
-        "feature": "conversations",
-        "summary": "Update support ticket",
-        "title": "Update support ticket",
-        "required_scopes": ["ticket:write"],
+    "subscriptions-partial-update": {
+        "description": "Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update subscription",
+        "title": "Update subscription",
+        "required_scopes": ["subscription:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -1034,7 +1049,7 @@
         }
     },
     "dashboards-get-all": {
-        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get all dashboards",
@@ -1049,7 +1064,7 @@
         }
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -1064,7 +1079,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
@@ -1079,7 +1094,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -1106,21 +1121,6 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "dashboard-insights-run": {
-        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Run dashboard insights",
-        "title": "Run dashboard insights",
-        "required_scopes": ["query:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "dashboard-reorder-tiles": {
