@@ -915,7 +915,7 @@
         }
     },
     "error-tracking-issues-list": {
-        "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
+        "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "List error tracking issues",

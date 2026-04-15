@@ -326,9 +326,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics/insights',
     },
-    [Scene.InsightOptions]: {
+    [Scene.InsightQuickStart]: {
         projectBased: true,
-        name: 'New insight',
+        name: 'Quick start',
         description: 'Choose the type of insight you want to create',
         defaultDocsPath: '/docs/product-analytics/insights',
     },
@@ -830,7 +830,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
-    [urls.insightOptions()]: [Scene.InsightOptions, 'insightOptions'],
+    [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
     [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
