@@ -146,6 +146,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.accessToken], (accessToken) => !!accessToken],
         toolbarFlagsKey: [(s) => [s.props], (props): string | undefined => props.toolbarFlagsKey],
+        // True when uiHost is a PostHog Cloud host (us/eu) — safe to skip the
+        // "are you sure you want to authenticate here?" confirmation.
+        isTrustedUiHost: [(s) => [s.uiHost], (uiHost: string): boolean => isPostHogCloudHost(uiHost)],
     }),
 
     listeners(({ values, actions }) => ({
@@ -167,6 +170,11 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // Show the user which domain they'll be redirected to before proceeding.
             // This prevents phishing via crafted #__posthog= hash params with a
             // malicious uiHost — the user sees the target domain and can cancel.
+            // Skip for PostHog Cloud (us/eu) where the target is already trusted.
+            if (values.isTrustedUiHost) {
+                actions.confirmAuthenticate()
+                return
+            }
             actions.openAuthConfirmModal()
         },
         confirmAuthenticate: async () => {
@@ -288,6 +296,19 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         cleanToolbarAuthHash()
     }),
 ])
+
+// Hostnames we trust enough to skip the authentication confirmation modal.
+// Extracted so tests and selectors share one source of truth.
+const TRUSTED_POSTHOG_CLOUD_HOSTNAMES = new Set(['us.posthog.com', 'eu.posthog.com'])
+
+export function isPostHogCloudHost(uiHost: string): boolean {
+    try {
+        const { protocol, hostname } = new URL(uiHost)
+        return protocol === 'https:' && TRUSTED_POSTHOG_CLOUD_HOSTNAMES.has(hostname)
+    } catch {
+        return false
+    }
+}
 
 // ---------------------------------------------------------------------------
 // afterMount helpers — extracted to keep the mount handler readable

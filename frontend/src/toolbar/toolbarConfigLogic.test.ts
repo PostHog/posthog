@@ -201,6 +201,43 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
+    describe('authenticate confirm modal gating', () => {
+        it.each([
+            ['https://us.posthog.com', true],
+            ['https://eu.posthog.com', true],
+            ['https://selfhosted.example.com', false],
+            ['http://us.posthog.com', false], // http scheme is not trusted
+            ['https://us.posthog.com.evil.com', false],
+        ])('isTrustedUiHost is %s for %s', (uiHost, expected) => {
+            const logic = toolbarConfigLogic.build({ uiHost } as any)
+            logic.mount()
+            expect(logic.values.isTrustedUiHost).toBe(expected)
+        })
+
+        it('skips the confirm modal and authenticates directly for PostHog Cloud hosts', async () => {
+            mockTokenExchangeSuccess()
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+            logic.mount()
+            // Wait for the mount-time uiHost reachability check so authStatus leaves 'checking'
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+            expectLogic(logic, () => {
+                logic.actions.authenticate()
+            }).toMatchValues({ authConfirmModalVisible: false })
+        })
+
+        it('opens the confirm modal for non-PostHog hosts', async () => {
+            mockTokenExchangeSuccess()
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+            expectLogic(logic, () => {
+                logic.actions.authenticate()
+            }).toMatchValues({ authConfirmModalVisible: true })
+        })
+    })
+
     describe('OAuth localStorage restoration', () => {
         it('restores OAuth from localStorage when no tokens in props', () => {
             localStorage.setItem(
