@@ -3,7 +3,6 @@ import { useActions } from 'kea'
 import { IconBolt } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import {
@@ -98,7 +97,6 @@ registerTriggerType({
     icon: <IconBolt />,
     description: 'Trigger when a new support ticket is created',
     group: 'Support',
-    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_created',
     buildConfig: () => ({
         type: 'event',
@@ -114,7 +112,6 @@ registerTriggerType({
     icon: <IconBolt />,
     description: 'Trigger when a ticket status changes to a selected status',
     group: 'Support',
-    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_status_changed',
     buildConfig: () => ({
         type: 'event',
@@ -129,7 +126,6 @@ registerTriggerType({
     icon: <IconBolt />,
     description: 'Trigger when a teammate replies on a ticket',
     group: 'Support',
-    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_sent',
     buildConfig: () => ({
         type: 'event',
@@ -146,7 +142,6 @@ registerTriggerType({
     icon: <IconBolt />,
     description: 'Trigger when a customer sends a message on a ticket',
     group: 'Support',
-    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_received',
     buildConfig: () => ({
         type: 'event',
