@@ -294,7 +294,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             ? result.result
                                                 ? 'true'
                                                 : 'false'
-                                            : result.result}
+                                            : String(result.result)}
                                     </div>
                                 </div>
 
