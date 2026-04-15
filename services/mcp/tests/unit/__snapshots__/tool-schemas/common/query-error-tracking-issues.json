@@ -32,9 +32,6 @@
             "description": "Filter by assignee."
         },
         "dateRange": {
-            "default": {
-                "date_from": "-7d"
-            },
             "description": "Date range to filter results.",
             "properties": {
                 "date_from": {
@@ -555,7 +552,6 @@
             "type": "array"
         },
         "filterTestAccounts": {
-            "default": true,
             "description": "Whether to filter out test accounts.",
             "type": "boolean"
         },
@@ -569,7 +565,6 @@
             "type": "string"
         },
         "limit": {
-            "default": 50,
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -580,13 +575,11 @@
             "type": "integer"
         },
         "orderBy": {
-            "default": "occurrences",
             "description": "Field to sort results by.",
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
             "type": "string"
         },
         "orderDirection": {
-            "default": "DESC",
             "description": "Sort direction.",
             "enum": ["ASC", "DESC"],
             "type": "string"
@@ -606,11 +599,9 @@
                     "type": "string"
                 }
             ],
-            "default": "active",
             "description": "Filter by issue status."
         },
         "volumeResolution": {
-            "default": 1,
             "description": "Controls volume chart granularity. Use 1 for sparklines, 0 for counts only.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
