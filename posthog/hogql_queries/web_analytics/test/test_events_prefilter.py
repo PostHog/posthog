@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, also_test_with_materialized_columns
 from unittest.mock import patch
 
 from posthog.schema import DateRange, EventPropertyFilter, PropertyOperator, WebStatsBreakdown, WebStatsTableQuery
@@ -117,6 +117,10 @@ class TestEventsPrefilterTransformer(ClickhouseTestMixin, APIBaseTest):
         # Non-bounce queries also get wrapped since they go through the same _calculate path
         assert "toDate(events.timestamp)" in sql
 
+    @also_test_with_materialized_columns(
+        event_properties=["$pathname", "$geoip_city_name"],
+        verify_no_jsonextract=False,
+    )
     def test_bounce_with_geo_filter(self):
         sql = self._run_prefiltered_query(
             includeBounceRate=True,

@@ -13,18 +13,21 @@ if TYPE_CHECKING:
 
 
 class _EventsFieldCollector(TraversingVisitor):
-    """Collects all events-table field names referenced anywhere in the query."""
+    """Collects events-table field names and property accesses from the entire query."""
 
     def __init__(self, events_table_type: ast.Type):
         super().__init__()
         self.events_table_type = events_table_type
         self.fields: set[str] = set()
+        self.property_accesses: set[tuple[str, str]] = set()  # (property_name, table_column)
 
     def visit_field(self, node: ast.Field):
         field_type = node.type
-        # PropertyType (e.g. events.properties.$pathname) wraps the underlying FieldType
         if isinstance(field_type, ast.PropertyType):
-            field_type = field_type.field_type
+            ft = field_type.field_type
+            if ft.table_type == self.events_table_type and len(field_type.chain) >= 1:
+                self.property_accesses.add((str(field_type.chain[0]), ft.name))
+            field_type = ft
         if isinstance(field_type, ast.FieldType) and field_type.table_type == self.events_table_type:
             self.fields.add(field_type.name)
 
@@ -39,6 +42,13 @@ class EventsPrefilterTransformer(TraversingVisitor):
     After transformation, each FROM events becomes:
         FROM (SELECT <columns> FROM events WHERE <prefilter>) AS events
 
+    Materialized columns (mat_$pathname, etc.) are resolved at print time
+    by the HogQL printer and bypass the AST type system. This transformer
+    detects which mat columns the query needs and adds them to the subquery
+    SELECT, temporarily registering them on the events table schema so the
+    printer can resolve them. If any property access lacks a mat column,
+    the `properties` JSON column is included as fallback for JSONExtractRaw.
+
     Must run on a fully-resolved AST (after lazy table resolution)
     and is intentionally scoped to WebStatsTableQueryRunner.
     """
@@ -49,6 +59,7 @@ class EventsPrefilterTransformer(TraversingVisitor):
         self.date_from = date_from
         self.date_to = date_to
         self.wraps_applied = 0
+        self._temp_schema_fields: list[tuple[object, str]] = []
 
     def visit_select_query(self, node: ast.SelectQuery):
         super().visit_select_query(node)
@@ -69,11 +80,6 @@ class EventsPrefilterTransformer(TraversingVisitor):
         prefilter = ast.And(
             exprs=[
                 ast.CompareOperation(
-                    left=make_field("team_id"),
-                    right=ast.Constant(value=self.team_id),
-                    op=ast.CompareOperationOp.Eq,
-                ),
-                ast.CompareOperation(
                     left=ast.Call(name="toDate", args=[make_field("timestamp")]),
                     right=ast.Constant(value=self.date_from),
                     op=ast.CompareOperationOp.GtEq,
@@ -91,14 +97,19 @@ class EventsPrefilterTransformer(TraversingVisitor):
         collector.visit(node)
         events_columns = collector.fields
         # Always include columns needed by JOIN constraints and the prefilter itself
-        events_columns.update(["team_id", "timestamp", "distinct_id", "$session_id_uuid"])
+        events_columns.update(["timestamp", "distinct_id", "$session_id_uuid"])
+
+        # Resolve materialized columns for property accesses
+        mat_column_names = self._resolve_materialized_columns(
+            collector.property_accesses, events_columns, events_table_type
+        )
 
         inner_join = ast.JoinExpr(table=join.table, type=events_table_type)
         subquery = ast.SelectQuery(
             # Bare fields (no ast.Alias) so ClickHouse column names pass through
             # directly — the printer resolves each to its CH name, matching what
             # the outer query expects.
-            select=[make_field(c) for c in sorted(events_columns)],
+            select=[make_field(c) for c in sorted(events_columns | mat_column_names)],
             select_from=inner_join,
             where=prefilter,
             type=ast.SelectQueryType(),
@@ -109,6 +120,63 @@ class EventsPrefilterTransformer(TraversingVisitor):
         assert subquery.type is not None
         join.type = ast.SelectQueryAliasType(alias="events", select_query_type=subquery.type)
         self.wraps_applied += 1
+
+    def _resolve_materialized_columns(
+        self,
+        property_accesses: set[tuple[str, str]],
+        events_columns: set[str],
+        events_table_type: ast.Type,
+    ) -> set[str]:
+        """Resolve property accesses to materialized column names.
+
+        For each property access (e.g. $pathname on properties), checks if a
+        materialized column exists (mat_$pathname). If so, temporarily registers
+        it on the events table schema and returns the name. If any property
+        lacks a mat column, keeps `properties` in events_columns for JSONExtractRaw.
+        """
+        from posthog.hogql.database.models import StringDatabaseField
+
+        from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns
+
+        if not property_accesses:
+            events_columns.discard("properties")
+            return set()
+
+        mat_cols_map = get_enabled_materialized_columns("events")
+        mat_column_names: set[str] = set()
+        has_unmaterialized = False
+
+        for prop_name, table_column in property_accesses:
+            key = (prop_name, table_column)
+            if key in mat_cols_map:
+                ch_name = mat_cols_map[key].name
+                mat_column_names.add(ch_name)
+                # Temporarily register on the events table so the printer can resolve it
+                table = self._get_events_table(events_table_type)
+                if table is not None and ch_name not in table.fields:
+                    table.fields[ch_name] = StringDatabaseField(name=ch_name)
+                    self._temp_schema_fields.append((table, ch_name))
+            else:
+                has_unmaterialized = True
+
+        # Only keep properties if some accesses can't use mat columns
+        if not has_unmaterialized:
+            events_columns.discard("properties")
+
+        return mat_column_names
+
+    def _get_events_table(self, table_type: ast.Type) -> object | None:
+        if isinstance(table_type, ast.TableType):
+            return table_type.table
+        if isinstance(table_type, ast.TableAliasType):
+            return self._get_events_table(table_type.table_type)
+        return None
+
+    def cleanup_temp_schema_fields(self):
+        for table, field_name in self._temp_schema_fields:
+            if hasattr(table, "fields") and field_name in table.fields:
+                del table.fields[field_name]
+        self._temp_schema_fields.clear()
 
 
 class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
@@ -171,17 +239,20 @@ class PrefilterHogQLHasMorePaginator(HogQLHasMorePaginator):
                 date_from=self.date_from,
                 date_to=self.date_to,
             )
-            transformer.visit(executor.clickhouse_prepared_ast)
+            try:
+                transformer.visit(executor.clickhouse_prepared_ast)
 
-            assert executor.clickhouse_context is not None
-            settings = get_default_hogql_global_settings(executor.team.pk, executor.settings)
-            executor.clickhouse_sql = print_prepared_ast(
-                node=executor.clickhouse_prepared_ast,
-                context=executor.clickhouse_context,
-                dialect="clickhouse",
-                settings=settings,
-                pretty=True,
-            )
+                assert executor.clickhouse_context is not None
+                settings = get_default_hogql_global_settings(executor.team.pk, executor.settings)
+                executor.clickhouse_sql = print_prepared_ast(
+                    node=executor.clickhouse_prepared_ast,
+                    context=executor.clickhouse_context,
+                    dialect="clickhouse",
+                    settings=settings,
+                    pretty=True,
+                )
+            finally:
+                transformer.cleanup_temp_schema_fields()
 
         executor._execute_clickhouse_query()
         self.response = HogQLQueryResponse(
