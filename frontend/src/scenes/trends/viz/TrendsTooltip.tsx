@@ -87,7 +87,7 @@ export function TrendsTooltip({
             dateRange={dateRange}
             formatCompareLabel={formatCompareLabel}
             groupTypeLabel={groupTypeLabel}
-            onClose={context.isPinned ? context.onUnpin : undefined}
+            onClose={context.onUnpin ?? (() => {})}
             renderSeries={(value, datum) => {
                 const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
                 const hasMultipleSeries = seriesData.length > 1

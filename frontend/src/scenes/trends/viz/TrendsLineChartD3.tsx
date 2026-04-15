@@ -3,16 +3,18 @@ import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { LineChart } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series } from 'lib/hog-charts'
 import type { TooltipContext } from 'lib/hog-charts/core/types'
+import { ReferenceLines } from 'lib/hog-charts/overlays/ReferenceLine'
+import { hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { GoalLine as SchemaGoalLine, InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
@@ -20,6 +22,7 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import type { IndexedTrendResult } from '../types'
+import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
@@ -40,6 +43,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         showPercentStackView,
         supportsPercentStackView,
         yAxisScaleType,
+        showMultipleYAxes,
         goalLines,
         getTrendsColor,
         currentPeriodResult,
@@ -51,6 +55,7 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         labelGroupType,
         hasPersonsModal,
         querySource,
+        incompletenessOffsetFromEnd,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -71,27 +76,34 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
+    // Dash the in-progress tail (mirrors LineGraph.tsx). Stickiness indices aren't dates.
+    const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
+
     const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            (indexedResults ?? [])
-                .filter((r: IndexedTrendResult) => r.count !== 0)
-                .map((r: IndexedTrendResult) => ({
+            (indexedResults ?? []).map((r: IndexedTrendResult, index: number) => {
+                const isActiveSeries = !r.compare || r.compare_label !== 'previous'
+                const dashedFromIndex =
+                    isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
+                return {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
-                    color: getTrendsColor(r),
+                    color: r.compare_label === 'previous' ? hexToRGBA(getTrendsColor(r), 0.5) : getTrendsColor(r),
                     fillArea: display === ChartDisplayType.ActionsAreaGraph,
+                    dashedFromIndex,
+                    yAxisId: showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID,
                     meta: {
                         action: r.action,
                         breakdown_value: r.breakdown_value,
                         compare_label: r.compare_label,
                         days: r.days,
-                        // Fall back to the pre-filter index (r.id) so ordering is stable when earlier series are dropped.
                         order: r.action?.order ?? r.id,
                         filter: r.filter,
                     },
-                })),
-        [indexedResults, display, getTrendsColor]
+                }
+            }),
+        [indexedResults, display, getTrendsColor, isInProgress, incompletenessOffsetFromEnd, showMultipleYAxes]
     )
 
     const chartConfig: LineChartConfig = useMemo(() => {
@@ -107,13 +119,10 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
-            goalLines: goalLines?.map((g: SchemaGoalLine) => ({
-                value: g.value,
-                label: g.label ?? undefined,
-                borderColor: g.borderColor ?? undefined,
-            })),
         }
-    }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView, goalLines])
+    }, [interval, currentPeriodResult?.days, timezone, yAxisScaleType, isPercentStackView])
+
+    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -204,6 +213,9 @@ export function TrendsLineChartD3({ context }: TrendsLineChartD3Props): JSX.Elem
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
-        />
+            className="LineGraph"
+        >
+            <ReferenceLines lines={referenceLines} />
+        </LineChart>
     )
 }

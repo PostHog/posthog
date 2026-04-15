@@ -236,11 +236,16 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     (c) => c.columnAlias
                 )
                 const staleGroupingColumns = allGroupingAliases.filter((c) => c !== groupingAlias)
+                // Columns excluded at the current drill-down level (e.g. ID/Campaign at Source level).
+                // Without this filter, switching drill-down levels leaves stale columns in the select,
+                // and the stale response data renders as raw JSON (no matching context.columns render fn).
+                const excludedColumns = new Set<string>(drillDownConfig.excludedBaseColumns)
 
                 const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns)
                         .filter((column) => !isDraftConversionGoalColumn(column, draftConversionGoal))
                         .map((column) => (staleGroupingColumns.includes(column) ? groupingAlias : column))
+                        .filter((column) => column === groupingAlias || !excludedColumns.has(column))
                         .filter((column, index, arr) => arr.indexOf(column) === index),
                     ...(draftConversionGoal
                         ? [

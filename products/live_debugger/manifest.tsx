@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -36,7 +36,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Live Debugger',
             intents: [ProductKey.LIVE_DEBUGGER],
-            category: 'Unreleased',
+            category: ProductItemCategory.UNRELEASED,
             type: 'live_debugger',
             href: urls.liveDebugger(),
             flag: FEATURE_FLAGS.LIVE_DEBUGGER,

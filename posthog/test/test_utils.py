@@ -1,6 +1,7 @@
 import json
 import base64
 from datetime import datetime
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -367,8 +368,14 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         # the server presents any http headers in upper case with http_ as a prefix
         # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
-        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer}
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
+        post_request = rf.post(
+            "/e/?ver=1.20.0",
+            data="content",
+            content_type="text/plain",
+            secure=False,
+            HTTP_ORIGIN=origin,
+            HTTP_REFERER=referer,
+        )
         return post_request
 
     @patch("posthoganalytics.tag")
@@ -718,7 +725,7 @@ class TestSharingOverrideProtection(TestCase):
         factory = RequestFactory()
         django_request = factory.get("/", data=query_params or {})
         request = Request(django_request)
-        request._authenticator = authenticator
+        cast(Any, request)._authenticator = authenticator
         return request
 
     @parameterized.expand(

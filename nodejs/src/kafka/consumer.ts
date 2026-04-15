@@ -73,45 +73,6 @@ const consumedBatchBackpressureDuration = new Histogram({
     labelNames: ['topic', 'groupId'],
 })
 
-const counterBackgroundTaskTimeout = new Counter({
-    name: 'consumer_background_task_timeout_total',
-    help: 'Count of background tasks that hit the timeout',
-    labelNames: ['topic', 'groupId'],
-})
-
-/**
- * Wraps a background task promise with a timeout. When the timeout fires:
- * - Always logs an error and increments a counter (probe phase)
- * - Optionally force-resolves the wrapper to unblock the offset commit chain
- *
- * If both the timeout and the real task resolve, the second resolve() is a no-op
- * (standard Promise behavior - a promise can only be resolved once).
- */
-export function withBackgroundTaskTimeout(
-    task: Promise<any>,
-    timeoutMs: number,
-    forceResolve: boolean,
-    labels: { topic: string; groupId: string }
-): Promise<void> {
-    return new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-            logger.error('🔥', 'background_task_timeout', {
-                ...labels,
-                timeoutMs,
-                forceResolve,
-            })
-            counterBackgroundTaskTimeout.inc(labels)
-            if (forceResolve) {
-                resolve()
-            }
-        }, timeoutMs)
-        void task.finally(() => {
-            clearTimeout(timer)
-            resolve()
-        })
-    })
-}
-
 const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
@@ -180,6 +141,7 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    enablePartitionEof?: boolean
     waitForBackgroundTasksOnRebalance?: boolean
 }
 
@@ -263,11 +225,13 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
+            'enable.partition.eof': this.config.enablePartitionEof ?? true,
             // Only enable statistics when using loop-based health check
             ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
                 ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
                 : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
+            // e.g. KAFKA_CONSUMER_ENABLE_PARTITION_EOF=false to override the default above
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
@@ -275,7 +239,6 @@ export class KafkaConsumer {
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            'enable.partition.eof': true,
             rebalance_cb: rebalancecb,
             offset_commit_cb: true,
         }
@@ -768,11 +731,13 @@ export class KafkaConsumer {
                     // So we just create pretend work to simplify the rest of the logic
                     const rawBackgroundTask = result?.backgroundTask
                     const backgroundTask = rawBackgroundTask
-                        ? withBackgroundTaskTimeout(
-                              rawBackgroundTask,
-                              defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
-                              defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE,
-                              { topic, groupId }
+                        ? instrumentFn(
+                              {
+                                  key: 'consumer_background_task',
+                                  timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                  sendException: false,
+                              },
+                              () => rawBackgroundTask
                           )
                         : Promise.resolve()
                     const stopBackgroundTaskTimer = rawBackgroundTask
