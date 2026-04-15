@@ -5,7 +5,7 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -87,7 +87,9 @@ class TestConversation(APIBaseTest):
     def _get_streaming_content(self, response: Any) -> bytes:
         return b"".join(response.streaming_content)
 
-    def _create_mock_streaming_response(self, streaming_content: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+    def _create_mock_streaming_response(
+        self, streaming_content: Any, *args: Any, **kwargs: Any
+    ) -> StreamingHttpResponse:
         """Helper to create a mock StreamingHttpResponse that actually processes the streaming content."""
 
         # Actually consume the generator to ensure the mocked methods are called
@@ -98,7 +100,7 @@ class TestConversation(APIBaseTest):
             # If there's an issue with the async generator, use fallback
             content = _generator_serialized_value
 
-        mock_response = HttpResponse(content, content_type="text/event-stream")
+        mock_response = StreamingHttpResponse([content], content_type="text/event-stream")
         cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
