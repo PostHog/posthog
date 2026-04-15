@@ -1297,6 +1297,20 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 hasFilters: false,
                 expected: undefined,
             },
+            {
+                scenario: 'personUUID set, no filters, no recordings',
+                props: { logicKey: 'summarize-test', personUUID: 'abc-123' },
+                mockResults: [],
+                hasFilters: false,
+                expected: 'No recordings in the list',
+            },
+            {
+                scenario: 'personUUID set, no filters, has recordings',
+                props: { logicKey: 'summarize-test', personUUID: 'abc-123' },
+                mockResults: undefined,
+                hasFilters: false,
+                expected: undefined,
+            },
         ])('after loading: $scenario -> $expected', async ({ props, mockResults, hasFilters, expected }) => {
             if (mockResults !== undefined) {
                 useMocks({
