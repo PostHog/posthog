@@ -43,12 +43,12 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const getIntegrationsListUrl = (organizationId: string, params?: IntegrationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -80,12 +80,12 @@ export const integrationsList = async (
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const getIntegrationsRetrieveUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/`
@@ -105,12 +105,33 @@ export const integrationsRetrieve = async (
 /**
  * ViewSet for organization-level integrations.
 
-Provides read-only access to integrations that are scoped to the entire organization
+Provides access to integrations that are scoped to the entire organization
 (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
 
-This is read-only. Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Deletion requires contacting support
-due to billing implications.
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
+ */
+export const getIntegrationsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/integrations/${id}/`
+}
+
+export const integrationsDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * ViewSet for organization-level integrations.
+
+Provides access to integrations that are scoped to the entire organization
+(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
  */
 export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/integrations/${id}/environment-mapping/`
@@ -192,12 +213,12 @@ export const integrationsRetrieve2 = async (
     })
 }
 
-export const getIntegrationsDestroyUrl = (projectId: string, id: number) => {
+export const getIntegrationsDestroy2Url = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/`
 }
 
-export const integrationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getIntegrationsDestroyUrl(projectId, id), {
+export const integrationsDestroy2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
     })

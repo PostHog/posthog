@@ -8,6 +8,21 @@
  */
 import * as zod from 'zod'
 
+/**
+ * ViewSet for organization-level integrations.
+
+Provides access to integrations that are scoped to the entire organization
+(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+
+Creation is handled by the integration installation flows
+(e.g., Vercel marketplace installation). Users can disconnect integrations
+via the DELETE endpoint.
+ */
+export const IntegrationsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this organization integration.'),
+    organization_id: zod.string(),
+})
+
 export const IntegrationsList2Params = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -22,15 +37,6 @@ export const IntegrationsList2QueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const IntegrationsRetrieve2Params = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this integration.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const IntegrationsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
         .string()
