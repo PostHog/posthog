@@ -12,6 +12,7 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import (
+    _CLUSTER_REGISTRY,
     AlterTableMutationRunner,
     ClickhouseCluster,
     HostInfo,
@@ -21,7 +22,10 @@ from posthog.clickhouse.cluster import (
     Query,
     RetryPolicy,
     T,
+    get_all_logical_clusters,
     get_cluster,
+    get_cluster_by_name,
+    is_known_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -600,3 +604,60 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+class TestClusterRegistry:
+    """Tests for the logical-cluster registry."""
+
+    def test_registry_covers_all_expected_clusters(self):
+        # Hard-pinned so a removed entry becomes a loud test failure, not a
+        # silent misroute. Compare as sets — order isn't meaningful.
+        assert set(_CLUSTER_REGISTRY.keys()) == {
+            "main",
+            "logs",
+            "migrations",
+            "endpoints",
+            "single_shard",
+            "writable",
+            "primary_replica",
+            "sessions",
+            "aux",
+            "ops",
+            "ai_events",
+        }
+
+    def test_get_all_logical_clusters_returns_sorted(self):
+        names = get_all_logical_clusters()
+        assert names == sorted(names)
+        assert set(names) == set(_CLUSTER_REGISTRY.keys())
+
+    def test_is_known_cluster_true_for_each_registered(self):
+        for name in _CLUSTER_REGISTRY:
+            assert is_known_cluster(name), name
+
+    def test_is_known_cluster_false_for_garbage(self):
+        assert not is_known_cluster("")
+        assert not is_known_cluster("does_not_exist")
+        assert not is_known_cluster("MAIN")  # case-sensitive
+
+    def test_get_cluster_by_name_unknown_raises_with_known_names_listed(self):
+        with pytest.raises(ValueError) as excinfo:
+            get_cluster_by_name("nonsense")
+        msg = str(excinfo.value)
+        assert "nonsense" in msg
+        for name in _CLUSTER_REGISTRY:
+            assert name in msg, f"{name} missing from error: {msg}"
+
+    def test_get_cluster_by_name_calls_get_cluster_with_registry_host(self):
+        with patch("posthog.clickhouse.cluster.get_cluster") as mock_get_cluster:
+            mock_get_cluster.return_value = sentinel.cluster
+            result = get_cluster_by_name("main")
+        assert result is sentinel.cluster
+        call_kwargs = mock_get_cluster.call_args.kwargs
+        assert "host" in call_kwargs and "cluster" in call_kwargs
+
+    def test_get_cluster_by_name_passes_kwargs_through(self):
+        with patch("posthog.clickhouse.cluster.get_cluster") as mock_get_cluster:
+            mock_get_cluster.return_value = sentinel.cluster
+            get_cluster_by_name("logs", client_settings={"custom": "value"})
+        assert mock_get_cluster.call_args.kwargs["client_settings"] == {"custom": "value"}
