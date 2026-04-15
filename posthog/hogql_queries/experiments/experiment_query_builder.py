@@ -1702,7 +1702,7 @@ class ExperimentQueryBuilder:
         placeholders: dict[str, ast.Expr] = {
             "entity_key": parse_expr(self.entity_key),
             "steps_array": steps_array,
-            "exposure_predicate": self._build_exposure_predicate(),
+            "exposure_predicate": exposure_filter,
             "funnel_steps_filter": self._build_funnel_steps_filter(),
         }
 

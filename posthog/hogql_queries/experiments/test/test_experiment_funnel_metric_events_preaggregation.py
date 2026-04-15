@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from posthog.test.base import _create_event, _create_person
@@ -287,8 +287,6 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         )
 
         # Precompute metric events — extend end date by conversion window
-        from datetime import timedelta
-
         metric_query_string, metric_placeholders = builder.get_funnel_metric_events_query_for_precomputation()
         conversion_window_seconds = builder._get_conversion_window_seconds()
         metric_end_date = experiment.end_date + timedelta(seconds=conversion_window_seconds)
