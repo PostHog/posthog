@@ -39,6 +39,38 @@ class PostgresPrinter(BasePrinter):
     def _min_function_name(self) -> str:
         return "least"
 
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        return
+
+    def _assert_recursive_cte_supported(self) -> None:
+        return
+
+    def _assert_qualify_supported(self) -> None:
+        return
+
+    def _assert_with_ties_supported(self) -> None:
+        raise QueryError("WITH TIES is not supported in postgres dialect")
+
+    def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
+        col_names = ", ".join(self._print_identifier(c) for c in column_aliases)
+        return f" ({col_names})"
+
+    def _render_column_aliases_appended(self, column_aliases: list[str]) -> str | None:
+        col_aliases = ", ".join(self._print_identifier(ca) for ca in column_aliases)
+        return f"({col_aliases})"
+
+    def _dict_tuple_function_name(self) -> str:
+        return "ROW"
+
+    def _render_column_aliased_field_name(self, type: ast.FieldType, resolved_field) -> str:
+        return self._print_identifier(type.name)
+
+    def _apply_window_function_rewrites(
+        self, identifier: str, exprs: list[str], cloned_node: ast.WindowFunction
+    ) -> str:
+        # Postgres's native lag/lead already has the semantics we want; skip the ClickHouse-style rewrite.
+        return identifier
+
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return f"{limit_str} %"
 
