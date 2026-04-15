@@ -1,7 +1,12 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.heatmaps.sql import HEATMAPS_WS_TABLE_MV_SQL, KAFKA_HEATMAPS_WS_TABLE_SQL
-from posthog.models.ai_events.sql import AI_EVENTS_WS_MV_SQL, KAFKA_AI_EVENTS_WS_TABLE_SQL
+from posthog.models.ai_events.sql import (
+    AI_EVENTS_DATA_TABLE_SQL,
+    AI_EVENTS_WS_MV_SQL,
+    DISTRIBUTED_AI_EVENTS_TABLE_SQL,
+    KAFKA_AI_EVENTS_WS_TABLE_SQL,
+)
 from posthog.models.event.sql import EVENTS_TABLE_JSON_WS_MV_SQL, KAFKA_EVENTS_TABLE_JSON_WS_SQL
 from posthog.models.group.sql import GROUPS_WS_TABLE_MV_SQL, KAFKA_GROUPS_WS_TABLE_SQL
 from posthog.models.person.sql import (
@@ -63,6 +68,17 @@ operations = [
         node_roles=[NodeRole.INGESTION_SMALL],
     ),
     # ai_events (AI_EVENTS satellite cluster, matching existing MSK table)
+    # Ensure sharded + distributed ai_events tables exist — they were originally
+    # created only in schema.py (not a numbered migration), so the MV target
+    # may be missing when migrate_clickhouse runs before test conftest setup.
+    run_sql_with_exceptions(
+        AI_EVENTS_DATA_TABLE_SQL(),
+        node_roles=[NodeRole.AI_EVENTS],
+    ),
+    run_sql_with_exceptions(
+        DISTRIBUTED_AI_EVENTS_TABLE_SQL(),
+        node_roles=[NodeRole.AI_EVENTS],
+    ),
     run_sql_with_exceptions(
         KAFKA_AI_EVENTS_WS_TABLE_SQL(),
         node_roles=[NodeRole.AI_EVENTS],
