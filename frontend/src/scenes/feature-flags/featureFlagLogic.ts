@@ -2529,7 +2529,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            if (!logic.isMounted() || !logic.values.featureFlagChanged) {
+            if (!logic.values.featureFlagChanged) {
                 return false
             }
 
@@ -2542,7 +2542,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         message: 'Leave feature flag?\nChanges you made will be discarded.',
         onConfirm: () => {
-            logic.actions.resetFeatureFlag()
+            logic.actions.resetFeatureFlag(logic.values.originalFeatureFlag ?? undefined)
         },
     })),
 
