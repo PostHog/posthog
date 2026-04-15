@@ -342,12 +342,13 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             # A key assignment resolves any `provider_key_deleted` / `model_not_allowed` error on the
             # dependent evals — the cause no longer applies once they're attached to a live key. Clear
             # the error-reason marker regardless of whether the caller also asked to re-enable.
+            # `.update()` bypasses the model's invariant coercion in save(), so write the full trio.
             Evaluation.objects.filter(
                 id__in=evaluation_ids,
                 team_id=self.team_id,
                 deleted=False,
                 status="error",
-            ).update(status="paused", status_reason=None)
+            ).update(enabled=False, status="paused", status_reason=None)
 
             evals_enabled = 0
             if enable:
