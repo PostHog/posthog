@@ -165,7 +165,7 @@ class MessageCategoryViewSet(
         )
 
     @action(detail=False, methods=["delete"])
-    def remove_customerio_app_integration(self, request, **kwargs):
+    def remove_customerio_app_config(self, request, **kwargs):
         """Remove the Customer.io App API integration and reset import state."""
         Integration.objects.filter(team_id=self.team_id, kind="customerio-app").delete()
         try:

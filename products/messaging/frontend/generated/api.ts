@@ -157,15 +157,15 @@ export const messagingCategoriesOptoutSyncConfigRetrieve = async (
 /**
  * Remove the Customer.io App API integration and reset import state.
  */
-export const getMessagingCategoriesRemoveCustomerioAppIntegrationDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_customerio_app_integration/`
+export const getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/remove_customerio_app_config/`
 }
 
-export const messagingCategoriesRemoveCustomerioAppIntegrationDestroy = async (
+export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
     projectId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getMessagingCategoriesRemoveCustomerioAppIntegrationDestroyUrl(projectId), {
+    return apiMutator<void>(getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
     })

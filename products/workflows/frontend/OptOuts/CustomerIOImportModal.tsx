@@ -32,9 +32,9 @@ function StepBadge({ status }: { status: 'completed' | 'failed' | false }): JSX.
 }
 
 function Step1Content(): JSX.Element {
-    const { isImporting, importProgress, importError, importForm, syncConfig, isRemovingAppIntegration } =
+    const { isImporting, importProgress, importError, importForm, syncConfig, isRemovingAppConfig } =
         useValues(customerIOImportLogic)
-    const { submitImportForm, rerunImport, removeAppIntegration } = useActions(customerIOImportLogic)
+    const { submitImportForm, rerunImport, removeAppConfig } = useActions(customerIOImportLogic)
 
     const hasStoredKey = syncConfig?.app_integration_id != null || importProgress?.status === 'completed'
     const result = syncConfig?.app_import_result
@@ -113,8 +113,8 @@ function Step1Content(): JSX.Element {
                                     type="tertiary"
                                     status="danger"
                                     tooltip="Remove stored API key"
-                                    onClick={removeAppIntegration}
-                                    loading={isRemovingAppIntegration}
+                                    onClick={removeAppConfig}
+                                    loading={isRemovingAppConfig}
                                     icon={<IconTrash className="text-danger" />}
                                 />
                             }

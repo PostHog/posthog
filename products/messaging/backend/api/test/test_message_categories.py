@@ -386,7 +386,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No API key", response.json()["error"])
 
-    def test_remove_app_integration_clears_integration_and_result(self):
+    def test_remove_app_config_clears_integration_and_result(self):
         integration = Integration.objects.create(
             team=self.team,
             kind="customerio-app",
@@ -403,7 +403,7 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
             },
         )
 
-        response = self.client.delete(self._url("remove_customerio_app_integration"))
+        response = self.client.delete(self._url("remove_customerio_app_config"))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self.assertFalse(Integration.objects.filter(team=self.team, kind="customerio-app").exists())
@@ -412,8 +412,8 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
         self.assertIsNone(config.app_integration)
         self.assertIsNone(config.app_import_result)
 
-    def test_remove_app_integration_succeeds_when_no_config_exists(self):
-        response = self.client.delete(self._url("remove_customerio_app_integration"))
+    def test_remove_app_config_succeeds_when_no_config_exists(self):
+        response = self.client.delete(self._url("remove_customerio_app_config"))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     @patch("products.messaging.backend.api.message_categories.CustomerIOImportService")

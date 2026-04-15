@@ -75,7 +75,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setImportProgress: (importProgress: ImportProgress) => ({ importProgress }),
         setImportError: (error: string | null) => ({ error }),
         rerunImport: true,
-        removeAppIntegration: true,
+        removeAppConfig: true,
         setCSVFile: (file: File | null) => ({ file }),
         uploadCSV: true,
         setCSVProgress: (csvProgress: CSVImportProgress | null) => ({ csvProgress }),
@@ -144,10 +144,10 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
                 closeImportModal: () => false,
             },
         ],
-        isRemovingAppIntegration: [
+        isRemovingAppConfig: [
             false,
             {
-                removeAppIntegration: () => true,
+                removeAppConfig: () => true,
                 loadSyncConfigSuccess: () => false,
                 loadSyncConfigFailure: () => false,
             },
@@ -207,9 +207,9 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         openImportModal: () => {
             actions.loadSyncConfig()
         },
-        removeAppIntegration: async () => {
+        removeAppConfig: async () => {
             try {
-                await new ApiRequest().messagingCategoriesRemoveCustomerIOAppIntegration().delete()
+                await new ApiRequest().messagingCategoriesRemoveCustomerIOAppConfig().delete()
                 actions.resetImport()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to remove integration')

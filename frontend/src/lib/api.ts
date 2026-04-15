@@ -1853,8 +1853,8 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('optout_sync_config')
     }
 
-    public messagingCategoriesRemoveCustomerIOAppIntegration(): ApiRequest {
-        return this.messagingCategories().addPathComponent('remove_customerio_app_integration')
+    public messagingCategoriesRemoveCustomerIOAppConfig(): ApiRequest {
+        return this.messagingCategories().addPathComponent('remove_customerio_app_config')
     }
 
     public messagingPreferences(): ApiRequest {
