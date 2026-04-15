@@ -409,7 +409,6 @@ def test_data_cluster_overrides_migrations_cluster_data_nodes() -> None:
     ]
 
     bootstrap_client_mock = Mock()
-    call_count = 0
     def mock_execute(query, params):
         if params.get("name") == "posthog_migrations":
             return migrations_cluster_hosts
