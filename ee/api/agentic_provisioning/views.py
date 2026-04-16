@@ -814,6 +814,36 @@ def _exchange_refresh_token(request: Request) -> Response:
     )
 
 
+def _team_has_active_billing(team: Team, user: User) -> bool:
+    """Check if the team's organization already has an active billing subscription."""
+    try:
+        from posthog.cloud_utils import get_cached_instance_license
+
+        from ee.billing.billing_manager import build_billing_token
+
+        license = get_cached_instance_license()
+        if not license:
+            return False
+
+        organization = team.organization
+        billing_token = build_billing_token(license, organization, user)
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers={"Authorization": f"Bearer {billing_token}"},
+            timeout=30,
+        )
+
+        if res.status_code != 200:
+            return False
+
+        customer = res.json().get("customer", {})
+        return bool(customer.get("has_active_subscription"))
+    except Exception:
+        capture_exception(additional_properties={"team_id": team.id, "org_id": str(team.organization_id)})
+        return False
+
+
 def _activate_billing_with_spt(team: Team, user: User, spt_token: str) -> bool:
     """Call the billing service to activate a subscription with a Stripe Shared Payment Token.
 
@@ -1020,7 +1050,7 @@ def provisioning_resources_create(request: Request) -> Response:
     _set_provisioning_service_id(team, resolved_service_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
-    if billing_result is False:
+    if billing_result is False and not _team_has_active_billing(team, user):
         return Response(
             {
                 "status": "error",
@@ -1181,7 +1211,7 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
         return _error_response("unknown_service", f"Unknown service_id: {service_id}", resource_id=resource_id)
 
     billing_result = _try_activate_billing_with_spt(request, team, user)
-    if billing_result is False:
+    if billing_result is False and not _team_has_active_billing(team, user):
         return _error_response(
             "billing_activation_failed",
             "Failed to activate billing with payment credentials",
