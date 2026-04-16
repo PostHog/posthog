@@ -322,7 +322,13 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         async with aiohttp.ClientSession(
             trust_env=False,
             connector=aiohttp.TCPConnector(
-                limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS, keepalive_timeout=5
+                limit=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
+                keepalive_timeout=5,
+                # CDP API may scale up and down, so we must make new DNS requests rather
+                # than keep a cache. ttl_dns_cache is already low (10s) but if the
+                # connections are active, then the cache won't be refreshed, and must be
+                # disabled entirely.
+                use_dns_cache=False,
             ),
             headers={
                 "X-Internal-Api-Secret": settings.INTERNAL_API_SECRET,
