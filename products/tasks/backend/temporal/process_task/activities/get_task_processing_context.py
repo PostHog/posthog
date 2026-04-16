@@ -53,6 +53,26 @@ class TaskProcessingContext:
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
 
+    @property
+    def runtime_adapter(self) -> str | None:
+        value = (self.state or {}).get("runtime_adapter")
+        return value if isinstance(value, str) else None
+
+    @property
+    def provider(self) -> str | None:
+        value = (self.state or {}).get("provider")
+        return value if isinstance(value, str) else None
+
+    @property
+    def model(self) -> str | None:
+        value = (self.state or {}).get("model")
+        return value if isinstance(value, str) else None
+
+    @property
+    def reasoning_effort(self) -> str | None:
+        value = (self.state or {}).get("reasoning_effort")
+        return value if isinstance(value, str) else None
+
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped via the TaskRun model."""
         from products.tasks.backend.models import TaskRun
@@ -81,6 +101,10 @@ class TaskProcessingContext:
             "distinct_id": self.distinct_id,
             "mode": self.mode,
             "sandbox_environment_id": self.sandbox_environment_id,
+            "runtime_adapter": self.runtime_adapter,
+            "provider": self.provider,
+            "model": self.model,
+            "reasoning_effort": self.reasoning_effort,
         }
 
 

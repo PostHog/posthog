@@ -60,6 +60,8 @@ const mockEvaluation: EvaluationConfig = {
     name: 'Test Evaluation',
     description: 'A test evaluation',
     enabled: true,
+    status: 'active',
+    status_reason: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Is this response helpful?' },
     output_type: 'boolean',
