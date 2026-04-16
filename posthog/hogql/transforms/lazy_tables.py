@@ -448,16 +448,16 @@ class LazyTableResolver(TraversingVisitor):
                     if table_type == field.table_type or (
                         isinstance(field.table_type, ast.VirtualTableType) and table_type == field.table_type.table_type
                     ):
-                        chain = []
+                        lazy_chain: list[str | int] = []
                         if isinstance(field.table_type, ast.VirtualTableType):
-                            chain.append(field.table_type.field)
-                        chain.append(field.name)
+                            lazy_chain.append(field.table_type.field)
+                        lazy_chain.append(field.name)
                         if property is not None:
-                            chain.extend(property.chain)
-                            property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                            new_table.fields_accessed[property.joined_subquery_field_name] = chain
+                            lazy_chain.extend(property.chain)
+                            property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
+                            new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
                         else:
-                            new_table.fields_accessed[field.name] = chain
+                            new_table.fields_accessed[field.name] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     if isinstance(table_type.table_type, ast.LazyJoinType):
                         from_table = get_long_table_name(select_type, table_type.table_type)

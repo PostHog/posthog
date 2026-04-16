@@ -1234,7 +1234,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]
-        if ctx.caseExpr is not None:
+        case_expr = getattr(ctx, "caseExpr", None)
+        if case_expr is not None:
             args = [columns[0], ast.Array(exprs=[]), ast.Array(exprs=[]), columns[-1]]
             for index, column in enumerate(columns):
                 if 0 < index < len(columns) - 1:
