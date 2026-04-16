@@ -71,8 +71,8 @@ class TestAlterReplicatedValidation(unittest.TestCase):
         self.assertEqual(operation._node_roles, [NodeRole.DATA])
 
     @patch("posthog.clickhouse.client.migration_tools.settings")
-    def test_none_node_roles_defaults_to_all_in_debug_mode(self, mock_settings):
-        """When node_roles is None, debug mode should still override to ALL."""
+    def test_none_node_roles_stores_pre_override_value_in_debug_mode(self, mock_settings):
+        """node_roles=None -> default [DATA] -> debug override to [ALL]; _node_roles stores the pre-override default."""
         mock_settings.DEBUG = True
         mock_settings.E2E_TESTING = False
         mock_settings.CLOUD_DEPLOYMENT = ""
