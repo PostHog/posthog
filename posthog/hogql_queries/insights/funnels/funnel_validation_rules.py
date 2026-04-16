@@ -9,12 +9,16 @@ from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
 class RequireAtLeastTwoFunnelSteps:
+    """Funnels need at least two series entities."""
+
     def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
         if len(context.query.series) < 2:
             raise ValidationError("Funnels require at least two steps.")
 
 
 class ValidateFunnelStepRange:
+    """Make sure the conversion step range is within the bounds of the declared series."""
+
     def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
         max_series_index = len(context.query.series) - 1
         funnels_filter = context.query.funnelsFilter
@@ -42,6 +46,8 @@ class ValidateFunnelStepRange:
 
 
 class ValidateFunnelExclusions:
+    """Prevent exclusion steps from using invalid ranges or overlapping funnel steps."""
+
     def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
         exclusions = context.query.funnelsFilter.exclusions if context.query.funnelsFilter is not None else None
         if exclusions is None:
@@ -66,6 +72,8 @@ class ValidateFunnelExclusions:
 
 
 class ValidateOptionalFunnelSteps:
+    """Allow optional steps only for supported funnel types and non-ambiguous step sequences."""
+
     def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
         series = context.query.series
         if not any(getattr(node, "optionalInFunnel", False) for node in series):

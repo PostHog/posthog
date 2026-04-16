@@ -123,7 +123,7 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | (string | number)[] | null | undefined>
+        query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
     }): Promise<T> {
@@ -136,7 +136,12 @@ export class ApiClient {
                 if (Array.isArray(v) && v.length === 0) {
                     continue
                 }
-                searchParams.append(k, Array.isArray(v) ? v.join(',') : String(v))
+                // JSON-stringify objects and arrays so backends that use json.loads() on query params work correctly
+                if (typeof v === 'object') {
+                    searchParams.append(k, JSON.stringify(v))
+                } else {
+                    searchParams.append(k, String(v))
+                }
             }
         }
         const qs = searchParams.toString()

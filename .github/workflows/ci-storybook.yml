@@ -139,6 +139,18 @@ jobs:
                   path: common/storybook/dist
                   retention-days: 1
 
+            # Consumed by the shadow-story-selection job below. Uploaded
+            # separately so the 20-shard visual-regression matrix doesn't pay
+            # to download it.
+            - name: Upload module-graph artifact
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: storybook-module-graph
+                  path: common/storybook/dist/module-graph.json
+                  retention-days: 1
+                  if-no-files-found: warn
+
     vr-setup:
         name: Create Visual Review run
         runs-on: ubuntu-latest
@@ -786,3 +798,104 @@ jobs:
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   status-job: 'Visual regression tests pass'
+
+    # Shadow measurement: reports which stories could have rendered differently
+    # given the PR's changed files, using the webpack module graph emitted by
+    # common/storybook/.storybook/main.ts's ModuleGraphPlugin. Does not gate
+    # PRs and does not affect visual-regression selection. Data is used to
+    # evaluate whether real test selection is worth pursuing.
+    shadow-story-selection:
+        name: Shadow story selection
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: [changes, build-storybook]
+        if: |
+            always() && needs.changes.outputs.frontend == 'true'
+            && github.event_name == 'pull_request'
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Download module-graph artifact
+              id: download
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: storybook-module-graph
+                  path: /tmp/storybook-graph
+
+            - name: Compute affected stories
+              id: selection
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha —
+                  # base.sha is captured at webhook time and goes stale if the branch later
+                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
+                  # every merged-in master change.
+                  git fetch --no-tags --depth=50 origin "$BASE_REF"
+                  echo "### Changed files" >&2
+                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
+
+                  RESULT=$(bin/find-affected-stories \
+                      --graph /tmp/storybook-graph/module-graph.json \
+                      --base-ref "origin/$BASE_REF")
+                  echo "$RESULT" > /tmp/selection-result.json
+                  # Stash compact form in step output (single line) for the summary step.
+                  COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
+                  echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
+
+            - name: Write summary
+              env:
+                  RESULT: ${{ steps.selection.outputs.result }}
+                  CURRENT_SHARDS: 20
+                  SHARD_OVERHEAD_MINUTES: 3
+              run: |
+                  MODE=$(echo "$RESULT" | jq -r '.mode')
+                  TOTAL=$(echo "$RESULT" | jq -r '.total_story_count')
+
+                  if [ "$MODE" = "selective" ]; then
+                      COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
+                      SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
+                      AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
+                      TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+
+                      SAVED_STORIES=$((TOTAL - COUNT))
+                      SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))
+                      FULL_MINUTES=$(( (CURRENT_SHARDS * SHARD_OVERHEAD_MINUTES) + (TOTAL_DUR / 60) ))
+                      SELECTIVE_MINUTES=$(( (SHARDS * SHARD_OVERHEAD_MINUTES) + (AFFECTED_DUR / 60) ))
+                      SAVED_MINUTES=$((FULL_MINUTES - SELECTIVE_MINUTES))
+
+                      cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow story selection
+
+                  | Metric | Full run | Selective | Saved |
+                  |---|---|---|---|
+                  | Story files | $TOTAL | $COUNT | **$SAVED_STORIES** |
+                  | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
+                  | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
+                  | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
+
+                  > Shadow-only — no effect on CI. Predictor: webpack module graph from build-storybook.
+                  EOF
+                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
+                  else
+                      REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
+                      cat >> "$GITHUB_STEP_SUMMARY" << EOF
+                  ## Shadow story selection
+
+                  **Full run required:** $REASON
+
+                  Total stories: $TOTAL
+
+                  > Shadow-only — no effect on CI.
+                  EOF
+                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
+                  fi

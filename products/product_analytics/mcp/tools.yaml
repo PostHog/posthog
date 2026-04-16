@@ -239,3 +239,6 @@ tools:
     insights-viewed-create:
         operation: insights_viewed_create
         enabled: false
+    insights-bulk-update-tags-create:
+        operation: insights_bulk_update_tags_create
+        enabled: false
