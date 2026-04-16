@@ -195,7 +195,7 @@ class ToleratedHashEntry:
     """A known tolerated alternate hash for a snapshot identifier."""
 
     id: UUID
-    content_hash: str
+    alternate_hash: str
     baseline_hash: str
     reason: str
     created_at: datetime

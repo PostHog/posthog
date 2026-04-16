@@ -250,7 +250,7 @@ def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.Toler
     return [
         contracts.ToleratedHashEntry(
             id=e.id,
-            content_hash=e.content_hash,
+            alternate_hash=e.alternate_hash,
             baseline_hash=e.baseline_hash,
             reason=e.reason,
             created_at=e.created_at,

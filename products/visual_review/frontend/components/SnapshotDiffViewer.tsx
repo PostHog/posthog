@@ -274,7 +274,7 @@ export function SnapshotDiffViewer({
                         <div className="space-y-1.5">
                             {toleratedHashes.map((entry) => (
                                 <div key={entry.id} className="flex items-center justify-between text-xs">
-                                    <span className="font-mono text-muted">{entry.content_hash.slice(0, 10)}…</span>
+                                    <span className="font-mono text-muted">{entry.alternate_hash.slice(0, 10)}…</span>
                                     <LemonTag type="muted" size="small">
                                         {entry.reason === 'human' ? 'manual' : 'auto'}
                                     </LemonTag>

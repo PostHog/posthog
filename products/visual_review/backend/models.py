@@ -283,7 +283,7 @@ class ToleratedHash(models.Model):
 
     identifier = models.CharField(max_length=512)
     baseline_hash = models.CharField(max_length=128)
-    content_hash = models.CharField(max_length=128)
+    alternate_hash = models.CharField(max_length=128)
 
     reason = models.CharField(
         max_length=20,
@@ -300,7 +300,7 @@ class ToleratedHash(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["repo", "identifier", "baseline_hash", "content_hash"],
+                fields=["repo", "identifier", "baseline_hash", "alternate_hash"],
                 name="unique_tolerated_hash",
             ),
         ]
@@ -309,4 +309,4 @@ class ToleratedHash(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.identifier} {self.content_hash[:12]}... ({self.reason})"
+        return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"

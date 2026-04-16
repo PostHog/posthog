@@ -630,7 +630,7 @@ class TestToleratedHashes:
         assert updated.review_state == "tolerated"
         assert updated.reviewed_by_id == user.id
         assert updated.tolerated_hash_match is not None
-        assert updated.tolerated_hash_match.content_hash == "new_hash"
+        assert updated.tolerated_hash_match.alternate_hash == "new_hash"
         assert updated.tolerated_hash_match.baseline_hash == "old_hash"
         assert updated.tolerated_hash_match.reason == "human"
 
@@ -664,7 +664,7 @@ class TestToleratedHashes:
             team_id=repo.team_id,
             identifier="Button",
             baseline_hash="old_hash",
-            content_hash="new_hash",
+            alternate_hash="new_hash",
             reason="auto_threshold",
         )
 
@@ -685,7 +685,7 @@ class TestToleratedHashes:
             team_id=repo.team_id,
             identifier="Button",
             baseline_hash="old_hash",
-            content_hash="new_hash",
+            alternate_hash="new_hash",
             reason="auto_threshold",
         )
 
@@ -705,7 +705,7 @@ class TestToleratedHashes:
             team_id=repo.team_id,
             identifier="Button",
             baseline_hash="b1",
-            content_hash="c1",
+            alternate_hash="c1",
             reason="auto_threshold",
         )
         ToleratedHash.objects.create(
@@ -713,7 +713,7 @@ class TestToleratedHashes:
             team_id=repo.team_id,
             identifier="Button",
             baseline_hash="b1",
-            content_hash="c2",
+            alternate_hash="c2",
             reason="human",
         )
         ToleratedHash.objects.create(
@@ -721,13 +721,13 @@ class TestToleratedHashes:
             team_id=repo.team_id,
             identifier="Other",
             baseline_hash="b1",
-            content_hash="c3",
+            alternate_hash="c3",
             reason="auto_threshold",
         )
 
         results = logic.get_tolerated_hashes_for_identifier(repo.id, "Button")
         assert len(results) == 2
-        assert {r.content_hash for r in results} == {"c1", "c2"}
+        assert {r.alternate_hash for r in results} == {"c1", "c2"}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

@@ -583,7 +583,7 @@ def complete_run(run_id: UUID) -> Run:
             identifier__in=run_identifiers,
             baseline_hash__in=baseline_hashes_in_use,
         ):
-            tolerated_lookup[(t.identifier, t.baseline_hash, t.content_hash)] = t
+            tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
     # Classify existing snapshots against baseline
     for snapshot in run.snapshots.using(WRITER_DB).all():
@@ -1430,7 +1430,7 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
-        content_hash=snapshot.current_hash,
+        alternate_hash=snapshot.current_hash,
         defaults={
             "team_id": team_id,
             "reason": ToleratedReason.HUMAN,

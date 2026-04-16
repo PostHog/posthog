@@ -138,7 +138,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         repo_id=snapshot.run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
-        content_hash=snapshot.current_hash,
+        alternate_hash=snapshot.current_hash,
         defaults={
             "team_id": snapshot.team_id,
             "reason": ToleratedReason.AUTO_THRESHOLD,
