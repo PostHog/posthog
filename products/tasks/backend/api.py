@@ -216,7 +216,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return qs
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         logger.info(f"Creating task with data: {serializer.validated_data}")
@@ -403,7 +403,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         automation = serializer.save()
@@ -626,7 +626,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team=self.team, task_id=task_id)
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
     def perform_create(self, serializer):
         task_id = self.kwargs.get("parent_lookup_task_id")

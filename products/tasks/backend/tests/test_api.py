@@ -855,9 +855,6 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 
 class TestTaskAutomationAPI(BaseTaskAPITest):
-    def create_automation(self, name="Daily PRs"):
-        return super().create_automation(name=name)
-
     @patch("products.tasks.backend.api.sync_automation_schedule")
     def test_create_automation(self, mock_sync_schedule):
         response = self.client.post(

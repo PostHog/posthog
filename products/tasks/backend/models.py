@@ -318,6 +318,22 @@ class Task(DeletedMetaFields, models.Model):
         return task
 
 
+class TaskAutomationManager(models.Manager):
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .select_related(
+                "task",
+                "task__team",
+                "task__created_by",
+                "task__github_integration",
+                "last_task_run",
+                "last_task_run__task",
+            )
+        )
+
+
 class TaskAutomationQuerySet(models.QuerySet):
     def with_task_context(self):
         return self.select_related(
@@ -328,11 +344,6 @@ class TaskAutomationQuerySet(models.QuerySet):
             "last_task_run",
             "last_task_run__task",
         )
-
-
-class TaskAutomationManager(models.Manager.from_queryset(TaskAutomationQuerySet)):
-    def get_queryset(self):
-        return super().get_queryset().with_task_context()
 
 
 class TaskAutomation(models.Model):

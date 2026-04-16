@@ -7,6 +7,7 @@ from croniter import croniter  # type: ignore[import-untyped]
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
@@ -646,7 +647,7 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=255)
     prompt = serializers.CharField()
     repository = serializers.CharField(max_length=255)
-    github_integration = serializers.PrimaryKeyRelatedField(
+    github_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.filter(kind="github"),
         required=False,
         allow_null=True,
