@@ -17108,6 +17108,9 @@
                 "metric": {
                     "$ref": "#/definitions/ExperimentMetric"
                 },
+                "metric_events_precomputation": {
+                    "type": "boolean"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -21475,6 +21478,9 @@
                 "person": {
                     "$ref": "#/definitions/LLMTracePerson"
                 },
+                "requestCost": {
+                    "type": "number"
+                },
                 "tools": {
                     "items": {
                         "type": "string"
@@ -21489,6 +21495,9 @@
                 },
                 "traceName": {
                     "type": "string"
+                },
+                "webSearchCost": {
+                    "type": "number"
                 }
             },
             "required": ["id", "createdAt", "distinctId", "events"],
