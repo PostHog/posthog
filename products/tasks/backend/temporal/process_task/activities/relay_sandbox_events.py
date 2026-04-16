@@ -144,7 +144,9 @@ async def _background_heartbeat(
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
                 try:
-                    await workflow_handle.signal("heartbeat")
+                    await workflow_handle.signal(
+                        "heartbeat", arg=agent_active[0] if agent_active is not None else False
+                    )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
 
@@ -241,7 +243,7 @@ async def _relay_loop(
                             ):
                                 last_workflow_signal[0] = now
                                 try:
-                                    await workflow_handle.signal("heartbeat")
+                                    await workflow_handle.signal("heartbeat", arg=True)
                                 except Exception as e:
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)
