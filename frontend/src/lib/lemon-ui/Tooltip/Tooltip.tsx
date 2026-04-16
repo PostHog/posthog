@@ -2,7 +2,7 @@ import './Tooltip.scss'
 
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { Placement } from '@floating-ui/react'
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
@@ -76,16 +76,7 @@ export function Tooltip({
     containerClassName,
     onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
-    const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const floatingContainer = useFloatingContainer()
-
-    const open = controlledOpen ?? uncontrolledOpen
-
-    useEffect(() => {
-        if (open && onOpen) {
-            onOpen()
-        }
-    }, [open, onOpen])
 
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
@@ -108,14 +99,24 @@ export function Tooltip({
               fallbackAxisSide: 'start' as const,
           }
 
+    // Only pass `open` when the caller explicitly controls visibility via the
+    // `visible` prop.  Otherwise leave the tooltip uncontrolled so Base UI can
+    // manage hover/focus state internally without a React state round-trip.
+    const rootProps: Record<string, unknown> = {
+        disableHoverablePopup: !isInteractive,
+    }
+    if (controlledOpen !== undefined) {
+        rootProps.open = controlledOpen
+    }
+
     const handleOpenChange = (newOpen: boolean): void => {
-        if (controlledOpen === undefined) {
-            setUncontrolledOpen(newOpen)
+        if (newOpen && onOpen) {
+            onOpen()
         }
     }
 
     return (
-        <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
+        <BaseTooltip.Root onOpenChange={handleOpenChange} {...rootProps}>
             <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
             <BaseTooltip.Portal container={floatingContainer ?? undefined}>
                 <BaseTooltip.Positioner
