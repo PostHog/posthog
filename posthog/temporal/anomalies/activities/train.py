@@ -15,7 +15,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models.anomaly import InsightAnomalyConfig
 from posthog.sync import database_sync_to_async
-from posthog.tasks.alerts.trends import _compute_min_samples_for_detector, _date_range_override_for_detector
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, _date_range_override_for_detector
 from posthog.temporal.anomalies.common import (
     DEFAULT_ANOMALY_DETECTOR_CONFIG,
     RETRAIN_CADENCE,
