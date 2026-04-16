@@ -1,3 +1,10 @@
+/**
+ * Lossy ingestion scrub: replace matches with PII_REDACTED. Plain text applies Bearer-token, Stripe sk_*-shaped,
+ * email, and Luhn-valid 13–19 digit (card-like) patterns. JSON bodies are parsed when possible and scrubbed
+ * recursively; opaque bodies get plain rules only. Attribute maps redact the whole value on sensitive key
+ * substrings, otherwise pattern-scrub values. Misses: secrets without those shapes, digit runs that fail Luhn,
+ * keys outside the sensitive substring list (those values still get plain-text patterns only).
+ */
 import { parseJSON } from '../utils/json-parse'
 import type { LogRecord } from './log-record-avro'
 
@@ -25,11 +32,13 @@ const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g
 /** 13–19 digits allowing spaces or hyphens between digit groups. */
 const CARD_LIKE_RE = /\b\d(?:[ \d-]*\d){12,18}\b/g
 
+/** True when the attribute key contains a known sensitive substring (case-insensitive). */
 export function isSensitiveAttributeKey(key: string): boolean {
     const lower = key.toLowerCase()
     return SENSITIVE_KEY_SUBSTRINGS.some((s) => lower.includes(s))
 }
 
+/** Luhn checksum for filtering card-like digit runs before redaction. */
 function luhnValid(digits: string): boolean {
     let sum = 0
     let alt = false
@@ -51,9 +60,7 @@ function luhnValid(digits: string): boolean {
     return sum % 10 === 0
 }
 
-/**
- * Applies fixed pattern redaction to a free-text string (log body line, attribute value, etc.).
- */
+/** Apply regex-based redaction to a single string (log line, attribute value, field text, etc.). */
 export function scrubPlainString(input: string): string {
     let s = input.replace(BEARER_HEADER_RE, `Bearer ${PII_REDACTED}`)
     s = s.replace(STRIPE_SECRET_KEY_RE, PII_REDACTED)
@@ -68,6 +75,7 @@ export function scrubPlainString(input: string): string {
     return s
 }
 
+/** Walk parsed JSON: scrub strings, recurse arrays and objects; leave numbers/bools/null unchanged. */
 function scrubJsonValue(value: unknown): unknown {
     if (typeof value === 'string') {
         return scrubPlainString(value)
@@ -85,6 +93,7 @@ function scrubJsonValue(value: unknown): unknown {
     return value
 }
 
+/** If body is JSON object/array, scrub nested strings and re-serialize; if invalid JSON, scrub as plain text. */
 function scrubBodyField(record: LogRecord): void {
     if (record.body == null) {
         return
@@ -106,6 +115,7 @@ function scrubBodyField(record: LogRecord): void {
     }
 }
 
+/** Copy string map: full redaction for sensitive keys, else pattern-scrub values only. */
 function scrubStringMap(map: Record<string, string> | null): Record<string, string> | null {
     if (map == null) {
         return null
@@ -117,9 +127,7 @@ function scrubStringMap(map: Record<string, string> | null): Record<string, stri
     return out
 }
 
-/**
- * Mutates the record in place (same pattern as enrichLogRecordWithJsonAttributes).
- */
+/** Mutate record in place: body, attributes, resource_attributes, and common string metadata fields. */
 export function scrubLogRecord(record: LogRecord): void {
     scrubBodyField(record)
     record.attributes = scrubStringMap(record.attributes)
