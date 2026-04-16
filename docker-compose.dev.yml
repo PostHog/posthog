@@ -401,8 +401,10 @@ services:
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:
-            - kafka
-            - keeper
+            kafka:
+                condition: service_started
+            keeper:
+                condition: service_healthy
 
     keeper:
         extends:
