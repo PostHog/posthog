@@ -85,6 +85,7 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
             description=issue.description,
         ),
         assigned_user_id=assignment.user_id,
+        role_id=assignment.role_id,
         role_member_user_ids=role_member_user_ids,
     )
 
@@ -123,7 +124,9 @@ def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[
     return logic.get_symbol_set_counts_by_team(resolved_only=resolved_only)
 
 
-def get_issue_assignment_for_notification(assignment_id: UUID) -> contracts.ErrorTrackingIssueAssignmentNotification:
+def get_issue_assignment_for_notification(
+    assignment_id: UUID | str,
+) -> contracts.ErrorTrackingIssueAssignmentNotification:
     assignment = logic.get_issue_assignment(assignment_id=assignment_id)
     return _to_issue_assignment_notification(assignment)
 

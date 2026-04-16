@@ -72,4 +72,5 @@ class ErrorTrackingIssueAssignmentNotification:
     created_at: datetime
     issue: ErrorTrackingIssueForAssignmentNotification
     assigned_user_id: int | None
+    role_id: UUID | None = None
     role_member_user_ids: list[int] = field(default_factory=list)

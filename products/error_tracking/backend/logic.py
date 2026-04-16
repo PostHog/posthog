@@ -75,8 +75,8 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     )
 
 
-def get_issue_assignment(assignment_id: UUID) -> ErrorTrackingIssueAssignment:
-    return ErrorTrackingIssueAssignment.objects.select_related("issue__team", "user", "role").get(id=assignment_id)
+def get_issue_assignment(assignment_id: UUID | str) -> ErrorTrackingIssueAssignment:
+    return ErrorTrackingIssueAssignment.objects.select_related("issue", "role").get(id=assignment_id)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:

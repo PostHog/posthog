@@ -772,8 +772,8 @@ def get_users_for_orgs_with_no_ingested_events(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> None:
-    assignment = error_tracking_api.get_issue_assignment_for_notification(assignment_id=uuid.UUID(assignment_id))
+def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_id: int) -> None:
+    assignment = error_tracking_api.get_issue_assignment_for_notification(assignment_id=assignment_id)
     assigner = User.objects.get(pk=assigner_id)
 
     if not is_email_available(with_absolute_urls=True):
@@ -791,7 +791,7 @@ def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> 
             for membership in memberships_to_email
             if (membership.user_id == assignment.assigned_user_id and membership.user_id != assigner.id)
         ]
-    elif assignment.role_member_user_ids:
+    elif assignment.role_id:
         role_user_ids = set(assignment.role_member_user_ids)
         memberships_to_email = [
             membership
