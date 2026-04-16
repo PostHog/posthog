@@ -1375,6 +1375,10 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                with connection.cursor() as check_cursor:
+                    check_cursor.execute("SHOW statement_timeout")
+                    row = check_cursor.fetchone()
+                    logger.info(f"Effective statement_timeout on sync connection: {row[0] if row else 'unknown'}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
