@@ -2592,6 +2592,30 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     useQueryV2?: boolean
     /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean
+    /**
+     * In-memory "phantom" rows mirroring `error_tracking_fingerprint_issue_state` that the frontend maintains
+     * after a UI mutation. They are UNIONed into the fingerprint_issue_state argmax so recent UI changes
+     * immediately win over stale ClickHouse data while Kafka is catching up. Only V3 queries consume these.
+     */
+    phantomFingerprintStates?: ErrorTrackingFingerprintIssueStatePhantomRow[]
+}
+
+/**
+ * A single phantom row mirroring the subset of `error_tracking_fingerprint_issue_state` columns
+ * that the UI is allowed to override. `team_id` is always overridden server-side.
+ */
+export interface ErrorTrackingFingerprintIssueStatePhantomRow {
+    fingerprint: string
+    issue_id: string
+    /** Millisecond timestamp; higher versions win the argmax (typically `Date.now()` at mutation time). */
+    version: integer
+    issue_status?: ErrorTrackingIssueStatus | null
+    issue_name?: string | null
+    issue_description?: string | null
+    assigned_user_id?: integer | null
+    assigned_role_id?: string | null
+    /** Set to 1 to mark the fingerprint as deleted (used for merges where the source is absorbed). */
+    is_deleted?: integer
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {

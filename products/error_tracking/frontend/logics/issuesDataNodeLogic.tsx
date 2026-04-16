@@ -2,12 +2,13 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'
 import { batchSpikeEventsLogic } from './batchSpikeEventsLogic'
 import type { issuesDataNodeLogicType } from './issuesDataNodeLogicType'
+import { phantomFingerprintStatesLogic } from './phantomFingerprintStatesLogic'
 
 export interface IssuesDataNodeLogicProps {
     query: DataNodeLogicProps['query']
@@ -21,7 +22,14 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
     connect(({ key, query }: IssuesDataNodeLogicProps) => {
         const nodeLogic = dataNodeLogic({ key, query, refresh: 'blocking' })
         return {
-            values: [nodeLogic, ['response', 'responseLoading'], issueActionsLogic, ['needsReload']],
+            values: [
+                nodeLogic,
+                ['response', 'responseLoading'],
+                issueActionsLogic,
+                ['needsReload'],
+                phantomFingerprintStatesLogic,
+                ['allPhantoms'],
+            ],
             actions: [
                 nodeLogic,
                 ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
@@ -67,6 +75,21 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
 
     listeners(({ values, actions, props }) => ({
         reloadData: () => {
+            // Inject the current phantom rows into the query so the reload-after-mutation sees them.
+            // The scene-level query selector rebuilds on filter changes, but phantoms live in a
+            // separate logic with their own lifecycle — we thread them in here, at send time.
+            const baseQuery = (props.query as Record<string, any>) ?? null
+            const source = baseQuery?.source as { kind?: string; useQueryV3?: boolean } | undefined
+            const phantomRows = values.allPhantoms
+            // Only V3 consumes phantoms — sending them on other paths is wasted payload.
+            if (source && source.kind === NodeKind.ErrorTrackingQuery && source.useQueryV3 && phantomRows.length > 0) {
+                const overrideQuery = {
+                    ...baseQuery,
+                    source: { ...source, phantomFingerprintStates: phantomRows },
+                }
+                actions.loadData('force_blocking', undefined, overrideQuery)
+                return
+            }
             actions.loadData('force_blocking')
         },
         loadDataSuccess: () => {

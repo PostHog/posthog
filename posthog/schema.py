@@ -6382,6 +6382,29 @@ class ErrorTrackingExternalReferenceIntegration(BaseModel):
     kind: IntegrationKind
 
 
+class ErrorTrackingFingerprintIssueStatePhantomRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assigned_role_id: str | None = None
+    assigned_user_id: int | None = None
+    fingerprint: str
+    is_deleted: int | None = Field(
+        default=None,
+        description=("Set to 1 to mark the fingerprint as deleted (used for merges where the source is absorbed)."),
+    )
+    issue_description: str | None = None
+    issue_id: str
+    issue_name: str | None = None
+    issue_status: ErrorTrackingIssueStatus | None = None
+    version: int = Field(
+        ...,
+        description=(
+            "Millisecond timestamp; higher versions win the argmax (typically `Date.now()` at mutation time)."
+        ),
+    )
+
+
 class ErrorTrackingIssueAssignee(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19809,6 +19832,16 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
     personId: str | None = None
+    phantomFingerprintStates: list[ErrorTrackingFingerprintIssueStatePhantomRow] | None = Field(
+        default=None,
+        description=(
+            'In-memory "phantom" rows mirroring'
+            " `error_tracking_fingerprint_issue_state` that the frontend maintains"
+            " after a UI mutation. They are UNIONed into the fingerprint_issue_state"
+            " argmax so recent UI changes immediately win over stale ClickHouse data"
+            " while Kafka is catching up. Only V3 queries consume these."
+        ),
+    )
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(
         default=None,

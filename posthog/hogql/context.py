@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from posthog.schema import HogQLNotice, HogQLQueryModifiers
+from posthog.schema import ErrorTrackingFingerprintIssueStatePhantomRow, HogQLNotice, HogQLQueryModifiers
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
@@ -72,6 +72,13 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+
+    # Phantom rows UNIONed into the error_tracking_fingerprint_issue_state join so that recent UI
+    # mutations win the argmax(version) before Kafka has caught up. Populated by the error tracking
+    # query runner from `ErrorTrackingQuery.phantomFingerprintStates` after server-side validation.
+    error_tracking_phantom_fingerprint_states: list[ErrorTrackingFingerprintIssueStatePhantomRow] = field(
+        default_factory=list
+    )
 
     def __post_init__(self):
         if self.team:
