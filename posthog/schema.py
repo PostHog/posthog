@@ -8,7 +8,7 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, conint
 
 
 class SchemaRoot(RootModel[Any]):
@@ -8043,7 +8043,7 @@ class StickinessCriteria(BaseModel):
         extra="forbid",
     )
     operator: StickinessOperator
-    value: int
+    value: conint(ge=1)
 
 
 class StickinessFilter(BaseModel):
@@ -19381,7 +19381,7 @@ class StickinessQuery(BaseModel):
         default=IntervalType.DAY,
         description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
     )
-    intervalCount: int | None = Field(
+    intervalCount: conint(ge=1) | None = Field(
         default=None,
         description=("How many intervals comprise a period. Only used for cohorts, otherwise default 1."),
     )
