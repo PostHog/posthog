@@ -33,6 +33,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.wizard_metadata import WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.slack import slack_interactivity_callback
@@ -280,6 +281,11 @@ urlpatterns = [
     path(
         "api/oauth/connected-apps/<uuid:pk>/revoke/",
         ConnectedAppsViewSet.as_view({"post": "revoke"}),
+    ),
+    path(
+        "api/oauth/wizard/client-metadata",
+        WizardClientMetadataView.as_view(),
+        name="wizard-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),

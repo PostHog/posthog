@@ -13,6 +13,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
+from posthog.api.oauth.cimd import get_application_by_client_id
 from posthog.models.oauth import OAuthApplication, find_oauth_access_token
 
 from .signature import _compute_hmac, _get_raw_body, _parse_signature_header
@@ -130,7 +131,7 @@ class ProvisioningAuthentication(BaseAuthentication):
 
     def _identify_pkce_partner(self, client_id: str) -> OAuthApplication | None:
         try:
-            app = OAuthApplication.objects.get(client_id=client_id)
+            app = get_application_by_client_id(client_id)
             if not app.is_provisioning_partner or not app.provisioning_active:
                 return None
             return app
