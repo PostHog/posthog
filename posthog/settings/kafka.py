@@ -4,9 +4,10 @@ Each `KafkaClusterProfile` gets its own env var namespace — `KAFKA_<PROFILE>_*
 for hosts, security, SASL, and producer tuning. When a profile-specific value is
 unset, resolution falls back to `KAFKA_DEFAULT_*`, then to built-in defaults.
 
-Legacy env var names (e.g. `KAFKA_HOSTS`, `WAREHOUSE_PIPELINES_KAFKA_HOSTS`) are
-still honoured so existing Helm charts keep working without edits. New-format
-names always win if both are set.
+Public legacy env var names (`KAFKA_HOSTS`, `KAFKA_URL`, `KAFKA_SECURITY_PROTOCOL`,
+`KAFKA_SASL_*`, `KAFKA_PRODUCER_*`) are still honoured for backwards compat with
+self-hosted deployments and community charts. New-format names always win if both
+are set.
 
 Consumers should use `settings.KAFKA_PROFILES[profile.value]` to get a fully
 resolved `KafkaProfileSettings`; `posthog.kafka_client.routing` does exactly that.
@@ -58,12 +59,6 @@ _LEGACY_PROFILE_ENVS: dict[tuple[str, str], tuple[str, ...]] = {
     ("default", "PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS"): ("KAFKA_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS",),
     ("default", "PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES"): ("KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES",),
     ("default", "PRODUCER_STICKY_PARTITIONING_LINGER_MS"): ("KAFKA_PRODUCER_STICKY_PARTITIONING_LINGER_MS",),
-    # WAREHOUSE_SOURCES profile legacy names.
-    ("warehouse_sources", "HOSTS"): ("WAREHOUSE_PIPELINES_KAFKA_HOSTS",),
-    ("warehouse_sources", "SECURITY_PROTOCOL"): ("WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL",),
-    # CYCLOTRON profile legacy names.
-    ("cyclotron", "HOSTS"): ("KAFKA_CYCLOTRON_WARPSTREAM_HOSTS",),
-    ("cyclotron", "SECURITY_PROTOCOL"): ("KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL",),
 }
 
 
@@ -215,7 +210,6 @@ KAFKA_PROFILES: dict[str, KafkaProfileSettings] = {
 # ---------------------------------------------------------------------------
 
 _default = KAFKA_PROFILES[KafkaClusterProfile.DEFAULT.value]
-_warehouse = KAFKA_PROFILES[KafkaClusterProfile.WAREHOUSE_SOURCES.value]
 
 KAFKA_HOSTS: list[str] = _default.hosts
 KAFKA_SECURITY_PROTOCOL: Optional[str] = _default.security_protocol
@@ -224,10 +218,7 @@ KAFKA_SASL_USER: Optional[str] = _default.sasl_user
 KAFKA_SASL_PASSWORD: Optional[str] = _default.sasl_password
 KAFKA_PRODUCER_SETTINGS: dict[str, Any] = _default.producer_settings
 
-WAREHOUSE_PIPELINES_KAFKA_HOSTS: list[str] = _warehouse.hosts
-WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL: Optional[str] = _warehouse.security_protocol
-
-# Misc Kafka settings that don't vary per profile.
+# Misc Kafka settings that don't vary per profile - these are largely only existing for self-hosted instance support
 KAFKA_PREFIX: str = os.getenv("KAFKA_PREFIX", "")
 KAFKA_BASE64_KEYS: bool = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 KAFKA_HOSTS_FOR_CLICKHOUSE: list[str] = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS

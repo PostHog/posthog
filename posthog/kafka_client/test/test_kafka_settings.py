@@ -20,22 +20,11 @@ class PerProfileEnvResolutionTest(TestCase):
         with self._run_with_env(
             {
                 "KAFKA_WAREHOUSE_SOURCES_HOSTS": "new-profile-broker:9092",
-                "WAREHOUSE_PIPELINES_KAFKA_HOSTS": "legacy-profile-broker:9092",
                 "KAFKA_DEFAULT_HOSTS": "new-default-broker:9092",
                 "KAFKA_HOSTS": "legacy-default-broker:9092",
             }
         ):
             self.assertEqual(kafka_settings._env_for("warehouse_sources", "HOSTS"), "new-profile-broker:9092")
-
-    def test_profile_legacy_wins_over_default(self):
-        with self._run_with_env(
-            {
-                "WAREHOUSE_PIPELINES_KAFKA_HOSTS": "legacy-profile-broker:9092",
-                "KAFKA_DEFAULT_HOSTS": "new-default-broker:9092",
-                "KAFKA_HOSTS": "legacy-default-broker:9092",
-            }
-        ):
-            self.assertEqual(kafka_settings._env_for("warehouse_sources", "HOSTS"), "legacy-profile-broker:9092")
 
     def test_default_new_name_wins_over_default_legacy(self):
         with self._run_with_env(
