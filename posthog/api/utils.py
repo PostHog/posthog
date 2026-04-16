@@ -310,6 +310,7 @@ INSIGHT_KINDS = {
 ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
     "TracesQuery",
 }
+_EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
@@ -347,13 +348,12 @@ def is_async_query(query: dict) -> bool:
 
     kind = query.get("kind")
     source = query.get("source")
-    extra_kinds = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
-    if kind in extra_kinds:
+    if kind in _EXTRA_ASYNC_KINDS:
         return True
     if kind in ("DataTableNode", "DataVisualizationNode"):
         source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
-        if source_kind in extra_kinds:
+        if source_kind in _EXTRA_ASYNC_KINDS:
             return True
 
     return False
