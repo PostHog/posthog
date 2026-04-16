@@ -409,6 +409,53 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["initial_permission_mode"] == initial_permission_mode
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_codex_native_permission_mode_for_claude(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-opus-4-6",
+                "initial_permission_mode": "auto",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Invalid choice 'auto'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'."
+            ),
+            "attr": "initial_permission_mode",
+        }
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
         task = self.create_task()
@@ -503,6 +550,30 @@ class TestTaskAPI(BaseTaskAPITest):
                 "and model 'claude-sonnet-4-5'. Supported values: none."
             ),
             "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_claude_permission_mode_for_codex(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "initial_permission_mode": "plan",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Invalid choice 'plan'. Supported values: 'auto', 'read-only', 'full-access'.",
+            "attr": "initial_permission_mode",
         }
         mock_workflow.assert_not_called()
 
