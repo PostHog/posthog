@@ -652,15 +652,18 @@ class SkillBuilder:
 
             # {display_name}
 
-            TODO: Describe when and how to use this skill.
+            TODO: One-paragraph summary of the outcome this skill produces.
 
             ## When to use this skill
 
-            TODO
+            - TODO: user asks to …
+            - TODO: user describes a scenario that matches …
 
             ## Workflow
 
-            TODO
+            1. TODO: first step — which tool to call and with what arguments
+            2. TODO: next step — how to interpret the result
+            3. TODO: final step — how to present the outcome to the user
         """)
 
         skill_file = skill_dir / filename

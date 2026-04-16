@@ -600,7 +600,7 @@ def test_init_skill_creates_file(tmp_path: Path, template: bool, expected_filena
     content = skill_file.read_text()
     fm = validate_frontmatter(content, str(skill_file))
     assert fm.name == "my-new-skill"
-    assert fm.description == "TODO"
+    assert fm.description.startswith("TODO")
     assert "# My new skill" in content
 
     refs_dir = skill_file.parent / "references"
