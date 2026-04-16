@@ -108,7 +108,10 @@ class BillingConsumer(SQSConsumer):
         try:
             return cast(dict[str, Any], json.loads(raw_body))
         except json.JSONDecodeError:
-            logger.exception(f"Invalid JSON in message body: {raw_body[:100]}...")
+            preview = (
+                raw_body[:100].decode("utf-8", errors="replace") if isinstance(raw_body, bytes) else raw_body[:100]
+            )
+            logger.exception(f"Invalid JSON in message body: {preview}...")
             raise
 
     def _process_billing_customer_update(self, body: dict[str, Any]) -> None:
