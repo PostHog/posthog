@@ -101,7 +101,7 @@ class CaptureKafkaProducer:
     def producer(self) -> aiokafka.AIOKafkaProducer:
         if self._producer is None:
             self._producer = aiokafka.AIOKafkaProducer(
-                bootstrap_servers=[*settings.KAFKA_HOSTS, "localhost:9092"],
+                bootstrap_servers=[*settings.KAFKA_PROFILES["default"].hosts, "localhost:9092"],
                 security_protocol=settings.KAFKA_PROFILES["default"].security_protocol or "PLAINTEXT",
                 acks="all",
                 request_timeout_ms=1000000,
@@ -153,7 +153,7 @@ async def producer():
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
     loop = asyncio.get_running_loop()
-    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS, loop=loop)
+    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, loop=loop)
 
     yield producer
 
