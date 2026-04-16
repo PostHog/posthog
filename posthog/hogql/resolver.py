@@ -1899,10 +1899,10 @@ class Resolver(CloningVisitor):
             else:
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
-        if (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn) and (
-            (isinstance(node.right, ast.SelectQuery) and self._is_sessions_table(node.left))
-            or (self._is_sessions_table(node.right) and isinstance(node.left, ast.SelectQuery))
-            or (isinstance(node.right, ast.SelectQuery) and self._select_reads_sessions(node.right))
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, ast.SelectQuery)
+            and (self._is_sessions_table(node.left) or self._select_reads_sessions(node.right))
         ):
             if node.op == ast.CompareOperationOp.In:
                 node.op = ast.CompareOperationOp.GlobalIn

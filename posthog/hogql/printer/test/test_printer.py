@@ -3572,31 +3572,33 @@ class TestPrinter(BaseTest):
         )
         assert expected in printed, f"expected {expected} in:\n{printed}"
 
-    def test_sessions_filter_by_event_subquery_uses_global_in_with_alias(self):
+    @parameterized.expand([("IN", "globalIn"), ("NOT IN", "globalNotIn")])
+    def test_sessions_filter_by_event_subquery_uses_global_in_with_alias(self, op, expected):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         printed = self._select(
-            """
+            f"""
             SELECT s.session_id
             FROM sessions AS s
-            WHERE s.session_id IN (SELECT $session_id FROM events)
+            WHERE s.session_id {op} (SELECT $session_id FROM events)
             """,
             context=context,
         )
-        assert "globalIn" in printed, f"expected globalIn in:\n{printed}"
+        assert expected in printed, f"expected {expected} in:\n{printed}"
 
-    def test_events_filter_by_sessions_subquery_uses_global_in(self):
+    @parameterized.expand([("IN", "globalIn"), ("NOT IN", "globalNotIn")])
+    def test_events_filter_by_sessions_subquery_uses_global_in(self, op, expected):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         printed = self._select(
-            """
+            f"""
             SELECT uuid
             FROM events
-            WHERE $session_id IN (SELECT session_id FROM sessions)
+            WHERE $session_id {op} (SELECT session_id FROM sessions)
             """,
             context=context,
         )
-        assert "globalIn" in printed, f"expected globalIn in:\n{printed}"
+        assert expected in printed, f"expected {expected} in:\n{printed}"
 
     def test_events_in_subquery_not_promoted(self):
         # Non-sessions case: no cross-cluster hazard, keep plain in.
