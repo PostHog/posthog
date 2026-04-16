@@ -1,3 +1,8 @@
+import os
+import json
+import uuid
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -209,3 +214,54 @@ class KafkaClientTestCase(TestCase):
         # Producer settings still flow through — this is what the old helper dropped.
         self.assertEqual(config["linger.ms"], 250)
         self.assertEqual(config["batch.size"], 1_000_000)
+
+
+# Real-broker round-trip tests. Disabled by default because they require a reachable
+# Kafka broker on `KAFKA_PROFILES["default"].hosts`. Set KAFKA_ROUNDTRIP_TESTS=1 to
+# opt in (CI + local docker-compose both satisfy this).
+_ROUNDTRIP = os.environ.get("KAFKA_ROUNDTRIP_TESTS") == "1"
+
+
+@pytest.mark.skipif(not _ROUNDTRIP, reason="KAFKA_ROUNDTRIP_TESTS=1 required to hit a real broker")
+@override_settings(TEST=False)
+class KafkaClientRoundtripTestCase(TestCase):
+    """Exercises `_KafkaProducer` against a real broker. Gated behind KAFKA_ROUNDTRIP_TESTS."""
+
+    def _make_topic(self) -> str:
+        return f"posthog_test_roundtrip_{uuid.uuid4().hex[:8]}"
+
+    def test_kafka_produce_succeeds(self):
+        producer = _KafkaProducer(test=False)
+        producer.produce(topic=self._make_topic(), data={"foo": "bar"})
+        producer.close()
+
+    def test_kafka_produce_and_consume_roundtrip(self):
+        from django.conf import settings as django_settings
+
+        from confluent_kafka import Consumer as ConfluentConsumer
+
+        topic = self._make_topic()
+        payload = {"hello": "world"}
+
+        producer = _KafkaProducer(test=False)
+        producer.produce(topic=topic, data=payload)
+        producer.flush()
+
+        hosts = django_settings.KAFKA_PROFILES["default"].hosts
+        consumer = ConfluentConsumer(
+            {
+                "bootstrap.servers": ",".join(hosts) if isinstance(hosts, list) else hosts,
+                "group.id": f"roundtrip_{uuid.uuid4().hex[:8]}",
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            }
+        )
+        try:
+            consumer.subscribe([topic])
+            msg = consumer.poll(timeout=10.0)
+            self.assertIsNotNone(msg, "No message received within 10s")
+            assert msg is not None  # for type narrowing
+            self.assertIsNone(msg.error())
+            self.assertEqual(json.loads(msg.value()), payload)
+        finally:
+            consumer.close()

@@ -16,7 +16,7 @@ from confluent_kafka import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
-from posthog.kafka_client.routing import get_producer, get_profile_settings
+from posthog.kafka_client.routing import get_producer, get_profile_settings, resolve_profile_name
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
     BATCH_PROCESSING_DURATION_SECONDS,
     BATCH_RETRY_EXHAUSTED_TOTAL,
@@ -70,8 +70,11 @@ class KafkaConsumerService:
         self._config = config
         self._process_message = process_message
         # Hosts + security come from the routing profile that the input topic maps to.
-        # Topics unknown to the routing map fall through to DEFAULT.
-        self._kafka_profile = get_profile_settings(topic=config.input_topic)
+        # Topics unknown to the routing map fall through to DEFAULT. The enum is cached
+        # alongside settings so the DLQ producer can route back to the consumer's own
+        # cluster without re-resolving via the DLQ topic (which may not be in TOPIC_ROUTING).
+        self._kafka_profile_name = resolve_profile_name(topic=config.input_topic)
+        self._kafka_profile = get_profile_settings(profile=self._kafka_profile_name)
         self._shutdown_requested = False
         self._consumer: Optional[ConfluentConsumer] = None
         self._dlq_producer: Optional[_KafkaProducer] = None
@@ -107,6 +110,12 @@ class KafkaConsumerService:
             config["sasl.mechanism"] = profile.sasl_mechanism
             config["sasl.username"] = profile.sasl_user
             config["sasl.password"] = profile.sasl_password
+        if self._config.session_timeout_ms is not None:
+            config["session.timeout.ms"] = self._config.session_timeout_ms
+        if self._config.max_poll_interval_ms is not None:
+            config["max.poll.interval.ms"] = self._config.max_poll_interval_ms
+        if self._config.heartbeat_interval_ms is not None:
+            config["heartbeat.interval.ms"] = self._config.heartbeat_interval_ms
         consumer = ConfluentConsumer(config)
         consumer.subscribe(
             [self._config.input_topic],
@@ -145,9 +154,10 @@ class KafkaConsumerService:
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:
-            # The DLQ topic is in TOPIC_ROUTING and resolves to the same profile
-            # as the input topic, so this lands on the consumer's cluster.
-            self._dlq_producer = get_producer(topic=self._config.dlq_topic)
+            # Route by the consumer's own profile rather than by topic so the DLQ
+            # always lands on the same cluster as the input — regardless of whether
+            # the DLQ topic is listed in TOPIC_ROUTING.
+            self._dlq_producer = get_producer(profile=self._kafka_profile_name)
         return self._dlq_producer
 
     def _send_to_dlq(self, message: Any, error: Exception) -> None:

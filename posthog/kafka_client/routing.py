@@ -88,7 +88,12 @@ _SYNC_PRODUCERS: dict[KafkaClusterProfile, _KafkaProducer] = {}
 _LOCK = Lock()
 
 
-def _resolve_profile(topic: Optional[str], profile: Optional[KafkaClusterProfile]) -> KafkaClusterProfile:
+def resolve_profile_name(
+    *,
+    topic: Optional[str] = None,
+    profile: Optional[KafkaClusterProfile] = None,
+) -> KafkaClusterProfile:
+    """Return the cluster profile for a topic or explicit profile, honouring overrides."""
     if profile is not None:
         return profile
     if topic is not None:
@@ -107,7 +112,7 @@ def get_profile_settings(
     construction but want hosts/security/SASL resolved through the router (so
     topics moved via `KAFKA_TOPIC_ROUTING_OVERRIDES` land on the right cluster).
     """
-    resolved = _resolve_profile(topic, profile)
+    resolved = resolve_profile_name(topic=topic, profile=profile)
     return settings.KAFKA_PROFILES[resolved.value]
 
 
@@ -154,7 +159,7 @@ def get_producer(
     are omitted, the DEFAULT profile is used. Callers should not close the
     returned producer — it is shared across the process.
     """
-    resolved = _resolve_profile(topic, profile)
+    resolved = resolve_profile_name(topic=topic, profile=profile)
     with _LOCK:
         producer = _SYNC_PRODUCERS.get(resolved)
         if producer is None:
@@ -194,7 +199,7 @@ async def async_producer_scope(
     and always closes on exit — the confluent AIOProducer cannot be reused
     once closed, so async producers are never cached.
     """
-    resolved = _resolve_profile(topic, profile)
+    resolved = resolve_profile_name(topic=topic, profile=profile)
     producer = _build_async_producer(resolved)
     try:
         yield producer
@@ -214,7 +219,7 @@ def new_async_producer(
     producer outlives any single scope. The caller is responsible for closing
     it. For per-call work prefer `async_producer_scope`.
     """
-    resolved = _resolve_profile(topic, profile)
+    resolved = resolve_profile_name(topic=topic, profile=profile)
     return _build_async_producer(resolved)
 
 
