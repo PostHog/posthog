@@ -1,6 +1,6 @@
 """End-to-end infrastructure tests for multi-node ClickHouse dev stack.
 
-Validates the 3-node dev stack (`clickhouse`, `clickhouse-coordinator`,
+Validates the 3-node dev stack (`clickhouse`, `clickhouse-shard2`,
 `clickhouse-logs`) against a single shared `keeper`:
 - Per-node macros (shard, replica, hostClusterRole) via config.d overlays
 - Sharded Distributed queries across the `posthog_migrations` cluster
@@ -84,7 +84,7 @@ def multinode_stack_available():
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pytest.skip("docker compose unavailable; cannot detect multinode stack")
     if result.returncode != 0 or not result.stdout.strip():
-        pytest.skip("Multi-node dev stack not running. Start with `bin/ch-stack-up`.")
+        pytest.skip("Multi-node dev stack not running. Start with `hogli docker:ch-stack-up`.")
     return True
 
 
@@ -98,11 +98,11 @@ def ch_main(multinode_stack_available):
 
 
 @pytest.fixture(scope="module")
-def ch_coordinator():
-    """Coordinator node (keeper-main, shard 02, coordinator role)."""
-    client = _try_connect("CLICKHOUSE_COORD_HOST", "localhost", "CLICKHOUSE_COORD_PORT", 9001)
+def ch_shard2():
+    """Second data node (keeper-main, shard 02, data role)."""
+    client = _try_connect("CLICKHOUSE_SHARD2_HOST", "localhost", "CLICKHOUSE_SHARD2_PORT", 9001)
     if client is None:
-        pytest.skip("clickhouse-coordinator not reachable on localhost:9001")
+        pytest.skip("clickhouse-shard2 not reachable on localhost:9001")
     return client
 
 
@@ -148,11 +148,11 @@ class TestClusterTopology:
         assert macros.get("replica") == "ch1"
         assert macros.get("hostClusterRole") == "data"
 
-    def test_coordinator_node_macros(self, ch_coordinator):
-        macros = dict(ch_coordinator.execute("SELECT macro, substitution FROM system.macros"))
+    def test_shard2_node_macros(self, ch_shard2):
+        macros = dict(ch_shard2.execute("SELECT macro, substitution FROM system.macros"))
         assert macros.get("shard") == "02"
-        assert macros.get("replica") == "coord"
-        assert macros.get("hostClusterRole") == "coordinator"
+        assert macros.get("replica") == "ch2"
+        assert macros.get("hostClusterRole") == "data"
 
     def test_logs_node_macros(self, ch_logs):
         macros = dict(ch_logs.execute("SELECT macro, substitution FROM system.macros"))
@@ -179,10 +179,10 @@ class TestKeeperConnectivity:
         assert len(rows) > 0, "No zookeeper connection on main node"
         assert rows[0][0] == "keeper", f"Main connected to '{rows[0][0]}', expected 'keeper'"
 
-    def test_coordinator_connects_to_keeper(self, ch_coordinator):
-        rows = ch_coordinator.execute("SELECT host FROM system.zookeeper_connection")
+    def test_shard2_connects_to_keeper(self, ch_shard2):
+        rows = ch_shard2.execute("SELECT host FROM system.zookeeper_connection")
         assert len(rows) > 0
-        assert rows[0][0] == "keeper", f"Coordinator connected to '{rows[0][0]}', expected 'keeper'"
+        assert rows[0][0] == "keeper", f"Shard2 connected to '{rows[0][0]}', expected 'keeper'"
 
     def test_logs_node_connects_to_keeper(self, ch_logs):
         rows = ch_logs.execute("SELECT host FROM system.zookeeper_connection")
@@ -218,7 +218,7 @@ class TestKeeperConnectivity:
 class TestShardedDistributed:
     """Verify cross-shard queries work via posthog_migrations cluster."""
 
-    def test_on_cluster_ddl_propagates(self, ch_main, ch_coordinator, test_db):
+    def test_on_cluster_ddl_propagates(self, ch_main, ch_shard2, test_db):
         """ON CLUSTER DDL creates table on both shards."""
         tbl = f"{test_db}.ddl_prop"
         ch_main.execute(f"CREATE TABLE {tbl} ON CLUSTER posthog_migrations (id UInt64) ENGINE = MergeTree ORDER BY id")
@@ -226,15 +226,15 @@ class TestShardedDistributed:
             main_exists = ch_main.execute(
                 f"SELECT count() FROM system.tables WHERE database = '{test_db}' AND name = 'ddl_prop'"
             )
-            coord_exists = ch_coordinator.execute(
+            shard2_exists = ch_shard2.execute(
                 f"SELECT count() FROM system.tables WHERE database = '{test_db}' AND name = 'ddl_prop'"
             )
             assert main_exists[0][0] == 1, "Table not created on main"
-            assert coord_exists[0][0] == 1, "Table not created on coordinator"
+            assert shard2_exists[0][0] == 1, "Table not created on shard2"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} ON CLUSTER posthog_migrations SYNC")
 
-    def test_distributed_routes_to_both_shards(self, ch_main, ch_coordinator, test_db):
+    def test_distributed_routes_to_both_shards(self, ch_main, ch_shard2, test_db):
         """Distributed query hits both shards."""
         local = f"{test_db}.shard_local"
         dist = f"{test_db}.shard_dist"
@@ -249,7 +249,7 @@ class TestShardedDistributed:
         try:
             # Insert directly on each shard's local table
             ch_main.execute(f"INSERT INTO {local} VALUES (1, 1)")
-            ch_coordinator.execute(f"INSERT INTO {local} VALUES (2, 2)")
+            ch_shard2.execute(f"INSERT INTO {local} VALUES (2, 2)")
 
             # Create Distributed table
             ch_main.execute(
@@ -266,7 +266,7 @@ class TestShardedDistributed:
             ch_main.execute(f"DROP TABLE IF EXISTS {dist} ON CLUSTER posthog_migrations SYNC")
             ch_main.execute(f"DROP TABLE IF EXISTS {local} ON CLUSTER posthog_migrations SYNC")
 
-    def test_alter_on_cluster_propagates(self, ch_main, ch_coordinator, test_db):
+    def test_alter_on_cluster_propagates(self, ch_main, ch_shard2, test_db):
         """ALTER ADD COLUMN via ON CLUSTER reaches both shards."""
         tbl = f"{test_db}.alter_prop"
         ch_main.execute(
@@ -284,14 +284,14 @@ class TestShardedDistributed:
                     f"SELECT name FROM system.columns WHERE database = '{test_db}' AND table = 'alter_prop'"
                 )
             }
-            coord_cols = {
+            shard2_cols = {
                 r[0]
-                for r in ch_coordinator.execute(
+                for r in ch_shard2.execute(
                     f"SELECT name FROM system.columns WHERE database = '{test_db}' AND table = 'alter_prop'"
                 )
             }
             assert "c1" in main_cols, "Column not added on main"
-            assert "c1" in coord_cols, "Column not added on coordinator"
+            assert "c1" in shard2_cols, "Column not added on shard2"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} ON CLUSTER posthog_migrations SYNC")
 
@@ -302,13 +302,13 @@ class TestShardedDistributed:
 class TestDriftDetection:
     """Verify schema differences between nodes can be detected."""
 
-    def test_detect_column_drift(self, ch_main, ch_coordinator, test_db):
+    def test_detect_column_drift(self, ch_main, ch_shard2, test_db):
         """Schema diff between nodes is detectable via system.columns."""
         tbl_name = "drift_probe"
         # Create on main only (not ON CLUSTER) so coordinator gets nothing
         ch_main.execute(f"CREATE TABLE {test_db}.{tbl_name} (id UInt64, name String) ENGINE = MergeTree ORDER BY id")
-        # Create on coordinator with extra column
-        ch_coordinator.execute(
+        # Create on shard2 with extra column
+        ch_shard2.execute(
             f"CREATE TABLE {test_db}.{tbl_name} (id UInt64, name String, extra String) ENGINE = MergeTree ORDER BY id"
         )
         try:
@@ -318,17 +318,17 @@ class TestDriftDetection:
                     f"SELECT name FROM system.columns WHERE database = '{test_db}' AND table = '{tbl_name}'"
                 )
             }
-            coord_cols = {
+            shard2_cols = {
                 r[0]
-                for r in ch_coordinator.execute(
+                for r in ch_shard2.execute(
                     f"SELECT name FROM system.columns WHERE database = '{test_db}' AND table = '{tbl_name}'"
                 )
             }
-            drift = coord_cols - main_cols
+            drift = shard2_cols - main_cols
             assert drift == {"extra"}, f"Expected drift {{'extra'}}, got {drift}"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {test_db}.{tbl_name} SYNC")
-            ch_coordinator.execute(f"DROP TABLE IF EXISTS {test_db}.{tbl_name} SYNC")
+            ch_shard2.execute(f"DROP TABLE IF EXISTS {test_db}.{tbl_name} SYNC")
 
 
 # ── ReplicatedMergeTree ZK Path Tests ──
@@ -360,7 +360,7 @@ class TestReplicatedMergeTree:
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} SYNC")
 
-    def test_replicated_table_on_cluster(self, ch_main, ch_coordinator, test_db):
+    def test_replicated_table_on_cluster(self, ch_main, ch_shard2, test_db):
         """ReplicatedMergeTree ON CLUSTER gets different shard in ZK path per node."""
         tbl = f"{test_db}.rmt_cluster"
         ch_main.execute(
@@ -377,11 +377,11 @@ class TestReplicatedMergeTree:
             main_zk_path = ch_main.execute(
                 f"SELECT zookeeper_path FROM system.replicas WHERE database = '{test_db}' AND table = 'rmt_cluster'"
             )[0][0]
-            coord_zk_path = ch_coordinator.execute(
+            shard2_zk_path = ch_shard2.execute(
                 f"SELECT zookeeper_path FROM system.replicas WHERE database = '{test_db}' AND table = 'rmt_cluster'"
             )[0][0]
-            # Main is shard 01, coordinator is shard 02
+            # Main is shard 01, shard2 is shard 02
             assert "/01/" in main_zk_path, f"main shard macro not resolved: {main_zk_path}"
-            assert "/02/" in coord_zk_path, f"coordinator shard macro not resolved: {coord_zk_path}"
+            assert "/02/" in shard2_zk_path, f"shard2 shard macro not resolved: {shard2_zk_path}"
         finally:
             ch_main.execute(f"DROP TABLE IF EXISTS {tbl} ON CLUSTER posthog_migrations SYNC")

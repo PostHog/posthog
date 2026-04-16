@@ -55,8 +55,10 @@ services:
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         depends_on:
-            - kafka
-            - keeper
+            kafka:
+                condition: service_started
+            keeper:
+                condition: service_healthy
 
     keeper:
         extends:

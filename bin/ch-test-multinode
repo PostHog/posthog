@@ -17,7 +17,7 @@ require_container() {
 }
 
 require_container posthog-multinode-clickhouse-1
-require_container posthog-multinode-clickhouse-coordinator-1
+require_container posthog-multinode-clickhouse-shard2-1
 require_container posthog-multinode-clickhouse-logs-1
 
 SECRET_KEY=test-key-not-real \

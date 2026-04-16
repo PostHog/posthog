@@ -4,7 +4,7 @@ set -eu
 
 EXPECT_HOSTS=(
   "clickhouse"
-  "clickhouse-coordinator"
+  "clickhouse-shard2"
   "kafka"
 )
 
