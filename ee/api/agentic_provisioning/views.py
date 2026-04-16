@@ -28,6 +28,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.authentication import password_reset_token_generator
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import (
@@ -46,6 +47,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     mask_key_value,
 )
+from posthog.tasks.email import send_provisioning_welcome
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
@@ -466,6 +468,12 @@ def _handle_new_user(
         )
 
     _capture_provisioning_event("account_request", "new_user", region=region)
+
+    try:
+        reset_token = password_reset_token_generator.make_token(user)
+        send_provisioning_welcome.delay(user.id, reset_token, partner_label)
+    except Exception:
+        capture_exception(Exception("Failed to send provisioning welcome email"), {"user_id": user.id})
 
     code = secrets.token_urlsafe(32)
     cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
