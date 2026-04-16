@@ -53,7 +53,9 @@ export function LemonLabel({
                             <IconInfo className="text-xl text-secondary shrink-0" />
                         </Link>
                     ) : (
-                        <IconInfo className="text-xl text-secondary shrink-0" />
+                        <span className="inline-flex">
+                            <IconInfo className="text-xl text-secondary shrink-0" />
+                        </span>
                     )}
                 </Tooltip>
             ) : null}
