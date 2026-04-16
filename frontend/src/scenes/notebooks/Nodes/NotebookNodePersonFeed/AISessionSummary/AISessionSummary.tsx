@@ -5,8 +5,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { pluralize } from 'lib/utils'
+import { SessionSummaryComponent } from 'scenes/session-recordings/player/PlayerSummaryViews'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionSummaryComponent } from 'scenes/session-recordings/player/sidebar/PlayerSidebarSessionSummary'
 
 import { notebookNodePersonFeedLogic } from '../notebookNodePersonFeedLogic'
 

@@ -8,7 +8,11 @@ from posthog.models.ai_events.sql import (
     DISTRIBUTED_AI_EVENTS_TABLE_SQL,
     KAFKA_AI_EVENTS_WS_TABLE_SQL,
 )
-from posthog.models.event.sql import EVENTS_TABLE_JSON_WS_MV_SQL, KAFKA_EVENTS_TABLE_JSON_WS_SQL
+from posthog.models.event.sql import (
+    ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS,
+    EVENTS_TABLE_JSON_WS_MV_SQL,
+    KAFKA_EVENTS_TABLE_JSON_WS_SQL,
+)
 from posthog.models.group.sql import GROUPS_WS_TABLE_MV_SQL, KAFKA_GROUPS_WS_TABLE_SQL
 from posthog.models.person.sql import (
     KAFKA_PERSON_DISTINCT_ID2_WS_TABLE_SQL,
@@ -35,11 +39,37 @@ from posthog.models.person.sql import (
 # - kafka_ai_events_json_ws + ai_events_json_ws_mv (AI_EVENTS)
 # - kafka_heatmaps_ws + heatmaps_ws_mv (INGESTION_MEDIUM)
 
+# The writable_events table on INGESTION_EVENTS nodes was created out-of-band and
+# is missing columns that later migrations only applied to DATA nodes:
+#
+# - historical_migration Bool       (migration 0186 — only altered sharded_events/events on DATA)
+# - consumer_breadcrumbs Array(String) (migration 0113 — only altered writable_events on DATA)
+# - 40 dmat_* columns               (migration 0179 — only altered sharded_events/events on DATA)
+#
+# The WS MV (EVENTS_TABLE_JSON_WS_MV_SQL) SELECTs all of these, so they must exist
+# on the target writable_events before the MV can be created.
+ADD_MISSING_WRITABLE_EVENTS_COLUMNS = """
+ALTER TABLE writable_events
+    ADD COLUMN IF NOT EXISTS historical_migration Bool,
+    ADD COLUMN IF NOT EXISTS consumer_breadcrumbs Array(String)
+"""
+
 operations = (
     []
-    if not settings.CLOUD_DEPLOYMENT
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
     else [
         # events_json (INGESTION_EVENTS — WS tables go to events ingestion nodes)
+        #
+        # Backfill missing columns on writable_events for INGESTION_EVENTS nodes.
+        run_sql_with_exceptions(
+            ADD_MISSING_WRITABLE_EVENTS_COLUMNS,
+            node_roles=[NodeRole.INGESTION_EVENTS],
+        ),
+        # dmat_* slots (40 columns) — migration 0179 only added these to DATA nodes.
+        run_sql_with_exceptions(
+            ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table="writable_events"),
+            node_roles=[NodeRole.INGESTION_EVENTS],
+        ),
         run_sql_with_exceptions(
             KAFKA_EVENTS_TABLE_JSON_WS_SQL(),
             node_roles=[NodeRole.INGESTION_EVENTS],

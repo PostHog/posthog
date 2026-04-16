@@ -159,14 +159,17 @@ jobs:
                   fi
 
     playwright:
-        name: Playwright E2E tests
+        name: Playwright E2E tests (${{ matrix.runner }})
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest-16","is_shadow":false},{"runner":"blacksmith-16vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest-16","is_shadow":false}]') }}
         # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-latest-16
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         timeout-minutes: 45
-        outputs:
-            vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -485,12 +488,12 @@ jobs:
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
             - name: Install VR CLI
-              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              if: always() && !matrix.is_shadow && github.event.pull_request.head.repo.full_name == github.repository
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
-              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              if: always() && !matrix.is_shadow && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
@@ -506,6 +509,10 @@ jobs:
                     --pr "$VR_PR" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+                  # Also persist to a file for cross-job transport. Matrix job-level
+                  # outputs are last-writer-wins, so the shadow entry would clobber
+                  # this to "" if it finished last.
+                  printf '%s' "$RUN_ID" > "$RUNNER_TEMP/vr_run_id.txt"
 
             - name: Upload snapshots to Visual Review
               if: always() && steps.vr-create.outputs.run_id != ''
@@ -520,12 +527,20 @@ jobs:
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
 
+            - name: Upload VR run ID
+              if: always() && !matrix.is_shadow && steps.vr-create.outputs.run_id != ''
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: vr-run-id
+                  path: ${{ runner.temp }}/vr_run_id.txt
+                  retention-days: 1
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
             - name: Create screenshot patch
               id: create-patch
-              if: needs.changes.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.mode == 'update' && !matrix.is_shadow && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Verify we're in a git repository before running git commands
                   if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -553,7 +568,7 @@ jobs:
                   fi
 
             - name: Upload screenshot patch
-              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
+              if: steps.create-patch.outputs.has-changes == 'true' && !matrix.is_shadow && (success() || failure())
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: playwright-patch
@@ -577,7 +592,7 @@ jobs:
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
 
             - name: Archive test artifacts
-              if: always()
+              if: always() && !matrix.is_shadow
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: playwright-test-results
@@ -594,7 +609,7 @@ jobs:
                   if-no-files-found: ignore
 
             - name: Upload test results
-              if: always()
+              if: always() && !matrix.is_shadow
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: junit-results-playwright
@@ -602,7 +617,7 @@ jobs:
                   if-no-files-found: ignore
 
             - name: Publish report to Cloudflare Pages
-              if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+              if: always() && !matrix.is_shadow && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
               id: cf-deploy
               continue-on-error: true
               env:
@@ -620,7 +635,7 @@ jobs:
                   fi
 
             - name: Write report URL to job summary
-              if: always() && steps.cf-deploy.outputs.deployment-url != ''
+              if: always() && !matrix.is_shadow && steps.cf-deploy.outputs.deployment-url != ''
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               run: |
@@ -632,7 +647,7 @@ jobs:
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
             - name: Upsert report URL comment on PR
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: always() && !matrix.is_shadow && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
@@ -828,20 +843,32 @@ jobs:
                     git apply --index "$patch"
                   done
 
-            # Visual Review: complete the run (test job already uploaded snapshots)
+            # Visual Review: complete the run (test job already uploaded snapshots).
+            # The run ID travels via artifact rather than a matrix job output because
+            # matrix-level outputs are last-writer-wins and the shadow entry would
+            # clobber them to "".
+            - name: Download VR run ID
+              id: download-vr-id
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: vr-run-id
+                  path: ${{ runner.temp }}
+
             - name: Install VR CLI
-              if: needs.playwright.outputs.vr_run_id != ''
+              if: steps.download-vr-id.outcome == 'success'
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
-              if: needs.playwright.outputs.vr_run_id != ''
+              if: steps.download-vr-id.outcome == 'success'
               continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
+                  VR_RUN_ID=$(cat "$RUNNER_TEMP/vr_run_id.txt")
                   vr run complete \
-                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
+                    --run-id "$VR_RUN_ID" \
                     --baseline playwright/snapshots.yml \
                     $VR_AUTO_APPROVE \
                     --token "$VR_TOKEN"

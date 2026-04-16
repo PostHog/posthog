@@ -40,7 +40,6 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -58,6 +57,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { ClustersTabContent } from './components/ClustersTabContent'
+import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
@@ -93,6 +93,9 @@ import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoad
 import { getTraceReviewTagItems } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
+    CostContext,
+    costContextFromProperties,
+    costContextFromTrace,
     formatLLMCost,
     formatLLMEventTitle,
     formatLLMLatency,
@@ -101,6 +104,7 @@ import {
     getSessionID,
     getSessionStartTimestamp,
     getTraceTimestamp,
+    hasCostBreakdown,
     isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
@@ -595,6 +599,45 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
     ) : null
 }
 
+function CostChip({
+    costContext,
+    billedTotalUsd,
+    billedCredits,
+    markupUsd,
+    showBillingInfo,
+}: {
+    costContext: CostContext
+    billedTotalUsd?: number
+    billedCredits?: number
+    markupUsd?: number
+    showBillingInfo?: boolean
+}): JSX.Element {
+    const hasBreakdown = hasCostBreakdown(costContext)
+    const hasBilling = showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0
+
+    const tooltipContent =
+        hasBreakdown || hasBilling ? (
+            <CostBreakdownTooltip costContext={costContext}>
+                {hasBilling && (
+                    <>
+                        <hr className="my-0.5 border-border" />
+                        <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
+                        {typeof markupUsd === 'number' && markupUsd > 0 && (
+                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                        )}
+                        {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
+                    </>
+                )}
+            </CostBreakdownTooltip>
+        ) : undefined
+
+    return (
+        <Chip title="Total cost" tooltipTitle={tooltipContent} icon={<IconReceipt />}>
+            {formatLLMCost(costContext.totalCost)}
+        </Chip>
+    )
+}
+
 function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const { isTraceReviewPanelExpanded } = useValues(traceLogic)
@@ -937,6 +980,8 @@ function TraceMetadata({
         })
     }
 
+    const traceCostContext = costContextFromTrace(trace)
+
     const cached = personsCache[trace.distinctId]
 
     const personData = cached
@@ -984,35 +1029,14 @@ function TraceMetadata({
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.inputCost === 'number' && (
-                <Chip title="Input cost" icon={<IconArrowUp />}>
-                    {formatLLMCost(trace.inputCost)}
-                </Chip>
-            )}
-            {typeof trace.outputCost === 'number' && (
-                <Chip title="Output cost" icon={<IconArrowDown />}>
-                    {formatLLMCost(trace.outputCost)}
-                </Chip>
-            )}
-            {typeof trace.totalCost === 'number' && (
-                <Chip title="Total cost" icon={<IconReceipt />}>
-                    {formatLLMCost(trace.totalCost)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
-                <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
-                    billed: {formatLLMCost(billedTotalUsd)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof markupUsd === 'number' && markupUsd > 0 && (
-                <Chip title="Markup (20%)" icon={<span className="text-base">➕</span>}>
-                    markup: {formatLLMCost(markupUsd)}
-                </Chip>
-            )}
-            {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
-                <Chip title="Credits spent" icon={<span className="text-base">💳</span>}>
-                    credits: {billedCredits}
-                </Chip>
+            {traceCostContext && (
+                <CostChip
+                    costContext={traceCostContext}
+                    billedTotalUsd={billedTotalUsd}
+                    billedCredits={billedCredits}
+                    markupUsd={markupUsd}
+                    showBillingInfo={showBillingInfo}
+                />
             )}
             {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
@@ -1514,7 +1538,7 @@ const EventContent = React.memo(
                                     outputTokens={event.properties.$ai_output_tokens}
                                     cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
                                     cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
-                                    totalCostUsd={event.properties.$ai_total_cost_usd}
+                                    costContext={costContextFromProperties(event.properties)}
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
@@ -1525,7 +1549,7 @@ const EventContent = React.memo(
                                 <MetadataHeader
                                     inputTokens={event.inputTokens}
                                     outputTokens={event.outputTokens}
-                                    totalCostUsd={event.totalCost}
+                                    costContext={costContextFromTrace(event)}
                                     latency={event.totalLatency}
                                     timestamp={event.createdAt}
                                 />
