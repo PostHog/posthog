@@ -153,6 +153,7 @@ class RunState(BaseModel, extra="allow"):
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
     pending_user_message_ts: str | None = None
+    initial_permission_mode: str | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
