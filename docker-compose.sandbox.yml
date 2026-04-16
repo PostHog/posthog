@@ -253,16 +253,19 @@ services:
                 cp /sandbox-configs/config.d/default.xml         /etc/clickhouse-server/config.d/default.xml
                 cp /sandbox-configs/config.d/dev-memory.xml      /etc/clickhouse-server/config.d/dev-memory.xml
                 cp /sandbox-configs/config.d/sandbox-backup.xml  /etc/clickhouse-server/config.d/sandbox-backup.xml
+                cp /sandbox-configs/config.d/keeper_main.xml      /etc/clickhouse-server/config.d/keeper_main.xml
                 exec /entrypoint.sh "$@"
             - --
         depends_on:
-            - kafka
-            - zookeeper
+            kafka:
+                condition: service_started
+            keeper:
+                condition: service_healthy
 
-    zookeeper:
+    keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: keeper
 
     kafka:
         extends:
