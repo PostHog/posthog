@@ -12,7 +12,7 @@ from posthog.event_usage import report_user_action
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency
 
-MAX_JOBS_PER_TEAM = 5
+MAX_JOBS_PER_TEAM = 10
 
 
 class ClusteringJobSerializer(serializers.ModelSerializer):

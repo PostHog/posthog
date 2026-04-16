@@ -6,8 +6,8 @@ from posthog.models.utils import UUIDModel
 class ClusteringJob(UUIDModel):
     """A named clustering configuration for a team.
 
-    Each job defines one analysis level (trace or generation) and one set of
-    event filters.  A team may have up to 5 jobs.
+    Each job defines one analysis level (trace, generation, or evaluation) and one set of
+    event filters.  A team may have up to MAX_JOBS_PER_TEAM jobs (see api.clustering_job).
     """
 
     team = models.ForeignKey(
@@ -18,7 +18,7 @@ class ClusteringJob(UUIDModel):
     name = models.CharField(max_length=100)
     analysis_level = models.CharField(
         max_length=20,
-        choices=[("trace", "trace"), ("generation", "generation")],
+        choices=[("trace", "trace"), ("generation", "generation"), ("evaluation", "evaluation")],
     )
     event_filters = models.JSONField(default=list, blank=True)
     enabled = models.BooleanField(default=True)
