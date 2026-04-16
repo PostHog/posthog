@@ -66,8 +66,6 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 markFeedbackGiven: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
             },
         ],
-        // Whether the summary dock is expanded for a given session. Auto-opens when
-        // summarization starts or completes; user can collapse via setSummaryOpen.
         openBySessionId: [
             {} as Record<string, boolean>,
             {
