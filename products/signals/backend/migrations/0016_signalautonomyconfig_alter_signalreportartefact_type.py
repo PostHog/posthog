@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1094_oauth_provisioning_fields"),
         ("tasks", "0001_initial"),
-        ("signals", "0014_signalreportartefact_report_type_idx"),
+        ("signals", "0015_alter_signalsourceconfig_source_product_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

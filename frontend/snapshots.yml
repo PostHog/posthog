@@ -894,6 +894,34 @@ snapshots:
         hash: v1.k794b7964.77e7fdf5573bbd3688bd3ce45d90d4a27c927a664ad22663a6b4929820ca79a9.oxPvYC-hfgooYC7XdtjaBGG4D-rnSml3akEHmywEsk4
     components-sentencelist--two-actions--light:
         hash: v1.k794b7964.de855ee2b93a8cc8c2759f52ac3634cec9b4143468b4a5189733f30527a68b7f.16XvM0G_PFP8dFr5EGegZQUBlzR_rOK-ltPRuaQxYzI
+    components-sessiontimeline--default--dark:
+        hash: v1.k794b7964.4d7d7c6fdb7aa3b480effca2ff5b5a28f22ff54e6a476559824181614cfb6808.VK8GBi-P8SekmfTCTmmnJD5ogrnyJFDBYMv3BYsotuo
+    components-sessiontimeline--default--light:
+        hash: v1.k794b7964.bb6e9e5875099ef23b0312fdd0fa562fd52eaf718bd0deb096154e194b8cc0eb.-bXDp-9iTcE8nogAw_5xqkhthDLhqsubEMd4crGvLhw
+    components-sessiontimeline--empty--dark:
+        hash: v1.k794b7964.b83a8eab282d3ae625bc71bd15fc72cb442d3032ab3f116b3bd18bc84310b8a4.F6zkIpZqiPrcZB35qjrCam1wvMCZUbAMwtyT8qC0TiQ
+    components-sessiontimeline--empty--light:
+        hash: v1.k794b7964.96d06a87fc9b646a8040e0dbdfc88641e656a1eca303d236a394a3c8f36d1d92.LXesk9nR83QcXtoMRGWgc6OHcFkUPHppn2o_AVQLG-E
+    components-sessiontimeline--few-items--dark:
+        hash: v1.k794b7964.34695ccad4fa69416be590755420d9859f0fefcecb2a8a506463b0020b8f5743.JzllDGNJWmahB42VBaoV3fPCqVJAHmgWL-IGfi-QKP8
+    components-sessiontimeline--few-items--light:
+        hash: v1.k794b7964.5d5448f0911b1d6403e99dd65b3f2ce41899104b2b0c409197ba330e0562e232.ajm9Q1AQbMdUwWGpw_8pDw2S-WMxFjkezyRR2kriHVE
+    components-sessiontimeline--many-items--dark:
+        hash: v1.k794b7964.e3ada2e641535f43f5cd380bed4946db3637ed6f38b1ec292f8fe5fb5ccffddc.6-ACdvO47w-kHiR2sOessyA9ItP6rj0hIDp_OOYBo-c
+    components-sessiontimeline--many-items--light:
+        hash: v1.k794b7964.ce325e88243a5d05c358d84e3ea53768887ac03f4bc4a8be99cc1bada1adf1c4.c_DRH7n97yqDm1opJqCWDA__cuSxYXBqwx39t1SxvzU
+    components-sessiontimeline--short-container--dark:
+        hash: v1.k794b7964.5b61b7e556d6445391e4190a712ffd8be71272394210a0fd7b5e8e9862c70b1f.lCv2CUTERa2p2a4qXDsSK1AU1ZQ-i0_p55E9TF4Ljv8
+    components-sessiontimeline--short-container--light:
+        hash: v1.k794b7964.7a8d04b82b3bade0d649532e53acd8a3317d3d24edc0645e73ed17ee6ceac682.egRkS3C2Gupxrcw4Y-d3tpwvAqUTNNqJkm1qgRgNnZk
+    components-sessiontimeline--single-category--dark:
+        hash: v1.k794b7964.4aeb448f07d4801ea24627e89b7f10e6ab8d89339c9e14b247d13345cbb76ea6.vHD0RQK2ViHfDHfBTJEAtkLxGz1xQ6PSFD9Ec7vt3ro
+    components-sessiontimeline--single-category--light:
+        hash: v1.k794b7964.8c11ea9b2e9b51d2e74e4ff2b8f421035348eddf69c5c445fb46b8d4cb7bfdee.sZlNNJFF1OSG9pAiKFdjPHA2Fa-sLyVLSRj64WJhHm0
+    components-sessiontimeline--tall-container--dark:
+        hash: v1.k794b7964.5b2168a7f550b1fc5b1ea23544b22e964e7ccdc05c8428973b59ed8fcf9140c8.ajf45Fq5kWNmNlCvvgLlSKZg4KPjEHFh_wZNkfavOpU
+    components-sessiontimeline--tall-container--light:
+        hash: v1.k794b7964.8417a7c875335f774a87c18ec003075924773f06bd6f3232e11d4425301049ab._WUuOUuvziQuTIzCDij9VxrRlUpSo8gSQnJ3sfWBEHI
     components-sharing--dashboard-sharing--dark:
         hash: v1.k794b7964.9172fee3251bb40ec96b5066443f0bfdfeac9b46e3c107e138561273f121c883.3YV0WWrnxZUGl0kF7x8UuJcOlWS6PpBuWGuufI5rpl0
     components-sharing--dashboard-sharing--light:
@@ -1075,13 +1103,37 @@ snapshots:
     errortracking-exceptioncard--exception-card-all-events--light:
         hash: v1.k794b7964.f70a5e7aea683943c006921a3f93f9ac05f965b78df448f2e450c5037541223b.l4SO-xgke_z9_CI8SqotWE3qELJExh7f9C35WHaOFE8
     errortracking-exceptioncard--exception-card-base--dark:
-        hash: v1.k794b7964.78e6f087adf37d88bd44f6b3b436d5188c65bba0a4c2603643aced67a1a7d6ea.NzHg_-_S6dGyyHX1QOtbtgRIsEmie79VrFdXpd07ENk
+        hash: v1.k794b7964.265ea8569fdd5a6e2356ea98fbaf3556a87f75f970c118e23a02ee89f7d66f41.7s2545kx_LaVo5Xe4_WTs3wQDuWMt6Ww4NqEY-9ixWk
     errortracking-exceptioncard--exception-card-base--light:
-        hash: v1.k794b7964.7a807cb00ab2bdce80bbcd04c03c5012ffb31cf9e140f4cf7e2103a8ff864a1d.9VtYRaDgchuuEb8aQyAuQyZNRxpZP3WieAf1zaZxT2M
+        hash: v1.k794b7964.6255c58e00852f7b5f82f868efb5a850fe90fb426e634845173cb6b292b5b12a.PJRE1tO0Z_GxF9hPp1yUvNsZyGPpQJTUXAoXxo1Aun8
     errortracking-exceptioncard--exception-card-no-in-app--dark:
         hash: v1.k794b7964.7de54c97848f39ac9a5b3713ef12c988d477825f54e8f2477d94f572fc38466e.9Tgur-taoYHnCXV6RIyuPvsQpTYxgN0WsvFj9WHusXg
     errortracking-exceptioncard--exception-card-no-in-app--light:
         hash: v1.k794b7964.26393084d370610692f0d5321cb2c52fc6bb037dbcceb318c20fdd5d1ff2a3b5.qOYb79dhUBCQBAqKoQ6QrWT8nFhjyrzb3u4dZ9xPSW4
+    errortracking-exceptioncard--exception-card-no-session-with-steps--dark:
+        hash: v1.k794b7964.bb2ce3962121c0572bdb1da568132545d9f992f74fb26b611a3dc7738c9fe816.vN04_aRTNjR--6jow6l_2Voedb_h7DFWFRigSPiXDI4
+    errortracking-exceptioncard--exception-card-no-session-with-steps--light:
+        hash: v1.k794b7964.921c2067efd0369bab4cb2f8aaf1e5a3d24b97d394ed5f8f07fc4444db4a072c.T9ddQ4PHbLyccU9KcFQESWtT9uOAE5aLr6y1zrljkNI
+    errortracking-exceptioncard--exception-card-no-session-without-steps--dark:
+        hash: v1.k794b7964.abb06ab996305fbdb5b763880bc665b21c6cf33ed19a6615ab8c31e333850310.nHuv6x4dtKL4eYceAJPHkclnpghzkVBySR4o1ISRYkA
+    errortracking-exceptioncard--exception-card-no-session-without-steps--light:
+        hash: v1.k794b7964.0b0f41765217ee3295b1a74d32c24e8a1745318ff63e942e1867d8162a2eeb3b.5xfkc9DgasIwLNkj6vFdtcGh0TqXJxcCkPyJhPfE4Y0
+    errortracking-exceptioncard--exception-card-session-timeline-with-long-preview-texts--dark:
+        hash: v1.k794b7964.3f066074519718a7bde74de1064b81f7251b4927c8a922ec47f18c7a30fdaf4f.hHcO1nyZs730s3dAVhLZuxlXWbaAh4tc1Ek251uN4xw
+    errortracking-exceptioncard--exception-card-session-timeline-with-long-preview-texts--light:
+        hash: v1.k794b7964.7d4cc8b0034b35202135a14d37129aad45eeddde877ad27a2e55380c4664f962.btjg7-QsxEf9ERCRNi8JhJnWgS_ZGbZ8wvXZDoVCoS4
+    errortracking-exceptioncard--exception-card-session-timeline-with-malformed-steps--dark:
+        hash: v1.k794b7964.794863d4be40e09ff56a7386763732a642b47d9eb9ead66b50444ec5c6fb8b93.fHhGLQHCkVpTokv_7nC7XSBa7ht6OIZrcQSaPEVyaF4
+    errortracking-exceptioncard--exception-card-session-timeline-with-malformed-steps--light:
+        hash: v1.k794b7964.7344e8f1f3d3068e0c3c1b897ff4624ff37629822efc7fd7464c7baa838c78dd.KEHq4o_IREoKfOXi_66QWuTGfEG1MO06LsKPcBYVnXc
+    errortracking-exceptioncard--exception-card-session-timeline-with-steps--dark:
+        hash: v1.k794b7964.9db1d1e958c33039ff72b6684e828b8fd752c71295854ce4bf95a86225ebfafa.aGWX-xWWjMI0VF5I4b8IQmiger2BwpgUDQgEcwdHkMM
+    errortracking-exceptioncard--exception-card-session-timeline-with-steps--light:
+        hash: v1.k794b7964.8ee2aec81e9b8c98ee3428689264388be513a16aa555f8b9a3ac99b6478d9ba7.lgKIk4VExihkYC_8ZYAmsSfL-LKZDUbZZV9LDUYYAlA
+    errortracking-exceptioncard--exception-card-session-timeline-without-steps--dark:
+        hash: v1.k794b7964.8b4e9dd32bf35cfe396a89eae3ec256ea900bf551339d4585edbae2bf72d3ad7.MysUmdgvr4O9OUdDpQ8MXkkUBkpmG1UpvMoMJLkhRxA
+    errortracking-exceptioncard--exception-card-session-timeline-without-steps--light:
+        hash: v1.k794b7964.9b9810244c83103a1dfe0820f0df6dcabd401a3b937a69922ba1fee15a4ca1f8.L1fy3Z-hyIDmHTQ2shkstxGx3OKRMiHSornEe-Pw87g
     errortracking-stacktracedisplay--generic-display-empty--dark:
         hash: v1.k794b7964.c6ab3cf58033c6b078df8533c0fb3bf4e99ad647d2d10fef3c12265f9d8c1151.R27Z2h6kgWs7HZgZQXOoQN5MKDt9L0SNXqtRdq9d8XY
     errortracking-stacktracedisplay--generic-display-empty--light:

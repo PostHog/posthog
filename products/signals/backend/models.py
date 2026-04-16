@@ -18,6 +18,7 @@ class SignalSourceConfig(UUIDModel):
         GITHUB = "github", "GitHub"
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
+        CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
 
     class SourceType(models.TextChoices):
@@ -259,6 +260,34 @@ class SignalReport(UUIDModel):
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
+
+
+class SignalEmissionRecord(UUIDModel):
+    """Tracks which source records have been emitted as signals.
+
+    Owned by the signals app so source models (e.g. Ticket) stay decoupled.
+    One row per source record, upserted on emission.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    source_product = models.CharField(max_length=100)
+    source_type = models.CharField(max_length=100)
+    source_id = models.CharField(max_length=200)
+    emitted_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type", "source_id"],
+                name="unique_signal_emission_record",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "source_product", "source_type"],
+                name="signals_emission_lookup_idx",
+            )
+        ]
 
 
 class SignalReportArtefact(UUIDModel):
