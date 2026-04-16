@@ -17,6 +17,7 @@ import { BulletList, ClusterDescription, parseBullets } from './ClusterDescripti
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
 import { TRACES_PER_PAGE } from './constants'
+import { formatEvalTitle } from './traceSummaryLoader'
 import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from './types'
 
 export const scene: SceneExport<ClusterDetailLogicProps> = {
@@ -377,9 +378,7 @@ function TraceListItem({
                     </LemonTag>
                 )}
                 <span className="font-medium flex-1 min-w-0 truncate">
-                    {isEvalLevel
-                        ? summary?.title?.replace(/:\s*(pass|fail|n\/a|unknown)$/, '') || 'Loading...'
-                        : summary?.title || 'Loading...'}
+                    {isEvalLevel ? formatEvalTitle(summary, 100) || 'Loading...' : summary?.title || 'Loading...'}
                 </span>
                 {linkHref && (
                     <Link

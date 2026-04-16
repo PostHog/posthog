@@ -136,6 +136,29 @@ async function loadEvaluationSummaries(
     return summaries
 }
 
+/**
+ * Render a short, scannable title for an eval cluster member: "{evaluator} — {reasoning preview}".
+ * Falls back to just the evaluator name when there's no reasoning, and to null when the summary
+ * hasn't loaded at all (callers can substitute their own "Loading..." placeholder).
+ *
+ * Trace/generation summaries ship with a real LLM-authored title; eval summaries don't (the only
+ * natural title is "{name}: {verdict}", and the verdict sits in its own tag). A reasoning preview
+ * makes each row visually distinct — otherwise long clusters read as "Accuracy" repeated N times.
+ */
+export function formatEvalTitle(summary: TraceSummary | undefined, maxReasoningChars: number): string | null {
+    if (!summary) {
+        return null
+    }
+    const name = summary.title?.replace(/:\s*(pass|fail|n\/a|unknown)$/, '') || 'Evaluation'
+    const reasoning = summary.evaluationReasoning?.trim()
+    if (!reasoning) {
+        return name
+    }
+    const preview =
+        reasoning.length > maxReasoningChars ? reasoning.slice(0, maxReasoningChars).trimEnd() + '…' : reasoning
+    return `${name} — ${preview}`
+}
+
 function deriveVerdict(result: string | null, applicable: string | null): 'pass' | 'fail' | 'n/a' | 'unknown' {
     const a = (applicable || '').toLowerCase()
     if (a === 'false') {
