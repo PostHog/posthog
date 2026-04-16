@@ -47,6 +47,7 @@ export interface AlertWizardLogicProps {
     triggers: WizardTrigger[]
     destinations: WizardDestination[]
     initialTriggerKey?: HogFunctionSubTemplateIdType
+    disableUrlSync?: boolean
 }
 
 const PRIMARY_DESTINATION_LIMIT = 3
@@ -456,7 +457,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props: logicProps }) => {
+        if (logicProps.disableUrlSync) {
+            return {}
+        }
         const buildURL = (): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
@@ -492,8 +496,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props: logicProps }) => ({
         '**': (_, searchParams) => {
+            if (logicProps.disableUrlSync) {
+                return
+            }
             const wizardStep = searchParams.wizard_step as WizardStep | undefined
             const wizardDest = searchParams.wizard_dest as string | undefined
             const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined

@@ -22,8 +22,11 @@ export function AlertWizardModal({ isOpen, onClose, initialTriggerKey }: AlertWi
         return <LemonModal isOpen={false} onClose={onClose} width={560} simple hideCloseButton />
     }
 
-    const logicKey = `error-tracking-modal-${initialTriggerKey ?? 'default'}`
-    const wizardProps = buildErrorTrackingAlertWizardProps({ logicKey, initialTriggerKey })
+    const wizardProps = buildErrorTrackingAlertWizardProps({
+        logicKey: `error-tracking-modal-${initialTriggerKey ?? 'default'}`,
+        initialTriggerKey,
+        disableUrlSync: true,
+    })
 
     return (
         <LemonModal isOpen onClose={onClose} width={560} simple hideCloseButton>
@@ -46,8 +49,9 @@ function AlertWizardModalInner({
     const enteredWizardRef = useRef(false)
 
     useEffect(() => {
+        resetWizard()
         setAlertCreationView(AlertCreationView.Wizard)
-    }, [setAlertCreationView])
+    }, [resetWizard, setAlertCreationView])
 
     useEffect(() => {
         if (alertCreationView === AlertCreationView.Wizard) {
