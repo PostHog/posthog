@@ -31,6 +31,8 @@ def build_search_vector(
     is the Postgres weight e.g. `{"name": "A", "description": "C"}`.
     """
     search_vectors = [SearchVector(key, weight=value, config=config) for key, value in search_fields.items()]
+    if not search_vectors:
+        raise ValueError("search_fields cannot be empty")
     vector = cast(CombinedExpression, search_vectors[0])
     for search_vector in search_vectors[1:]:
         vector = cast(CombinedExpression, vector + search_vector)
