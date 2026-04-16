@@ -33,6 +33,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
 )
+from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -125,8 +126,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
         expanded_query = query.model_copy(deep=True)
+        # Test account filters are kept separate so they are always AND'd,
+        # even when the user's filter operand is OR/ANY.
+        self._test_account_filters: list[AnyPropertyFilter] = []
         if expanded_query.filter_test_accounts:
-            expanded_query.properties = expand_test_account_filters(team) + (expanded_query.properties or [])
+            self._test_account_filters = expand_test_account_filters(team)
 
         # Route recording-type and $lib event filters from properties to having_predicates.
         # Recording metrics (duration, click_count, etc.) are aggregated columns that
@@ -386,6 +390,60 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         if optional_exprs:
             exprs.append(self.wrapped_with_query_operand(exprs=optional_exprs))
+
+        # Test account filters are always AND'd regardless of the user's operand.
+        # They need the same sub-query routing as user filters (person props need
+        # a person sub-query, event props need an events sub-query, etc.), so we
+        # build a minimal query with just the test account filters and AND operand.
+        if self._test_account_filters:
+            test_account_query = self._query.model_copy(deep=True)
+            test_account_query.properties = list(self._test_account_filters)
+            test_account_query.operand = FilterLogicalOperator.AND_
+            test_account_query.events = None
+            test_account_query.actions = None
+            test_account_query.console_log_filters = None
+
+            test_account_events_builder = ReplayFiltersEventsSubQuery(
+                self._team, test_account_query, self._allow_event_property_expansion
+            )
+            for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=["s", "session_id"]), right=sub_q
+                    )
+                )
+            test_account_negative_blocklist = test_account_events_builder.get_negative_blocklist_query()
+            if test_account_negative_blocklist:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GlobalNotIn,
+                        left=ast.Field(chain=["s", "session_id"]),
+                        right=test_account_negative_blocklist,
+                    )
+                )
+
+            person_sq = PersonsPropertiesSubQuery(self._team, test_account_query).get_query()
+            if person_sq:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In, left=ast.Field(chain=["s", "distinct_id"]), right=person_sq
+                    )
+                )
+
+            cohort_sq = CohortPropertyGroupsSubQuery(self._team, test_account_query).get_query()
+            if cohort_sq:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In, left=ast.Field(chain=["s", "distinct_id"]), right=cohort_sq
+                    )
+                )
+
+            # Fallback for hogql test account filters that don't reference an event/person
+            # property (e.g. a raw expression on distinct_id). These don't fit any of the
+            # sub-queries above, so apply them directly to the outer query via property_to_expr.
+            test_account_remaining = _strip_person_and_event_and_cohort_properties(self._test_account_filters)
+            if test_account_remaining:
+                exprs.append(property_to_expr(test_account_remaining, team=self._team, scope="replay"))
 
         return ast.And(exprs=exprs)
 
