@@ -1697,6 +1697,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1716,6 +1717,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1944,6 +1946,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
+                "pipeline_notifications_disabled": {},  # Default value
             },
         )
 
