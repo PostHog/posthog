@@ -1,4 +1,9 @@
-import { updateItemWithOptionalName, updateOptionalName } from './utils'
+import {
+    getBranchRemovalDisabledReason,
+    removeBranchEdge,
+    updateItemWithOptionalName,
+    updateOptionalName,
+} from './utils'
 
 describe('utils', () => {
     describe('updateOptionalName', () => {
@@ -62,6 +67,157 @@ describe('utils', () => {
                 nested: { deep: 'object' },
                 name: 'Name',
             })
+        })
+    })
+
+    describe('getBranchRemovalDisabledReason', () => {
+        interface TestEdge {
+            from: string
+            to: string
+            type: 'branch' | 'continue'
+            index?: number
+        }
+
+        const edge = (from: string, to: string, type: 'branch' | 'continue', index?: number): TestEdge => ({
+            from,
+            to,
+            type,
+            index,
+        })
+
+        function buildEdgesByActionId(edges: TestEdge[]): Record<string, TestEdge[]> {
+            return edges.reduce(
+                (acc, e) => {
+                    if (!acc[e.from]) {
+                        acc[e.from] = []
+                    }
+                    acc[e.from].push(e)
+                    if (!acc[e.to]) {
+                        acc[e.to] = []
+                    }
+                    acc[e.to].push(e)
+                    return acc
+                },
+                {} as Record<string, TestEdge[]>
+            )
+        }
+
+        it('should allow removal when no branch edge exists for the condition', () => {
+            const branchEdges: TestEdge[] = []
+            const edgesByActionId = buildEdgesByActionId([])
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
+        })
+
+        it('should allow removal when branch target has other incoming edges', () => {
+            const branchEdge = edge('cond', 'exit', 'branch', 0)
+            const continueEdge = edge('webhook', 'exit', 'continue')
+            const branchEdges = [branchEdge]
+            const edgesByActionId = buildEdgesByActionId([branchEdge, continueEdge])
+
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
+        })
+
+        it('should block removal when branch target would be orphaned', () => {
+            const branchEdge = edge('cond', 'webhook', 'branch', 0)
+            const branchEdges = [branchEdge]
+            const edgesByActionId = buildEdgesByActionId([branchEdge])
+
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBe(
+                'Clean up branching steps first'
+            )
+        })
+
+        it('should allow removal when branch points to same node as continue edge', () => {
+            const branchEdge = edge('cond', 'exit', 'branch', 0)
+            const continueEdge = edge('cond', 'exit', 'continue')
+            const branchEdges = [branchEdge]
+            const edgesByActionId = buildEdgesByActionId([branchEdge, continueEdge])
+
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
+        })
+
+        it('should match by edge index property, not array position', () => {
+            const branchEdge1 = edge('cond', 'webhook', 'branch', 1)
+            const branchEdge2 = edge('cond', 'exit', 'branch', 2)
+            const otherEdgeToExit = edge('webhook', 'exit', 'continue')
+            const branchEdges = [branchEdge1, branchEdge2]
+            const edgesByActionId = buildEdgesByActionId([branchEdge1, branchEdge2, otherEdgeToExit])
+
+            // Index 0 has no branch edge
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
+            // Index 1 points to webhook (only incoming edge) — blocked
+            expect(getBranchRemovalDisabledReason(branchEdges, 1, edgesByActionId)).toBe(
+                'Clean up branching steps first'
+            )
+            // Index 2 points to exit (has other incoming edge from webhook) — allowed
+            expect(getBranchRemovalDisabledReason(branchEdges, 2, edgesByActionId)).toBeUndefined()
+        })
+
+        it('should handle multiple branches pointing to the same target', () => {
+            const branchEdge0 = edge('cond', 'webhook', 'branch', 0)
+            const branchEdge1 = edge('cond', 'webhook', 'branch', 1)
+            const branchEdges = [branchEdge0, branchEdge1]
+            const edgesByActionId = buildEdgesByActionId([branchEdge0, branchEdge1])
+
+            // Each branch has the other as an additional incoming edge to the target
+            expect(getBranchRemovalDisabledReason(branchEdges, 0, edgesByActionId)).toBeUndefined()
+            expect(getBranchRemovalDisabledReason(branchEdges, 1, edgesByActionId)).toBeUndefined()
+        })
+    })
+
+    describe('removeBranchEdge', () => {
+        it('should remove the edge with the matching index and reindex', () => {
+            const edges = [
+                { from: 'a', to: 'b', type: 'branch', index: 0 },
+                { from: 'a', to: 'c', type: 'branch', index: 1 },
+                { from: 'a', to: 'd', type: 'branch', index: 2 },
+            ]
+            const result = removeBranchEdge(edges, 1)
+
+            expect(result).toEqual([
+                { from: 'a', to: 'b', type: 'branch', index: 0 },
+                { from: 'a', to: 'd', type: 'branch', index: 1 },
+            ])
+        })
+
+        it('should return all edges reindexed when removing index 0', () => {
+            const edges = [
+                { from: 'a', to: 'b', type: 'branch', index: 0 },
+                { from: 'a', to: 'c', type: 'branch', index: 1 },
+            ]
+            const result = removeBranchEdge(edges, 0)
+
+            expect(result).toEqual([{ from: 'a', to: 'c', type: 'branch', index: 0 }])
+        })
+
+        it('should return empty array when removing the only edge', () => {
+            const edges = [{ from: 'a', to: 'b', type: 'branch', index: 0 }]
+            const result = removeBranchEdge(edges, 0)
+
+            expect(result).toEqual([])
+        })
+
+        it('should return all edges unchanged when index does not match', () => {
+            const edges = [
+                { from: 'a', to: 'b', type: 'branch', index: 0 },
+                { from: 'a', to: 'c', type: 'branch', index: 1 },
+            ]
+            const result = removeBranchEdge(edges, 5)
+
+            expect(result).toEqual([
+                { from: 'a', to: 'b', type: 'branch', index: 0 },
+                { from: 'a', to: 'c', type: 'branch', index: 1 },
+            ])
+        })
+
+        it('should return new array (immutability)', () => {
+            const edges = [
+                { from: 'a', to: 'b', type: 'branch', index: 0 },
+                { from: 'a', to: 'c', type: 'branch', index: 1 },
+            ]
+            const result = removeBranchEdge(edges, 1)
+
+            expect(result).not.toBe(edges)
         })
     })
 
