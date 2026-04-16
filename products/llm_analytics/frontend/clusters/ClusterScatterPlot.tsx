@@ -52,8 +52,31 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
             return
         }
 
+        if (!point) {
+            return
+        }
+
+        if (clusteringLevel === 'evaluation') {
+            // Eval point.traceId is the backend's eval-uuid fallback when
+            // metadata wasn't resolved; routing there 404s. Use summary.traceId
+            // instead; no-op until the summary loads.
+            const summary = point.generationId ? traceSummaries[point.generationId] : undefined
+            const resolvedTraceId = summary?.traceId
+            if (!resolvedTraceId) {
+                return
+            }
+            router.actions.push(
+                urls.llmAnalyticsTrace(resolvedTraceId, {
+                    tab: 'summary',
+                    ...(point.generationId ? { event: point.generationId } : {}),
+                    ...(point.timestamp ? { timestamp: point.timestamp } : {}),
+                })
+            )
+            return
+        }
+
         // Navigate to trace page for trace/generation clicks
-        if (point?.traceId) {
+        if (point.traceId) {
             router.actions.push(
                 urls.llmAnalyticsTrace(point.traceId, {
                     tab: 'summary',
@@ -80,12 +103,30 @@ export function ClusterScatterPlot({ traceSummaries }: ClusterScatterPlotProps):
                     maintainAspectRatio: false,
                     // Chart.js onClick type is complex; cast through unknown for type safety
                     onClick: handleClick as unknown as undefined,
-                    onHover: (event, elements) => {
+                    onHover: (event, elements, chart) => {
                         const canvas = event.native?.target as HTMLCanvasElement | undefined
-                        if (canvas) {
-                            // Show pointer cursor for all clickable points (traces and centroids)
-                            canvas.style.cursor = elements.length > 0 ? 'pointer' : 'default'
+                        if (!canvas) {
+                            return
                         }
+                        if (elements.length === 0) {
+                            canvas.style.cursor = 'default'
+                            return
+                        }
+                        // Eval points are only clickable once their summary has loaded —
+                        // otherwise the click would route to /traces/<eval_uuid> and 404.
+                        if (clusteringLevel === 'evaluation') {
+                            const element = elements[0]
+                            const dataset = chart?.data?.datasets?.[element.datasetIndex]
+                            if (dataset?.label?.includes('(centroid)')) {
+                                canvas.style.cursor = 'pointer'
+                                return
+                            }
+                            const point = dataset?.data?.[element.index] as ScatterPoint | undefined
+                            const summary = point?.generationId ? traceSummaries[point.generationId] : undefined
+                            canvas.style.cursor = summary?.traceId ? 'pointer' : 'default'
+                            return
+                        }
+                        canvas.style.cursor = 'pointer'
                     },
                     plugins: {
                         legend: {
