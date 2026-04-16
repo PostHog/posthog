@@ -57,7 +57,7 @@ pub fn upload(args: &Args) -> Result<()> {
     if let Some(name) = name {
         release_builder.with_name(name);
     }
-    let full_version = pack_version(&version, &build);
+    let full_version = pack_version(version, build);
     if let Some(ref v) = full_version {
         release_builder.with_version(v);
     }
