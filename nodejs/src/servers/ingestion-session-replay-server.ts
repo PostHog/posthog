@@ -1,19 +1,21 @@
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
-    KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { DEFAULT_PRODUCER, ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
+import { DEFAULT_PRODUCER } from '../ingestion/common/outputs'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { SessionReplayOutputsConfig, getDefaultSessionReplayOutputsConfig } from '../session-recording/config'
+import {
+    SessionReplayOutputsConfig,
+    type SessionReplayProducerName,
+    getDefaultSessionReplayOutputsConfig,
+} from '../session-recording/config'
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
+import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-recording/outputs/registry'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
@@ -39,7 +41,6 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
@@ -53,7 +54,7 @@ export class IngestionSessionReplayServer implements NodeServer {
     private config: IngestionSessionReplayServerConfig
 
     private postgres?: PostgresRouter
-    private producerRegistry?: KafkaProducerRegistry<ProducerName>
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private redisPool?: RedisPool
     private restrictionRedisPool?: RedisPool
 
@@ -62,7 +63,6 @@ export class IngestionSessionReplayServer implements NodeServer {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
             ...config,
         }
