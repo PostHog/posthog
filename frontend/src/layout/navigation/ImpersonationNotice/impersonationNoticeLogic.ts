@@ -3,7 +3,9 @@ import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
 
 import { Region, UserType } from '~/types'
@@ -14,6 +16,10 @@ import type { impersonationNoticeLogicType } from './impersonationNoticeLogicTyp
 export interface ExpiredSessionInfo {
     email: string
     userId: number
+    // Captured when the countdown fired so we can later confirm a fresh
+    // /api/users/@me/ response represents an actual renewal, not the same
+    // already-expired session echoing back.
+    isImpersonatedUntil: string | null
 }
 
 export interface ImpersonationTicketContext {
@@ -134,20 +140,42 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
             }
         },
         loadUserSuccess: ({ user }) => {
-            if (!values.expiredSessionInfo) {
+            const { expiredSessionInfo } = values
+            if (!expiredSessionInfo) {
                 return
             }
-            if (user?.is_impersonated) {
+            if (!user?.is_impersonated || !user.is_impersonated_until) {
+                return
+            }
+            // Only dismiss if the fresh `is_impersonated_until` is strictly after the
+            // one we saw when the countdown fired — otherwise the server is echoing
+            // back the same stale session that already expired.
+            const newUntil = dayjs(user.is_impersonated_until)
+            const renewed = expiredSessionInfo.isImpersonatedUntil
+                ? newUntil.isAfter(expiredSessionInfo.isImpersonatedUntil)
+                : newUntil.isAfter(dayjs())
+            if (renewed) {
                 actions.setSessionExpired(null)
                 lemonToast.success('Impersonation session renewed')
             }
         },
-        setPageVisible: ({ visible }) => {
+        setPageVisible: async ({ visible }) => {
             if (!visible) {
                 return
             }
             if (values.expiredSessionInfo) {
-                actions.loadUser()
+                // Probe /api/users/@me/ directly rather than dispatching loadUser:
+                // loadUser's failure path sets user=null, which would unmount the
+                // app and the overlay along with it. On success we hand the fetched
+                // user to loadUserSuccess ourselves so userLogic stays in sync.
+                try {
+                    const freshUser = await api.get<UserType>('api/users/@me/')
+                    if (freshUser?.is_impersonated) {
+                        actions.loadUserSuccess(freshUser)
+                    }
+                } catch {
+                    // 401 or network error — overlay stays; user will pick an action.
+                }
             }
             const { pageHiddenAt } = values
             actions.clearPageHiddenAt()

@@ -94,7 +94,6 @@ function LoginAsContent({
 }
 
 function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInfo: ExpiredSessionInfo }): JSX.Element {
-    const { logout } = useActions(userLogic)
     const { isReImpersonating } = useValues(impersonationNoticeLogic)
     const { reImpersonate } = useActions(impersonationNoticeLogic)
 
@@ -109,7 +108,13 @@ function ImpersonationExpiredOverlay({ expiredSessionInfo }: { expiredSessionInf
             confirmText="Re-impersonate"
             loading={isReImpersonating}
             onConfirm={(reason) => reImpersonate(reason, readOnly)}
-            cancelButton={{ label: 'End session', status: 'danger', onClick: () => logout() }}
+            cancelButton={{
+                label: 'Return to admin',
+                status: 'danger',
+                onClick: () => {
+                    window.location.href = '/admin/'
+                },
+            }}
         >
             <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
         </ImpersonationReasonModal>
@@ -124,7 +129,11 @@ function ImpersonationNoticeContent(): JSX.Element {
 
     const handleSessionExpired = (): void => {
         if (user) {
-            setSessionExpired({ email: user.email, userId: user.id })
+            setSessionExpired({
+                email: user.email,
+                userId: user.id,
+                isImpersonatedUntil: user.is_impersonated_until ?? null,
+            })
         }
     }
 

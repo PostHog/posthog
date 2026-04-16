@@ -55,7 +55,7 @@ describe('impersonationNoticeLogic', () => {
 
     describe('reducers', () => {
         it('sets expiredSessionInfo via setSessionExpired', async () => {
-            const info = { email: 'test@example.com', userId: 123 }
+            const info = { email: 'test@example.com', userId: 123, isImpersonatedUntil: null }
 
             await expectLogic(logic, () => {
                 logic.actions.setSessionExpired(info)
@@ -66,7 +66,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('clears expiredSessionInfo when set to null', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             await expectLogic(logic, () => {
                 logic.actions.setSessionExpired(null)
@@ -77,7 +77,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('sets isReImpersonating to true on reImpersonate', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             await expectLogic(logic, () => {
                 logic.actions.reImpersonate('support ticket #123', true)
@@ -95,7 +95,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('resets isReImpersonating when session expired state changes', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
             logic.actions.reImpersonate('reason', true)
 
             await expectLogic(logic, () => {
@@ -134,7 +134,7 @@ describe('impersonationNoticeLogic', () => {
 
     describe('reImpersonate listener', () => {
         it('calls login-as endpoint and dispatches loadUser on success', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             useMocks({
                 get: {
@@ -162,7 +162,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('shows error toast and dispatches reImpersonateFailure on login failure', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             useMocks({
                 get: {
@@ -185,7 +185,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('shows error toast when OAuth2 popup is blocked', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             useMocks({
                 get: {
@@ -211,7 +211,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('opens OAuth2 popup when auth check fails and proceeds after window closes', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             let authCheckCallCount = 0
             useMocks({
@@ -256,7 +256,7 @@ describe('impersonationNoticeLogic', () => {
 
     describe('loadUserSuccess listener', () => {
         it('clears expired session when user is impersonated', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             await expectLogic(logic, () => {
                 logic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
@@ -279,12 +279,13 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('does not clear overlay when loaded user is not impersonated', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            const expiredInfo = { email: 'test@example.com', userId: 123, isImpersonatedUntil: null }
+            logic.actions.setSessionExpired(expiredInfo)
 
             await expectLogic(logic, () => {
                 logic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
             }).toMatchValues({
-                expiredSessionInfo: { email: 'test@example.com', userId: 123 },
+                expiredSessionInfo: expiredInfo,
                 isSessionExpired: true,
             })
 
@@ -293,38 +294,115 @@ describe('impersonationNoticeLogic', () => {
     })
 
     describe('setPageVisible listener', () => {
-        it('dispatches loadUser when page becomes visible with expired session', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+        it('probes /api/users/@me/ and dispatches loadUserSuccess when session was renewed', async () => {
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                },
+            })
+            logic.actions.setSessionExpired({
+                email: 'test@example.com',
+                userId: 123,
+                isImpersonatedUntil: null,
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.setPageVisible(true)
             })
-                .toDispatchActions(['loadUser'])
+                .toDispatchActions(['loadUserSuccess'])
                 .toFinishAllListeners()
         })
 
-        it('does not dispatch loadUser when page becomes visible without expired session', async () => {
+        it('does not probe /api/users/@me/ when there is no expired session', async () => {
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+
             await expectLogic(logic, () => {
                 logic.actions.setPageVisible(true)
-            })
-                .toNotHaveDispatchedActions(['loadUser'])
-                .toFinishAllListeners()
+            }).toFinishAllListeners()
+
+            const probed = fetchSpy.mock.calls.some(
+                ([url]) => typeof url === 'string' && url.includes('/api/users/@me/')
+            )
+            expect(probed).toBe(false)
+            fetchSpy.mockRestore()
         })
 
-        it('does not dispatch loadUser when page becomes hidden', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+        it('does nothing when page becomes hidden', async () => {
+            const expiredInfo = { email: 'test@example.com', userId: 123, isImpersonatedUntil: null }
+            logic.actions.setSessionExpired(expiredInfo)
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
 
             await expectLogic(logic, () => {
                 logic.actions.setPageVisible(false)
+            }).toFinishAllListeners()
+
+            const probed = fetchSpy.mock.calls.some(
+                ([url]) => typeof url === 'string' && url.includes('/api/users/@me/')
+            )
+            expect(probed).toBe(false)
+            expect(logic.values.expiredSessionInfo).toEqual(expiredInfo)
+            fetchSpy.mockRestore()
+        })
+
+        it('keeps overlay up when /api/users/@me/ returns 401 on page focus', async () => {
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [401, {}],
+                },
             })
-                .toNotHaveDispatchedActions(['loadUser'])
+            const expiredInfo = {
+                email: 'test@example.com',
+                userId: 123,
+                isImpersonatedUntil: null,
+            }
+            logic.actions.setSessionExpired(expiredInfo)
+
+            await expectLogic(logic, () => {
+                logic.actions.setPageVisible(true)
+            })
                 .toFinishAllListeners()
+                .toMatchValues({
+                    expiredSessionInfo: expiredInfo,
+                    isSessionExpired: true,
+                })
+
+            expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+
+        it('keeps overlay up when is_impersonated_until has not advanced', async () => {
+            const staleUntil = new Date(Date.now() - 60 * 1000).toISOString()
+            const staleUser: UserType = {
+                ...MOCK_IMPERSONATED_USER,
+                is_impersonated_until: staleUntil,
+            }
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, staleUser],
+                },
+            })
+            const expiredInfo = {
+                email: 'test@example.com',
+                userId: 123,
+                isImpersonatedUntil: staleUntil,
+            }
+            logic.actions.setSessionExpired(expiredInfo)
+
+            await expectLogic(logic, () => {
+                logic.actions.setPageVisible(true)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    expiredSessionInfo: expiredInfo,
+                    isSessionExpired: true,
+                })
+
+            expect(lemonToast.success).not.toHaveBeenCalled()
         })
     })
 
     describe('security', () => {
         it('sends read_only=true when readOnly is true', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             const fetchSpy = jest.spyOn(globalThis, 'fetch')
 
@@ -356,7 +434,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('sends read_only=false when readOnly is false', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             const fetchSpy = jest.spyOn(globalThis, 'fetch')
 
@@ -388,7 +466,7 @@ describe('impersonationNoticeLogic', () => {
         })
 
         it('ignores OAuth2 postMessage events from different origins', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123 })
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
             useMocks({
                 get: {
@@ -436,52 +514,56 @@ describe('impersonationNoticeLogic', () => {
         it('clears overlay when page regains focus and session was renewed in another tab', async () => {
             // Scenario: Tab 1 has an expired overlay for User A.
             // In another tab, staff starts impersonating User B.
-            // When Tab 1 regains focus, setPageVisible(true) dispatches loadUser.
-            // The server now returns an impersonated user, so loadUserSuccess
-            // clears the stale overlay.
+            // When Tab 1 regains focus, the listener probes /api/users/@me/ directly
+            // and hands the fresh user to loadUserSuccess, which clears the overlay.
 
-            logic.actions.setSessionExpired({ email: 'user-a@example.com', userId: 100 })
-
-            // Step 1: page becomes visible → loadUser is dispatched
-            await expectLogic(logic, () => {
-                logic.actions.setPageVisible(true)
-            }).toDispatchActions(['loadUser'])
-
-            // Step 2: loadUser resolves with an impersonated user (from the other tab)
-            // Simulate by directly dispatching loadUserSuccess
             const userFromOtherTab: UserType = {
                 ...MOCK_IMPERSONATED_USER,
                 email: 'user-b@example.com',
                 id: 200,
             }
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, userFromOtherTab],
+                },
+            })
+            logic.actions.setSessionExpired({
+                email: 'user-a@example.com',
+                userId: 100,
+                isImpersonatedUntil: null,
+            })
 
             await expectLogic(logic, () => {
-                logic.actions.loadUserSuccess(userFromOtherTab)
+                logic.actions.setPageVisible(true)
             })
+                .toDispatchActions(['loadUserSuccess'])
                 .toFinishAllListeners()
-                .toMatchValues({
-                    expiredSessionInfo: null,
-                    isSessionExpired: false,
-                    isReImpersonating: false,
-                })
 
+            expect(logic.values.expiredSessionInfo).toBeNull()
+            expect(logic.values.isSessionExpired).toBe(false)
+            expect(logic.values.isReImpersonating).toBe(false)
             expect(lemonToast.success).toHaveBeenCalledWith('Impersonation session renewed')
         })
 
         it('keeps overlay when page regains focus but session is not impersonated', async () => {
             // Scenario: Tab 1 has an expired overlay. The other tab logged out
-            // of impersonation entirely. When Tab 1 regains focus, loadUser
+            // of impersonation entirely. When Tab 1 regains focus, /api/users/@me/
             // returns a non-impersonated staff user — the overlay should stay.
 
-            const expiredInfo = { email: 'user-a@example.com', userId: 100 }
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, MOCK_DEFAULT_USER],
+                },
+            })
+            const expiredInfo = {
+                email: 'user-a@example.com',
+                userId: 100,
+                isImpersonatedUntil: null,
+            }
             logic.actions.setSessionExpired(expiredInfo)
 
             await expectLogic(logic, () => {
                 logic.actions.setPageVisible(true)
-            }).toDispatchActions(['loadUser'])
-
-            await expectLogic(logic, () => {
-                logic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
             })
                 .toFinishAllListeners()
                 .toMatchValues({
