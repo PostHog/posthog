@@ -1071,13 +1071,12 @@ export function SavedInsights(): JSX.Element {
                                 : undefined
                         }
                     />
-                    <LemonDivider className="my-0" />
-                    <div className="flex items-center min-h-9">
-                        <div className="flex-1">
-                            <ReloadInsight />
+                    <ReloadInsight />
+                    {selectedIds.length > 0 && (
+                        <div className="flex items-center justify-end min-h-9">
+                            <BulkActionToolbar resource="insights" />
                         </div>
-                        <BulkActionToolbar resource="insights" />
-                    </div>
+                    )}
                     <LemonTable
                         loading={insightsLoading}
                         columns={columns}

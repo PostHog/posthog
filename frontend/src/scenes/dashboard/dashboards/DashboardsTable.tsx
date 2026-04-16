@@ -298,11 +298,11 @@ export function DashboardsTable({
     return (
         <>
             <DashboardsFiltersBar extraActions={extraActions} />
-            <LemonDivider className="my-0" />
-            <div className="flex items-center min-h-12">
-                <div className="flex-1" />
-                <BulkActionToolbar resource="dashboards" />
-            </div>
+            {selectedIds.length > 0 && (
+                <div className="flex items-center justify-end gap-2 min-h-12">
+                    <BulkActionToolbar resource="dashboards" />
+                </div>
+            )}
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
