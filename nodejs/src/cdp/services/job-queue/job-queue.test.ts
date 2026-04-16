@@ -32,6 +32,43 @@ describe('CyclotronJobQueue', () => {
         expect(queue).toBeDefined()
     })
 
+    describe('v2 client validation', () => {
+        it('should throw if producer mapping routes to postgres-v2 but v2 URL is not set', () => {
+            config.CYCLOTRON_NODE_DATABASE_URL = undefined
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka,hogflow:postgres-v2'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = ''
+            expect(() => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)).toThrow(
+                /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING routes to postgres-v2/
+            )
+        })
+
+        it('should throw if producer team mapping routes to postgres-v2 but v2 URL is not set', () => {
+            config.CYCLOTRON_NODE_DATABASE_URL = undefined
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = '1:*:kafka,1:hogflow:postgres-v2'
+            expect(() => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)).toThrow(
+                /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING routes to postgres-v2/
+            )
+        })
+
+        it('should not throw if producer mapping routes to postgres-v2 and v2 URL is set', () => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka,hogflow:postgres-v2'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = ''
+            expect(
+                () => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            ).not.toThrow()
+        })
+
+        it('should not throw if producer mapping does not route to postgres-v2 and v2 URL is not set', () => {
+            config.CYCLOTRON_NODE_DATABASE_URL = undefined
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka,hogflow:kafka'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = ''
+            expect(
+                () => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            ).not.toThrow()
+        })
+    })
+
     describe('producer setup', () => {
         const buildQueue = (mapping: string, teamMapping?: string) => {
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
