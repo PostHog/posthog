@@ -26,3 +26,20 @@ class TestOrganizationMembershipGuest(BaseTest):
             organization=self.organization, user=user, is_guest=True, bypass_sso_enforcement=True
         )
         self.assertTrue(membership.bypass_sso_enforcement)
+
+    def test_objects_manager_includes_guests(self):
+        regular_user = User.objects.create_user(email="r@posthog.com", password="x", first_name="R")
+        guest_user = User.objects.create_user(email="g@posthog.com", password="x", first_name="G")
+        OrganizationMembership.objects.create(organization=self.organization, user=regular_user)
+        OrganizationMembership.objects.create(organization=self.organization, user=guest_user, is_guest=True)
+        # Default manager includes both
+        self.assertTrue(OrganizationMembership.objects.filter(user=regular_user).exists())
+        self.assertTrue(OrganizationMembership.objects.filter(user=guest_user).exists())
+
+    def test_regular_manager_excludes_guests(self):
+        regular_user = User.objects.create_user(email="r2@posthog.com", password="x", first_name="R2")
+        guest_user = User.objects.create_user(email="g2@posthog.com", password="x", first_name="G2")
+        OrganizationMembership.objects.create(organization=self.organization, user=regular_user)
+        OrganizationMembership.objects.create(organization=self.organization, user=guest_user, is_guest=True)
+        self.assertTrue(OrganizationMembership.regular.filter(user=regular_user).exists())
+        self.assertFalse(OrganizationMembership.regular.filter(user=guest_user).exists())

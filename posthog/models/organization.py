@@ -483,6 +483,13 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
+class RegularMembershipManager(models.Manager):
+    """Excludes guest memberships. See OrganizationMembership.regular for usage."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_guest=False)
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
@@ -531,6 +538,17 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     Independent of the org's current SSO setting — toggling org-level SSO on or off does not
     affect this per-membership bypass. Only meaningful when `is_guest=True`; has no effect when
     is_guest=False.
+    """
+
+    objects = models.Manager()
+    """Default, inclusive manager. Includes guest memberships. Used by Django internals,
+    migrations, and reverse accessors (e.g., `user.organization_memberships.all()`).
+    """
+
+    regular = RegularMembershipManager()
+    """Excludes guest memberships. Use everywhere an internal member list is rendered —
+    user pickers, AC grantee dropdowns, assignee searches, @ mentions, activity filters.
+    Callers must opt in explicitly to make intent visible.
     """
 
     class Meta:
