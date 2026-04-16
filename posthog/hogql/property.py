@@ -1250,7 +1250,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
-    if entity.type == TREND_FILTER_TYPE_ACTIONS and isinstance(entity.id, (str, int)):
+    if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
         try:
             action = Action.objects.get(pk=entity.id, team=team)
