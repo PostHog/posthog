@@ -280,7 +280,7 @@ def build_resource_duplication_graph(
 
     for edge in edges:
         try:
-            related_resource = edge.target_model.objects.get(pk=edge.target_primary_key)
+            related_resource = cast(Any, edge.target_model).objects.get(pk=edge.target_primary_key)
 
             related_visitor = ResourceTransferVisitor.get_visitor(related_resource)
 
@@ -560,7 +560,7 @@ def _get_mapped_substitutions(
 
         source_model = source_visitor.get_model()
         try:
-            source_resource = source_model.objects.get(pk=source_pk)
+            source_resource = cast(Any, source_model).objects.get(pk=source_pk)
         except ObjectDoesNotExist:
             logger.exception(
                 "resource_transfer.map_substitutions.source_not_found",
@@ -572,10 +572,10 @@ def _get_mapped_substitutions(
         dest_model = dest_visitor.get_model()
         try:
             if target_team is not None:
-                dest_resource = dest_model.objects.get(pk=dest_pk)
+                dest_resource = cast(Any, dest_model).objects.get(pk=dest_pk)
                 _validate_common_org_access(target_team, dest_visitor, dest_resource)
             else:
-                dest_resource = dest_model.objects.get(pk=dest_pk)
+                dest_resource = cast(Any, dest_model).objects.get(pk=dest_pk)
         except ObjectDoesNotExist:
             logger.exception(
                 "resource_transfer.map_substitutions.dest_not_found",
@@ -659,7 +659,7 @@ def _duplicate_vertex(
     if visitor.kind == "FeatureFlag" and payload.get("key"):
         payload["key"] = _deduplicate_feature_flag_key(visitor.get_model(), str(payload["key"]), new_team)
 
-    new_resource = visitor.get_model().objects.create(**payload)  # type: ignore[attr-defined]
+    new_resource = cast(Any, visitor.get_model()).objects.create(**payload)
     logger.info(
         "resource_transfer.duplicate_vertex.created",
         kind=visitor.kind,

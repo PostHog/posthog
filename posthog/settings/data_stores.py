@@ -84,7 +84,7 @@ if TEST or DEBUG:
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
     )
 else:
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
     DATABASES: dict[str, dict] = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}

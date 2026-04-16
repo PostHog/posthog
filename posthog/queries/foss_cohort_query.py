@@ -212,7 +212,9 @@ class FOSSCohortQuery(EventQuery):
                                     # Use passed team object if available, otherwise fetch from database
                                     if team is None:
                                         team = Team.objects.get(pk=team_id)
-                                    prop_cohort = Cohort.objects.get(pk=prop.value, team__project_id=team.project_id)
+                                    prop_cohort = Cohort.objects.get(
+                                        pk=cast(str | int, prop.value), team__project_id=team.project_id
+                                    )
                                 new_property_group_list.append(
                                     PropertyGroup(
                                         type=PropertyOperatorType.AND,

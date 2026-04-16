@@ -84,7 +84,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -96,6 +96,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         return "```hog\n" + parsed_result.hog_code + "\n```", parsed_result.hog_code
@@ -180,7 +181,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -192,6 +193,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         return f"```json\n{json.dumps(parsed_result.filters, indent=2)}\n```", json.dumps(parsed_result.filters)
@@ -258,7 +260,7 @@ class CreateHogFunctionInputsTool(MaxTool):
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
-        final_error: Optional[Exception] = None
+        final_error: Optional[BaseException] = None
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
@@ -269,6 +271,7 @@ class CreateHogFunctionInputsTool(MaxTool):
                 messages[0] = SystemMessage(content=system_content)
                 final_error = e
         else:
+            assert final_error is not None
             raise final_error
 
         # Format the output for display

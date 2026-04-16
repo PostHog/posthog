@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -738,7 +738,7 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "project": {
                         "id": str(self.id),
-                        "created_at": self.created_at,
+                        "created_at": self.created_at.isoformat() if self.created_at else None,
                         "uuid": self.uuid,
                     }
                 },
@@ -763,7 +763,9 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "organization": {
                         "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
+                        "created_at": self.organization.created_at.isoformat()
+                        if self.organization.created_at
+                        else None,
                     }
                 },
                 only_evaluate_locally=True,
@@ -1062,7 +1064,7 @@ class Team(UUIDTClassicModel):
             )
 
             # Union all sets of user IDs
-            user_ids_queryset = admin_user_ids.union(member_access_user_ids).union(role_user_ids)
+            user_ids_queryset = cast(Any, admin_user_ids.union(member_access_user_ids)).union(role_user_ids)
 
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 

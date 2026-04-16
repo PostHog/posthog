@@ -177,7 +177,12 @@ def check_alerts_task() -> None:
     grouped_by_team: defaultdict[int, list[tuple[str, int, str | None, int]]] = defaultdict(list)
     for alert in sorted_alerts:
         grouped_by_team[alert.team_id].append(
-            (str(alert.id), alert.team_id, alert.calculation_interval, alert.insight_id)
+            (
+                str(alert.id),
+                alert.team_id,
+                cast(AlertCalculationInterval | None, alert.calculation_interval),
+                alert.insight_id or 0,
+            )
         )
 
     for alert_data in grouped_by_team.values():

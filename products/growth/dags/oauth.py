@@ -1,5 +1,6 @@
 import time
 from datetime import timedelta
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import Model, Q, QuerySet
@@ -26,14 +27,14 @@ def batch_delete_model(queryset: QuerySet, query: Q, context: dagster.OpExecutio
         if batch_length == 0:
             break
 
-        queryset.model.objects.filter(id__in=list(flat_queryset)).delete()
+        cast(Any, queryset.model).objects.filter(id__in=list(flat_queryset)).delete()
         context.log.debug(f"{batch_length} {token_type} deleted, {current_no - batch_length} left")
 
-        queryset = queryset.model.objects.filter(query)
+        queryset = cast(Any, queryset.model).objects.filter(query)
         time.sleep(CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL)
         current_no = queryset.count()
 
-    stop_no = queryset.model.objects.filter(query).count()
+    stop_no = cast(Any, queryset.model).objects.filter(query).count()
     deleted = start_no - stop_no
     return deleted
 
@@ -45,7 +46,7 @@ def clear_expired_tokens_by_type(
     results = {}
 
     for query_name, query in queries.items():
-        queryset = model.objects.filter(query)
+        queryset = cast(Any, model).objects.filter(query)
         deleted_count = batch_delete_model(queryset, query, context, f"{model.__name__} {query_name}")
         results[query_name] = deleted_count
         context.log.info(f"{deleted_count} {model.__name__} {query_name} deleted")
@@ -68,37 +69,37 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
 
     context.log.info(f"Clearing OAuth tokens expired before {retention_cutoff}")
 
-    token_operations = [
-        {
-            "model": OAuthRefreshToken,
-            "queries": {
+    token_operations: list[tuple[type[Model], dict[str, Q]]] = [
+        (
+            OAuthRefreshToken,
+            {
                 "revoked": Q(revoked__lt=retention_cutoff),
                 "expired_via_access_token": Q(access_token__expires__lt=refresh_token_expiry_cutoff),
             },
-        },
-        {
-            "model": OAuthAccessToken,
-            "queries": {
+        ),
+        (
+            OAuthAccessToken,
+            {
                 "expired_standalone": Q(refresh_token__isnull=True, expires__lt=retention_cutoff),
             },
-        },
-        {
-            "model": OAuthIDToken,
-            "queries": {
+        ),
+        (
+            OAuthIDToken,
+            {
                 "expired_standalone": Q(access_token__isnull=True, expires__lt=retention_cutoff),
             },
-        },
-        {
-            "model": OAuthGrant,
-            "queries": {
+        ),
+        (
+            OAuthGrant,
+            {
                 "expired": Q(expires__lt=retention_cutoff),
             },
-        },
+        ),
     ]
 
     total_deleted = 0
-    for operation in token_operations:
-        results = clear_expired_tokens_by_type(operation["model"], operation["queries"], context)
+    for model, queries in token_operations:
+        results = clear_expired_tokens_by_type(model, queries, context)
         total_deleted += sum(results.values())
 
     context.log.info(f"Total tokens deleted: {total_deleted}")
