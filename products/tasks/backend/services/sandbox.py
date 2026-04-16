@@ -50,6 +50,8 @@ class SandboxTemplate(str, Enum):
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
 
+    STREAMLIT_BASE = "streamlit_base"
+
 
 class ExecutionResult(BaseModel):
     stdout: str
