@@ -57,7 +57,6 @@ export const rawSqlLogic = kea<rawSqlLogicType>([
                 setRunningQueryId: (_, { queryId }) => queryId,
                 runQuerySuccess: () => null,
                 runQueryFailure: () => null,
-                cancelQuery: () => null,
             },
         ],
         rawSqlError: [
@@ -124,11 +123,11 @@ export const rawSqlLogic = kea<rawSqlLogicType>([
             }
         },
         cancelQuery: () => {
-            // Abort the HTTP request to free the Django worker thread
             activeAbortController?.abort()
             activeAbortController = null
-            // Then kill the ClickHouse query via raw fetch
+            // Read before clearing — reducers run before listeners in kea
             const queryId = values.runningQueryId
+            actions.setRunningQueryId(null)
             if (queryId) {
                 killQuery(queryId)
             }

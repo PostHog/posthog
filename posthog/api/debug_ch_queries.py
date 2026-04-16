@@ -444,7 +444,7 @@ class DebugCHQueries(viewsets.ViewSet):
         if value is None or isinstance(value, (str, float, bool)):
             return value
         if isinstance(value, int):
-            if -(2**63) <= value <= 2**63 - 1:
+            if -(2**53 - 1) <= value <= 2**53 - 1:
                 return value
             return str(value)
         return str(value)
@@ -474,9 +474,9 @@ class DebugCHQueries(viewsets.ViewSet):
                     },
                     query_id=query_id,
                 )
-        except Exception as e:
+        except Exception:
             logger.exception("Raw SQL execution failed for query_id %s", query_id)
-            raise exceptions.ValidationError(f"Query execution failed: {e}")
+            raise exceptions.ValidationError("Query execution failed. Check the server logs for details.")
         execution_time_ms = round((time.monotonic() - start_time) * 1000)
 
         rows, column_types = result
@@ -501,6 +501,8 @@ class DebugCHQueries(viewsets.ViewSet):
         query_id = request.data.get("query_id", "").strip()
         if not query_id:
             raise exceptions.ValidationError("No query_id provided.")
+        if not query_id.startswith("rawsql_"):
+            raise exceptions.ValidationError("query_id must start with 'rawsql_'.")
 
         try:
             sync_execute(
@@ -526,16 +528,17 @@ class DebugCHQueries(viewsets.ViewSet):
                 result = client.execute(
                     """
                     SELECT *
-                    FROM system.query_log
+                    FROM clusterAllReplicas(%(cluster)s, system, query_log)
                     WHERE query_id = %(query_id)s
                         AND type != 'QueryStart'
                         AND is_initial_query
                     ORDER BY event_time DESC
                     LIMIT 1
+                    SETTINGS skip_unavailable_shards=1
                     """,
                     with_column_types=True,
                     settings={"readonly": 2, "max_execution_time": 5},
-                    params={"query_id": query_id},
+                    params={"query_id": query_id, "cluster": CLICKHOUSE_CLUSTER},
                 )
         except Exception:
             logger.exception("Failed to fetch query log for %s", query_id)

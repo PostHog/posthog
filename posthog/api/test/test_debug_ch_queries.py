@@ -154,6 +154,43 @@ class TestDebugCHQueryRawSQL(APIBaseTest):
         self.assertEqual(resp.status_code, HTTP_200_OK)
 
 
+class TestDebugCHQueryCancelQuery(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_non_staff_gets_403(self):
+        self.user.is_staff = False
+        self.user.save()
+        with patch("posthog.api.debug_ch_queries.DEBUG", False):
+            resp = self.client.post("/api/debug_ch_queries/cancel_query/", {"query_id": "rawsql_abc"}, format="json")
+            self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
+
+    def test_missing_query_id_gets_400(self):
+        self.user.is_staff = True
+        self.user.save()
+        resp = self.client.post("/api/debug_ch_queries/cancel_query/", {}, format="json")
+        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
+
+    def test_rejects_non_rawsql_prefix(self):
+        self.user.is_staff = True
+        self.user.save()
+        resp = self.client.post("/api/debug_ch_queries/cancel_query/", {"query_id": "some_other_query"}, format="json")
+        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.api.debug_ch_queries.sync_execute")
+    def test_kills_query(self, mock_sync_execute):
+        self.user.is_staff = True
+        self.user.save()
+
+        resp = self.client.post("/api/debug_ch_queries/cancel_query/", {"query_id": "rawsql_abc123"}, format="json")
+        self.assertEqual(resp.status_code, HTTP_200_OK)
+        mock_sync_execute.assert_called_once()
+        call_args = mock_sync_execute.call_args
+        self.assertIn("KILL QUERY", call_args[0][0])
+        self.assertEqual(
+            call_args[1]["query_id"] if "query_id" in call_args[1] else call_args[0][1]["query_id"], "rawsql_abc123"
+        )
+
+
 class TestDebugCHQueryLogEntry(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
