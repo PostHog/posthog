@@ -11,6 +11,7 @@ import logging
 import tempfile
 import subprocess
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -38,7 +39,7 @@ from .agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from .local_skills import BUILT_SKILLS_RELATIVE_PATH, ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -161,10 +162,7 @@ class DockerSandbox(SandboxBase):
             LocalSkillsCache().ensure_built()
         except Exception as exc:
             logger.warning("Local skills unavailable for %s image build: %s", image_name, exc)
-            os.makedirs(
-                os.path.join(str(settings.BASE_DIR), "products", "posthog_ai", "dist", "skills"),
-                exist_ok=True,
-            )
+            (Path(str(settings.BASE_DIR)) / BUILT_SKILLS_RELATIVE_PATH).mkdir(parents=True, exist_ok=True)
 
         DockerSandbox._run(
             [

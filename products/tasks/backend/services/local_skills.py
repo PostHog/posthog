@@ -67,7 +67,7 @@ def populate_skills_directory(destination: Path, base_dir: Path | None = None) -
     """
     root = base_dir or Path(settings.BASE_DIR)
     built_skills_dir = root / BUILT_SKILLS_RELATIVE_PATH
-    if built_skills_dir.exists() and any(built_skills_dir.iterdir()):
+    if built_skills_dir.exists() and any(f for f in built_skills_dir.iterdir() if f.name != BUILD_HASH_FILENAME):
         logger.info("Using pre-built skills from %s", built_skills_dir)
         _copy_directory_contents(built_skills_dir, destination)
         return
@@ -131,13 +131,17 @@ class LocalSkillsCache:
 
         raise RuntimeError(f"No rendered local skills at {self.dist_dir}. Run `hogli build:skills` to populate it.")
 
-    def _has_existing_output(self) -> bool:
-        return self.dist_dir.exists() and any(self.dist_dir.iterdir())
-
-    def _is_up_to_date(self, source_hash: str) -> bool:
+    def _has_skill_files(self) -> bool:
+        """Check whether ``dist_dir`` contains any files besides the hash marker."""
         if not self.dist_dir.exists():
             return False
-        if not any(self.dist_dir.iterdir()):
+        return any(f for f in self.dist_dir.iterdir() if f.name != BUILD_HASH_FILENAME)
+
+    def _has_existing_output(self) -> bool:
+        return self._has_skill_files()
+
+    def _is_up_to_date(self, source_hash: str) -> bool:
+        if not self._has_skill_files():
             return False
         if not self.hash_file.exists():
             return False
