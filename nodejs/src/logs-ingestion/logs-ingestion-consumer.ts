@@ -287,8 +287,6 @@ export class LogsIngestionConsumer {
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
-        // logs_settings uses TeamManager's LazyLoader TTL (same as other consumers); no per-batch invalidation.
-
         const results = await Promise.allSettled(
             messages.map(async (message) => {
                 try {
@@ -304,7 +302,6 @@ export class LogsIngestionConsumer {
                     if (message.message.value === null) {
                         return Promise.resolve()
                     }
-
                     const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
 
                     return this.kafkaProducer!.produce({
