@@ -8,7 +8,7 @@ name: Master CI Alerts
 
 on:
     schedule:
-        - cron: '*/5 * * * *'
+        - cron: '*/10 * * * *'
     workflow_dispatch: # manual trigger for testing
 
 permissions:
@@ -18,6 +18,7 @@ permissions:
 env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
     ALERT_THRESHOLD_RUNS: '5'
+    RED_COMMIT_THRESHOLD: '10'
     RATE_LIMIT_THRESHOLD_PERCENT: '10'
     # Keep in sync with ci-master-status.yml watched workflows
     WATCHED_WORKFLOWS: 'ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml'
@@ -127,7 +128,7 @@ jobs:
                   payload: |
                       channel: "${{ steps.check.outputs.slack_channel }}"
                       ts: "${{ steps.check.outputs.slack_ts }}"
-                      text: "Master recovered :v: (was red for ${{ steps.check.outputs.max_consecutive }} consecutive runs, ~${{ steps.check.outputs.duration_mins }} min)"
+                      text: ":large_green_circle: Master recovered (was red for ${{ steps.check.outputs.max_consecutive }} consecutive runs, ~${{ steps.check.outputs.duration_mins }} min)"
                       blocks:
                         - type: "section"
                           text:
@@ -148,6 +149,84 @@ jobs:
                       channel: "${{ steps.check.outputs.slack_channel }}"
                       thread_ts: "${{ steps.check.outputs.slack_ts }}"
                       text: ":white_check_mark: All watched workflows are passing again"
+
+            # ============ RED COMMITS: CREATE ============
+
+            - name: Post red-commits alert to Slack
+              if: steps.check.outputs.red_commits_action == 'create'
+              id: slack_red_commits
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":large_orange_circle: Master unstable — ${{ steps.check.outputs.red_commits_count }} consecutive commits had a critical workflow fail"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_orange_circle: *Master unstable* — ${{ steps.check.outputs.red_commits_count }} consecutive commits had a critical workflow fail\nCulprit rotates across workflows, so no single workflow crosses its own threshold — but master is effectively red."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.red_commits_detail }}"
+
+            - name: Save red-commits Slack info to state
+              if: steps.check.outputs.red_commits_action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_red_commits.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_red_commits.outputs.ts }}
+              run: |
+                  jq \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
+                    '. + {red_commits_slack_channel: $channel, red_commits_slack_ts: $ts}' \
+                    .alerts-devex > .alerts-devex.tmp
+                  mv .alerts-devex.tmp .alerts-devex
+
+            # ============ RED COMMITS: UPDATE ============
+
+            - name: Update red-commits Slack message
+              if: steps.check.outputs.red_commits_action == 'update'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.red_commits_slack_channel }}"
+                      ts: "${{ steps.check.outputs.red_commits_slack_ts }}"
+                      text: ":large_orange_circle: Master unstable — ${{ steps.check.outputs.red_commits_count }} consecutive commits had a critical workflow fail"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_orange_circle: *Master unstable* — ${{ steps.check.outputs.red_commits_count }} consecutive commits had a critical workflow fail\nCulprit rotates across workflows, so no single workflow crosses its own threshold — but master is effectively red."
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.check.outputs.red_commits_detail }}"
+
+            # ============ RED COMMITS: RESOLVE ============
+
+            - name: Update red-commits Slack to resolved
+              if: steps.check.outputs.red_commits_action == 'resolve'
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.check.outputs.red_commits_slack_channel }}"
+                      ts: "${{ steps.check.outputs.red_commits_slack_ts }}"
+                      text: ":large_green_circle: Master stable again (streak ended after ${{ steps.check.outputs.red_commits_last_count }} consecutive red commits)"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":large_green_circle: *Master stable again* (streak ended after ${{ steps.check.outputs.red_commits_last_count }} consecutive red commits)"
 
             # ============ RATE LIMIT: CREATE ============
 
