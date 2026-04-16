@@ -83,7 +83,7 @@ export function Login(): JSX.Element {
         signupUrl,
         resendResponseLoading,
     } = useValues(loginLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const preventPasswordError = useRef(false)
@@ -95,17 +95,9 @@ export function Login(): JSX.Element {
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const prevEmail = usePrevious(login.email)
 
-    // Only surface the "Last used" badge when there's more than one login method configured for the
-    // instance — otherwise (common on self-hosted with just password) the hint is redundant noise.
-    // Passkey is intentionally not counted: the button is always rendered on this page and it's tied
-    // to the same account as password, rather than being an independently configurable login method.
-    const socialProvidersCount = preflight
-        ? Object.values(preflight.available_social_auth_providers).filter(Boolean).length
-        : 0
-    const configuredLoginMethodsCount = precheckResponse.sso_enforcement
-        ? 1
-        : 1 /* password */ + (precheckResponse.saml_available ? 1 : 0) + socialProvidersCount
-    const effectiveLastLoginMethod: LoginMethod = configuredLoginMethodsCount >= 2 ? lastLoginMethod : null
+    // Hide the "Last used" badge when there's only one login method (e.g. self-hosted with just password)
+    const hasMultipleLoginMethods = socialAuthAvailable || precheckResponse.saml_available
+    const effectiveLastLoginMethod: LoginMethod = hasMultipleLoginMethods ? lastLoginMethod : null
 
     useEffect(() => {
         const wasPasswordHidden = wasPasswordHiddenRef.current
