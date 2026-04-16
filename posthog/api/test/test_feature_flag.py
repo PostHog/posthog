@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -20,6 +20,7 @@ from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.relations import ManyRelatedField
 
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
@@ -89,6 +90,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
+
+    @staticmethod
+    def _insight_query_value(insight: Any) -> Any:
+        query = cast(dict[str, Any], insight.query)
+        return query["source"]["properties"]["values"][0]["values"][0]["value"]
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -962,7 +968,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         fields = serializer.get_fields()
 
         # The queryset should be empty (fail safe to prevent IDOR)
-        analytics_field = fields["analytics_dashboards"]
+        analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
         self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -2079,7 +2085,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2088,7 +2094,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
 
@@ -2227,7 +2233,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "a-new-feature-flag-key",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2236,7 +2242,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2263,7 +2269,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2272,7 +2278,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
             total_volume_insight.name = "This is a changed description"
@@ -2316,7 +2322,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "a-feature-flag-that-is-updated",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2325,7 +2331,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2352,7 +2358,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2361,12 +2367,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] = (
-                "something_unexpected"
-            )
+            total_volume_query = cast(dict[str, Any], total_volume_insight.query)
+            total_volume_query["source"]["properties"]["values"][0]["values"][0]["value"] = "something_unexpected"
             total_volume_insight.save()
 
             # Update the feature flag key
@@ -2406,7 +2411,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "something_unexpected",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2415,7 +2420,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2442,7 +2447,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2451,11 +2456,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
             # clear the values from total_volume_insight.query["source"]["properties"]["values"]
-            total_volume_insight.query["source"]["properties"]["values"] = []
+            total_volume_query = cast(dict[str, Any], total_volume_insight.query)
+            total_volume_query["source"]["properties"]["values"] = []
             total_volume_insight.save()
 
             # Update the feature flag key
@@ -2495,7 +2501,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"],
+            cast(dict[str, Any], total_volume_insight.query)["source"]["properties"]["values"],
             [],
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2504,7 +2510,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -8430,7 +8436,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(18):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -8488,7 +8494,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -8578,7 +8584,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(14):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -8707,7 +8713,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(32):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(31):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -10659,6 +10665,111 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         cached_flag = next((f for f in cached_flags if f.key == "cache-invalidation-test"), None)
         assert cached_flag is not None
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
+
+    def _get_eval_context_activity_entries(self, flag_id: int, activity: str = "updated") -> list:
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        def _has_eval_context_change(entry: ActivityLog) -> bool:
+            detail = entry.detail
+            if detail is None:
+                return False
+            changes = detail.get("changes") or []
+            return any(c.get("field") == "evaluation_contexts" for c in changes)
+
+        return [
+            entry
+            for entry in ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="FeatureFlag",
+                item_id=str(flag_id),
+                activity=activity,
+            ).order_by("-created_at")
+            if _has_eval_context_change(entry)
+        ]
+
+    @staticmethod
+    def _get_eval_context_change(entry) -> dict:
+        assert entry.detail is not None
+        changes = entry.detail["changes"]
+        return next(c for c in changes if c["field"] == "evaluation_contexts")
+
+    @parameterized.expand(
+        [
+            ("add_contexts", [], ["production", "staging"], [], ["production", "staging"]),
+            (
+                "update_contexts",
+                ["production", "staging"],
+                ["production", "docs"],
+                ["production", "staging"],
+                ["docs", "production"],
+            ),
+            ("remove_all_contexts", ["production", "staging"], [], ["production", "staging"], []),
+        ]
+    )
+    def test_evaluation_context_change_is_logged(
+        self,
+        _name: str,
+        initial: list[str],
+        updated: list[str],
+        expected_before: list[str],
+        expected_after: list[str],
+    ):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"activity-test-{_name}",
+            name="Activity Test",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+        if initial:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"evaluation_contexts": initial},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"evaluation_contexts": updated},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        entries = self._get_eval_context_activity_entries(flag.id)
+        self.assertGreaterEqual(len(entries), 1)
+
+        latest_change = self._get_eval_context_change(entries[0])
+        self.assertEqual(latest_change["before"], expected_before)
+        self.assertEqual(latest_change["after"], expected_after)
+
+    @pytest.mark.ee
+    def test_no_activity_log_when_evaluation_contexts_unchanged(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="no-change-test",
+            name="No Change Test",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"evaluation_contexts": ["production"]},
+            format="json",
+        )
+
+        # Send same evaluation contexts again
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"evaluation_contexts": ["production"]},
+            format="json",
+        )
+
+        # Only 1 from the initial set, none from the no-op update
+        entries = self._get_eval_context_activity_entries(flag.id)
+        self.assertEqual(len(entries), 1)
 
 
 class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):

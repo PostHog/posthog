@@ -40,7 +40,7 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
                 {
                     ...result,
                     results: await Promise.all(
-                        result.results.map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
+                        (result.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
                     ),
                 },
                 '/surveys'

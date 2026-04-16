@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -163,6 +164,14 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<DeletePersonsResponse, Status> {
         self.check_error()?;
         Ok(DeletePersonsResponse { deleted_count: 0 })
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonsBatchForTeamResponse { deleted_count: 0 })
     }
 
     async fn check_cohort_membership(

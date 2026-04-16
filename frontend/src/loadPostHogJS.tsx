@@ -4,6 +4,7 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
+import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-01-30'
@@ -35,6 +36,7 @@ export function loadPostHogJS(): void {
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: window.IMPERSONATED_SESSION,
+            opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
             error_tracking: {
                 __capturePostHogExceptions: true,
@@ -53,6 +55,13 @@ export function loadPostHogJS(): void {
                     if (shouldTrackFramerate(loadedInstance)) {
                         console.info('tracking react framerate')
                         startFramerateTracking(loadedInstance)
+                    }
+
+                    if (
+                        !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
+                        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_DETACHED_ELEMENTS)
+                    ) {
+                        startDetachedElementTracking(loadedInstance)
                     }
 
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
@@ -143,6 +152,8 @@ export function loadPostHogJS(): void {
                 //disabling to investigate if this is associated with memory leak in the posthog app
                 web_vitals_attribution: false,
             },
+            identity_distinct_id: window.JS_POSTHOG_IDENTITY_DISTINCT_ID,
+            identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

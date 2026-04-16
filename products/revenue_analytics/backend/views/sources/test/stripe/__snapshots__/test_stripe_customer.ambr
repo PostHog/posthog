@@ -1,33 +1,167 @@
 # serializer version: 1
-# name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_and_invoice_schemas
+# name: TestCustomerStripeBuilder.test_build_customer_query_with_all_schemas_for_metadata_resolution
   '''
-  SELECT outer.id AS id,
-         'stripe.stripe_test' AS source_label,
-         created_at AS timestamp,
+  SELECT id AS id,
+         source_label AS source_label,
+         timestamp AS timestamp,
          name AS name,
          email AS email,
          phone AS phone,
          address AS address,
-         metadata AS metadata,
-         JSONExtractString(address, 'country') AS country,
+         if(notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(metadata, '{}'), k), JSONExtractKeys(ifNull(metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(metadata, '{}'), k), JSONExtractKeys(ifNull(metadata, '{}')))), map('posthog_person_distinct_id', resolved_distinct_id, 'posthog_person_distinct_id_source', resolved_source))), metadata)) AS metadata,
+         country AS country,
          cohort AS cohort,
          initial_coupon AS initial_coupon,
          initial_coupon_id AS initial_coupon_id
-  FROM stripe_test_customer AS outer
-  LEFT JOIN
-    (SELECT customer_id,
-            formatDateTime(toStartOfMonth(min(created_at)), '%Y-%m') AS cohort,
-            argMin(JSONExtractString(discount, 'coupon', 'name'), created_at) AS initial_coupon,
-            argMin(JSONExtractString(discount, 'coupon', 'id'), created_at) AS initial_coupon_id
-     FROM stripe_test_invoice AS invoice
-     GROUP BY customer_id) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)
+  FROM
+    (SELECT outer.id AS id,
+            'stripe.stripe_test' AS source_label,
+            outer.created_at AS timestamp,
+            name AS name,
+            email AS email,
+            phone AS phone,
+            address AS address,
+            metadata AS metadata,
+            JSONExtractString(address, 'country') AS country,
+            cohort AS cohort,
+            initial_coupon AS initial_coupon,
+            initial_coupon_id AS initial_coupon_id,
+            ifNull(resolved.resolved_distinct_id, '') AS resolved_distinct_id,
+            ifNull(resolved.resolved_source, '') AS resolved_source
+     FROM stripe_test_customer AS outer
+     LEFT JOIN
+       (SELECT customer_id,
+               formatDateTime(toStartOfMonth(min(created_at)), '%Y-%m') AS cohort,
+               argMin(JSONExtractString(discount, 'coupon', 'name'), created_at) AS initial_coupon,
+               argMin(JSONExtractString(discount, 'coupon', 'id'), created_at) AS initial_coupon_id
+        FROM stripe_test_invoice AS invoice
+        GROUP BY customer_id) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)
+     LEFT JOIN
+       (SELECT customer_id,
+               argMax(distinct_id, created_at) AS resolved_distinct_id,
+               argMax(source_ref, created_at) AS resolved_source
+        FROM
+          (SELECT customer_id,
+                  JSONExtractString(metadata, 'posthog_person_distinct_id') AS distinct_id,
+                  concat('subscription', '::', id) AS source_ref,
+                  created_at
+           FROM stripe_test_subscription
+           WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')
+           UNION ALL SELECT customer_id,
+                            JSONExtractString(metadata, 'posthog_person_distinct_id') AS distinct_id,
+                            concat('charge', '::', id) AS source_ref,
+                            created_at
+           FROM stripe_test_charge
+           WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')
+           UNION ALL SELECT customer_id,
+                            JSONExtractString(metadata, 'posthog_person_distinct_id') AS distinct_id,
+                            concat('invoice', '::', id) AS source_ref,
+                            created_at
+           FROM stripe_test_invoice
+           WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')) AS child_meta
+        GROUP BY customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+  '''
+# ---
+# name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_and_invoice_schemas
+  '''
+  SELECT id AS id,
+         source_label AS source_label,
+         timestamp AS timestamp,
+         name AS name,
+         email AS email,
+         phone AS phone,
+         address AS address,
+         if(notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(metadata, '{}'), k), JSONExtractKeys(ifNull(metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(metadata, '{}'), k), JSONExtractKeys(ifNull(metadata, '{}')))), map('posthog_person_distinct_id', resolved_distinct_id, 'posthog_person_distinct_id_source', resolved_source))), metadata)) AS metadata,
+         country AS country,
+         cohort AS cohort,
+         initial_coupon AS initial_coupon,
+         initial_coupon_id AS initial_coupon_id
+  FROM
+    (SELECT outer.id AS id,
+            'stripe.stripe_test' AS source_label,
+            outer.created_at AS timestamp,
+            name AS name,
+            email AS email,
+            phone AS phone,
+            address AS address,
+            metadata AS metadata,
+            JSONExtractString(address, 'country') AS country,
+            cohort AS cohort,
+            initial_coupon AS initial_coupon,
+            initial_coupon_id AS initial_coupon_id,
+            ifNull(resolved.resolved_distinct_id, '') AS resolved_distinct_id,
+            ifNull(resolved.resolved_source, '') AS resolved_source
+     FROM stripe_test_customer AS outer
+     LEFT JOIN
+       (SELECT customer_id,
+               formatDateTime(toStartOfMonth(min(created_at)), '%Y-%m') AS cohort,
+               argMin(JSONExtractString(discount, 'coupon', 'name'), created_at) AS initial_coupon,
+               argMin(JSONExtractString(discount, 'coupon', 'id'), created_at) AS initial_coupon_id
+        FROM stripe_test_invoice AS invoice
+        GROUP BY customer_id) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)
+     LEFT JOIN
+       (SELECT customer_id,
+               argMax(distinct_id, created_at) AS resolved_distinct_id,
+               argMax(source_ref, created_at) AS resolved_source
+        FROM
+          (SELECT customer_id,
+                  JSONExtractString(metadata, 'posthog_person_distinct_id') AS distinct_id,
+                  concat('invoice', '::', id) AS source_ref,
+                  created_at
+           FROM stripe_test_invoice
+           WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')) AS child_meta
+        GROUP BY customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
+  '''
+# ---
+# name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_and_subscription_schemas
+  '''
+  SELECT id AS id,
+         source_label AS source_label,
+         timestamp AS timestamp,
+         name AS name,
+         email AS email,
+         phone AS phone,
+         address AS address,
+         if(notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(metadata, '{}'), k), JSONExtractKeys(ifNull(metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(metadata, '{}'), k), JSONExtractKeys(ifNull(metadata, '{}')))), map('posthog_person_distinct_id', resolved_distinct_id, 'posthog_person_distinct_id_source', resolved_source))), metadata)) AS metadata,
+         country AS country,
+         cohort AS cohort,
+         initial_coupon AS initial_coupon,
+         initial_coupon_id AS initial_coupon_id
+  FROM
+    (SELECT outer.id AS id,
+            'stripe.stripe_test' AS source_label,
+            outer.created_at AS timestamp,
+            name AS name,
+            email AS email,
+            phone AS phone,
+            address AS address,
+            metadata AS metadata,
+            JSONExtractString(address, 'country') AS country,
+            NULL AS cohort,
+            NULL AS initial_coupon,
+            NULL AS initial_coupon_id,
+            ifNull(resolved.resolved_distinct_id, '') AS resolved_distinct_id,
+            ifNull(resolved.resolved_source, '') AS resolved_source
+     FROM stripe_test_customer AS outer
+     LEFT JOIN
+       (SELECT customer_id,
+               argMax(distinct_id, created_at) AS resolved_distinct_id,
+               argMax(source_ref, created_at) AS resolved_source
+        FROM
+          (SELECT customer_id,
+                  JSONExtractString(metadata, 'posthog_person_distinct_id') AS distinct_id,
+                  concat('subscription', '::', id) AS source_ref,
+                  created_at
+           FROM stripe_test_subscription
+           WHERE notEquals(JSONExtractString(metadata, 'posthog_person_distinct_id'), '')) AS child_meta
+        GROUP BY customer_id) AS resolved ON equals(resolved.customer_id, outer.id)) AS inner
   '''
 # ---
 # name: TestCustomerStripeBuilder.test_build_customer_query_with_customer_schema
   '''
   SELECT outer.id AS id,
          'stripe.stripe_test' AS source_label,
-         created_at AS timestamp,
+         outer.created_at AS timestamp,
          name AS name,
          email AS email,
          phone AS phone,

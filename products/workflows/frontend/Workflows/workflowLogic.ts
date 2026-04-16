@@ -14,7 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -30,7 +30,12 @@ import {
     stateToRRule,
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
-import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
+import {
+    HogFlowActionSchema,
+    SCHEDULED_TRIGGER_TYPES,
+    isFunctionAction,
+    isTriggerFunction,
+} from './hogflows/steps/types'
 import {
     type HogFlow,
     type HogFlowAction,
@@ -149,25 +154,25 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
-        setScheduleState: (scheduleState: ScheduleState) => ({ scheduleState }),
+        setScheduleState: (scheduleState: ScheduleState, source: 'picker' | 'natural_language' = 'picker') => ({
+            scheduleState,
+            source,
+        }),
         setScheduleStartsAt: (startsAt: string | null) => ({ startsAt }),
         setScheduleStartsAtFromPicker: (pickerDate: string | null) => ({ pickerDate }),
         setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
+        triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
-            scheduledAt,
         }),
         triggerBatchWorkflow: (
             variables: Record<string, any>,
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            scheduledAt?: string | null
+            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
         ) => ({
             variables,
             filters,
-            scheduledAt,
         }),
         discardChanges: true,
         duplicate: true,
@@ -318,6 +323,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             },
         ],
+        // Tracks which configuration methods the user touched during the current editing
+        // session, so we can attribute saved schedules to the natural language input vs picker.
+        scheduleConfigSources: [
+            { picker: false, natural_language: false } as { picker: boolean; natural_language: boolean },
+            {
+                setScheduleState: (state, { source }) => ({ ...state, [source]: true }),
+                setSchedules: () => ({ picker: false, natural_language: false }),
+            },
+        ],
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
@@ -385,11 +399,12 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading],
+            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading, s.scheduleStartsAt],
             (
                 workflow,
                 hogFunctionTemplatesById,
-                hogFunctionTemplatesByIdLoading
+                hogFunctionTemplatesByIdLoading,
+                scheduleStartsAt
             ): Record<string, HogFlowActionValidationResult | null> => {
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -481,10 +496,10 @@ export const workflowLogic = kea<workflowLogicType>([
                                     }
                                 }
                             } else if (action.config.type === 'schedule') {
-                                if (!action.config.scheduled_at) {
+                                if (!scheduleStartsAt) {
                                     result.valid = false
                                     result.errors = {
-                                        scheduled_at: 'A scheduled time is required',
+                                        schedule: 'A start date is required for schedule triggers',
                                     }
                                 }
                             } else if (action.config.type === 'batch') {
@@ -564,7 +579,8 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
-            if (originalWorkflow.id && originalWorkflow.trigger?.type === 'batch') {
+            const triggerType = originalWorkflow.trigger?.type
+            if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
@@ -588,6 +604,14 @@ export const workflowLogic = kea<workflowLogicType>([
                         await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
                     } else if (pendingSchedule !== null) {
                         await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                    }
+
+                    if (pendingSchedule !== null) {
+                        posthog.capture('workflows schedule saved', {
+                            workflow_id: workflowId,
+                            configured_via_picker: values.scheduleConfigSources.picker,
+                            configured_via_natural_language: values.scheduleConfigSources.natural_language,
+                        })
                     }
 
                     const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
@@ -619,7 +643,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 const hasValidTrigger =
                     (config.type === 'event' &&
                         (config.filters?.events?.length > 0 || config.filters?.actions?.length > 0)) ||
-                    (config.type === 'schedule' && config.scheduled_at) ||
+                    config.type === 'schedule' ||
                     (config.type === 'batch' && config.filters?.properties?.length > 0)
                 if (hasValidTrigger) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
@@ -725,8 +749,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
             const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
 
-            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
-            lemonToast.info(isScheduleTrigger ? 'Scheduling workflow...' : 'Triggering workflow...')
+            lemonToast.info('Triggering workflow...')
 
             try {
                 await fetch(webhookUrl, {
@@ -741,7 +764,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     credentials: 'omit',
                 })
 
-                lemonToast.success(`Workflow ${isScheduleTrigger ? 'scheduled' : 'triggered'}`, {
+                lemonToast.success('Workflow triggered', {
                     button: {
                         label: 'View logs',
                         action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
@@ -752,22 +775,20 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
-        triggerBatchWorkflow: async ({ variables, filters, scheduledAt }) => {
+        triggerBatchWorkflow: async ({ variables, filters }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
                 lemonToast.error('You need to save the workflow before triggering it manually.')
                 return
             }
 
-            const isScheduleTrigger = 'scheduled_at' in (values.workflow.trigger || {})
-            lemonToast.info(isScheduleTrigger ? 'Scheduling batch workflow...' : 'Triggering batch workflow...')
+            lemonToast.info('Triggering batch workflow...')
 
             try {
                 await api.hogFlows.createHogFlowBatchJob(values.workflow.id, {
                     variables,
                     filters,
-                    scheduled_at: scheduledAt,
                 })
-                lemonToast.success(`Batch workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                lemonToast.success('Batch workflow triggered', {
                     button: {
                         label: 'View logs',
                         action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
